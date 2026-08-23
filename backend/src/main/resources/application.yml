@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: dokene
+  datasource:
+    url: ${DOKENE_DB_URL:jdbc:postgresql://localhost:5432/dokene}
+    username: ${DOKENE_DB_USERNAME:dokene}
+    password: ${DOKENE_DB_PASSWORD:dokene_dev_only}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    enabled-by-default: false
+
+logging:
+  level:
+    root: INFO
