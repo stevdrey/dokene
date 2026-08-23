@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dokene
+      POSTGRES_USER: dokene
+      POSTGRES_PASSWORD: dokene_dev_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - dokene-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dokene -d dokene"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dokene-postgres:
