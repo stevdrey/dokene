@@ -1,0 +1,58 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/wiki/**'
+      - '.github/workflows/publish-wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Publish docs/wiki to GitHub Wiki
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          WIKI_URL="https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.wiki.git"
+          WORK_DIR="$(mktemp -d)"
+
+          if ! git clone "$WIKI_URL" "$WORK_DIR/wiki"; then
+            echo "Unable to clone the repository Wiki. Ensure the Wiki is enabled and initialized at least once in the GitHub UI."
+            exit 1
+          fi
+
+          find "$WORK_DIR/wiki" -mindepth 1 -maxdepth 1 \
+            ! -name '.git' -exec rm -rf {} +
+
+          cp -R docs/wiki/. "$WORK_DIR/wiki/"
+          rm -f "$WORK_DIR/wiki/README.md"
+
+          cd "$WORK_DIR/wiki"
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki is already up to date."
+            exit 0
+          fi
+
+          git commit -m "docs: sync wiki from main repository"
+          git push origin HEAD
