@@ -14,6 +14,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,7 +23,9 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -306,6 +309,74 @@ class TenantPersistenceIntegrationTest {
     }
 
     @Test
+    void restoresInnerMembershipRevisionWhenRequiresNewTransactionRollsBack() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant outerTenant = persistTenant("Outer workspace", createdAt);
+        TenantMembership rolledBackMembership = TenantMembership.createActive(
+                TenantMembershipId.random(), outerTenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.VIEWER, createdAt
+        );
+
+        executeInTransaction(() -> {
+            outerTenant.suspend(createdAt.plusSeconds(60));
+            tenantRepository.save(outerTenant);
+            assertThat(outerTenant.revision()).hasValue(1);
+
+            executeRequiresNewAndRollBack(() -> {
+                membershipRepository.save(rolledBackMembership);
+                assertThat(rolledBackMembership.revision()).hasValue(0);
+            });
+
+            assertThat(rolledBackMembership.revision()).isEmpty();
+        });
+
+        assertThat(outerTenant.revision()).hasValue(1);
+        assertThat(tenantRepository.findById(outerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(outerTenant.id(), rolledBackMembership.identityId())).isEmpty();
+
+        membershipRepository.save(rolledBackMembership);
+
+        assertThat(rolledBackMembership.revision()).hasValue(0);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(outerTenant.id(), rolledBackMembership.identityId())).isPresent();
+    }
+
+    @Test
+    void retainsInnerTenantRevisionWhenOuterTransactionRollsBack() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant membershipTenant = persistTenant("Membership workspace", createdAt);
+        TenantMembership outerMembership = TenantMembership.createActive(
+                TenantMembershipId.random(), membershipTenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
+        );
+        membershipRepository.save(outerMembership);
+        Tenant innerTenant = persistTenant("Inner workspace", createdAt);
+
+        executeAndRollBack(() -> {
+            outerMembership.suspend(createdAt.plusSeconds(60));
+            membershipRepository.save(outerMembership);
+            assertThat(outerMembership.revision()).hasValue(1);
+
+            executeRequiresNew(() -> {
+                innerTenant.suspend(createdAt.plusSeconds(60));
+                tenantRepository.save(innerTenant);
+                assertThat(innerTenant.revision()).hasValue(1);
+            });
+
+            assertThat(innerTenant.revision()).hasValue(1);
+        });
+
+        assertThat(outerMembership.revision()).hasValue(0);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(membershipTenant.id(), outerMembership.identityId()).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.ACTIVE);
+        assertThat(innerTenant.revision()).hasValue(1);
+        assertThat(tenantRepository.findById(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
+
+        innerTenant.activate(createdAt.plusSeconds(120));
+        tenantRepository.save(innerTenant);
+
+        assertThat(innerTenant.revision()).hasValue(2);
+        assertThat(tenantRepository.findById(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
+    }
+
+    @Test
     void rejectsStaleMembershipUpdatesAfterRevocation() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = persistTenant("Workspace", createdAt);
@@ -361,9 +432,34 @@ class TenantPersistenceIntegrationTest {
     }
 
     private void executeAndRollBack(Runnable action) {
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+        executeInTransaction(status -> {
             action.run();
             status.setRollbackOnly();
         });
+    }
+
+    private void executeInTransaction(Runnable action) {
+        executeInTransaction(status -> action.run());
+    }
+
+    private void executeInTransaction(Consumer<TransactionStatus> action) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(action::accept);
+    }
+
+    private void executeRequiresNew(Runnable action) {
+        requiresNewTransaction().executeWithoutResult(status -> action.run());
+    }
+
+    private void executeRequiresNewAndRollBack(Runnable action) {
+        requiresNewTransaction().executeWithoutResult(status -> {
+            action.run();
+            status.setRollbackOnly();
+        });
+    }
+
+    private TransactionTemplate requiresNewTransaction() {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return transactionTemplate;
     }
 }

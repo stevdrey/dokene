@@ -49,6 +49,16 @@ final class AggregateRevisionSynchronization {
         }
 
         @Override
+        public void suspend() {
+            TransactionSynchronizationManager.unbindResource(RESOURCE_KEY);
+        }
+
+        @Override
+        public void resume() {
+            TransactionSynchronizationManager.bindResource(RESOURCE_KEY, this);
+        }
+
+        @Override
         public void afterCompletion(int status) {
             try {
                 if (status != STATUS_COMMITTED) {
