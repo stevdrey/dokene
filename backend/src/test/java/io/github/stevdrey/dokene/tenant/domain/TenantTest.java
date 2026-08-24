@@ -33,6 +33,7 @@ class TenantTest {
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u2007", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u202F", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u0085", CREATED_AT));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "Acme\0West", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
                 new TenantId(UUID.randomUUID()), "x".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH + 1), CREATED_AT
         ));

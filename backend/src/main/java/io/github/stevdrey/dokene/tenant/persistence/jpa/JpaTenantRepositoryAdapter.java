@@ -22,6 +22,8 @@ public class JpaTenantRepositoryAdapter implements TenantRepository {
 
     @Override
     public Tenant save(Tenant tenant) {
-        return repository.saveAndFlush(TenantEntity.fromDomain(tenant)).toDomain();
+        Tenant persistedTenant = repository.saveAndFlush(TenantEntity.fromDomain(tenant)).toDomain();
+        tenant.synchronizeRevision(persistedTenant.revision().orElseThrow());
+        return tenant;
     }
 }

@@ -10,7 +10,7 @@ public final class Tenant {
     private final TenantId id;
     private final String displayName;
     private final Instant createdAt;
-    private final Long revision;
+    private Long revision;
     private TenantStatus status;
     private Instant updatedAt;
 
@@ -76,6 +76,13 @@ public final class Tenant {
         return revision == null ? OptionalLong.empty() : OptionalLong.of(revision);
     }
 
+    public void synchronizeRevision(long revision) {
+        if (revision < 0) {
+            throw new IllegalArgumentException("Tenant revision cannot be negative");
+        }
+        this.revision = revision;
+    }
+
     public void suspend(Instant occurredAt) {
         transitionTo(TenantStatus.SUSPENDED, occurredAt);
     }
@@ -114,6 +121,9 @@ public final class Tenant {
     private static String normalizeDisplayName(String displayName) {
         if (displayName == null) {
             throw new IllegalArgumentException("Tenant display name is required");
+        }
+        if (displayName.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("Tenant display name cannot contain NUL characters");
         }
 
         int start = 0;

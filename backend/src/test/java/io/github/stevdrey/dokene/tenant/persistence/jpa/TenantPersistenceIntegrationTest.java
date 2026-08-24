@@ -152,6 +152,48 @@ class TenantPersistenceIntegrationTest {
     }
 
     @Test
+    void synchronizesTenantRevisionWhenSavingTheSameInstance() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
+
+        tenantRepository.save(tenant);
+        assertThat(tenant.revision()).hasValue(0);
+
+        tenant.suspend(createdAt.plusSeconds(60));
+        tenantRepository.save(tenant);
+        assertThat(tenant.revision()).hasValue(1);
+
+        tenant.activate(createdAt.plusSeconds(120));
+        tenantRepository.save(tenant);
+
+        assertThat(tenant.revision()).hasValue(2);
+        assertThat(tenantRepository.findById(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
+    }
+
+    @Test
+    void synchronizesMembershipRevisionWhenSavingTheSameInstance() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Workspace", createdAt);
+        TenantMembership membership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
+        );
+
+        membershipRepository.save(membership);
+        assertThat(membership.revision()).hasValue(0);
+
+        membership.suspend(createdAt.plusSeconds(60));
+        membershipRepository.save(membership);
+        assertThat(membership.revision()).hasValue(1);
+
+        membership.revoke(createdAt.plusSeconds(120));
+        membershipRepository.save(membership);
+
+        assertThat(membership.revision()).hasValue(2);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), membership.identityId()).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.REVOKED);
+    }
+
+    @Test
     void rejectsStaleMembershipUpdatesAfterRevocation() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = persistTenant("Workspace", createdAt);

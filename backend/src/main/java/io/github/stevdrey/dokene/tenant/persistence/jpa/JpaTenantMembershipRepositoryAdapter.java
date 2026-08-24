@@ -24,6 +24,8 @@ public class JpaTenantMembershipRepositoryAdapter implements TenantMembershipRep
 
     @Override
     public TenantMembership save(TenantMembership membership) {
-        return repository.saveAndFlush(TenantMembershipEntity.fromDomain(membership)).toDomain();
+        TenantMembership persistedMembership = repository.saveAndFlush(TenantMembershipEntity.fromDomain(membership)).toDomain();
+        membership.synchronizeRevision(persistedMembership.revision().orElseThrow());
+        return membership;
     }
 }

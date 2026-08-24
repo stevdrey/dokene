@@ -10,7 +10,7 @@ public final class TenantMembership {
     private final IdentityId identityId;
     private final TenantRole role;
     private final Instant createdAt;
-    private final Long revision;
+    private Long revision;
     private TenantMembershipStatus status;
     private Instant updatedAt;
 
@@ -104,6 +104,13 @@ public final class TenantMembership {
 
     public OptionalLong revision() {
         return revision == null ? OptionalLong.empty() : OptionalLong.of(revision);
+    }
+
+    public void synchronizeRevision(long revision) {
+        if (revision < 0) {
+            throw new IllegalArgumentException("Tenant membership revision cannot be negative");
+        }
+        this.revision = revision;
     }
 
     public void activate(Instant occurredAt) {
