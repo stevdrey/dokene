@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.tenant.domain;
 
 import java.time.Instant;
+import java.util.OptionalLong;
 
 public final class TenantMembership {
 
@@ -9,6 +10,7 @@ public final class TenantMembership {
     private final IdentityId identityId;
     private final TenantRole role;
     private final Instant createdAt;
+    private final Long revision;
     private TenantMembershipStatus status;
     private Instant updatedAt;
 
@@ -19,7 +21,8 @@ public final class TenantMembership {
             TenantRole role,
             TenantMembershipStatus status,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Long revision
     ) {
         this.id = required(id, "Tenant membership ID is required");
         this.tenantId = required(tenantId, "Tenant membership tenant ID is required");
@@ -28,9 +31,13 @@ public final class TenantMembership {
         this.status = required(status, "Tenant membership status is required");
         this.createdAt = required(createdAt, "Tenant membership creation timestamp is required");
         this.updatedAt = required(updatedAt, "Tenant membership update timestamp is required");
+        this.revision = revision;
 
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("Tenant membership update timestamp cannot precede creation timestamp");
+        }
+        if (revision != null && revision < 0) {
+            throw new IllegalArgumentException("Tenant membership revision cannot be negative");
         }
     }
 
@@ -41,7 +48,7 @@ public final class TenantMembership {
             TenantRole role,
             Instant createdAt
     ) {
-        return new TenantMembership(id, tenantId, identityId, role, TenantMembershipStatus.INVITED, createdAt, createdAt);
+        return new TenantMembership(id, tenantId, identityId, role, TenantMembershipStatus.INVITED, createdAt, createdAt, null);
     }
 
     public static TenantMembership createActive(
@@ -51,7 +58,7 @@ public final class TenantMembership {
             TenantRole role,
             Instant createdAt
     ) {
-        return new TenantMembership(id, tenantId, identityId, role, TenantMembershipStatus.ACTIVE, createdAt, createdAt);
+        return new TenantMembership(id, tenantId, identityId, role, TenantMembershipStatus.ACTIVE, createdAt, createdAt, null);
     }
 
     public static TenantMembership restore(
@@ -61,9 +68,10 @@ public final class TenantMembership {
             TenantRole role,
             TenantMembershipStatus status,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            long revision
     ) {
-        return new TenantMembership(id, tenantId, identityId, role, status, createdAt, updatedAt);
+        return new TenantMembership(id, tenantId, identityId, role, status, createdAt, updatedAt, revision);
     }
 
     public TenantMembershipId id() {
@@ -92,6 +100,10 @@ public final class TenantMembership {
 
     public Instant updatedAt() {
         return updatedAt;
+    }
+
+    public OptionalLong revision() {
+        return revision == null ? OptionalLong.empty() : OptionalLong.of(revision);
     }
 
     public void activate(Instant occurredAt) {

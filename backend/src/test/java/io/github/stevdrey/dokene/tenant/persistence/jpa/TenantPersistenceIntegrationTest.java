@@ -8,31 +8,38 @@ import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Testcontainers
 class TenantPersistenceIntegrationTest {
 
     @Container
-    private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
+    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
 
     @Autowired
     private JpaTenantRepositoryAdapter tenantRepository;
 
     @Autowired
     private JpaTenantMembershipRepositoryAdapter membershipRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
@@ -56,7 +63,7 @@ class TenantPersistenceIntegrationTest {
                 createdAt
         );
         membership.suspend(createdAt.plusSeconds(120));
-        membershipRepository.save(membership);
+        TenantMembership persistedMembership = membershipRepository.save(membership);
 
         Tenant restoredTenant = tenantRepository.findById(tenant.id()).orElseThrow();
         TenantMembership restoredMembership = membershipRepository
@@ -71,6 +78,8 @@ class TenantPersistenceIntegrationTest {
         assertThat(restoredMembership.status()).isEqualTo(membership.status());
         assertThat(restoredMembership.createdAt()).isEqualTo(createdAt);
         assertThat(restoredMembership.updatedAt()).isEqualTo(createdAt.plusSeconds(120));
+        assertThat(persistedMembership.revision()).hasValue(0);
+        assertThat(restoredMembership.revision()).hasValue(0);
     }
 
     @Test
@@ -114,6 +123,45 @@ class TenantPersistenceIntegrationTest {
                 TenantMembershipId.random(), TenantId.random(), new IdentityId(UUID.randomUUID()),
                 TenantRole.OPERATOR, createdAt
         ))).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void rejectsWhitespaceOnlyTenantNamesAtTheDatabaseBoundary() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO tenants (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                UUID.randomUUID(), "\u3000", "ACTIVE", Timestamp.from(createdAt), Timestamp.from(createdAt)
+        )).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void rejectsStaleMembershipUpdatesAfterRevocation() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Workspace", createdAt);
+        IdentityId identityId = new IdentityId(UUID.randomUUID());
+        TenantMembership membership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), identityId, TenantRole.OPERATOR, createdAt
+        );
+        membership.suspend(createdAt.plusSeconds(60));
+        membershipRepository.save(membership);
+
+        TenantMembership revocationCopy = membershipRepository
+                .findByTenantIdAndIdentityId(tenant.id(), identityId)
+                .orElseThrow();
+        TenantMembership staleActivationCopy = membershipRepository
+                .findByTenantIdAndIdentityId(tenant.id(), identityId)
+                .orElseThrow();
+
+        revocationCopy.revoke(createdAt.plusSeconds(120));
+        membershipRepository.save(revocationCopy);
+
+        staleActivationCopy.activate(createdAt.plusSeconds(180));
+
+        assertThatThrownBy(() -> membershipRepository.save(staleActivationCopy))
+                .isInstanceOf(OptimisticLockingFailureException.class);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), identityId).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.REVOKED);
     }
 
     private Tenant persistTenant(String displayName, Instant createdAt) {

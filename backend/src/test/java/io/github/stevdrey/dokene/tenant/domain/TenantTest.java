@@ -14,7 +14,7 @@ class TenantTest {
 
     @Test
     void createsAnActiveTenantWithNormalizedDisplayName() {
-        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "  Main workspace  ", CREATED_AT);
+        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "\u3000Main workspace\u3000", CREATED_AT);
 
         assertThat(tenant.status()).isEqualTo(TenantStatus.ACTIVE);
         assertThat(tenant.displayName()).isEqualTo("Main workspace");
@@ -27,6 +27,7 @@ class TenantTest {
         assertThatIllegalArgumentException().isThrownBy(() -> new TenantId(null));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(null, "Workspace", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "   ", CREATED_AT));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u3000", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
                 new TenantId(UUID.randomUUID()), "x".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH + 1), CREATED_AT
         ));

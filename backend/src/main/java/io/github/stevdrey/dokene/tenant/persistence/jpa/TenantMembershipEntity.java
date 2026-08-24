@@ -12,6 +12,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -43,6 +44,10 @@ class TenantMembershipEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long revision;
+
     protected TenantMembershipEntity() {
     }
 
@@ -53,7 +58,8 @@ class TenantMembershipEntity {
             TenantRole role,
             TenantMembershipStatus status,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Long revision
     ) {
         this.id = id;
         this.tenantId = tenantId;
@@ -62,9 +68,11 @@ class TenantMembershipEntity {
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.revision = revision;
     }
 
     static TenantMembershipEntity fromDomain(TenantMembership membership) {
+        Long revision = membership.revision().isPresent() ? membership.revision().getAsLong() : null;
         return new TenantMembershipEntity(
                 membership.id().value(),
                 membership.tenantId().value(),
@@ -72,7 +80,8 @@ class TenantMembershipEntity {
                 membership.role(),
                 membership.status(),
                 membership.createdAt(),
-                membership.updatedAt()
+                membership.updatedAt(),
+                revision
         );
     }
 
@@ -84,7 +93,8 @@ class TenantMembershipEntity {
                 role,
                 status,
                 createdAt,
-                updatedAt
+                updatedAt,
+                revision
         );
     }
 }

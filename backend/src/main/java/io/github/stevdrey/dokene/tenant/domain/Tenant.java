@@ -104,8 +104,8 @@ public final class Tenant {
             throw new IllegalArgumentException("Tenant display name is required");
         }
 
-        String normalized = displayName.trim();
-        if (normalized.isEmpty()) {
+        String normalized = displayName.strip();
+        if (normalized.isBlank()) {
             throw new IllegalArgumentException("Tenant display name cannot be blank");
         }
         if (normalized.length() > DISPLAY_NAME_MAX_LENGTH) {
