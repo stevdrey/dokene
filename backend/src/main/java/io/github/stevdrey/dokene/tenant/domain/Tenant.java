@@ -144,7 +144,7 @@ public final class Tenant {
     }
 
     private static boolean isDisplayNameWhitespace(int codePoint) {
-        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
+        return codePoint == 0x0085 || Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
     private static <T> T required(T value, String message) {

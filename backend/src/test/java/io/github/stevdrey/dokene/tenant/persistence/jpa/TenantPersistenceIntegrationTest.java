@@ -132,7 +132,7 @@ class TenantPersistenceIntegrationTest {
     void rejectsWhitespaceOnlyTenantNamesAtTheDatabaseBoundary() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
 
-        for (String displayName : new String[]{"\u00A0", "\u2007", "\u202F", "\u3000"}) {
+        for (String displayName : new String[]{"\u0085", "\u00A0", "\u2007", "\u202F", "\u3000"}) {
             assertThatThrownBy(() -> jdbcTemplate.update(
                     "INSERT INTO tenants (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                     UUID.randomUUID(), displayName, "ACTIVE", Timestamp.from(createdAt), Timestamp.from(createdAt)
