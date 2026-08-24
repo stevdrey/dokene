@@ -22,6 +22,8 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -41,6 +43,9 @@ class TenantPersistenceIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
@@ -152,6 +157,37 @@ class TenantPersistenceIntegrationTest {
     }
 
     @Test
+    void roundTripsTimestampsAtPostgresPrecision() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00.123456789Z");
+        Instant tenantUpdatedAt = Instant.parse("2026-08-23T00:01:00.999999900Z");
+        Instant membershipUpdatedAt = Instant.parse("2026-08-23T00:02:00.999999900Z");
+        Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
+        tenant.suspend(tenantUpdatedAt);
+        Tenant persistedTenant = tenantRepository.save(tenant);
+        TenantMembership membership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
+        );
+        membership.suspend(membershipUpdatedAt);
+        TenantMembership persistedMembership = membershipRepository.save(membership);
+
+        Tenant restoredTenant = tenantRepository.findById(tenant.id()).orElseThrow();
+        TenantMembership restoredMembership = membershipRepository
+                .findByTenantIdAndIdentityId(tenant.id(), membership.identityId())
+                .orElseThrow();
+
+        assertThat(persistedTenant).isSameAs(tenant);
+        assertThat(tenant.createdAt()).isEqualTo(Instant.parse("2026-08-23T00:00:00.123457Z"));
+        assertThat(tenant.updatedAt()).isEqualTo(Instant.parse("2026-08-23T00:01:01Z"));
+        assertThat(restoredTenant.createdAt()).isEqualTo(tenant.createdAt());
+        assertThat(restoredTenant.updatedAt()).isEqualTo(tenant.updatedAt());
+        assertThat(persistedMembership).isSameAs(membership);
+        assertThat(membership.createdAt()).isEqualTo(Instant.parse("2026-08-23T00:00:00.123457Z"));
+        assertThat(membership.updatedAt()).isEqualTo(Instant.parse("2026-08-23T00:02:01Z"));
+        assertThat(restoredMembership.createdAt()).isEqualTo(membership.createdAt());
+        assertThat(restoredMembership.updatedAt()).isEqualTo(membership.updatedAt());
+    }
+
+    @Test
     void synchronizesTenantRevisionWhenSavingTheSameInstance() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
@@ -191,6 +227,82 @@ class TenantPersistenceIntegrationTest {
         assertThat(membership.revision()).hasValue(2);
         assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), membership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.REVOKED);
+    }
+
+    @Test
+    void restoresTenantRevisionsAfterOuterTransactionRollback() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant existingTenant = persistTenant("Existing workspace", createdAt);
+        Tenant newTenant = Tenant.create(TenantId.random(), "New workspace", createdAt);
+
+        executeAndRollBack(() -> {
+            existingTenant.suspend(createdAt.plusSeconds(60));
+            tenantRepository.save(existingTenant);
+            assertThat(existingTenant.revision()).hasValue(1);
+
+            existingTenant.activate(createdAt.plusSeconds(120));
+            tenantRepository.save(existingTenant);
+            assertThat(existingTenant.revision()).hasValue(2);
+
+            tenantRepository.save(newTenant);
+            assertThat(newTenant.revision()).hasValue(0);
+        });
+
+        assertThat(existingTenant.revision()).hasValue(0);
+        assertThat(newTenant.revision()).isEmpty();
+        assertThat(tenantRepository.findById(existingTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
+        assertThat(tenantRepository.findById(newTenant.id())).isEmpty();
+
+        existingTenant.suspend(createdAt.plusSeconds(180));
+        tenantRepository.save(existingTenant);
+        tenantRepository.save(newTenant);
+
+        assertThat(existingTenant.revision()).hasValue(1);
+        assertThat(newTenant.revision()).hasValue(0);
+        assertThat(tenantRepository.findById(existingTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
+        assertThat(tenantRepository.findById(newTenant.id())).isPresent();
+    }
+
+    @Test
+    void restoresMembershipRevisionsAfterOuterTransactionRollback() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Workspace", createdAt);
+        TenantMembership existingMembership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
+        );
+        membershipRepository.save(existingMembership);
+        TenantMembership newMembership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.VIEWER, createdAt
+        );
+
+        executeAndRollBack(() -> {
+            existingMembership.suspend(createdAt.plusSeconds(60));
+            membershipRepository.save(existingMembership);
+            assertThat(existingMembership.revision()).hasValue(1);
+
+            existingMembership.activate(createdAt.plusSeconds(120));
+            membershipRepository.save(existingMembership);
+            assertThat(existingMembership.revision()).hasValue(2);
+
+            membershipRepository.save(newMembership);
+            assertThat(newMembership.revision()).hasValue(0);
+        });
+
+        assertThat(existingMembership.revision()).hasValue(0);
+        assertThat(newMembership.revision()).isEmpty();
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), existingMembership.identityId()).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.ACTIVE);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), newMembership.identityId())).isEmpty();
+
+        existingMembership.suspend(createdAt.plusSeconds(180));
+        membershipRepository.save(existingMembership);
+        membershipRepository.save(newMembership);
+
+        assertThat(existingMembership.revision()).hasValue(1);
+        assertThat(newMembership.revision()).hasValue(0);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), existingMembership.identityId()).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.SUSPENDED);
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), newMembership.identityId())).isPresent();
     }
 
     @Test
@@ -246,5 +358,12 @@ class TenantPersistenceIntegrationTest {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         tenantRepository.save(tenant);
         return tenant;
+    }
+
+    private void executeAndRollBack(Runnable action) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            action.run();
+            status.setRollbackOnly();
+        });
     }
 }

@@ -40,6 +40,22 @@ class TenantTest {
     }
 
     @Test
+    void rejectsUnpairedSurrogatesAndRetainsValidUnicodeScalars() {
+        TenantId tenantId = new TenantId(UUID.randomUUID());
+
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
+                tenantId, String.valueOf(Character.MIN_HIGH_SURROGATE), CREATED_AT
+        ));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
+                tenantId, String.valueOf(Character.MIN_LOW_SURROGATE), CREATED_AT
+        ));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
+                tenantId, "Workspace" + Character.MIN_HIGH_SURROGATE, CREATED_AT
+        ));
+        assertThat(Tenant.create(tenantId, "😀 Workspace", CREATED_AT).displayName()).isEqualTo("😀 Workspace");
+    }
+
+    @Test
     void countsDisplayNameLengthByUnicodeCodePoints() {
         String maximumLengthName = "😀".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH);
 
@@ -49,6 +65,17 @@ class TenantTest {
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
                 new TenantId(UUID.randomUUID()), "😀".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH + 1), CREATED_AT
         ));
+    }
+
+    @Test
+    void normalizesTimestampsToMicrosecondPrecision() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00.123456789Z");
+        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "Workspace", createdAt);
+
+        tenant.suspend(Instant.parse("2026-08-23T00:01:00.999999900Z"));
+
+        assertThat(tenant.createdAt()).isEqualTo(Instant.parse("2026-08-23T00:00:00.123457Z"));
+        assertThat(tenant.updatedAt()).isEqualTo(Instant.parse("2026-08-23T00:01:01Z"));
     }
 
     @Test

@@ -53,6 +53,23 @@ class TenantMembershipTest {
     }
 
     @Test
+    void normalizesTimestampsToMicrosecondPrecision() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00.123456789Z");
+        TenantMembership membership = TenantMembership.createActive(
+                new TenantMembershipId(UUID.randomUUID()),
+                new TenantId(UUID.randomUUID()),
+                new IdentityId(UUID.randomUUID()),
+                TenantRole.OPERATOR,
+                createdAt
+        );
+
+        membership.suspend(Instant.parse("2026-08-23T00:01:00.999999900Z"));
+
+        assertThat(membership.createdAt()).isEqualTo(Instant.parse("2026-08-23T00:00:00.123457Z"));
+        assertThat(membership.updatedAt()).isEqualTo(Instant.parse("2026-08-23T00:01:01Z"));
+    }
+
+    @Test
     void allowsAllMembershipLifecycleTransitions() {
         TenantMembership membership = invitedMembership();
         Instant activeAt = CREATED_AT.plusSeconds(60);

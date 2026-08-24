@@ -25,11 +25,11 @@ public final class Tenant {
         this.id = required(id, "Tenant ID is required");
         this.displayName = normalizeDisplayName(displayName);
         this.status = required(status, "Tenant status is required");
-        this.createdAt = required(createdAt, "Tenant creation timestamp is required");
-        this.updatedAt = required(updatedAt, "Tenant update timestamp is required");
+        this.createdAt = TimestampPrecision.normalize(required(createdAt, "Tenant creation timestamp is required"));
+        this.updatedAt = TimestampPrecision.normalize(required(updatedAt, "Tenant update timestamp is required"));
         this.revision = revision;
 
-        if (updatedAt.isBefore(createdAt)) {
+        if (this.updatedAt.isBefore(this.createdAt)) {
             throw new IllegalArgumentException("Tenant update timestamp cannot precede creation timestamp");
         }
         if (revision != null && revision < 0) {
@@ -83,6 +83,17 @@ public final class Tenant {
         this.revision = revision;
     }
 
+    public void restoreRevision(OptionalLong revision) {
+        if (revision == null) {
+            throw new IllegalArgumentException("Tenant revision is required");
+        }
+        if (revision.isPresent()) {
+            synchronizeRevision(revision.getAsLong());
+        } else {
+            this.revision = null;
+        }
+    }
+
     public void suspend(Instant occurredAt) {
         transitionTo(TenantStatus.SUSPENDED, occurredAt);
     }
@@ -109,7 +120,9 @@ public final class Tenant {
     }
 
     private void updateStatus(TenantStatus targetStatus, Instant occurredAt) {
-        Instant transitionTime = required(occurredAt, "Tenant transition timestamp is required");
+        Instant transitionTime = TimestampPrecision.normalize(required(
+                occurredAt, "Tenant transition timestamp is required"
+        ));
         if (transitionTime.isBefore(updatedAt)) {
             throw new IllegalArgumentException("Tenant transition timestamp cannot precede the current update timestamp");
         }
@@ -125,6 +138,7 @@ public final class Tenant {
         if (displayName.indexOf('\0') >= 0) {
             throw new IllegalArgumentException("Tenant display name cannot contain NUL characters");
         }
+        validateUnicodeScalars(displayName);
 
         int start = 0;
         int end = displayName.length();
@@ -155,6 +169,20 @@ public final class Tenant {
 
     private static boolean isDisplayNameWhitespace(int codePoint) {
         return codePoint == 0x0085 || Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
+    }
+
+    private static void validateUnicodeScalars(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char codeUnit = value.charAt(index);
+            if (Character.isHighSurrogate(codeUnit)) {
+                if (index + 1 == value.length() || !Character.isLowSurrogate(value.charAt(index + 1))) {
+                    throw new IllegalArgumentException("Tenant display name cannot contain unpaired surrogates");
+                }
+                index++;
+            } else if (Character.isLowSurrogate(codeUnit)) {
+                throw new IllegalArgumentException("Tenant display name cannot contain unpaired surrogates");
+            }
+        }
     }
 
     private static <T> T required(T value, String message) {

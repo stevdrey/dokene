@@ -4,6 +4,7 @@ import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import java.util.Optional;
+import java.util.OptionalLong;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -22,8 +23,15 @@ public class JpaTenantRepositoryAdapter implements TenantRepository {
 
     @Override
     public Tenant save(Tenant tenant) {
+        OptionalLong previousRevision = tenant.revision();
         Tenant persistedTenant = repository.saveAndFlush(TenantEntity.fromDomain(tenant)).toDomain();
-        tenant.synchronizeRevision(persistedTenant.revision().orElseThrow());
+        AggregateRevisionSynchronization.synchronize(
+                tenant,
+                previousRevision,
+                tenant::synchronizeRevision,
+                tenant::restoreRevision,
+                persistedTenant.revision().orElseThrow()
+        );
         return tenant;
     }
 }

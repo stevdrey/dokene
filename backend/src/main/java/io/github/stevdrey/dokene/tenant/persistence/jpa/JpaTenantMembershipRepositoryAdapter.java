@@ -5,6 +5,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import java.util.Optional;
+import java.util.OptionalLong;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -24,8 +25,15 @@ public class JpaTenantMembershipRepositoryAdapter implements TenantMembershipRep
 
     @Override
     public TenantMembership save(TenantMembership membership) {
+        OptionalLong previousRevision = membership.revision();
         TenantMembership persistedMembership = repository.saveAndFlush(TenantMembershipEntity.fromDomain(membership)).toDomain();
-        membership.synchronizeRevision(persistedMembership.revision().orElseThrow());
+        AggregateRevisionSynchronization.synchronize(
+                membership,
+                previousRevision,
+                membership::synchronizeRevision,
+                membership::restoreRevision,
+                persistedMembership.revision().orElseThrow()
+        );
         return membership;
     }
 }

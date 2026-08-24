@@ -29,11 +29,11 @@ public final class TenantMembership {
         this.identityId = required(identityId, "Tenant membership identity ID is required");
         this.role = required(role, "Tenant membership role is required");
         this.status = required(status, "Tenant membership status is required");
-        this.createdAt = required(createdAt, "Tenant membership creation timestamp is required");
-        this.updatedAt = required(updatedAt, "Tenant membership update timestamp is required");
+        this.createdAt = TimestampPrecision.normalize(required(createdAt, "Tenant membership creation timestamp is required"));
+        this.updatedAt = TimestampPrecision.normalize(required(updatedAt, "Tenant membership update timestamp is required"));
         this.revision = revision;
 
-        if (updatedAt.isBefore(createdAt)) {
+        if (this.updatedAt.isBefore(this.createdAt)) {
             throw new IllegalArgumentException("Tenant membership update timestamp cannot precede creation timestamp");
         }
         if (revision != null && revision < 0) {
@@ -113,6 +113,17 @@ public final class TenantMembership {
         this.revision = revision;
     }
 
+    public void restoreRevision(OptionalLong revision) {
+        if (revision == null) {
+            throw new IllegalArgumentException("Tenant membership revision is required");
+        }
+        if (revision.isPresent()) {
+            synchronizeRevision(revision.getAsLong());
+        } else {
+            this.revision = null;
+        }
+    }
+
     public void activate(Instant occurredAt) {
         transitionTo(TenantMembershipStatus.ACTIVE, occurredAt);
     }
@@ -143,7 +154,9 @@ public final class TenantMembership {
     }
 
     private void updateStatus(TenantMembershipStatus targetStatus, Instant occurredAt) {
-        Instant transitionTime = required(occurredAt, "Tenant membership transition timestamp is required");
+        Instant transitionTime = TimestampPrecision.normalize(required(
+                occurredAt, "Tenant membership transition timestamp is required"
+        ));
         if (transitionTime.isBefore(updatedAt)) {
             throw new IllegalArgumentException(
                     "Tenant membership transition timestamp cannot precede the current update timestamp"
