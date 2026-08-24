@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.tenant.domain;
 
 import java.time.Instant;
+import java.util.OptionalLong;
 
 public final class Tenant {
 
@@ -9,6 +10,7 @@ public final class Tenant {
     private final TenantId id;
     private final String displayName;
     private final Instant createdAt;
+    private final Long revision;
     private TenantStatus status;
     private Instant updatedAt;
 
@@ -17,21 +19,26 @@ public final class Tenant {
             String displayName,
             TenantStatus status,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Long revision
     ) {
         this.id = required(id, "Tenant ID is required");
         this.displayName = normalizeDisplayName(displayName);
         this.status = required(status, "Tenant status is required");
         this.createdAt = required(createdAt, "Tenant creation timestamp is required");
         this.updatedAt = required(updatedAt, "Tenant update timestamp is required");
+        this.revision = revision;
 
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("Tenant update timestamp cannot precede creation timestamp");
         }
+        if (revision != null && revision < 0) {
+            throw new IllegalArgumentException("Tenant revision cannot be negative");
+        }
     }
 
     public static Tenant create(TenantId id, String displayName, Instant createdAt) {
-        return new Tenant(id, displayName, TenantStatus.ACTIVE, createdAt, createdAt);
+        return new Tenant(id, displayName, TenantStatus.ACTIVE, createdAt, createdAt, null);
     }
 
     public static Tenant restore(
@@ -39,9 +46,10 @@ public final class Tenant {
             String displayName,
             TenantStatus status,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            long revision
     ) {
-        return new Tenant(id, displayName, status, createdAt, updatedAt);
+        return new Tenant(id, displayName, status, createdAt, updatedAt, revision);
     }
 
     public TenantId id() {
@@ -62,6 +70,10 @@ public final class Tenant {
 
     public Instant updatedAt() {
         return updatedAt;
+    }
+
+    public OptionalLong revision() {
+        return revision == null ? OptionalLong.empty() : OptionalLong.of(revision);
     }
 
     public void suspend(Instant occurredAt) {
@@ -104,14 +116,35 @@ public final class Tenant {
             throw new IllegalArgumentException("Tenant display name is required");
         }
 
-        String normalized = displayName.strip();
-        if (normalized.isBlank()) {
+        int start = 0;
+        int end = displayName.length();
+        while (start < end) {
+            int codePoint = displayName.codePointAt(start);
+            if (!isDisplayNameWhitespace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+        while (start < end) {
+            int codePoint = displayName.codePointBefore(end);
+            if (!isDisplayNameWhitespace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+
+        String normalized = displayName.substring(start, end);
+        if (normalized.isEmpty()) {
             throw new IllegalArgumentException("Tenant display name cannot be blank");
         }
         if (normalized.length() > DISPLAY_NAME_MAX_LENGTH) {
             throw new IllegalArgumentException("Tenant display name cannot exceed %d characters".formatted(DISPLAY_NAME_MAX_LENGTH));
         }
         return normalized;
+    }
+
+    private static boolean isDisplayNameWhitespace(int codePoint) {
+        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
     private static <T> T required(T value, String message) {

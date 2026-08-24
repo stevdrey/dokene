@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -33,28 +34,35 @@ class TenantEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long revision;
+
     protected TenantEntity() {
     }
 
-    private TenantEntity(UUID id, String displayName, TenantStatus status, Instant createdAt, Instant updatedAt) {
+    private TenantEntity(UUID id, String displayName, TenantStatus status, Instant createdAt, Instant updatedAt, Long revision) {
         this.id = id;
         this.displayName = displayName;
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.revision = revision;
     }
 
     static TenantEntity fromDomain(Tenant tenant) {
+        Long revision = tenant.revision().isPresent() ? tenant.revision().getAsLong() : null;
         return new TenantEntity(
                 tenant.id().value(),
                 tenant.displayName(),
                 tenant.status(),
                 tenant.createdAt(),
-                tenant.updatedAt()
+                tenant.updatedAt(),
+                revision
         );
     }
 
     Tenant toDomain() {
-        return Tenant.restore(new TenantId(id), displayName, status, createdAt, updatedAt);
+        return Tenant.restore(new TenantId(id), displayName, status, createdAt, updatedAt, revision);
     }
 }

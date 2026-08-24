@@ -10,6 +10,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -53,7 +54,7 @@ class TenantPersistenceIntegrationTest {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = Tenant.create(TenantId.random(), "  Main workspace  ", createdAt);
         tenant.suspend(createdAt.plusSeconds(60));
-        tenantRepository.save(tenant);
+        Tenant persistedTenant = tenantRepository.save(tenant);
 
         TenantMembership membership = TenantMembership.createActive(
                 TenantMembershipId.random(),
@@ -74,6 +75,8 @@ class TenantPersistenceIntegrationTest {
         assertThat(restoredTenant.status()).isEqualTo(tenant.status());
         assertThat(restoredTenant.createdAt()).isEqualTo(createdAt);
         assertThat(restoredTenant.updatedAt()).isEqualTo(createdAt.plusSeconds(60));
+        assertThat(persistedTenant.revision()).hasValue(0);
+        assertThat(restoredTenant.revision()).hasValue(0);
         assertThat(restoredMembership.id()).isEqualTo(membership.id());
         assertThat(restoredMembership.status()).isEqualTo(membership.status());
         assertThat(restoredMembership.createdAt()).isEqualTo(createdAt);
@@ -129,10 +132,12 @@ class TenantPersistenceIntegrationTest {
     void rejectsWhitespaceOnlyTenantNamesAtTheDatabaseBoundary() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
 
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO tenants (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                UUID.randomUUID(), "\u3000", "ACTIVE", Timestamp.from(createdAt), Timestamp.from(createdAt)
-        )).isInstanceOf(DataIntegrityViolationException.class);
+        for (String displayName : new String[]{"\u00A0", "\u2007", "\u202F", "\u3000"}) {
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "INSERT INTO tenants (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    UUID.randomUUID(), displayName, "ACTIVE", Timestamp.from(createdAt), Timestamp.from(createdAt)
+            )).isInstanceOf(DataIntegrityViolationException.class);
+        }
     }
 
     @Test
@@ -162,6 +167,26 @@ class TenantPersistenceIntegrationTest {
                 .isInstanceOf(OptimisticLockingFailureException.class);
         assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), identityId).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.REVOKED);
+    }
+
+    @Test
+    void rejectsStaleTenantUpdatesAfterArchival() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
+        tenant.suspend(createdAt.plusSeconds(60));
+        tenantRepository.save(tenant);
+
+        Tenant archivalCopy = tenantRepository.findById(tenant.id()).orElseThrow();
+        Tenant staleActivationCopy = tenantRepository.findById(tenant.id()).orElseThrow();
+
+        archivalCopy.archive(createdAt.plusSeconds(120));
+        tenantRepository.save(archivalCopy);
+
+        staleActivationCopy.activate(createdAt.plusSeconds(180));
+
+        assertThatThrownBy(() -> tenantRepository.save(staleActivationCopy))
+                .isInstanceOf(OptimisticLockingFailureException.class);
+        assertThat(tenantRepository.findById(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ARCHIVED);
     }
 
     private Tenant persistTenant(String displayName, Instant createdAt) {

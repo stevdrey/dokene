@@ -14,12 +14,13 @@ class TenantTest {
 
     @Test
     void createsAnActiveTenantWithNormalizedDisplayName() {
-        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "\u3000Main workspace\u3000", CREATED_AT);
+        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "\u00A0Main workspace\u202F", CREATED_AT);
 
         assertThat(tenant.status()).isEqualTo(TenantStatus.ACTIVE);
         assertThat(tenant.displayName()).isEqualTo("Main workspace");
         assertThat(tenant.createdAt()).isEqualTo(CREATED_AT);
         assertThat(tenant.updatedAt()).isEqualTo(CREATED_AT);
+        assertThat(tenant.revision()).isEmpty();
     }
 
     @Test
@@ -28,6 +29,9 @@ class TenantTest {
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(null, "Workspace", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "   ", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u3000", CREATED_AT));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u00A0", CREATED_AT));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u2007", CREATED_AT));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(new TenantId(UUID.randomUUID()), "\u202F", CREATED_AT));
         assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
                 new TenantId(UUID.randomUUID()), "x".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH + 1), CREATED_AT
         ));

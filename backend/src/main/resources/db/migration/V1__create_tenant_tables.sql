@@ -4,8 +4,9 @@ CREATE TABLE tenants (
     status VARCHAR(16) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT ck_tenants_display_name_not_blank CHECK (
-        display_name ~ U&'[^[:space:]\001C-\001F\1680\2000-\200A\2028\2029\205F\3000]'
+        display_name ~ U&'[^[:space:]\001C-\001F\00A0\1680\2000-\200A\2007\2028\2029\202F\205F\3000]'
     ),
     CONSTRAINT ck_tenants_status CHECK (status IN ('ACTIVE', 'SUSPENDED', 'ARCHIVED')),
     CONSTRAINT ck_tenants_updated_at_not_before_created_at CHECK (updated_at >= created_at)
