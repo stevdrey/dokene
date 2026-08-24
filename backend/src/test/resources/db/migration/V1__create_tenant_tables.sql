@@ -1,3 +1,4 @@
+-- Test-only schema fixture. Issue #7 owns the production Flyway baseline and database-role separation.
 CREATE TABLE tenants (
     id UUID PRIMARY KEY,
     display_name VARCHAR(160) NOT NULL,

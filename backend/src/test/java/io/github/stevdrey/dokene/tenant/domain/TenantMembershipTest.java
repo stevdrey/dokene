@@ -91,6 +91,47 @@ class TenantMembershipTest {
     }
 
     @Test
+    void allowsRoleChangesForEveryNonTerminalStatus() {
+        TenantMembership invited = invitedMembership();
+        TenantMembership active = activeMembership();
+        TenantMembership suspended = activeMembership();
+        suspended.suspend(CREATED_AT.plusSeconds(30));
+
+        invited.changeRole(TenantRole.ADMIN, CREATED_AT.plusSeconds(60));
+        active.changeRole(TenantRole.VIEWER, CREATED_AT.plusSeconds(60));
+        suspended.changeRole(TenantRole.OWNER, CREATED_AT.plusSeconds(60));
+
+        assertThat(invited.role()).isEqualTo(TenantRole.ADMIN);
+        assertThat(active.role()).isEqualTo(TenantRole.VIEWER);
+        assertThat(suspended.role()).isEqualTo(TenantRole.OWNER);
+        assertThat(invited.updatedAt()).isEqualTo(CREATED_AT.plusSeconds(60));
+        assertThat(active.updatedAt()).isEqualTo(CREATED_AT.plusSeconds(60));
+        assertThat(suspended.updatedAt()).isEqualTo(CREATED_AT.plusSeconds(60));
+    }
+
+    @Test
+    void rejectsInvalidAndTerminalRoleChanges() {
+        TenantMembership membership = activeMembership();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> membership.changeRole(null, CREATED_AT.plusSeconds(60)));
+        assertThatIllegalStateException().isThrownBy(() -> membership.changeRole(
+                TenantRole.OPERATOR, CREATED_AT.plusSeconds(60)
+        ));
+
+        membership.changeRole(TenantRole.ADMIN, CREATED_AT.plusSeconds(60));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> membership.changeRole(
+                TenantRole.VIEWER, CREATED_AT.plusSeconds(30)
+        ));
+
+        membership.revoke(CREATED_AT.plusSeconds(120));
+
+        assertThatIllegalStateException().isThrownBy(() -> membership.changeRole(
+                TenantRole.OWNER, CREATED_AT.plusSeconds(180)
+        ));
+    }
+
+    @Test
     void allowsRevocationFromEveryNonTerminalStatus() {
         TenantMembership invited = invitedMembership();
         invited.revoke(CREATED_AT.plusSeconds(60));

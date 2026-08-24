@@ -55,6 +55,7 @@ class TenantPersistenceIntegrationTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.flyway.enabled", () -> true);
     }
 
     @Test
@@ -230,6 +231,42 @@ class TenantPersistenceIntegrationTest {
         assertThat(membership.revision()).hasValue(2);
         assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), membership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.REVOKED);
+    }
+
+    @Test
+    void persistsRoleChangesAndRejectsStaleRoleUpdates() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Workspace", createdAt);
+        IdentityId identityId = new IdentityId(UUID.randomUUID());
+        TenantMembership membership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), identityId, TenantRole.VIEWER, createdAt
+        );
+        membershipRepository.save(membership);
+
+        membership.changeRole(TenantRole.OPERATOR, createdAt.plusSeconds(60));
+        membershipRepository.save(membership);
+
+        TenantMembership winningCopy = membershipRepository
+                .findByTenantIdAndIdentityId(tenant.id(), identityId)
+                .orElseThrow();
+        TenantMembership staleCopy = membershipRepository
+                .findByTenantIdAndIdentityId(tenant.id(), identityId)
+                .orElseThrow();
+
+        winningCopy.changeRole(TenantRole.ADMIN, createdAt.plusSeconds(120));
+        membershipRepository.save(winningCopy);
+
+        staleCopy.changeRole(TenantRole.OWNER, createdAt.plusSeconds(180));
+
+        assertThatThrownBy(() -> membershipRepository.save(staleCopy))
+                .isInstanceOf(OptimisticLockingFailureException.class);
+
+        TenantMembership restoredMembership = membershipRepository
+                .findByTenantIdAndIdentityId(tenant.id(), identityId)
+                .orElseThrow();
+        assertThat(restoredMembership.role()).isEqualTo(TenantRole.ADMIN);
+        assertThat(restoredMembership.updatedAt()).isEqualTo(createdAt.plusSeconds(120));
+        assertThat(restoredMembership.revision()).hasValue(2);
     }
 
     @Test

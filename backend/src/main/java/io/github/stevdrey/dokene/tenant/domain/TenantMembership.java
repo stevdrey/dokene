@@ -8,8 +8,8 @@ public final class TenantMembership {
     private final TenantMembershipId id;
     private final TenantId tenantId;
     private final IdentityId identityId;
-    private final TenantRole role;
     private final Instant createdAt;
+    private TenantRole role;
     private Long revision;
     private TenantMembershipStatus status;
     private Instant updatedAt;
@@ -124,6 +124,20 @@ public final class TenantMembership {
         }
     }
 
+    public void changeRole(TenantRole targetRole, Instant occurredAt) {
+        TenantRole newRole = required(targetRole, "Tenant membership role is required");
+        Instant transitionTime = transitionTime(occurredAt);
+        if (status == TenantMembershipStatus.REVOKED) {
+            throw new IllegalStateException("Revoked tenant memberships cannot change role");
+        }
+        if (role == newRole) {
+            throw new IllegalStateException("Tenant membership already has role %s".formatted(role));
+        }
+
+        role = newRole;
+        updatedAt = transitionTime;
+    }
+
     public void activate(Instant occurredAt) {
         transitionTo(TenantMembershipStatus.ACTIVE, occurredAt);
     }
@@ -154,6 +168,13 @@ public final class TenantMembership {
     }
 
     private void updateStatus(TenantMembershipStatus targetStatus, Instant occurredAt) {
+        Instant transitionTime = transitionTime(occurredAt);
+
+        status = targetStatus;
+        updatedAt = transitionTime;
+    }
+
+    private Instant transitionTime(Instant occurredAt) {
         Instant transitionTime = TimestampPrecision.normalize(required(
                 occurredAt, "Tenant membership transition timestamp is required"
         ));
@@ -162,9 +183,7 @@ public final class TenantMembership {
                     "Tenant membership transition timestamp cannot precede the current update timestamp"
             );
         }
-
-        status = targetStatus;
-        updatedAt = transitionTime;
+        return transitionTime;
     }
 
     private static <T> T required(T value, String message) {

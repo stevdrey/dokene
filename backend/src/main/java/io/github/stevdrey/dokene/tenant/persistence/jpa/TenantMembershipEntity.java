@@ -31,7 +31,7 @@ class TenantMembershipEntity {
     private UUID identityId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "role", nullable = false, length = 16, updatable = false)
+    @Column(name = "role", nullable = false, length = 16)
     private TenantRole role;
 
     @Enumerated(EnumType.STRING)
