@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           - language: java-kotlin
-            build-mode: autobuild
+            build-mode: manual
           - language: javascript-typescript
             build-mode: none
 
@@ -34,6 +34,10 @@ jobs:
           distribution: temurin
           java-version: '26'
 
+      - name: Set up Gradle
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v6
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -41,9 +45,9 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
 
-      - name: Autobuild
-        if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v4
+      - name: Build backend for CodeQL
+        if: matrix.language == 'java-kotlin'
+        run: gradle -p backend classes
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
