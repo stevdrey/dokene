@@ -8,6 +8,13 @@ on:
       - 'backend/settings.gradle'
       - 'backend/gradle/**'
       - '.github/workflows/dependency-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/build.gradle'
+      - 'backend/settings.gradle'
+      - 'backend/gradle/**'
+      - '.github/workflows/dependency-check.yml'
   schedule:
     - cron: '7 5 * * 1'
 
@@ -30,6 +37,14 @@ jobs:
           java-version: '26'
 
       - uses: gradle/actions/setup-gradle@v6
+
+      - name: Restore Dependency-Check data cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.gradle/dependency-check-data
+          key: dependency-check-${{ runner.os }}-12.2.2-${{ github.run_id }}
+          restore-keys: |
+            dependency-check-${{ runner.os }}-12.2.2-
 
       - name: Run OWASP Dependency-Check
         env:
