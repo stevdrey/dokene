@@ -137,7 +137,7 @@ public final class Tenant {
         if (normalized.isEmpty()) {
             throw new IllegalArgumentException("Tenant display name cannot be blank");
         }
-        if (normalized.length() > DISPLAY_NAME_MAX_LENGTH) {
+        if (normalized.codePointCount(0, normalized.length()) > DISPLAY_NAME_MAX_LENGTH) {
             throw new IllegalArgumentException("Tenant display name cannot exceed %d characters".formatted(DISPLAY_NAME_MAX_LENGTH));
         }
         return normalized;

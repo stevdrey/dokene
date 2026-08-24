@@ -38,6 +38,18 @@ class TenantTest {
     }
 
     @Test
+    void countsDisplayNameLengthByUnicodeCodePoints() {
+        String maximumLengthName = "😀".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH);
+
+        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), maximumLengthName, CREATED_AT);
+
+        assertThat(tenant.displayName()).isEqualTo(maximumLengthName);
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.create(
+                new TenantId(UUID.randomUUID()), "😀".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH + 1), CREATED_AT
+        ));
+    }
+
+    @Test
     void allowsTheTenantLifecycleTransitions() {
         Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "Workspace", CREATED_AT);
         Instant suspendedAt = CREATED_AT.plusSeconds(60);

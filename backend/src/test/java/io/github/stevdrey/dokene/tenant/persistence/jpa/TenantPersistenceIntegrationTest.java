@@ -141,6 +141,17 @@ class TenantPersistenceIntegrationTest {
     }
 
     @Test
+    void persistsDisplayNamesAtTheUnicodeCodePointLimit() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        String displayName = "😀".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH);
+
+        Tenant persistedTenant = tenantRepository.save(Tenant.create(TenantId.random(), displayName, createdAt));
+
+        assertThat(persistedTenant.displayName()).isEqualTo(displayName);
+        assertThat(tenantRepository.findById(persistedTenant.id()).orElseThrow().displayName()).isEqualTo(displayName);
+    }
+
+    @Test
     void rejectsStaleMembershipUpdatesAfterRevocation() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = persistTenant("Workspace", createdAt);
