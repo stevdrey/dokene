@@ -42,6 +42,8 @@ dependencyCheck {
     failBuildOnCVSS = 7.0
     failOnError = true
     formats = ['HTML', 'JSON']
+    suppressionFile = 'config/dependency-check-suppressions.xml'
+    data.directory = "${gradle.gradleUserHomeDir}/dependency-check-data"
 
     if (nvdApiKey) {
         nvd.apiKey = nvdApiKey
