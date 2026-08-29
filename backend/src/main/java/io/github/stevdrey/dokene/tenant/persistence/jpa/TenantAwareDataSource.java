@@ -55,8 +55,8 @@ public class TenantAwareDataSource extends DelegatingDataSource {
 
         private final Connection target;
         private final TenantContextProvider tenantContextProvider;
-        private UUID currentAppliedTenantId;
-        private boolean sessionSettingActive;
+        private UUID appliedTransactionTenantId;
+        private UUID appliedSessionTenantId;
 
         TenantAwareConnectionInvocationHandler(Connection target, TenantContextProvider tenantContextProvider) {
             this.target = target;
@@ -103,15 +103,20 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     boolean autoCommit = (boolean) args[0];
                     target.setAutoCommit(autoCommit);
                     if (!autoCommit) {
+                        resetSessionSettingIfNecessary();
                         applyTenantContext(true);
+                    } else {
+                        appliedTransactionTenantId = null;
                     }
                     return null;
                 }
                 case "commit", "rollback" -> {
                     try {
                         return method.invoke(target, args);
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
                     } finally {
-                        currentAppliedTenantId = null;
+                        appliedTransactionTenantId = null;
                     }
                 }
                 case "createStatement", "prepareStatement", "prepareCall" -> {
@@ -141,52 +146,60 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             Optional<TenantId> activeTenant = tenantContextProvider.currentTenantId();
             UUID targetTenantId = activeTenant.map(TenantId::value).orElse(null);
 
-            if (Objects.equals(currentAppliedTenantId, targetTenantId)) {
-                return;
-            }
+            if (inTransaction) {
+                resetSessionSettingIfNecessary();
 
-            if (targetTenantId != null) {
-                if (inTransaction) {
+                if (Objects.equals(appliedTransactionTenantId, targetTenantId)) {
+                    return;
+                }
+
+                if (targetTenantId != null) {
                     try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, ?, true)")) {
                         statement.setString(1, SETTING_NAME);
                         statement.setString(2, targetTenantId.toString());
                         statement.execute();
                     }
-                    currentAppliedTenantId = targetTenantId;
+                    appliedTransactionTenantId = targetTenantId;
                 } else {
+                    try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, '', true)")) {
+                        statement.setString(1, SETTING_NAME);
+                        statement.execute();
+                    }
+                    appliedTransactionTenantId = null;
+                }
+            } else {
+                if (Objects.equals(appliedSessionTenantId, targetTenantId)) {
+                    return;
+                }
+
+                if (targetTenantId != null) {
                     try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, ?, false)")) {
                         statement.setString(1, SETTING_NAME);
                         statement.setString(2, targetTenantId.toString());
                         statement.execute();
                     }
-                    currentAppliedTenantId = targetTenantId;
-                    sessionSettingActive = true;
-                }
-            } else {
-                if (inTransaction) {
-                    try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, '', true)")) {
-                        statement.setString(1, SETTING_NAME);
-                        statement.execute();
-                    }
-                    currentAppliedTenantId = null;
-                } else if (sessionSettingActive) {
+                    appliedSessionTenantId = targetTenantId;
+                } else {
                     resetSessionSettingIfNecessary();
                 }
             }
         }
 
-        private void resetSessionSettingIfNecessary() {
-            if (sessionSettingActive) {
+        private void resetSessionSettingIfNecessary() throws SQLException {
+            if (appliedSessionTenantId != null) {
                 try {
                     if (!target.isClosed()) {
                         try (Statement statement = target.createStatement()) {
                             statement.execute("RESET " + SETTING_NAME);
                         }
                     }
-                } catch (SQLException ignored) {
-                } finally {
-                    sessionSettingActive = false;
-                    currentAppliedTenantId = null;
+                    appliedSessionTenantId = null;
+                } catch (SQLException exception) {
+                    try {
+                        target.abort(Runnable::run);
+                    } catch (Throwable ignored) {
+                    }
+                    throw exception;
                 }
             }
         }

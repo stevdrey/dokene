@@ -667,6 +667,35 @@ class TenantPersistenceIntegrationTest {
                 .hasMessageContaining("row-level security policy");
     }
 
+    @Test
+    void clearsSessionTenantSettingWhenEnteringTransactionsAndFailsClosedAfterward() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        // Step 1: Run in auto-commit mode under Tenant A
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            List<UUID> ids = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+            assertThat(ids).containsExactly(membershipA.id().value());
+        });
+
+        // Step 2: Run in transaction mode under Tenant A and commit
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            executeInTransaction(() -> {
+                List<UUID> ids = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+                assertThat(ids).containsExactly(membershipA.id().value());
+            });
+        });
+
+        // Step 3: Run without tenant context in auto-commit mode -> must fail closed (0 rows, no leakage)
+        List<UUID> unscopedIds = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+        assertThat(unscopedIds).isEmpty();
+    }
+
     private Tenant persistTenant(String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         tenantRepository.save(tenant);
