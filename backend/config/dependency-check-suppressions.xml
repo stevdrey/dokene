@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd
+                                  https://dependency-check.github.io/DependencyCheck/dependency-suppression.1.4.xsd">
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+        CVE-2026-66299 affects the Apache Tomcat WebSocket chat example application because it uses an
+        unbounded buffer for undelivered messages. Dokene uses Spring Boot's embedded Tomcat and does
+        not package or deploy Tomcat's examples web application. Apache explicitly states that users
+        without the examples web application are not affected. Remove this suppression once Spring
+        Boot manages Tomcat 11.0.25 or later.
+        ]]></notes>
+        <packageUrl>pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@11.0.24</packageUrl>
+        <cve>CVE-2026-66299</cve>
+    </suppress>
+    <suppress until="2026-10-01Z">
+        <notes><![CDATA[
+        CVE-2026-66299 affects the Apache Tomcat WebSocket chat example application because it uses an
+        unbounded buffer for undelivered messages. Dokene uses Spring Boot's embedded Tomcat and does
+        not package or deploy Tomcat's examples web application. Apache explicitly states that users
+        without the examples web application are not affected. Remove this suppression once Spring
+        Boot manages Tomcat 11.0.25 or later.
+        ]]></notes>
+        <packageUrl>pkg:maven/org.apache.tomcat.embed/tomcat-embed-websocket@11.0.24</packageUrl>
+        <cve>CVE-2026-66299</cve>
+    </suppress>
+</suppressions>
