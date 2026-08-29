@@ -2,15 +2,18 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: dokene
-      POSTGRES_USER: dokene
-      POSTGRES_PASSWORD: dokene_dev_only
+      POSTGRES_DB: ${DOKENE_DB_NAME:?Set DOKENE_DB_NAME in .env}
+      POSTGRES_USER: ${DOKENE_DB_BOOTSTRAP_USERNAME:?Set DOKENE_DB_BOOTSTRAP_USERNAME in .env}
+      POSTGRES_PASSWORD: ${DOKENE_DB_BOOTSTRAP_PASSWORD:?Set DOKENE_DB_BOOTSTRAP_PASSWORD in .env}
+      DOKENE_DB_MIGRATION_PASSWORD: ${DOKENE_DB_MIGRATION_PASSWORD:?Set DOKENE_DB_MIGRATION_PASSWORD in .env}
+      DOKENE_DB_RUNTIME_PASSWORD: ${DOKENE_DB_RUNTIME_PASSWORD:?Set DOKENE_DB_RUNTIME_PASSWORD in .env}
     ports:
       - "5432:5432"
     volumes:
       - dokene-postgres:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dokene -d dokene"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 10

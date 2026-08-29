@@ -2,16 +2,29 @@ spring:
   application:
     name: dokene
   datasource:
-    url: ${DOKENE_DB_URL:jdbc:postgresql://localhost:5432/dokene}
-    username: ${DOKENE_DB_USERNAME:dokene}
-    password: ${DOKENE_DB_PASSWORD:dokene_dev_only}
+    url: ${DOKENE_DB_URL}
+    username: ${DOKENE_DB_USERNAME}
+    password: ${DOKENE_DB_PASSWORD}
+    hikari:
+      connection-init-sql: SET search_path TO dokene
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: dokene
   flyway:
-    # Issue #7 enables Flyway with separate migration credentials.
-    enabled: false
+    enabled: true
+    url: ${DOKENE_DB_URL}
+    user: ${DOKENE_DB_MIGRATION_USERNAME}
+    password: ${DOKENE_DB_MIGRATION_PASSWORD}
+    schemas: dokene
+    default-schema: dokene
+    create-schemas: true
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
 
 server:
   shutdown: graceful
