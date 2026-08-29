@@ -11,10 +11,17 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +42,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Testcontainers
 class TenantPersistenceIntegrationTest {
 
+    private static final String MIGRATION_ROLE = "dokene_migration";
+    private static final String RUNTIME_ROLE = "dokene_runtime";
+    private static final String MIGRATION_PASSWORD = "migration-" + UUID.randomUUID();
+    private static final String RUNTIME_PASSWORD = "runtime-" + UUID.randomUUID();
+
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
 
@@ -50,12 +62,74 @@ class TenantPersistenceIntegrationTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private Flyway flyway;
+
     @DynamicPropertySource
-    static void configureDataSource(DynamicPropertyRegistry registry) {
+    static void configureDataSource(DynamicPropertyRegistry registry) throws SQLException {
+        POSTGRES.start();
+        createDatabaseRoles();
+
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.flyway.enabled", () -> true);
+        registry.add("spring.datasource.username", () -> RUNTIME_ROLE);
+        registry.add("spring.datasource.password", () -> RUNTIME_PASSWORD);
+        registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
+        registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
+    }
+
+    @Test
+    void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
+                String.class
+        )).containsExactly("tenant_memberships", "tenants");
+        assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("tenant_memberships")).isEqualTo(MIGRATION_ROLE);
+
+        Map<String, Object> runtimeRole = jdbcTemplate.queryForMap("""
+                SELECT rolbypassrls, rolsuper, rolcreaterole, rolcreatedb
+                FROM pg_roles
+                WHERE rolname = 'dokene_runtime'
+                """);
+        assertThat(runtimeRole)
+                .containsEntry("rolbypassrls", false)
+                .containsEntry("rolsuper", false)
+                .containsEntry("rolcreaterole", false)
+                .containsEntry("rolcreatedb", false);
+
+        assertThatThrownBy(() -> executeAsRuntime("CREATE TABLE dokene.runtime_ddl_denied (id INTEGER)"))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> executeAsRuntime("ALTER TABLE dokene.tenants ADD COLUMN runtime_ddl_denied BOOLEAN"))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> executeAsRuntime("DROP TABLE dokene.tenants"))
+                .isInstanceOf(SQLException.class);
+        assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
+    }
+
+    @Test
+    void rejectsUnexpectedNonEmptySchemasWithoutBaseliningThem() throws SQLException {
+        String unexpectedSchema = "unexpected_schema";
+        try {
+            executeAsMigration("CREATE SCHEMA " + unexpectedSchema);
+            executeAsMigration("CREATE TABLE " + unexpectedSchema + ".legacy_table (id INTEGER PRIMARY KEY)");
+
+            Flyway unexpectedFlyway = Flyway.configure()
+                    .dataSource(POSTGRES.getJdbcUrl(), MIGRATION_ROLE, MIGRATION_PASSWORD)
+                    .schemas(unexpectedSchema)
+                    .defaultSchema(unexpectedSchema)
+                    .createSchemas(true)
+                    .baselineOnMigrate(false)
+                    .cleanDisabled(true)
+                    .load();
+
+            assertThatThrownBy(unexpectedFlyway::migrate)
+                    .isInstanceOf(FlywayException.class)
+                    .hasMessageContaining("non-empty schema");
+        } finally {
+            executeAsMigration("DROP SCHEMA IF EXISTS " + unexpectedSchema + " CASCADE");
+        }
     }
 
     @Test
@@ -498,5 +572,46 @@ class TenantPersistenceIntegrationTest {
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return transactionTemplate;
+    }
+
+    private static void createDatabaseRoles() throws SQLException {
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE ROLE dokene_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
+                    PASSWORD '%s'
+                    """.formatted(MIGRATION_PASSWORD));
+            statement.execute("""
+                    CREATE ROLE dokene_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
+                    PASSWORD '%s'
+                    """.formatted(RUNTIME_PASSWORD));
+            statement.execute("REVOKE ALL ON DATABASE %s FROM PUBLIC".formatted(POSTGRES.getDatabaseName()));
+            statement.execute("GRANT CONNECT, CREATE ON DATABASE %s TO dokene_migration".formatted(POSTGRES.getDatabaseName()));
+            statement.execute("GRANT CONNECT ON DATABASE %s TO dokene_runtime".formatted(POSTGRES.getDatabaseName()));
+            statement.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
+        }
+    }
+
+    private String tableOwner(String tableName) {
+        return jdbcTemplate.queryForObject(
+                "SELECT tableowner FROM pg_tables WHERE schemaname = 'dokene' AND tablename = ?",
+                String.class,
+                tableName
+        );
+    }
+
+    private void executeAsRuntime(String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), RUNTIME_ROLE, RUNTIME_PASSWORD);
+                Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    private void executeAsMigration(String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), MIGRATION_ROLE, MIGRATION_PASSWORD);
+                Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
     }
 }

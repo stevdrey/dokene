@@ -1,5 +1,4 @@
--- Test-only schema fixture. Issue #7 owns the production Flyway baseline and database-role separation.
-CREATE TABLE tenants (
+CREATE TABLE dokene.tenants (
     id UUID PRIMARY KEY,
     display_name VARCHAR(160) NOT NULL,
     status VARCHAR(16) NOT NULL,
@@ -13,7 +12,7 @@ CREATE TABLE tenants (
     CONSTRAINT ck_tenants_updated_at_not_before_created_at CHECK (updated_at >= created_at)
 );
 
-CREATE TABLE tenant_memberships (
+CREATE TABLE dokene.tenant_memberships (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
     identity_id UUID NOT NULL,
@@ -23,9 +22,15 @@ CREATE TABLE tenant_memberships (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT fk_tenant_memberships_tenant
-        FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE RESTRICT,
+        FOREIGN KEY (tenant_id) REFERENCES dokene.tenants (id) ON DELETE RESTRICT,
     CONSTRAINT uq_tenant_memberships_tenant_identity UNIQUE (tenant_id, identity_id),
     CONSTRAINT ck_tenant_memberships_role CHECK (role IN ('OWNER', 'ADMIN', 'OPERATOR', 'VIEWER')),
     CONSTRAINT ck_tenant_memberships_status CHECK (status IN ('INVITED', 'ACTIVE', 'SUSPENDED', 'REVOKED')),
     CONSTRAINT ck_tenant_memberships_updated_at_not_before_created_at CHECK (updated_at >= created_at)
 );
+
+REVOKE ALL ON SCHEMA dokene FROM PUBLIC;
+REVOKE ALL ON TABLE dokene.tenants, dokene.tenant_memberships FROM PUBLIC;
+
+GRANT USAGE ON SCHEMA dokene TO dokene_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE dokene.tenants, dokene.tenant_memberships TO dokene_runtime;
