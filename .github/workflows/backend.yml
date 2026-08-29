@@ -27,4 +27,4 @@ jobs:
           distribution: temurin
           java-version: '26'
       - uses: gradle/actions/setup-gradle@v6
-      - run: gradle test
+      - run: ./gradlew test

@@ -47,7 +47,7 @@ jobs:
 
       - name: Build backend for CodeQL
         if: matrix.language == 'java-kotlin'
-        run: gradle -p backend classes
+        run: ./backend/gradlew -p backend classes
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
