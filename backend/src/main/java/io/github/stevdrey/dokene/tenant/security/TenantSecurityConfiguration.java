@@ -10,17 +10,30 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 
+import org.springframework.security.web.util.matcher.RequestMatcher;
+
 @Configuration
 @ConditionalOnWebApplication(type = Type.SERVLET)
 class TenantSecurityConfiguration {
 
     @Bean
+    TenantScopedRequestMatcher tenantScopedRequestMatcher() {
+        return new TenantScopedRequestMatcher();
+    }
+
+    @Bean
     TenantContextRequestFilter tenantContextRequestFilter(
             TenantContextProvider tenantContexts,
             TenantContextResolver tenantContextResolver,
-            AuthenticatedTenantIdentityResolver identityResolver
+            AuthenticatedTenantIdentityResolver identityResolver,
+            RequestMatcher tenantScopedRequestMatcher
     ) {
-        return new TenantContextRequestFilter(tenantContexts, tenantContextResolver, identityResolver);
+        return new TenantContextRequestFilter(
+                tenantContexts,
+                tenantContextResolver,
+                identityResolver,
+                tenantScopedRequestMatcher
+        );
     }
 
     @Bean

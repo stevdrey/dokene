@@ -4,7 +4,6 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
-import io.github.stevdrey.dokene.tenant.application.TenantContextScope;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,6 +16,7 @@ import java.util.UUID;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -29,15 +29,18 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
     private final TenantContextProvider tenantContexts;
     private final TenantContextResolver tenantContextResolver;
     private final AuthenticatedTenantIdentityResolver identityResolver;
+    private final RequestMatcher tenantScopedRequestMatcher;
 
     TenantContextRequestFilter(
             TenantContextProvider tenantContexts,
             TenantContextResolver tenantContextResolver,
-            AuthenticatedTenantIdentityResolver identityResolver
+            AuthenticatedTenantIdentityResolver identityResolver,
+            RequestMatcher tenantScopedRequestMatcher
     ) {
         this.tenantContexts = tenantContexts;
         this.tenantContextResolver = tenantContextResolver;
         this.identityResolver = identityResolver;
+        this.tenantScopedRequestMatcher = tenantScopedRequestMatcher;
     }
 
     @Override
@@ -48,6 +51,11 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!isAuthenticated(authentication)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (!tenantScopedRequestMatcher.matches(request)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -72,8 +80,15 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
                     identityResolver.resolve(authentication).orElseThrow(TenantContextAuthorizationException::new),
                     requestedTenantId
             );
-            try (TenantContextScope ignored = tenantContexts.establish(tenantContext)) {
-                filterChain.doFilter(request, response);
+            try {
+                tenantContexts.callWithContext(tenantContext, () -> {
+                    filterChain.doFilter(request, response);
+                    return null;
+                });
+            } catch (ServletException | IOException | RuntimeException | Error exception) {
+                throw exception;
+            } catch (Exception exception) {
+                throw new ServletException(exception);
             }
         } catch (TenantContextAuthorizationException exception) {
             response.sendError(HttpServletResponse.SC_FORBIDDEN);
