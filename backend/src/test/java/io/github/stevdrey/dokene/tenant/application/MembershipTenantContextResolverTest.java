@@ -24,8 +24,9 @@ class MembershipTenantContextResolverTest {
 
     private final TenantRepository tenantRepository = Mockito.mock(TenantRepository.class);
     private final TenantMembershipRepository membershipRepository = Mockito.mock(TenantMembershipRepository.class);
+    private final ScopedValueTenantContextProvider tenantContextProvider = new ScopedValueTenantContextProvider();
     private final MembershipTenantContextResolver resolver = new MembershipTenantContextResolver(
-            tenantRepository, membershipRepository
+            tenantRepository, membershipRepository, tenantContextProvider
     );
 
     @Test

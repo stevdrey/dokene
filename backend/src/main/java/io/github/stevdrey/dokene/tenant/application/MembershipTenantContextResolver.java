@@ -15,13 +15,16 @@ public class MembershipTenantContextResolver implements TenantContextResolver {
 
     private final TenantRepository tenantRepository;
     private final TenantMembershipRepository membershipRepository;
+    private final TenantContextProvider tenantContextProvider;
 
     public MembershipTenantContextResolver(
             TenantRepository tenantRepository,
-            TenantMembershipRepository membershipRepository
+            TenantMembershipRepository membershipRepository,
+            TenantContextProvider tenantContextProvider
     ) {
         this.tenantRepository = tenantRepository;
         this.membershipRepository = membershipRepository;
+        this.tenantContextProvider = tenantContextProvider;
     }
 
     @Override
@@ -29,9 +32,12 @@ public class MembershipTenantContextResolver implements TenantContextResolver {
         Tenant tenant = tenantRepository.findById(requestedTenantId)
                 .filter(candidate -> candidate.status() == TenantStatus.ACTIVE)
                 .orElseThrow(TenantContextAuthorizationException::new);
-        TenantMembership membership = membershipRepository.findByTenantIdAndIdentityId(tenant.id(), identityId)
-                .filter(candidate -> candidate.status() == TenantMembershipStatus.ACTIVE)
-                .orElseThrow(TenantContextAuthorizationException::new);
+        TenantMembership membership = tenantContextProvider.callWithTenantId(
+                tenant.id(),
+                () -> membershipRepository.findByTenantIdAndIdentityId(tenant.id(), identityId)
+                        .filter(candidate -> candidate.status() == TenantMembershipStatus.ACTIVE)
+                        .orElseThrow(TenantContextAuthorizationException::new)
+        );
 
         return new TenantContext(tenant.id(), identityId, membership.id(), membership.role());
     }

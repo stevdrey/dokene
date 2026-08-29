@@ -4,13 +4,23 @@
 Accepted
 
 ## Decision
-Tenant-scoped tables will use PostgreSQL Row Level Security as defense in depth in addition to application-level tenant filtering.
+Tenant-scoped tables use PostgreSQL Row Level Security (RLS) as a mandatory second isolation boundary in addition to application-level tenant filtering.
 
 ## Policy model
-Each request or transaction establishes an application-controlled tenant context. RLS policies restrict visible rows to that tenant.
+Each request or transaction establishes an application-controlled tenant context. The application propagates the trusted server-derived tenant identifier to PostgreSQL via the transaction-local configuration parameter `dokene.current_tenant_id` using `SELECT set_config('dokene.current_tenant_id', ?, true)`.
+
+RLS policies on protected tables restrict visible rows to that tenant and reject writes or reassignments to other tenants.
 
 ## Rules
-- Application runtime roles must not bypass RLS.
-- Migration credentials are separate from runtime credentials.
-- Cross-tenant isolation tests are mandatory for tenant-scoped resources.
-- RLS does not replace authorization checks in application code.
+- Protected tenant-scoped tables must enable RLS with `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` to prevent accidental owner bypass.
+- Explicit policies must be defined for `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rather than relying on permissive defaults:
+  - `SELECT`: `USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid)`
+  - `INSERT`: `WITH CHECK (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid)`
+  - `UPDATE`: `USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid)`
+  - `DELETE`: `USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid)`
+- Missing or empty database tenant context evaluates to `NULL`, failing closed (zero read access and rejection of writes).
+- Application runtime role (`dokene_runtime`) must have `NOBYPASSRLS` and must not own protected tables.
+- Migration credentials (`dokene_migration`) are strictly separated from runtime credentials.
+- Cross-tenant isolation integration tests against PostgreSQL are mandatory for all tenant-scoped resources.
+- RLS does not replace authorization checks in application code; both layers are mandatory.
+

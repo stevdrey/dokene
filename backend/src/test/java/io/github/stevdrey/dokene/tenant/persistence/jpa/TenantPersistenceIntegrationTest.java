@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -17,7 +18,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.flywaydb.core.Flyway;
@@ -30,8 +33,8 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
@@ -57,6 +60,9 @@ class TenantPersistenceIntegrationTest {
     private JpaTenantMembershipRepositoryAdapter membershipRepository;
 
     @Autowired
+    private TenantContextProvider tenantContextProvider;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -80,7 +86,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
                 String.class
@@ -99,9 +105,35 @@ class TenantPersistenceIntegrationTest {
                 .containsEntry("rolcreaterole", false)
                 .containsEntry("rolcreatedb", false);
 
+        Map<String, Object> rlsStatus = jdbcTemplate.queryForMap("""
+                SELECT c.relrowsecurity, c.relforcerowsecurity
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'dokene' AND c.relname = 'tenant_memberships'
+                """);
+        assertThat(rlsStatus)
+                .containsEntry("relrowsecurity", true)
+                .containsEntry("relforcerowsecurity", true);
+
+        List<Map<String, Object>> policies = jdbcTemplate.queryForList("""
+                SELECT policyname, cmd, roles
+                FROM pg_policies
+                WHERE schemaname = 'dokene' AND tablename = 'tenant_memberships'
+                ORDER BY policyname
+                """);
+        assertThat(policies).hasSize(4);
+        assertThat(policies).extracting("policyname").containsExactly(
+                "tenant_memberships_delete_policy",
+                "tenant_memberships_insert_policy",
+                "tenant_memberships_select_policy",
+                "tenant_memberships_update_policy"
+        );
+
         assertThatThrownBy(() -> executeAsRuntime("CREATE TABLE dokene.runtime_ddl_denied (id INTEGER)"))
                 .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> executeAsRuntime("ALTER TABLE dokene.tenants ADD COLUMN runtime_ddl_denied BOOLEAN"))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> executeAsRuntime("ALTER TABLE dokene.tenant_memberships DISABLE ROW LEVEL SECURITY"))
                 .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> executeAsRuntime("DROP TABLE dokene.tenants"))
                 .isInstanceOf(SQLException.class);
@@ -147,12 +179,10 @@ class TenantPersistenceIntegrationTest {
                 createdAt
         );
         membership.suspend(createdAt.plusSeconds(120));
-        TenantMembership persistedMembership = membershipRepository.save(membership);
+        TenantMembership persistedMembership = saveMembership(membership);
 
         Tenant restoredTenant = tenantRepository.findById(tenant.id()).orElseThrow();
-        TenantMembership restoredMembership = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), membership.identityId())
-                .orElseThrow();
+        TenantMembership restoredMembership = findMembership(tenant.id(), membership.identityId()).orElseThrow();
 
         assertThat(restoredTenant.displayName()).isEqualTo("Main workspace");
         assertThat(restoredTenant.status()).isEqualTo(tenant.status());
@@ -175,15 +205,15 @@ class TenantPersistenceIntegrationTest {
         Tenant firstTenant = persistTenant("First workspace", createdAt);
         Tenant secondTenant = persistTenant("Second workspace", createdAt);
 
-        membershipRepository.save(TenantMembership.createActive(
+        saveMembership(TenantMembership.createActive(
                 TenantMembershipId.random(), firstTenant.id(), identityId, TenantRole.OPERATOR, createdAt
         ));
-        membershipRepository.save(TenantMembership.createActive(
+        saveMembership(TenantMembership.createActive(
                 TenantMembershipId.random(), secondTenant.id(), identityId, TenantRole.OPERATOR, createdAt
         ));
 
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(firstTenant.id(), identityId)).isPresent();
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(secondTenant.id(), identityId)).isPresent();
+        assertThat(findMembership(firstTenant.id(), identityId)).isPresent();
+        assertThat(findMembership(secondTenant.id(), identityId)).isPresent();
     }
 
     @Test
@@ -192,11 +222,11 @@ class TenantPersistenceIntegrationTest {
         Tenant tenant = persistTenant("Workspace", createdAt);
         IdentityId identityId = new IdentityId(UUID.randomUUID());
 
-        membershipRepository.save(TenantMembership.createActive(
+        saveMembership(TenantMembership.createActive(
                 TenantMembershipId.random(), tenant.id(), identityId, TenantRole.OPERATOR, createdAt
         ));
 
-        assertThatThrownBy(() -> membershipRepository.save(TenantMembership.createActive(
+        assertThatThrownBy(() -> saveMembership(TenantMembership.createActive(
                 TenantMembershipId.random(), tenant.id(), identityId, TenantRole.VIEWER, createdAt
         ))).isInstanceOf(DataIntegrityViolationException.class);
     }
@@ -205,7 +235,7 @@ class TenantPersistenceIntegrationTest {
     void rejectsMembershipsForUnknownTenants() {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
 
-        assertThatThrownBy(() -> membershipRepository.save(TenantMembership.createActive(
+        assertThatThrownBy(() -> saveMembership(TenantMembership.createActive(
                 TenantMembershipId.random(), TenantId.random(), new IdentityId(UUID.randomUUID()),
                 TenantRole.OPERATOR, createdAt
         ))).isInstanceOf(DataIntegrityViolationException.class);
@@ -246,12 +276,10 @@ class TenantPersistenceIntegrationTest {
                 TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
         );
         membership.suspend(membershipUpdatedAt);
-        TenantMembership persistedMembership = membershipRepository.save(membership);
+        TenantMembership persistedMembership = saveMembership(membership);
 
         Tenant restoredTenant = tenantRepository.findById(tenant.id()).orElseThrow();
-        TenantMembership restoredMembership = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), membership.identityId())
-                .orElseThrow();
+        TenantMembership restoredMembership = findMembership(tenant.id(), membership.identityId()).orElseThrow();
 
         assertThat(persistedTenant).isSameAs(tenant);
         assertThat(tenant.createdAt()).isEqualTo(Instant.parse("2026-08-23T00:00:00.123457Z"));
@@ -292,18 +320,18 @@ class TenantPersistenceIntegrationTest {
                 TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
         );
 
-        membershipRepository.save(membership);
+        saveMembership(membership);
         assertThat(membership.revision()).hasValue(0);
 
         membership.suspend(createdAt.plusSeconds(60));
-        membershipRepository.save(membership);
+        saveMembership(membership);
         assertThat(membership.revision()).hasValue(1);
 
         membership.revoke(createdAt.plusSeconds(120));
-        membershipRepository.save(membership);
+        saveMembership(membership);
 
         assertThat(membership.revision()).hasValue(2);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), membership.identityId()).orElseThrow().status())
+        assertThat(findMembership(tenant.id(), membership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.REVOKED);
     }
 
@@ -315,29 +343,23 @@ class TenantPersistenceIntegrationTest {
         TenantMembership membership = TenantMembership.createActive(
                 TenantMembershipId.random(), tenant.id(), identityId, TenantRole.VIEWER, createdAt
         );
-        membershipRepository.save(membership);
+        saveMembership(membership);
 
         membership.changeRole(TenantRole.OPERATOR, createdAt.plusSeconds(60));
-        membershipRepository.save(membership);
+        saveMembership(membership);
 
-        TenantMembership winningCopy = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), identityId)
-                .orElseThrow();
-        TenantMembership staleCopy = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), identityId)
-                .orElseThrow();
+        TenantMembership winningCopy = findMembership(tenant.id(), identityId).orElseThrow();
+        TenantMembership staleCopy = findMembership(tenant.id(), identityId).orElseThrow();
 
         winningCopy.changeRole(TenantRole.ADMIN, createdAt.plusSeconds(120));
-        membershipRepository.save(winningCopy);
+        saveMembership(winningCopy);
 
         staleCopy.changeRole(TenantRole.OWNER, createdAt.plusSeconds(180));
 
-        assertThatThrownBy(() -> membershipRepository.save(staleCopy))
+        assertThatThrownBy(() -> saveMembership(staleCopy))
                 .isInstanceOf(OptimisticLockingFailureException.class);
 
-        TenantMembership restoredMembership = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), identityId)
-                .orElseThrow();
+        TenantMembership restoredMembership = findMembership(tenant.id(), identityId).orElseThrow();
         assertThat(restoredMembership.role()).isEqualTo(TenantRole.ADMIN);
         assertThat(restoredMembership.updatedAt()).isEqualTo(createdAt.plusSeconds(120));
         assertThat(restoredMembership.revision()).hasValue(2);
@@ -384,39 +406,39 @@ class TenantPersistenceIntegrationTest {
         TenantMembership existingMembership = TenantMembership.createActive(
                 TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
         );
-        membershipRepository.save(existingMembership);
+        saveMembership(existingMembership);
         TenantMembership newMembership = TenantMembership.createActive(
                 TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.VIEWER, createdAt
         );
 
         executeAndRollBack(() -> {
             existingMembership.suspend(createdAt.plusSeconds(60));
-            membershipRepository.save(existingMembership);
+            saveMembership(existingMembership);
             assertThat(existingMembership.revision()).hasValue(1);
 
             existingMembership.activate(createdAt.plusSeconds(120));
-            membershipRepository.save(existingMembership);
+            saveMembership(existingMembership);
             assertThat(existingMembership.revision()).hasValue(2);
 
-            membershipRepository.save(newMembership);
+            saveMembership(newMembership);
             assertThat(newMembership.revision()).hasValue(0);
         });
 
         assertThat(existingMembership.revision()).hasValue(0);
         assertThat(newMembership.revision()).isEmpty();
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), existingMembership.identityId()).orElseThrow().status())
+        assertThat(findMembership(tenant.id(), existingMembership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.ACTIVE);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), newMembership.identityId())).isEmpty();
+        assertThat(findMembership(tenant.id(), newMembership.identityId())).isEmpty();
 
         existingMembership.suspend(createdAt.plusSeconds(180));
-        membershipRepository.save(existingMembership);
-        membershipRepository.save(newMembership);
+        saveMembership(existingMembership);
+        saveMembership(newMembership);
 
         assertThat(existingMembership.revision()).hasValue(1);
         assertThat(newMembership.revision()).hasValue(0);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), existingMembership.identityId()).orElseThrow().status())
+        assertThat(findMembership(tenant.id(), existingMembership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.SUSPENDED);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), newMembership.identityId())).isPresent();
+        assertThat(findMembership(tenant.id(), newMembership.identityId())).isPresent();
     }
 
     @Test
@@ -433,7 +455,7 @@ class TenantPersistenceIntegrationTest {
             assertThat(outerTenant.revision()).hasValue(1);
 
             executeRequiresNewAndRollBack(() -> {
-                membershipRepository.save(rolledBackMembership);
+                saveMembership(rolledBackMembership);
                 assertThat(rolledBackMembership.revision()).hasValue(0);
             });
 
@@ -442,12 +464,12 @@ class TenantPersistenceIntegrationTest {
 
         assertThat(outerTenant.revision()).hasValue(1);
         assertThat(tenantRepository.findById(outerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(outerTenant.id(), rolledBackMembership.identityId())).isEmpty();
+        assertThat(findMembership(outerTenant.id(), rolledBackMembership.identityId())).isEmpty();
 
-        membershipRepository.save(rolledBackMembership);
+        saveMembership(rolledBackMembership);
 
         assertThat(rolledBackMembership.revision()).hasValue(0);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(outerTenant.id(), rolledBackMembership.identityId())).isPresent();
+        assertThat(findMembership(outerTenant.id(), rolledBackMembership.identityId())).isPresent();
     }
 
     @Test
@@ -457,12 +479,12 @@ class TenantPersistenceIntegrationTest {
         TenantMembership outerMembership = TenantMembership.createActive(
                 TenantMembershipId.random(), membershipTenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
         );
-        membershipRepository.save(outerMembership);
+        saveMembership(outerMembership);
         Tenant innerTenant = persistTenant("Inner workspace", createdAt);
 
         executeAndRollBack(() -> {
             outerMembership.suspend(createdAt.plusSeconds(60));
-            membershipRepository.save(outerMembership);
+            saveMembership(outerMembership);
             assertThat(outerMembership.revision()).hasValue(1);
 
             executeRequiresNew(() -> {
@@ -475,7 +497,7 @@ class TenantPersistenceIntegrationTest {
         });
 
         assertThat(outerMembership.revision()).hasValue(0);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(membershipTenant.id(), outerMembership.identityId()).orElseThrow().status())
+        assertThat(findMembership(membershipTenant.id(), outerMembership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.ACTIVE);
         assertThat(innerTenant.revision()).hasValue(1);
         assertThat(tenantRepository.findById(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
@@ -496,23 +518,19 @@ class TenantPersistenceIntegrationTest {
                 TenantMembershipId.random(), tenant.id(), identityId, TenantRole.OPERATOR, createdAt
         );
         membership.suspend(createdAt.plusSeconds(60));
-        membershipRepository.save(membership);
+        saveMembership(membership);
 
-        TenantMembership revocationCopy = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), identityId)
-                .orElseThrow();
-        TenantMembership staleActivationCopy = membershipRepository
-                .findByTenantIdAndIdentityId(tenant.id(), identityId)
-                .orElseThrow();
+        TenantMembership revocationCopy = findMembership(tenant.id(), identityId).orElseThrow();
+        TenantMembership staleActivationCopy = findMembership(tenant.id(), identityId).orElseThrow();
 
         revocationCopy.revoke(createdAt.plusSeconds(120));
-        membershipRepository.save(revocationCopy);
+        saveMembership(revocationCopy);
 
         staleActivationCopy.activate(createdAt.plusSeconds(180));
 
-        assertThatThrownBy(() -> membershipRepository.save(staleActivationCopy))
+        assertThatThrownBy(() -> saveMembership(staleActivationCopy))
                 .isInstanceOf(OptimisticLockingFailureException.class);
-        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), identityId).orElseThrow().status())
+        assertThat(findMembership(tenant.id(), identityId).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.REVOKED);
     }
 
@@ -536,10 +554,134 @@ class TenantPersistenceIntegrationTest {
         assertThat(tenantRepository.findById(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ARCHIVED);
     }
 
+    @Test
+    void enforcesTenantIsolationAtTheDatabaseLayerWithRowLevelSecurity() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.OPERATOR, createdAt
+        );
+
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+
+        // Within Tenant A context:
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            // 1. SELECT query deliberately omitting WHERE tenant_id clause returns ONLY Tenant A rows
+            List<UUID> visibleIds = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+            assertThat(visibleIds).containsExactly(membershipA.id().value());
+
+            // 2. Cannot find Tenant B membership via repository lookup
+            assertThat(membershipRepository.findByTenantIdAndIdentityId(tenantB.id(), identityB)).isEmpty();
+
+            // 3. Unscoped UPDATE affects only Tenant A rows
+            int updatedRows = jdbcTemplate.update("UPDATE tenant_memberships SET role = 'VIEWER'");
+            assertThat(updatedRows).isEqualTo(1);
+
+            // 4. Unscoped DELETE affects only Tenant A rows
+            int deletedRows = jdbcTemplate.update("DELETE FROM tenant_memberships");
+            assertThat(deletedRows).isEqualTo(1);
+        });
+
+        // Within Tenant B context: verify Tenant B membership was completely unaffected by Tenant A's operations
+        tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+            TenantMembership restoredB = findMembership(tenantB.id(), identityB).orElseThrow();
+            assertThat(restoredB.role()).isEqualTo(TenantRole.OPERATOR);
+            assertThat(restoredB.id()).isEqualTo(membershipB.id());
+
+            List<UUID> visibleIdsB = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+            assertThat(visibleIdsB).containsExactly(membershipB.id().value());
+        });
+    }
+
+    @Test
+    void blocksCrossTenantInsertsAndReassignmentsAtTheDatabaseLayer() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            // Attempt to insert row for Tenant B while in Tenant A context fails closed via RLS WITH CHECK
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "INSERT INTO tenant_memberships (id, tenant_id, identity_id, role, status, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    UUID.randomUUID(), tenantB.id().value(), UUID.randomUUID(), "OPERATOR", "ACTIVE",
+                    Timestamp.from(createdAt), Timestamp.from(createdAt), 0
+            ))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause()
+                    .hasMessageContaining("row-level security policy");
+
+            // Attempt to reassign Tenant A membership to Tenant B fails closed via RLS WITH CHECK
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "UPDATE tenant_memberships SET tenant_id = ? WHERE id = ?",
+                    tenantB.id().value(), membershipA.id().value()
+            ))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause()
+                    .hasMessageContaining("row-level security policy");
+        });
+    }
+
+    @Test
+    void failsClosedWhenDatabaseTenantContextIsAbsent() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Workspace", createdAt);
+        IdentityId identity = new IdentityId(UUID.randomUUID());
+        TenantMembership membership = TenantMembership.createActive(
+                TenantMembershipId.random(), tenant.id(), identity, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membership);
+
+        // Outside of any tenant context:
+        assertThat(tenantContextProvider.currentTenantId()).isEmpty();
+
+        // 1. Reading tenant-scoped table returns 0 rows (fail closed)
+        List<UUID> visibleIds = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+        assertThat(visibleIds).isEmpty();
+
+        // 2. Repository query returns empty
+        assertThat(membershipRepository.findByTenantIdAndIdentityId(tenant.id(), identity)).isEmpty();
+
+        // 3. Inserting without tenant context fails closed
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO tenant_memberships (id, tenant_id, identity_id, role, status, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                UUID.randomUUID(), tenant.id().value(), UUID.randomUUID(), "OPERATOR", "ACTIVE",
+                Timestamp.from(createdAt), Timestamp.from(createdAt), 0
+        ))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .rootCause()
+                .hasMessageContaining("row-level security policy");
+    }
+
     private Tenant persistTenant(String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         tenantRepository.save(tenant);
         return tenant;
+    }
+
+    private TenantMembership saveMembership(TenantMembership membership) {
+        return tenantContextProvider.callWithTenantId(membership.tenantId(), () -> membershipRepository.save(membership));
+    }
+
+    private Optional<TenantMembership> findMembership(TenantId tenantId, IdentityId identityId) {
+        return tenantContextProvider.callWithTenantId(
+                tenantId,
+                () -> membershipRepository.findByTenantIdAndIdentityId(tenantId, identityId)
+        );
     }
 
     private void executeAndRollBack(Runnable action) {

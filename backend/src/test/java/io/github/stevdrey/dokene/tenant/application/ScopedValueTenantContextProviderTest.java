@@ -101,6 +101,39 @@ class ScopedValueTenantContextProviderTest {
         });
     }
 
+    @Test
+    void scopesTenantIdExplicitlyAndClearsItWhenScopeCompletes() throws Exception {
+        TenantId tenantId = TenantId.random();
+
+        assertThat(provider.currentTenantId()).isEmpty();
+
+        provider.runWithTenantId(tenantId, () -> {
+            assertThat(provider.currentTenantId()).contains(tenantId);
+            assertThat(provider.current()).isEmpty();
+        });
+
+        assertThat(provider.currentTenantId()).isEmpty();
+
+        String result = provider.callWithTenantId(tenantId, () -> {
+            assertThat(provider.currentTenantId()).contains(tenantId);
+            return "tenant-scoped";
+        });
+
+        assertThat(result).isEqualTo("tenant-scoped");
+        assertThat(provider.currentTenantId()).isEmpty();
+    }
+
+    @Test
+    void derivesTenantIdFromFullTenantContext() {
+        TenantContext context = context();
+
+        provider.runWithContext(context, () -> {
+            assertThat(provider.currentTenantId()).contains(context.tenantId());
+        });
+
+        assertThat(provider.currentTenantId()).isEmpty();
+    }
+
     private TenantContext context() {
         return new TenantContext(
                 TenantId.random(),
