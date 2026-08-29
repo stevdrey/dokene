@@ -6,6 +6,8 @@ on:
     paths:
       - 'backend/build.gradle'
       - 'backend/config/dependency-check-suppressions.xml'
+      - 'backend/gradlew'
+      - 'backend/gradlew.bat'
       - 'backend/settings.gradle'
       - 'backend/gradle/**'
       - '.github/workflows/dependency-check.yml'
@@ -14,6 +16,8 @@ on:
     paths:
       - 'backend/build.gradle'
       - 'backend/config/dependency-check-suppressions.xml'
+      - 'backend/gradlew'
+      - 'backend/gradlew.bat'
       - 'backend/settings.gradle'
       - 'backend/gradle/**'
       - '.github/workflows/dependency-check.yml'
@@ -52,7 +56,7 @@ jobs:
       - name: Run OWASP Dependency-Check
         env:
           DOKENE_NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: gradle dependencyCheckAnalyze
+        run: ./gradlew dependencyCheckAnalyze
 
       - name: Save Dependency-Check data cache
         if: always()
