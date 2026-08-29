@@ -186,7 +186,7 @@ public final class TenantMembership {
         return transitionTime;
     }
 
-    private static <T> T required(T value, String message) {
+    private <T> T required(T value, String message) {
         if (value == null) {
             throw new IllegalArgumentException(message);
         }

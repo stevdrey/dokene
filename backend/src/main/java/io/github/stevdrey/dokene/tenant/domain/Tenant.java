@@ -131,7 +131,7 @@ public final class Tenant {
         updatedAt = transitionTime;
     }
 
-    private static String normalizeDisplayName(String displayName) {
+    private String normalizeDisplayName(String displayName) {
         if (displayName == null) {
             throw new IllegalArgumentException("Tenant display name is required");
         }
@@ -167,11 +167,11 @@ public final class Tenant {
         return normalized;
     }
 
-    private static boolean isDisplayNameWhitespace(int codePoint) {
+    private boolean isDisplayNameWhitespace(int codePoint) {
         return codePoint == 0x0085 || Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
-    private static void validateUnicodeScalars(String value) {
+    private void validateUnicodeScalars(String value) {
         for (int index = 0; index < value.length(); index++) {
             char codeUnit = value.charAt(index);
             if (Character.isHighSurrogate(codeUnit)) {
@@ -185,7 +185,7 @@ public final class Tenant {
         }
     }
 
-    private static <T> T required(T value, String message) {
+    private <T> T required(T value, String message) {
         if (value == null) {
             throw new IllegalArgumentException(message);
         }
