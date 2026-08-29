@@ -23,10 +23,33 @@ External providers and all user-controlled input are treated as untrusted. The a
 ## High-level flow
 
 1. Scheduler or user requests a follow-up evaluation.
-2. Tenant context is resolved from authenticated state.
+2. An authenticated request may nominate a tenant target, but the application validates an active
+   server-side membership before creating its tenant context.
 3. Domain rules determine candidate customers.
 4. AI may recommend a bounded action using structured output.
 5. Policy and authorization layers validate the action.
 6. A message is drafted or queued for approval.
 7. The messaging provider sends only after the required approval state.
 8. Delivery results and audit events are persisted.
+
+## Tenant-context execution boundary
+
+`TenantContext` is the single application-facing source of the active tenant, authenticated
+identity, verified membership, and granted tenant role.
+
+Tenant context propagation is execution-scoped using Java `ScopedValue` (`runWithContext` /
+`callWithContext`), providing strictly bounded lifetimes and eliminating thread-leakage risks
+across reused threads.
+
+For HTTP requests:
+- **Authenticated global endpoints** (e.g., tenant discovery `GET /api/tenants`, user profile,
+  or account operations) execute without an active `TenantContext` to avoid circular dependencies
+  during tenant selection.
+- **Tenant-scoped endpoints** require an explicit, verified `TenantContext`. The `X-Tenant-Id` header
+  serves only as a requested target and must match an active server-side membership before establishing
+  the execution scope. Requests with missing, malformed, or unauthorized tenant selectors fail closed.
+
+Scheduled jobs, asynchronous tasks, and message consumers do not inherit ambient tenant context.
+Their entry points must receive a trusted `TenantContext` explicitly and scope execution with
+`runWithContext` or `callWithContext`. This keeps later PostgreSQL RLS transaction/session
+propagation tied to an explicit, validated context.
