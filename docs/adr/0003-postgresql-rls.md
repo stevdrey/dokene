@@ -7,7 +7,9 @@ Accepted
 Tenant-scoped tables use PostgreSQL Row Level Security (RLS) as a mandatory second isolation boundary in addition to application-level tenant filtering.
 
 ## Policy model
-Each request or transaction establishes an application-controlled tenant context. The application propagates the trusted server-derived tenant identifier to PostgreSQL via the transaction-local configuration parameter `dokene.current_tenant_id` using `SELECT set_config('dokene.current_tenant_id', ?, true)`.
+Each request or transaction establishes an application-controlled tenant context. The application propagates the trusted server-derived tenant identifier to PostgreSQL via the connection parameter `dokene.current_tenant_id`:
+- **Transactional operations**: propagated transaction-locally using `SELECT set_config('dokene.current_tenant_id', ?, true)`. On transaction commit or rollback, the setting expires automatically.
+- **Non-transactional (auto-commit) operations**: propagated at session scope using `SELECT set_config('dokene.current_tenant_id', ?, false)`. The session setting is explicitly cleared with `RESET dokene.current_tenant_id` before the connection is returned to the pool. If reset fails, the physical connection is aborted (`Connection.abort()`) to prevent dirty connection reuse.
 
 RLS policies on protected tables restrict visible rows to that tenant and reject writes or reassignments to other tenants.
 

@@ -102,10 +102,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 case "setAutoCommit" -> {
                     boolean autoCommit = (boolean) args[0];
                     target.setAutoCommit(autoCommit);
-                    if (!autoCommit) {
-                        resetSessionSettingIfNecessary();
-                        applyTenantContext(true);
-                    } else {
+                    if (autoCommit) {
                         appliedTransactionTenantId = null;
                     }
                     return null;
@@ -147,8 +144,6 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             UUID targetTenantId = activeTenant.map(TenantId::value).orElse(null);
 
             if (inTransaction) {
-                resetSessionSettingIfNecessary();
-
                 if (Objects.equals(appliedTransactionTenantId, targetTenantId)) {
                     return;
                 }

@@ -14,6 +14,8 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
@@ -23,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
+import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.Test;
@@ -61,6 +64,9 @@ class TenantPersistenceIntegrationTest {
 
     @Autowired
     private TenantContextProvider tenantContextProvider;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -694,6 +700,65 @@ class TenantPersistenceIntegrationTest {
         // Step 3: Run without tenant context in auto-commit mode -> must fail closed (0 rows, no leakage)
         List<UUID> unscopedIds = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
         assertThat(unscopedIds).isEmpty();
+    }
+
+    @Test
+    void clearsRestoredSessionTenantSettingAfterTransactionRollbackAndFailsClosed() {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        // Step 1: Run in auto-commit mode under Tenant A (sets session-level setting)
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            List<UUID> ids = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+            assertThat(ids).containsExactly(membershipA.id().value());
+        });
+
+        // Step 2: Run in transaction mode under Tenant A and roll back
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            executeAndRollBack(() -> {
+                List<UUID> ids = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+                assertThat(ids).containsExactly(membershipA.id().value());
+            });
+        });
+
+        // Step 3: Run without tenant context in auto-commit mode -> must fail closed (0 rows, no leakage)
+        List<UUID> unscopedIds = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+        assertThat(unscopedIds).isEmpty();
+    }
+
+    @Test
+    void allowsTransactionConfigurationAfterSetAutoCommitFalse() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            try (Connection connection = dataSource.getConnection()) {
+                // Disable auto-commit then configure transaction state before any statement
+                connection.setAutoCommit(false);
+                connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+                connection.setReadOnly(true);
+
+                try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                    try (ResultSet rs = statement.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        assertThat((UUID) rs.getObject("id")).isEqualTo(membershipA.id().value());
+                    }
+                }
+                connection.rollback();
+            } catch (SQLException exception) {
+                throw new RuntimeException(exception);
+            }
+        });
     }
 
     private Tenant persistTenant(String displayName, Instant createdAt) {
