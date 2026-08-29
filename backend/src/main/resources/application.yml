@@ -10,7 +10,8 @@ spring:
     hibernate:
       ddl-auto: validate
   flyway:
-    enabled: true
+    # Issue #7 enables Flyway with separate migration credentials.
+    enabled: false
 
 server:
   shutdown: graceful
