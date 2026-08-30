@@ -941,6 +941,107 @@ class TenantPersistenceIntegrationTest {
         }
     }
 
+    @Test
+    void resultSetGetStatementReturnsDecoratedStatementProxy() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.OPERATOR, createdAt
+        );
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+
+        try (Connection connection = dataSource.getConnection()) {
+            // Execute under Tenant A and get ResultSet
+            ResultSet resultSet = tenantContextProvider.callWithTenantId(tenantA.id(), () -> {
+                Statement statement = connection.createStatement();
+                return statement.executeQuery("SELECT id FROM tenant_memberships");
+            });
+
+            assertThat(resultSet.next()).isTrue();
+            assertThat((UUID) resultSet.getObject("id")).isEqualTo(membershipA.id().value());
+
+            // Retrieve statement from ResultSet
+            Statement statementFromResultSet = resultSet.getStatement();
+            assertThat(statementFromResultSet).isNotNull();
+            assertThat(statementFromResultSet.toString()).contains("TenantAwareStatementProxy");
+
+            // Execute query on the retrieved statement under Tenant B -> applies Tenant B context
+            tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+                try (ResultSet rsB = statementFromResultSet.executeQuery("SELECT id FROM tenant_memberships")) {
+                    assertThat(rsB.next()).isTrue();
+                    assertThat((UUID) rsB.getObject("id")).isEqualTo(membershipB.id().value());
+                } catch (SQLException exception) {
+                    throw new RuntimeException(exception);
+                }
+            });
+
+            resultSet.close();
+            statementFromResultSet.close();
+        }
+    }
+
+    @Test
+    void invalidatesTransactionContextWhenSqlTransactionCommandExecuted() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.OPERATOR, createdAt
+        );
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+
+        try (Connection connection = dataSource.getConnection()) {
+            // Step 1: Run in auto-commit mode under Tenant A -> session setting A
+            tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+                try (Statement statement = connection.createStatement()) {
+                    try (ResultSet rs = statement.executeQuery("SELECT id FROM tenant_memberships")) {
+                        assertThat(rs.next()).isTrue();
+                        assertThat((UUID) rs.getObject("id")).isEqualTo(membershipA.id().value());
+                    }
+                } catch (SQLException exception) {
+                    throw new RuntimeException(exception);
+                }
+            });
+
+            // Step 2: Under Tenant B, start transaction and execute statement (shadows session setting with B)
+            tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+                try {
+                    connection.setAutoCommit(false);
+                    try (Statement statement = connection.createStatement()) {
+                        try (ResultSet rs = statement.executeQuery("SELECT id FROM tenant_memberships")) {
+                            assertThat(rs.next()).isTrue();
+                            assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
+                        }
+
+                        // Step 3: Execute raw SQL "COMMIT" statement -> restores session setting A in PostgreSQL
+                        statement.execute("COMMIT");
+
+                        // Step 4: Execute query under Tenant B -> must reapply Tenant B setting and NOT see Tenant A
+                        try (ResultSet rs = statement.executeQuery("SELECT id FROM tenant_memberships")) {
+                            assertThat(rs.next()).isTrue();
+                            assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
+                        }
+                    }
+                } catch (SQLException exception) {
+                    throw new RuntimeException(exception);
+                }
+            });
+        }
+    }
+
     private Tenant persistTenant(String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         tenantRepository.save(tenant);

@@ -9,8 +9,10 @@ import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -104,8 +106,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 case "setAutoCommit" -> {
                     boolean autoCommit = (boolean) args[0];
                     target.setAutoCommit(autoCommit);
-                    transactionContextApplied = false;
-                    appliedTransactionTenantId = null;
+                    invalidateTransactionContext();
                     return null;
                 }
                 case "commit", "rollback" -> {
@@ -114,16 +115,28 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     } catch (InvocationTargetException exception) {
                         throw exception.getCause();
                     } finally {
-                        transactionContextApplied = false;
-                        appliedTransactionTenantId = null;
+                        invalidateTransactionContext();
                     }
                 }
-                case "createStatement", "prepareStatement", "prepareCall" -> {
+                case "createStatement" -> {
                     ensureTenantContextApplied();
                     try {
                         Object result = method.invoke(target, args);
                         if (result instanceof Statement statement) {
-                            return wrapStatement(statement, proxy);
+                            return wrapStatement(statement, proxy, null);
+                        }
+                        return result;
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                }
+                case "prepareStatement", "prepareCall" -> {
+                    ensureTenantContextApplied();
+                    try {
+                        Object result = method.invoke(target, args);
+                        String sql = args != null && args.length > 0 && args[0] instanceof String s ? s : null;
+                        if (result instanceof Statement statement) {
+                            return wrapStatement(statement, proxy, sql);
                         }
                         return result;
                     } catch (InvocationTargetException exception) {
@@ -140,7 +153,12 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             }
         }
 
-        private Statement wrapStatement(Statement targetStatement, Object connectionProxy) {
+        void invalidateTransactionContext() {
+            transactionContextApplied = false;
+            appliedTransactionTenantId = null;
+        }
+
+        private Statement wrapStatement(Statement targetStatement, Object connectionProxy, String sql) {
             Class<?>[] interfaces;
             if (targetStatement instanceof CallableStatement) {
                 interfaces = new Class<?>[]{CallableStatement.class};
@@ -152,7 +170,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             return (Statement) Proxy.newProxyInstance(
                     Statement.class.getClassLoader(),
                     interfaces,
-                    new TenantAwareStatementInvocationHandler(targetStatement, this, connectionProxy)
+                    new TenantAwareStatementInvocationHandler(targetStatement, this, connectionProxy, sql)
             );
         }
 
@@ -238,15 +256,18 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         private final Statement target;
         private final TenantAwareConnectionInvocationHandler connectionHandler;
         private final Object connectionProxy;
+        private final String preparedSql;
 
         TenantAwareStatementInvocationHandler(
                 Statement target,
                 TenantAwareConnectionInvocationHandler connectionHandler,
-                Object connectionProxy
+                Object connectionProxy,
+                String preparedSql
         ) {
             this.target = target;
             this.connectionHandler = connectionHandler;
             this.connectionProxy = connectionProxy;
+            this.preparedSql = preparedSql;
         }
 
         @Override
@@ -283,6 +304,101 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 }
                 case "toString" -> {
                     return "TenantAwareStatementProxy[" + target + "]";
+                }
+                default -> {
+                    try {
+                        Object result = method.invoke(target, args);
+                        if (methodName.startsWith("execute") && isTransactionControlCommand(args)) {
+                            connectionHandler.invalidateTransactionContext();
+                        }
+                        if (result instanceof ResultSet resultSet) {
+                            return wrapResultSet(resultSet, proxy);
+                        }
+                        return result;
+                    } catch (InvocationTargetException exception) {
+                        if (methodName.startsWith("execute") && isTransactionControlCommand(args)) {
+                            connectionHandler.invalidateTransactionContext();
+                        }
+                        throw exception.getCause();
+                    }
+                }
+            }
+        }
+
+        private boolean isTransactionControlCommand(Object[] args) {
+            String sql = null;
+            if (args != null && args.length > 0 && args[0] instanceof String directSql) {
+                sql = directSql;
+            } else if (preparedSql != null) {
+                sql = preparedSql;
+            }
+            return isTransactionControlSql(sql);
+        }
+
+        private static boolean isTransactionControlSql(String sql) {
+            if (sql == null) {
+                return false;
+            }
+            String trimmed = sql.trim().toLowerCase(Locale.ROOT);
+            return trimmed.startsWith("commit")
+                    || trimmed.startsWith("rollback")
+                    || trimmed.startsWith("begin")
+                    || trimmed.startsWith("start")
+                    || trimmed.startsWith("end")
+                    || trimmed.startsWith("abort")
+                    || trimmed.startsWith("savepoint")
+                    || trimmed.startsWith("release");
+        }
+
+        private ResultSet wrapResultSet(ResultSet targetResultSet, Object statementProxy) {
+            return (ResultSet) Proxy.newProxyInstance(
+                    ResultSet.class.getClassLoader(),
+                    new Class<?>[]{ResultSet.class},
+                    new TenantAwareResultSetInvocationHandler(targetResultSet, statementProxy)
+            );
+        }
+    }
+
+    private static final class TenantAwareResultSetInvocationHandler implements InvocationHandler {
+
+        private final ResultSet target;
+        private final Object statementProxy;
+
+        TenantAwareResultSetInvocationHandler(ResultSet target, Object statementProxy) {
+            this.target = target;
+            this.statementProxy = statementProxy;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            String methodName = method.getName();
+
+            switch (methodName) {
+                case "getStatement" -> {
+                    return statementProxy;
+                }
+                case "unwrap" -> {
+                    Class<?> iface = (Class<?>) args[0];
+                    if (iface.isInstance(proxy)) {
+                        return proxy;
+                    }
+                    if (iface.isInstance(target)) {
+                        return target;
+                    }
+                    return target.unwrap(iface);
+                }
+                case "isWrapperFor" -> {
+                    Class<?> iface = (Class<?>) args[0];
+                    return iface.isInstance(proxy) || iface.isInstance(target) || target.isWrapperFor(iface);
+                }
+                case "equals" -> {
+                    return proxy == args[0];
+                }
+                case "hashCode" -> {
+                    return System.identityHashCode(proxy);
+                }
+                case "toString" -> {
+                    return "TenantAwareResultSetProxy[" + target + "]";
                 }
                 default -> {
                     try {
