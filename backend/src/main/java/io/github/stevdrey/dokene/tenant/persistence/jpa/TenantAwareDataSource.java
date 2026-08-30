@@ -58,6 +58,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         private final TenantContextProvider tenantContextProvider;
         private UUID appliedTransactionTenantId;
         private UUID appliedSessionTenantId;
+        private boolean transactionContextApplied;
 
         TenantAwareConnectionInvocationHandler(Connection target, TenantContextProvider tenantContextProvider) {
             this.target = target;
@@ -103,9 +104,8 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 case "setAutoCommit" -> {
                     boolean autoCommit = (boolean) args[0];
                     target.setAutoCommit(autoCommit);
-                    if (autoCommit) {
-                        appliedTransactionTenantId = null;
-                    }
+                    transactionContextApplied = false;
+                    appliedTransactionTenantId = null;
                     return null;
                 }
                 case "commit", "rollback" -> {
@@ -114,6 +114,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     } catch (InvocationTargetException exception) {
                         throw exception.getCause();
                     } finally {
+                        transactionContextApplied = false;
                         appliedTransactionTenantId = null;
                     }
                 }
@@ -122,7 +123,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     try {
                         Object result = method.invoke(target, args);
                         if (result instanceof Statement statement) {
-                            return wrapStatement(statement);
+                            return wrapStatement(statement, proxy);
                         }
                         return result;
                     } catch (InvocationTargetException exception) {
@@ -139,7 +140,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             }
         }
 
-        private Statement wrapStatement(Statement targetStatement) {
+        private Statement wrapStatement(Statement targetStatement, Object connectionProxy) {
             Class<?>[] interfaces;
             if (targetStatement instanceof CallableStatement) {
                 interfaces = new Class<?>[]{CallableStatement.class};
@@ -151,7 +152,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             return (Statement) Proxy.newProxyInstance(
                     Statement.class.getClassLoader(),
                     interfaces,
-                    new TenantAwareStatementInvocationHandler(targetStatement, this)
+                    new TenantAwareStatementInvocationHandler(targetStatement, this, connectionProxy)
             );
         }
 
@@ -165,7 +166,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             UUID targetTenantId = activeTenant.map(TenantId::value).orElse(null);
 
             if (inTransaction) {
-                if (Objects.equals(appliedTransactionTenantId, targetTenantId)) {
+                if (transactionContextApplied && Objects.equals(appliedTransactionTenantId, targetTenantId)) {
                     return;
                 }
 
@@ -183,6 +184,7 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     }
                     appliedTransactionTenantId = null;
                 }
+                transactionContextApplied = true;
             } else {
                 if (Objects.equals(appliedSessionTenantId, targetTenantId)) {
                     return;
@@ -235,13 +237,16 @@ public class TenantAwareDataSource extends DelegatingDataSource {
 
         private final Statement target;
         private final TenantAwareConnectionInvocationHandler connectionHandler;
+        private final Object connectionProxy;
 
         TenantAwareStatementInvocationHandler(
                 Statement target,
-                TenantAwareConnectionInvocationHandler connectionHandler
+                TenantAwareConnectionInvocationHandler connectionHandler,
+                Object connectionProxy
         ) {
             this.target = target;
             this.connectionHandler = connectionHandler;
+            this.connectionProxy = connectionProxy;
         }
 
         @Override
@@ -253,6 +258,9 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             }
 
             switch (methodName) {
+                case "getConnection" -> {
+                    return connectionProxy;
+                }
                 case "unwrap" -> {
                     Class<?> iface = (Class<?>) args[0];
                     if (iface.isInstance(proxy)) {

@@ -870,6 +870,77 @@ class TenantPersistenceIntegrationTest {
         }
     }
 
+    @Test
+    void clearsInheritedSessionTenantWhenEnteringUnscopedTransactionAndFailsClosed() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        try (Connection connection = dataSource.getConnection()) {
+            // Step 1: Execute in auto-commit mode under Tenant A -> establishes session-level setting A
+            tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                    try (ResultSet rs = statement.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        assertThat((UUID) rs.getObject("id")).isEqualTo(membershipA.id().value());
+                    }
+                } catch (SQLException exception) {
+                    throw new RuntimeException(exception);
+                }
+            });
+
+            // Step 2: Outside Tenant A scope, start a transaction and execute a query -> must fail closed (0 rows)
+            connection.setAutoCommit(false);
+            try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                try (ResultSet rs = statement.executeQuery()) {
+                    assertThat(rs.next()).isFalse();
+                }
+            }
+            connection.rollback();
+        }
+    }
+
+    @Test
+    void statementGetConnectionReturnsDecoratedConnectionProxy() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.OPERATOR, createdAt
+        );
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+
+        try (Connection originalConnection = dataSource.getConnection()) {
+            try (PreparedStatement statement = originalConnection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                Connection statementConnection = statement.getConnection();
+                assertThat(statementConnection).isNotNull();
+                assertThat(statementConnection.toString()).contains("TenantAwareConnectionProxy");
+
+                // Using the statement's connection accessor under Tenant B applies Tenant B context
+                tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+                    try (PreparedStatement statementFromAccessor = statementConnection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                        try (ResultSet rs = statementFromAccessor.executeQuery()) {
+                            assertThat(rs.next()).isTrue();
+                            assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
+                        }
+                    } catch (SQLException exception) {
+                        throw new RuntimeException(exception);
+                    }
+                });
+            }
+        }
+    }
+
     private Tenant persistTenant(String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         tenantRepository.save(tenant);
