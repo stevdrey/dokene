@@ -46,7 +46,7 @@ jobs:
 
       - name: Restore Dependency-Check data cache
         id: dependency-check-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: ~/.gradle/dependency-check-data
           key: dependency-check-${{ runner.os }}-12.2.2-${{ github.run_id }}
@@ -60,7 +60,7 @@ jobs:
 
       - name: Save Dependency-Check data cache
         if: always()
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: ~/.gradle/dependency-check-data
           key: dependency-check-${{ runner.os }}-12.2.2-${{ github.run_id }}
