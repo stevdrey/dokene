@@ -127,10 +127,11 @@ class TenantPersistenceIntegrationTest {
                 WHERE schemaname = 'dokene' AND tablename = 'tenant_memberships'
                 ORDER BY policyname
                 """);
-        assertThat(policies).hasSize(4);
+        assertThat(policies).hasSize(5);
         assertThat(policies).extracting("policyname").containsExactly(
                 "tenant_memberships_delete_policy",
                 "tenant_memberships_insert_policy",
+                "tenant_memberships_migration_policy",
                 "tenant_memberships_select_policy",
                 "tenant_memberships_update_policy"
         );
@@ -759,6 +760,114 @@ class TenantPersistenceIntegrationTest {
                 throw new RuntimeException(exception);
             }
         });
+    }
+
+    @Test
+    void clearsSessionStateWhenConnectionClosedWithOpenTransactionAndFailsClosed() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        // Checkout connection under Tenant A in auto-commit mode, then set autoCommit(false) and close without committing
+        tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
+            try (Connection connection = dataSource.getConnection()) {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                    try (ResultSet rs = statement.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                    }
+                }
+                connection.setAutoCommit(false);
+            } catch (SQLException exception) {
+                throw new RuntimeException(exception);
+            }
+        });
+
+        // Unscoped checkout must fail closed
+        List<UUID> unscopedIds = jdbcTemplate.queryForList("SELECT id FROM tenant_memberships", UUID.class);
+        assertThat(unscopedIds).isEmpty();
+    }
+
+    @Test
+    void reappliesTenantContextWhenPreparedStatementExecutedAcrossScopes() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.OPERATOR, createdAt
+        );
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+
+        try (Connection connection = dataSource.getConnection()) {
+            // Prepare statement under Tenant A scope
+            PreparedStatement statement = tenantContextProvider.callWithTenantId(
+                    tenantA.id(),
+                    () -> connection.prepareStatement("SELECT id FROM tenant_memberships")
+            );
+
+            // Execute statement under Tenant B scope -> must return Tenant B row
+            tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+                try (ResultSet rs = statement.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
+                    assertThat(rs.next()).isFalse();
+                } catch (SQLException exception) {
+                    throw new RuntimeException(exception);
+                }
+            });
+
+            // Execute statement outside any tenant scope -> must return 0 rows (fail closed)
+            try (ResultSet rs = statement.executeQuery()) {
+                assertThat(rs.next()).isFalse();
+            }
+
+            statement.close();
+        }
+    }
+
+    @Test
+    void permitsMigrationRoleToManageTenantMembershipsUnderForcedRls() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Migration Workspace", createdAt);
+        UUID membershipId = UUID.randomUUID();
+        UUID identityId = UUID.randomUUID();
+
+        // Connect directly as dokene_migration role
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), MIGRATION_ROLE, MIGRATION_PASSWORD)) {
+            // Insert membership for tenant without setting dokene.current_tenant_id (permitted by migration policy)
+            try (PreparedStatement insert = connection.prepareStatement("""
+                    INSERT INTO dokene.tenant_memberships (id, tenant_id, identity_id, role, status, created_at, updated_at, version)
+                    VALUES (?, ?, ?, 'ADMIN', 'ACTIVE', ?, ?, 0)
+                    """)) {
+                insert.setObject(1, membershipId);
+                insert.setObject(2, tenant.id().value());
+                insert.setObject(3, identityId);
+                insert.setTimestamp(4, Timestamp.from(createdAt));
+                insert.setTimestamp(5, Timestamp.from(createdAt));
+                int rows = insert.executeUpdate();
+                assertThat(rows).isEqualTo(1);
+            }
+
+            // Read membership as dokene_migration without setting dokene.current_tenant_id
+            try (PreparedStatement select = connection.prepareStatement(
+                    "SELECT id FROM dokene.tenant_memberships WHERE id = ?")) {
+                select.setObject(1, membershipId);
+                try (ResultSet rs = select.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat((UUID) rs.getObject("id")).isEqualTo(membershipId);
+                }
+            }
+        }
     }
 
     private Tenant persistTenant(String displayName, Instant createdAt) {

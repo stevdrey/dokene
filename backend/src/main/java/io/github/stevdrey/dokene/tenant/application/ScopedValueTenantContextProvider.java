@@ -21,10 +21,13 @@ public class ScopedValueTenantContextProvider implements TenantContextProvider {
 
     @Override
     public Optional<TenantId> currentTenantId() {
+        if (CURRENT_TENANT_ID.isBound()) {
+            return Optional.of(CURRENT_TENANT_ID.get());
+        }
         if (CURRENT_CONTEXT.isBound()) {
             return Optional.of(CURRENT_CONTEXT.get().tenantId());
         }
-        return CURRENT_TENANT_ID.isBound() ? Optional.of(CURRENT_TENANT_ID.get()) : Optional.empty();
+        return Optional.empty();
     }
 
     @Override

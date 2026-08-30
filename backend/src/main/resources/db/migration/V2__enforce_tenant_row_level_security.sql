@@ -25,3 +25,11 @@ CREATE POLICY tenant_memberships_delete_policy
     FOR DELETE
     TO dokene_runtime
     USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+
+CREATE POLICY tenant_memberships_migration_policy
+    ON dokene.tenant_memberships
+    FOR ALL
+    TO dokene_migration
+    USING (true)
+    WITH CHECK (true);
+

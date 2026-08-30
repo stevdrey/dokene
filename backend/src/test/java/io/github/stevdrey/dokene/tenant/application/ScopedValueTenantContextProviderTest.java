@@ -134,6 +134,24 @@ class ScopedValueTenantContextProviderTest {
         assertThat(provider.currentTenantId()).isEmpty();
     }
 
+    @Test
+    void nestedTenantIdScopeOverridesOuterTenantContext() {
+        TenantContext contextA = context();
+        TenantId tenantB = TenantId.random();
+
+        provider.runWithContext(contextA, () -> {
+            assertThat(provider.currentTenantId()).contains(contextA.tenantId());
+
+            provider.runWithTenantId(tenantB, () -> {
+                assertThat(provider.currentTenantId()).contains(tenantB);
+            });
+
+            assertThat(provider.currentTenantId()).contains(contextA.tenantId());
+        });
+
+        assertThat(provider.currentTenantId()).isEmpty();
+    }
+
     private TenantContext context() {
         return new TenantContext(
                 TenantId.random(),
