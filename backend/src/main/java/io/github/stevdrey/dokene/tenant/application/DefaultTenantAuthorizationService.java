@@ -36,22 +36,31 @@ public class DefaultTenantAuthorizationService implements TenantAuthorizationSer
 
     @Override
     public AuthorizationDecision evaluate(TenantPermission permission) {
-        return evaluate(tenantContextProvider.current().orElse(null), permission, (TenantId) null);
+        return evaluate(tenantContextProvider.current().orElse(null), permission, null, false);
     }
 
     @Override
     public AuthorizationDecision evaluate(TenantContext context, TenantPermission permission) {
-        return evaluate(context, permission, (TenantId) null);
+        return evaluate(context, permission, null, false);
     }
 
     @Override
     public AuthorizationDecision evaluate(TenantContext context, TenantPermission permission, TenantScopedResource resource) {
         TenantId resourceTenantId = resource != null ? resource.tenantId() : null;
-        return evaluate(context, permission, resourceTenantId);
+        return evaluate(context, permission, resourceTenantId, true);
     }
 
     @Override
     public AuthorizationDecision evaluate(TenantContext context, TenantPermission permission, TenantId resourceTenantId) {
+        return evaluate(context, permission, resourceTenantId, true);
+    }
+
+    private AuthorizationDecision evaluate(
+            TenantContext context,
+            TenantPermission permission,
+            TenantId resourceTenantId,
+            boolean requiresResourceOwnership
+    ) {
         if (context == null) {
             return AuthorizationDecision.deny("No active tenant context");
         }
@@ -63,6 +72,9 @@ public class DefaultTenantAuthorizationService implements TenantAuthorizationSer
         }
         if (permission == null) {
             return AuthorizationDecision.deny("Requested permission is required");
+        }
+        if (requiresResourceOwnership && resourceTenantId == null) {
+            return AuthorizationDecision.deny("Resource tenant ID is required");
         }
         if (resourceTenantId != null && !context.tenantId().equals(resourceTenantId)) {
             return AuthorizationDecision.deny("Resource tenant does not match active tenant context");
@@ -76,7 +88,7 @@ public class DefaultTenantAuthorizationService implements TenantAuthorizationSer
     @Override
     public void requirePermission(TenantPermission permission) {
         TenantContext context = tenantContextProvider.current().orElse(null);
-        AuthorizationDecision decision = evaluate(context, permission, (TenantId) null);
+        AuthorizationDecision decision = evaluate(context, permission, null, false);
         if (!decision.isAllowed()) {
             auditAndThrow(context, permission, null, decision.rejectionReason().orElse("Denied"));
         }
@@ -99,22 +111,47 @@ public class DefaultTenantAuthorizationService implements TenantAuthorizationSer
 
     @Override
     public boolean hasPermission(TenantPermission permission) {
-        return evaluate(permission).isAllowed();
+        TenantContext context = tenantContextProvider.current().orElse(null);
+        return evaluateAndAudit(context, permission, null, false).isAllowed();
     }
 
     @Override
     public boolean hasResourceAccess(TenantPermission permission, TenantScopedResource resource) {
         TenantContext context = tenantContextProvider.current().orElse(null);
-        return evaluate(context, permission, resource).isAllowed();
+        TenantId resourceTenantId = resource != null ? resource.tenantId() : null;
+        return evaluateAndAudit(context, permission, resourceTenantId, true).isAllowed();
     }
 
     @Override
     public boolean hasResourceAccess(TenantPermission permission, TenantId resourceTenantId) {
         TenantContext context = tenantContextProvider.current().orElse(null);
-        return evaluate(context, permission, resourceTenantId).isAllowed();
+        return evaluateAndAudit(context, permission, resourceTenantId, true).isAllowed();
+    }
+
+    private AuthorizationDecision evaluateAndAudit(
+            TenantContext context,
+            TenantPermission permission,
+            TenantId resourceTenantId,
+            boolean requiresResourceOwnership
+    ) {
+        AuthorizationDecision decision = evaluate(context, permission, resourceTenantId, requiresResourceOwnership);
+        if (!decision.isAllowed()) {
+            auditDenial(context, permission, resourceTenantId, decision.rejectionReason().orElse("Denied"));
+        }
+        return decision;
     }
 
     private void auditAndThrow(
+            TenantContext context,
+            TenantPermission permission,
+            TenantId resourceTenantId,
+            String reason
+    ) {
+        auditDenial(context, permission, resourceTenantId, reason);
+        throw new TenantAccessDeniedException();
+    }
+
+    private void auditDenial(
             TenantContext context,
             TenantPermission permission,
             TenantId resourceTenantId,
@@ -127,6 +164,5 @@ public class DefaultTenantAuthorizationService implements TenantAuthorizationSer
         } catch (Exception exception) {
             log.warn("Failed to dispatch authorization denied audit event", exception);
         }
-        throw new TenantAccessDeniedException();
     }
 }

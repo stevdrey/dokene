@@ -41,8 +41,8 @@ public class TenantSecurityExpressions {
     }
 
     public boolean hasResourceAccess(TenantScopedResource resource, String permissionName) {
-        if (resource == null || permissionName == null) {
-            return false;
+        if (permissionName == null) {
+            return authorizationService.hasResourceAccess((TenantPermission) null, resource);
         }
         try {
             TenantPermission permission = TenantPermission.parse(permissionName);
@@ -54,15 +54,12 @@ public class TenantSecurityExpressions {
     }
 
     public boolean hasResourceAccess(TenantScopedResource resource, TenantPermission permission) {
-        if (resource == null || permission == null) {
-            return false;
-        }
         return authorizationService.hasResourceAccess(permission, resource);
     }
 
     public boolean hasResourceAccess(TenantId resourceTenantId, String permissionName) {
-        if (resourceTenantId == null || permissionName == null) {
-            return false;
+        if (permissionName == null) {
+            return authorizationService.hasResourceAccess((TenantPermission) null, resourceTenantId);
         }
         try {
             TenantPermission permission = TenantPermission.parse(permissionName);
@@ -74,9 +71,6 @@ public class TenantSecurityExpressions {
     }
 
     public boolean hasResourceAccess(TenantId resourceTenantId, TenantPermission permission) {
-        if (resourceTenantId == null || permission == null) {
-            return false;
-        }
         return authorizationService.hasResourceAccess(permission, resourceTenantId);
     }
 }

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -19,11 +20,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.security.access.AccessDeniedException;
 
 class TenantAuthorizationServiceTest {
 
@@ -53,6 +54,7 @@ class TenantAuthorizationServiceTest {
             assertThat(decision.isAllowed()).isTrue();
             assertThat(decision.rejectionReason()).isEmpty();
             assertThat(authorizationService.hasPermission(TenantPermission.CUSTOMER_WRITE)).isTrue();
+            verify(auditListener, never()).onAuthorizationDenied(any());
         });
     }
 
@@ -125,6 +127,50 @@ class TenantAuthorizationServiceTest {
     }
 
     @Test
+    void failsClosedWhenResourceOwnershipEvidenceIsMissing() {
+        TenantContext context = new TenantContext(tenantId, identityId, membershipId, TenantRole.OWNER);
+        TenantScopedResource resourceWithoutTenantId = () -> null;
+
+        tenantContextProvider.runWithContext(context, () -> {
+            assertThat(authorizationService.evaluate(context, TenantPermission.CUSTOMER_READ, (TenantScopedResource) null))
+                    .extracting(AuthorizationDecision::isAllowed, AuthorizationDecision::reason)
+                    .containsExactly(false, "Resource tenant ID is required");
+            assertThat(authorizationService.evaluate(context, TenantPermission.CUSTOMER_READ, resourceWithoutTenantId))
+                    .extracting(AuthorizationDecision::isAllowed, AuthorizationDecision::reason)
+                    .containsExactly(false, "Resource tenant ID is required");
+            assertThat(authorizationService.evaluate(context, TenantPermission.CUSTOMER_READ, (TenantId) null))
+                    .extracting(AuthorizationDecision::isAllowed, AuthorizationDecision::reason)
+                    .containsExactly(false, "Resource tenant ID is required");
+
+            assertThat(authorizationService.hasResourceAccess(TenantPermission.CUSTOMER_READ, (TenantScopedResource) null)).isFalse();
+            assertThat(authorizationService.hasResourceAccess(TenantPermission.CUSTOMER_READ, resourceWithoutTenantId)).isFalse();
+            assertThat(authorizationService.hasResourceAccess(TenantPermission.CUSTOMER_READ, (TenantId) null)).isFalse();
+
+            assertThatThrownBy(() -> authorizationService.requireResourceAccess(
+                    TenantPermission.CUSTOMER_READ, (TenantScopedResource) null
+            )).isInstanceOf(TenantAccessDeniedException.class);
+            assertThatThrownBy(() -> authorizationService.requireResourceAccess(
+                    TenantPermission.CUSTOMER_READ, (TenantId) null
+            )).isInstanceOf(TenantAccessDeniedException.class);
+
+            verify(auditListener, times(5)).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
+        });
+    }
+
+    @Test
+    void auditsDeniedBooleanAuthorizationChecks() {
+        TenantContext context = new TenantContext(tenantId, identityId, membershipId, TenantRole.VIEWER);
+        TenantScopedResource ownResource = () -> tenantId;
+
+        tenantContextProvider.runWithContext(context, () -> {
+            assertThat(authorizationService.hasPermission(TenantPermission.CUSTOMER_WRITE)).isFalse();
+            assertThat(authorizationService.hasResourceAccess(TenantPermission.CUSTOMER_WRITE, ownResource)).isFalse();
+
+            verify(auditListener, times(2)).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
+        });
+    }
+
+    @Test
     void requirePermissionSucceedsWhenAllowed() {
         TenantContext context = new TenantContext(tenantId, identityId, membershipId, TenantRole.OPERATOR);
 
@@ -137,11 +183,11 @@ class TenantAuthorizationServiceTest {
     @Test
     void requirePermissionThrowsAndEmitsAuditEventWhenDenied() {
         TenantContext context = new TenantContext(tenantId, identityId, membershipId, TenantRole.VIEWER);
-        AtomicReference<AuthorizationDeniedEvent> capturedEvent = new AtomicReference<>();
 
         tenantContextProvider.runWithContext(context, () -> {
             assertThatThrownBy(() -> authorizationService.requirePermission(TenantPermission.MESSAGE_APPROVE))
                     .isInstanceOf(TenantAccessDeniedException.class)
+                    .isInstanceOf(AccessDeniedException.class)
                     .hasMessage("Access denied");
 
             verify(auditListener).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));

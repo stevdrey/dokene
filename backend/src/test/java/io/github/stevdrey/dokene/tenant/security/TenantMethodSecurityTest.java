@@ -2,7 +2,13 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
+import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
+import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
 import io.github.stevdrey.dokene.tenant.application.ScopedValueTenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -42,6 +48,11 @@ class TenantMethodSecurityTest {
         @Bean
         TenantContextProvider tenantContextProvider() {
             return new ScopedValueTenantContextProvider();
+        }
+
+        @Bean
+        AuthorizationAuditListener authorizationAuditListener() {
+            return mock(AuthorizationAuditListener.class);
         }
 
         @Bean
@@ -85,6 +96,9 @@ class TenantMethodSecurityTest {
     @Autowired
     private TenantContextProvider tenantContextProvider;
 
+    @Autowired
+    private AuthorizationAuditListener auditListener;
+
     private final TenantId tenantId = TenantId.random();
     private final IdentityId identityId = new IdentityId(UUID.randomUUID());
     private final TenantMembershipId membershipId = TenantMembershipId.random();
@@ -92,6 +106,7 @@ class TenantMethodSecurityTest {
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
+        clearInvocations(auditListener);
     }
 
     @Test
@@ -191,6 +206,32 @@ class TenantMethodSecurityTest {
         tenantContextProvider.runWithContext(suspendedContext, () -> {
             assertThatThrownBy(() -> sampleService.readCustomerData())
                     .isInstanceOf(AccessDeniedException.class);
+        });
+    }
+
+    @Test
+    void auditsDeniedMethodSecurityChecks() {
+        authenticate(identityId);
+        TenantContext viewerContext = new TenantContext(tenantId, identityId, membershipId, TenantRole.VIEWER);
+
+        tenantContextProvider.runWithContext(viewerContext, () -> {
+            assertThatThrownBy(() -> sampleService.updateCustomerData())
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(auditListener).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
+        });
+    }
+
+    @Test
+    void auditsMissingResourceOwnershipEvidenceFromSpel() {
+        authenticate(identityId);
+        TenantContext ownerContext = new TenantContext(tenantId, identityId, membershipId, TenantRole.OWNER);
+
+        tenantContextProvider.runWithContext(ownerContext, () -> {
+            assertThatThrownBy(() -> sampleService.updateCustomer(null))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(auditListener).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
         });
     }
 
