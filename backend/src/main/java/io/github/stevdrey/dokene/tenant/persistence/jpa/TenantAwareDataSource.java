@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -131,12 +132,24 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     }
                 }
                 case "prepareStatement", "prepareCall" -> {
+                    SqlTransactionControlDetector.reject(args);
                     ensureTenantContextApplied();
                     try {
                         Object result = method.invoke(target, args);
-                        String sql = args != null && args.length > 0 && args[0] instanceof String s ? s : null;
+                        String sql = SqlTransactionControlDetector.sqlArgument(args);
                         if (result instanceof Statement statement) {
                             return wrapStatement(statement, proxy, sql);
+                        }
+                        return result;
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                }
+                case "getMetaData" -> {
+                    try {
+                        Object result = method.invoke(target, args);
+                        if (result instanceof DatabaseMetaData metadata) {
+                            return wrapDatabaseMetaData(metadata, proxy);
                         }
                         return result;
                     } catch (InvocationTargetException exception) {
@@ -171,6 +184,14 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     Statement.class.getClassLoader(),
                     interfaces,
                     new TenantAwareStatementInvocationHandler(targetStatement, this, connectionProxy, sql)
+            );
+        }
+
+        private DatabaseMetaData wrapDatabaseMetaData(DatabaseMetaData targetMetadata, Object connectionProxy) {
+            return (DatabaseMetaData) Proxy.newProxyInstance(
+                    DatabaseMetaData.class.getClassLoader(),
+                    new Class<?>[]{DatabaseMetaData.class},
+                    new TenantAwareDatabaseMetaDataInvocationHandler(targetMetadata, connectionProxy)
             );
         }
 
@@ -251,6 +272,58 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         }
     }
 
+    private static final class TenantAwareDatabaseMetaDataInvocationHandler implements InvocationHandler {
+
+        private final DatabaseMetaData target;
+        private final Object connectionProxy;
+
+        TenantAwareDatabaseMetaDataInvocationHandler(DatabaseMetaData target, Object connectionProxy) {
+            this.target = target;
+            this.connectionProxy = connectionProxy;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            String methodName = method.getName();
+
+            switch (methodName) {
+                case "getConnection" -> {
+                    return connectionProxy;
+                }
+                case "unwrap" -> {
+                    Class<?> iface = (Class<?>) args[0];
+                    if (iface.isInstance(proxy)) {
+                        return proxy;
+                    }
+                    if (iface.isInstance(target)) {
+                        return target;
+                    }
+                    return target.unwrap(iface);
+                }
+                case "isWrapperFor" -> {
+                    Class<?> iface = (Class<?>) args[0];
+                    return iface.isInstance(proxy) || iface.isInstance(target) || target.isWrapperFor(iface);
+                }
+                case "equals" -> {
+                    return proxy == args[0];
+                }
+                case "hashCode" -> {
+                    return System.identityHashCode(proxy);
+                }
+                case "toString" -> {
+                    return "TenantAwareDatabaseMetaDataProxy[" + target + "]";
+                }
+                default -> {
+                    try {
+                        return method.invoke(target, args);
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                }
+            }
+        }
+    }
+
     private static final class TenantAwareStatementInvocationHandler implements InvocationHandler {
 
         private final Statement target;
@@ -275,10 +348,19 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             String methodName = method.getName();
 
             if (methodName.startsWith("execute")) {
+                SqlTransactionControlDetector.reject(sqlForExecution(args));
                 connectionHandler.ensureTenantContextApplied();
             }
 
             switch (methodName) {
+                case "addBatch" -> {
+                    SqlTransactionControlDetector.reject(args);
+                    try {
+                        return method.invoke(target, args);
+                    } catch (InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                }
                 case "getConnection" -> {
                     return connectionProxy;
                 }
@@ -308,53 +390,27 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 default -> {
                     try {
                         Object result = method.invoke(target, args);
-                        if (methodName.startsWith("execute") && isTransactionControlCommand(args)) {
-                            connectionHandler.invalidateTransactionContext();
-                        }
                         if (result instanceof ResultSet resultSet) {
                             return wrapResultSet(resultSet, proxy);
                         }
                         return result;
                     } catch (InvocationTargetException exception) {
-                        if (methodName.startsWith("execute") && isTransactionControlCommand(args)) {
-                            connectionHandler.invalidateTransactionContext();
-                        }
                         throw exception.getCause();
                     }
                 }
             }
         }
 
-        private boolean isTransactionControlCommand(Object[] args) {
-            String sql = null;
-            if (args != null && args.length > 0 && args[0] instanceof String directSql) {
-                sql = directSql;
-            } else if (preparedSql != null) {
-                sql = preparedSql;
-            }
-            return isTransactionControlSql(sql);
-        }
-
-        private static boolean isTransactionControlSql(String sql) {
-            if (sql == null) {
-                return false;
-            }
-            String trimmed = sql.trim().toLowerCase(Locale.ROOT);
-            return trimmed.startsWith("commit")
-                    || trimmed.startsWith("rollback")
-                    || trimmed.startsWith("begin")
-                    || trimmed.startsWith("start")
-                    || trimmed.startsWith("end")
-                    || trimmed.startsWith("abort")
-                    || trimmed.startsWith("savepoint")
-                    || trimmed.startsWith("release");
+        private String sqlForExecution(Object[] args) {
+            String directSql = SqlTransactionControlDetector.sqlArgument(args);
+            return directSql != null ? directSql : preparedSql;
         }
 
         private ResultSet wrapResultSet(ResultSet targetResultSet, Object statementProxy) {
             return (ResultSet) Proxy.newProxyInstance(
                     ResultSet.class.getClassLoader(),
                     new Class<?>[]{ResultSet.class},
-                    new TenantAwareResultSetInvocationHandler(targetResultSet, statementProxy)
+                    new TenantAwareResultSetInvocationHandler(targetResultSet, statementProxy, connectionHandler)
             );
         }
     }
@@ -363,15 +419,25 @@ public class TenantAwareDataSource extends DelegatingDataSource {
 
         private final ResultSet target;
         private final Object statementProxy;
+        private final TenantAwareConnectionInvocationHandler connectionHandler;
 
-        TenantAwareResultSetInvocationHandler(ResultSet target, Object statementProxy) {
+        TenantAwareResultSetInvocationHandler(
+                ResultSet target,
+                Object statementProxy,
+                TenantAwareConnectionInvocationHandler connectionHandler
+        ) {
             this.target = target;
             this.statementProxy = statementProxy;
+            this.connectionHandler = connectionHandler;
         }
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String methodName = method.getName();
+
+            if (performsDatabaseWork(methodName)) {
+                connectionHandler.ensureTenantContextApplied();
+            }
 
             switch (methodName) {
                 case "getStatement" -> {
@@ -408,6 +474,198 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     }
                 }
             }
+        }
+
+        private static boolean performsDatabaseWork(String methodName) {
+            return switch (methodName) {
+                case "updateRow", "deleteRow", "insertRow", "refreshRow" -> true;
+                default -> false;
+            };
+        }
+    }
+
+    private static final class SqlTransactionControlDetector {
+
+        private SqlTransactionControlDetector() {
+        }
+
+        static void reject(Object[] args) throws SQLException {
+            reject(sqlArgument(args));
+        }
+
+        static void reject(String sql) throws SQLException {
+            if (sql != null && containsTransactionControlStatement(sql)) {
+                throw new SQLException("Raw SQL transaction control is not supported; use Connection transaction methods instead");
+            }
+        }
+
+        static String sqlArgument(Object[] args) {
+            return args != null && args.length > 0 && args[0] instanceof String sql ? sql : null;
+        }
+
+        static boolean containsTransactionControlStatement(String sql) {
+            int index = 0;
+            while (index < sql.length()) {
+                index = skipIgnorable(sql, index);
+                if (index >= sql.length()) {
+                    return false;
+                }
+
+                int keywordEnd = identifierEnd(sql, index);
+                if (keywordEnd > index) {
+                    String keyword = sql.substring(index, keywordEnd).toUpperCase(Locale.ROOT);
+                    if (isTransactionControlKeyword(sql, keyword, keywordEnd)) {
+                        return true;
+                    }
+                }
+
+                index = nextStatementDelimiter(sql, keywordEnd > index ? keywordEnd : index);
+                if (index < sql.length()) {
+                    index++;
+                }
+            }
+            return false;
+        }
+
+        private static boolean isTransactionControlKeyword(String sql, String keyword, int keywordEnd) {
+            return switch (keyword) {
+                case "BEGIN", "START", "COMMIT", "END", "ROLLBACK", "ABORT", "SAVEPOINT", "RELEASE" -> true;
+                case "PREPARE" -> "TRANSACTION".equals(nextKeyword(sql, keywordEnd));
+                default -> false;
+            };
+        }
+
+        private static String nextKeyword(String sql, int index) {
+            int start = skipIgnorable(sql, index);
+            int end = identifierEnd(sql, start);
+            return end > start ? sql.substring(start, end).toUpperCase(Locale.ROOT) : "";
+        }
+
+        private static int skipIgnorable(String sql, int index) {
+            int current = index;
+            boolean skipped;
+            do {
+                skipped = false;
+                while (current < sql.length() && Character.isWhitespace(sql.charAt(current))) {
+                    current++;
+                    skipped = true;
+                }
+                if (startsWith(sql, current, "--")) {
+                    current = skipLineComment(sql, current + 2);
+                    skipped = true;
+                } else if (startsWith(sql, current, "/*")) {
+                    current = skipBlockComment(sql, current + 2);
+                    skipped = true;
+                }
+            } while (skipped);
+            return current;
+        }
+
+        private static int nextStatementDelimiter(String sql, int index) {
+            int current = index;
+            while (current < sql.length()) {
+                char character = sql.charAt(current);
+                if (character == '\'') {
+                    current = skipSingleQuotedLiteral(sql, current + 1);
+                } else if (character == '"') {
+                    current = skipDoubleQuotedIdentifier(sql, current + 1);
+                } else if (startsWith(sql, current, "--")) {
+                    current = skipLineComment(sql, current + 2);
+                } else if (startsWith(sql, current, "/*")) {
+                    current = skipBlockComment(sql, current + 2);
+                } else if (character == '$') {
+                    int dollarQuotedEnd = skipDollarQuotedLiteral(sql, current);
+                    current = dollarQuotedEnd > current ? dollarQuotedEnd : current + 1;
+                } else if (character == ';') {
+                    return current;
+                } else {
+                    current++;
+                }
+            }
+            return current;
+        }
+
+        private static int skipSingleQuotedLiteral(String sql, int index) {
+            int current = index;
+            while (current < sql.length()) {
+                if (sql.charAt(current) == '\'') {
+                    if (current + 1 < sql.length() && sql.charAt(current + 1) == '\'') {
+                        current += 2;
+                    } else {
+                        return current + 1;
+                    }
+                } else {
+                    current++;
+                }
+            }
+            return current;
+        }
+
+        private static int skipDoubleQuotedIdentifier(String sql, int index) {
+            int current = index;
+            while (current < sql.length()) {
+                if (sql.charAt(current) == '"') {
+                    if (current + 1 < sql.length() && sql.charAt(current + 1) == '"') {
+                        current += 2;
+                    } else {
+                        return current + 1;
+                    }
+                } else {
+                    current++;
+                }
+            }
+            return current;
+        }
+
+        private static int skipDollarQuotedLiteral(String sql, int index) {
+            int delimiterEnd = index + 1;
+            while (delimiterEnd < sql.length() && isIdentifierPart(sql.charAt(delimiterEnd))) {
+                delimiterEnd++;
+            }
+            if (delimiterEnd >= sql.length() || sql.charAt(delimiterEnd) != '$') {
+                return index;
+            }
+            String delimiter = sql.substring(index, delimiterEnd + 1);
+            int contentEnd = sql.indexOf(delimiter, delimiterEnd + 1);
+            return contentEnd < 0 ? sql.length() : contentEnd + delimiter.length();
+        }
+
+        private static int skipLineComment(String sql, int index) {
+            int newline = sql.indexOf('\n', index);
+            return newline < 0 ? sql.length() : newline + 1;
+        }
+
+        private static int skipBlockComment(String sql, int index) {
+            int current = index;
+            int depth = 1;
+            while (current < sql.length() && depth > 0) {
+                if (startsWith(sql, current, "/*")) {
+                    depth++;
+                    current += 2;
+                } else if (startsWith(sql, current, "*/")) {
+                    depth--;
+                    current += 2;
+                } else {
+                    current++;
+                }
+            }
+            return current;
+        }
+
+        private static int identifierEnd(String sql, int index) {
+            int current = index;
+            while (current < sql.length() && isIdentifierPart(sql.charAt(current))) {
+                current++;
+            }
+            return current;
+        }
+
+        private static boolean isIdentifierPart(char character) {
+            return Character.isLetterOrDigit(character) || character == '_';
+        }
+
+        private static boolean startsWith(String value, int index, String prefix) {
+            return index >= 0 && index + prefix.length() <= value.length() && value.startsWith(prefix, index);
         }
     }
 }

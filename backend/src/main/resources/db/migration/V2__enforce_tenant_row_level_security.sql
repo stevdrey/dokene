@@ -32,4 +32,3 @@ CREATE POLICY tenant_memberships_migration_policy
     TO dokene_migration
     USING (true)
     WITH CHECK (true);
-

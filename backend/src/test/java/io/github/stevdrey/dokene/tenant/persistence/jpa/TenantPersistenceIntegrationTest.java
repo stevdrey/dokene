@@ -13,6 +13,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -988,7 +989,7 @@ class TenantPersistenceIntegrationTest {
     }
 
     @Test
-    void invalidatesTransactionContextWhenSqlTransactionCommandExecuted() throws SQLException {
+    void databaseMetaDataGetConnectionReturnsDecoratedConnectionProxy() throws SQLException {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenantA = persistTenant("Tenant A", createdAt);
         Tenant tenantB = persistTenant("Tenant B", createdAt);
@@ -1004,10 +1005,9 @@ class TenantPersistenceIntegrationTest {
         saveMembership(membershipB);
 
         try (Connection connection = dataSource.getConnection()) {
-            // Step 1: Run in auto-commit mode under Tenant A -> session setting A
             tenantContextProvider.runWithTenantId(tenantA.id(), () -> {
-                try (Statement statement = connection.createStatement()) {
-                    try (ResultSet rs = statement.executeQuery("SELECT id FROM tenant_memberships")) {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                    try (ResultSet rs = statement.executeQuery()) {
                         assertThat(rs.next()).isTrue();
                         assertThat((UUID) rs.getObject("id")).isEqualTo(membershipA.id().value());
                     }
@@ -1016,29 +1016,114 @@ class TenantPersistenceIntegrationTest {
                 }
             });
 
-            // Step 2: Under Tenant B, start transaction and execute statement (shadows session setting with B)
+            DatabaseMetaData metadata = connection.getMetaData();
+            Connection metadataConnection = metadata.getConnection();
+            assertThat(metadataConnection).isNotNull();
+            assertThat(metadataConnection.toString()).contains("TenantAwareConnectionProxy");
+
             tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
-                try {
-                    connection.setAutoCommit(false);
-                    try (Statement statement = connection.createStatement()) {
-                        try (ResultSet rs = statement.executeQuery("SELECT id FROM tenant_memberships")) {
-                            assertThat(rs.next()).isTrue();
-                            assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
-                        }
-
-                        // Step 3: Execute raw SQL "COMMIT" statement -> restores session setting A in PostgreSQL
-                        statement.execute("COMMIT");
-
-                        // Step 4: Execute query under Tenant B -> must reapply Tenant B setting and NOT see Tenant A
-                        try (ResultSet rs = statement.executeQuery("SELECT id FROM tenant_memberships")) {
-                            assertThat(rs.next()).isTrue();
-                            assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
-                        }
+                try (PreparedStatement statement = metadataConnection.prepareStatement("SELECT id FROM tenant_memberships")) {
+                    try (ResultSet rs = statement.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        assertThat((UUID) rs.getObject("id")).isEqualTo(membershipB.id().value());
+                        assertThat(rs.next()).isFalse();
                     }
                 } catch (SQLException exception) {
                     throw new RuntimeException(exception);
                 }
             });
+        }
+    }
+
+    @Test
+    void reappliesTenantContextBeforeUpdatableResultSetOperations() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        IdentityId identityC = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.OPERATOR, createdAt
+        );
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+        UUID membershipCId = UUID.randomUUID();
+
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE)) {
+            ResultSet resultSet = tenantContextProvider.callWithTenantId(
+                    tenantA.id(),
+                    () -> statement.executeQuery("SELECT id, role FROM tenant_memberships")
+            );
+            try (resultSet) {
+                assertThat(resultSet.next()).isTrue();
+                assertThat((UUID) resultSet.getObject("id")).isEqualTo(membershipA.id().value());
+
+                tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+                    try {
+                        resultSet.refreshRow();
+                        resultSet.updateString("role", TenantRole.OPERATOR.name());
+                        resultSet.updateRow();
+                        resultSet.deleteRow();
+                    } catch (SQLException exception) {
+                        throw new RuntimeException(exception);
+                    }
+                });
+            }
+
+            try (ResultSet insertResultSet = tenantContextProvider.callWithTenantId(
+                    tenantA.id(),
+                    () -> statement.executeQuery("""
+                            SELECT id, tenant_id, identity_id, role, status, created_at, updated_at, version
+                            FROM tenant_memberships
+                            """))) {
+                assertThat(insertResultSet.next()).isTrue();
+
+                tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
+                    try {
+                        insertResultSet.moveToInsertRow();
+                        insertResultSet.updateObject("id", membershipCId);
+                        insertResultSet.updateObject("tenant_id", tenantB.id().value());
+                        insertResultSet.updateObject("identity_id", identityC.value());
+                        insertResultSet.updateString("role", TenantRole.OPERATOR.name());
+                        insertResultSet.updateString("status", TenantMembershipStatus.ACTIVE.name());
+                        insertResultSet.updateTimestamp("created_at", Timestamp.from(createdAt));
+                        insertResultSet.updateTimestamp("updated_at", Timestamp.from(createdAt));
+                        insertResultSet.updateLong("version", 0L);
+                        insertResultSet.insertRow();
+                        insertResultSet.moveToCurrentRow();
+                    } catch (SQLException exception) {
+                        throw new RuntimeException(exception);
+                    }
+                });
+            }
+        }
+
+        TenantMembership persistedMembershipA = findMembership(tenantA.id(), identityA).orElseThrow();
+        assertThat(persistedMembershipA.role()).isEqualTo(TenantRole.ADMIN);
+        TenantMembership persistedMembershipC = findMembership(tenantB.id(), identityC).orElseThrow();
+        assertThat(persistedMembershipC.id().value()).isEqualTo(membershipCId);
+    }
+
+    @Test
+    void rejectsRawSqlTransactionControlCommands() throws SQLException {
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            assertThatThrownBy(() -> connection.prepareStatement("/* transaction */ COMMIT"))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Raw SQL transaction control");
+            assertThatThrownBy(() -> statement.execute("-- transaction\nROLLBACK"))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Raw SQL transaction control");
+            assertThatThrownBy(() -> statement.addBatch("SELECT 1; /* transaction */ SAVEPOINT tenant_scope"))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Raw SQL transaction control");
+            assertThatThrownBy(() -> statement.execute("PREPARE TRANSACTION 'tenant_scope'"))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Raw SQL transaction control");
         }
     }
 

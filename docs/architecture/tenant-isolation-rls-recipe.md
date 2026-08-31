@@ -93,6 +93,7 @@ CREATE POLICY customers_migration_policy
   - **In transactions**: executes `SELECT set_config('dokene.current_tenant_id', ?, true)` deferred until statement preparation. The setting expires automatically upon `COMMIT` or `ROLLBACK`.
   - **In auto-commit mode**: executes `SELECT set_config('dokene.current_tenant_id', ?, false)` and executes `RESET dokene.current_tenant_id` on connection close before returning to HikariCP.
   - **Connection eviction**: if session reset fails, `Connection.abort()` is called to destroy the physical connection and eliminate pool contamination.
+  - **Transaction control**: raw SQL transaction commands are rejected. Use `Connection.setAutoCommit`, `commit`, `rollback`, and savepoint APIs so the decorator can maintain the RLS context lifecycle.
 - In PostgreSQL, `NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid` evaluates to `NULL` when context is absent, causing queries to fail closed (0 rows returned for reads, RLS violation on writes).
 
 ---

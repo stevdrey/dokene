@@ -24,5 +24,5 @@ RLS policies on protected tables restrict visible rows to that tenant and reject
 - Application runtime role (`dokene_runtime`) must have `NOBYPASSRLS` and must not own protected tables.
 - Migration credentials (`dokene_migration`) are strictly separated from runtime credentials. Tables with `FORCE ROW LEVEL SECURITY` define an explicit migration policy `FOR ALL TO dokene_migration USING (true) WITH CHECK (true)` to permit Flyway schema and data transformations.
 - Cross-tenant isolation integration tests against PostgreSQL are mandatory for all tenant-scoped resources.
+- `TenantAwareDataSource` rejects transaction-control SQL (`BEGIN`, `COMMIT`, `ROLLBACK`, savepoints, and related commands). Callers must use the corresponding `Connection` APIs so tenant-context lifecycle remains observable and fail-closed.
 - RLS does not replace authorization checks in application code; both layers are mandatory.
-
