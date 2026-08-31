@@ -26,5 +26,7 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 
 - `DOKENE_DB_URL`, `DOKENE_DB_USERNAME`, `DOKENE_DB_PASSWORD` for runtime traffic;
 - `DOKENE_DB_MIGRATION_USERNAME`, `DOKENE_DB_MIGRATION_PASSWORD` for Flyway.
+- `DOKENE_TENANT_CONTEXT_SIGNING_KEY`, a 64-character hexadecimal encoding of 32 random bytes. Generate it with `openssl rand -hex 32`; keep the value out of source control.
+- `DOKENE_TENANT_CONTEXT_KEY_ID`, an identifier for the active signing key (defaults to `default`).
 
-Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. A startup failure on an unexpected schema must be investigated rather than bypassed.
+Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

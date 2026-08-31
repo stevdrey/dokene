@@ -66,26 +66,42 @@ A request may select among memberships the user already has, but authorization m
 
 ## PostgreSQL RLS
 
-Tenant-owned tables should be candidates for policies equivalent in intent to:
+Tenant-owned tables enforce database-level isolation using PostgreSQL Row-Level Security (RLS).
+
+Every tenant-scoped table enables and forces RLS with explicit CRUD policies:
 
 ```sql
-ALTER TABLE customer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dokene.customer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dokene.customer FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY customer_tenant_policy
-ON customer
-USING (tenant_id = current_setting('app.tenant_id')::uuid)
-WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid);
+CREATE POLICY customer_select_policy
+ON dokene.customer FOR SELECT TO dokene_runtime
+USING (tenant_id = dokene.current_verified_tenant_id());
+
+CREATE POLICY customer_insert_policy
+ON dokene.customer FOR INSERT TO dokene_runtime
+WITH CHECK (tenant_id = dokene.current_verified_tenant_id());
+
+CREATE POLICY customer_update_policy
+ON dokene.customer FOR UPDATE TO dokene_runtime
+USING (tenant_id = dokene.current_verified_tenant_id())
+WITH CHECK (tenant_id = dokene.current_verified_tenant_id());
+
+CREATE POLICY customer_delete_policy
+ON dokene.customer FOR DELETE TO dokene_runtime
+USING (tenant_id = dokene.current_verified_tenant_id());
 ```
 
-The application should set tenant context transaction-locally, for example:
+The application transports a short-lived, HMAC-signed tenant capability through two database settings. PostgreSQL verifies the signature, format, and expiry before returning the tenant identifier:
 
 ```sql
-SET LOCAL app.tenant_id = '<tenant-uuid>';
+SELECT set_config('dokene.tenant_context', '<tenant-capability>', true),
+       set_config('dokene.tenant_context_signature', '<hmac-signature>', true);
 ```
 
-Exact implementation details belong in code/ADRs and must account for connection pooling and transaction boundaries.
+The settings are transport rather than authority: missing, altered, expired, or invalidly signed values evaluate to `NULL` and fail closed. The runtime role cannot read the signing key stored by the migration role.
 
-RLS is defense in depth, not a substitute for explicit application authorization.
+See `docs/architecture/tenant-isolation-rls-recipe.md` and `docs/adr/0003-postgresql-rls.md`.
 
 ## Data ownership
 

@@ -26,6 +26,11 @@ spring:
     validate-on-migrate: true
     clean-disabled: true
 
+dokene:
+  tenant-context:
+    signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
+    key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
+
 server:
   shutdown: graceful
 
