@@ -89,19 +89,26 @@ CREATE POLICY customers_migration_policy
 ## 3. Database Session Context Mechanism
 
 - Application requests establish a `TenantContext` using `ScopedValueTenantContextProvider` only after membership bootstrap authorizes the requested tenant.
-- `DOKENE_TENANT_CONTEXT_SIGNING_KEY` is exactly 32 random bytes encoded as 64 hexadecimal characters. It is supplied independently to the application and Flyway; its value is never stored in `.env.example` or application source.
-- Flyway V3 stores that key in a migration-owned table unavailable to `dokene_runtime`, installs `pgcrypto` in `dokene`, and creates `SECURITY DEFINER` functions with a fixed `search_path`. The verifier accepts only a canonical `tenant|uuid|expiry|nonce` payload and its HMAC-SHA-256 signature, valid for 60 seconds. Every invalid form returns `NULL`.
+- `DOKENE_TENANT_CONTEXT_SIGNING_KEY` is exactly 32 random bytes encoded as 64 hexadecimal characters. `DOKENE_TENANT_CONTEXT_KEY_ID` (defaulting to `default`) identifies the active key. Keys are provisioned into `dokene.tenant_context_signing_keys` via parameterized JDBC callbacks during migration, avoiding plaintext SQL literals.
+- `dokene.tenant_context_signing_keys` stores keys by `key_id` with status `ACTIVE` or `RETIRED`. `SECURITY DEFINER` functions in schema `dokene` use a fixed `search_path` and verify the canonical `tenant|<key_id>|<uuid>|<expiry>|<nonce>` payload and HMAC-SHA-256 signature against the active key for that `key_id`, valid for 60 seconds. Every invalid form returns `NULL`.
 - Database connections automatically propagate the signed tenant capability via `TenantAwareDataSource`:
-  - **In transactions**: both `dokene.tenant_context` and `dokene.tenant_context_signature` are set transaction-locally with `set_config(..., true)` just before JDBC work. The settings expire automatically upon `COMMIT` or `ROLLBACK`.
+  - **In transactions**: both `dokene.tenant_context` and `dokene.tenant_context_signature` are set transaction-locally with `set_config(..., true)` just before JDBC work. The settings expire automatically upon `COMMIT` or `ROLLBACK`. Tenant-scoped database work should execute inside explicit transactions.
   - **In auto-commit mode**: both settings are set at session scope with `set_config(..., false)` and are reset on connection close before returning to HikariCP.
   - **Connection eviction**: any context propagation or cleanup failure, including closure of the propagation statement, calls `Connection.abort()` to destroy the physical connection and eliminate pool contamination.
   - **Transaction control**: raw SQL transaction commands are rejected. Use `Connection.setAutoCommit`, `commit`, `rollback`, and savepoint APIs so the decorator can maintain the RLS context lifecycle.
   - **JDBC boundaries**: `unwrap` never exposes a vendor connection, statement, metadata object, or result set. A result set remains usable only while the tenant that created it is current; closing it remains safe after scope exit.
 - The capability parameters are not authority: manually changing a custom PostgreSQL setting cannot select another tenant without a valid matching signature. `dokene.current_verified_tenant_id()` returns `NULL` otherwise, so reads return no rows and writes receive an RLS violation.
 
+### Key Rotation Lifecycle
+
+1. Provision the next signing key with `key_id = k2` and `status = 'ACTIVE'` in `dokene.tenant_context_signing_keys`.
+2. Deploy the application with `DOKENE_TENANT_CONTEXT_KEY_ID=k2` and `DOKENE_TENANT_CONTEXT_SIGNING_KEY=<key_2_hex>`.
+3. In-flight capabilities signed with `k1` continue verifying during the 60-second capability validity window.
+4. After the expiration window, mark `k1` as `RETIRED` (`status = 'RETIRED'`).
+
 ### Global membership bootstrap
 
-`TenantMembershipDiscovery` is an internal port used before the requested tenant is bound. Its PostgreSQL adapter supplies a separate identity-scoped signed capability to `dokene.discover_active_tenant_memberships`, which returns only active memberships for that identity and active tenants. No HTTP tenant-listing endpoint is created by this mechanism.
+`TenantMembershipDiscovery` is an internal port used before the requested tenant is bound. Its PostgreSQL adapter supplies a separate identity-scoped signed capability (`identity|<key_id>|<uuid>|<expiry>|<nonce>`) to `dokene.discover_active_tenant_memberships`, which returns only active memberships for that identity and active tenants. No HTTP tenant-listing endpoint is created by this mechanism.
 
 ---
 

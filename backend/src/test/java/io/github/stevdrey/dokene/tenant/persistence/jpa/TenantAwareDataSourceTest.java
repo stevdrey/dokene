@@ -28,7 +28,7 @@ class TenantAwareDataSourceTest {
         ScopedValueTenantContextProvider tenantContexts = new ScopedValueTenantContextProvider();
         DatabaseContextSigner signer = mock(DatabaseContextSigner.class);
         when(signer.issueTenantContext(tenantId)).thenReturn(new SignedDatabaseContext(
-                "tenant|%s|4102444800|0123456789abcdef0123456789abcdef".formatted(tenantId.value()),
+                "tenant|default|%s|4102444800|0123456789abcdef0123456789abcdef".formatted(tenantId.value()),
                 "0".repeat(64),
                 Instant.parse("2100-01-01T00:00:00Z")
         ));

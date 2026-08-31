@@ -1,16 +1,17 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA dokene;
 
 CREATE TABLE dokene.tenant_context_signing_keys (
-    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE,
+    key_id VARCHAR(32) PRIMARY KEY,
     signing_key BYTEA NOT NULL,
-    CONSTRAINT ck_tenant_context_signing_keys_singleton CHECK (singleton),
-    CONSTRAINT ck_tenant_context_signing_keys_length CHECK (octet_length(signing_key) = 32)
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    retired_at TIMESTAMPTZ,
+    CONSTRAINT ck_tenant_context_signing_keys_status CHECK (status IN ('ACTIVE', 'RETIRED')),
+    CONSTRAINT ck_tenant_context_signing_keys_length CHECK (octet_length(signing_key) = 32),
+    CONSTRAINT ck_tenant_context_signing_keys_id_format CHECK (key_id ~ '^[0-9a-zA-Z_-]{1,32}$')
 );
 
 REVOKE ALL ON TABLE dokene.tenant_context_signing_keys FROM PUBLIC;
-
-INSERT INTO dokene.tenant_context_signing_keys (singleton, signing_key)
-VALUES (TRUE, decode('${tenant_context_signing_key}', 'hex'));
 
 CREATE FUNCTION dokene.signed_context_subject(
     context_payload TEXT,
@@ -35,16 +36,17 @@ BEGIN
     END IF;
 
     context_parts := string_to_array(context_payload, '|');
-    IF array_length(context_parts, 1) <> 4
+    IF array_length(context_parts, 1) <> 5
             OR context_parts[1] <> expected_scope
-            OR context_parts[2] !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-            OR context_parts[3] !~ '^[0-9]{10}$'
-            OR context_parts[4] !~ '^[0-9a-f]{32}$'
+            OR context_parts[2] !~ '^[0-9a-zA-Z_-]{1,32}$'
+            OR context_parts[3] !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            OR context_parts[4] !~ '^[0-9]{10}$'
+            OR context_parts[5] !~ '^[0-9a-f]{32}$'
             OR context_signature !~ '^[0-9a-f]{64}$' THEN
         RETURN NULL;
     END IF;
 
-    expires_at := context_parts[3]::BIGINT;
+    expires_at := context_parts[4]::BIGINT;
     IF to_timestamp(expires_at) < statement_timestamp()
             OR to_timestamp(expires_at) > statement_timestamp() + INTERVAL '70 seconds' THEN
         RETURN NULL;
@@ -53,7 +55,12 @@ BEGIN
     SELECT keys.signing_key
     INTO signing_key
     FROM dokene.tenant_context_signing_keys keys
-    WHERE keys.singleton;
+    WHERE keys.key_id = context_parts[2]
+        AND keys.status = 'ACTIVE';
+
+    IF signing_key IS NULL THEN
+        RETURN NULL;
+    END IF;
 
     expected_signature := encode(
             dokene.hmac(convert_to(context_payload, 'UTF8'), signing_key, 'sha256'),
@@ -63,7 +70,7 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    RETURN context_parts[2]::UUID;
+    RETURN context_parts[3]::UUID;
 END;
 $$;
 

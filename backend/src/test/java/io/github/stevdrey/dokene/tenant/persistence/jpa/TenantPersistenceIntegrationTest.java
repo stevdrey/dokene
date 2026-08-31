@@ -104,18 +104,23 @@ class TenantPersistenceIntegrationTest {
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
-        registry.add("spring.flyway.placeholders.tenant_context_signing_key", () -> TENANT_CONTEXT_SIGNING_KEY);
     }
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
         assertThat(jdbcTemplate.queryForList(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
+                String.class
+        )).containsExactly("flyway_schema_history", "tenant_context_signing_keys", "tenant_memberships", "tenants");
+        assertThat(jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
                 String.class
         )).containsExactly("tenant_memberships", "tenants");
         assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_memberships")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("tenant_context_signing_keys")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("flyway_schema_history")).isEqualTo(MIGRATION_ROLE);
 
         Map<String, Object> runtimeRole = jdbcTemplate.queryForMap("""
                 SELECT rolbypassrls, rolsuper, rolcreaterole, rolcreatedb
@@ -1228,6 +1233,52 @@ class TenantPersistenceIntegrationTest {
                 assertVendorUnwrapRejected(resultSet, "org.postgresql.jdbc.PgResultSet");
             }
         }
+    }
+
+    @Test
+    void supportsZeroDowntimeSigningKeyRotation() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Rotation Workspace", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+
+        // 1. Initial capabilities issued with default key succeed
+        SignedDatabaseContext contextK1 = databaseContextSigner.issueTenantContext(tenantA.id());
+        assertThat(readMembershipIdsAsRuntime(contextK1.payload(), contextK1.signature()))
+                .containsExactly(membershipA.id().value());
+
+        // 2. Provision new key 'k2' in dokene.tenant_context_signing_keys as migration role
+        String key2Hex = randomSigningKey();
+        executeAsMigration("INSERT INTO dokene.tenant_context_signing_keys (key_id, signing_key, status) VALUES ('k2', decode('" + key2Hex + "', 'hex'), 'ACTIVE')");
+
+        // 3. Create a signer for key 'k2'
+        HmacDatabaseContextSigner signerK2 = new HmacDatabaseContextSigner(key2Hex, "k2", Clock.systemUTC(), new SecureRandom());
+        SignedDatabaseContext contextK2 = signerK2.issueTenantContext(tenantA.id());
+
+        // 4. Both K1 and K2 capabilities are valid during rotation window
+        assertThat(readMembershipIdsAsRuntime(contextK1.payload(), contextK1.signature()))
+                .containsExactly(membershipA.id().value());
+        assertThat(readMembershipIdsAsRuntime(contextK2.payload(), contextK2.signature()))
+                .containsExactly(membershipA.id().value());
+
+        // 5. Retire K1 key as migration role
+        executeAsMigration("UPDATE dokene.tenant_context_signing_keys SET status = 'RETIRED', retired_at = statement_timestamp() WHERE key_id = 'default'");
+
+        // 6. Capabilities issued with K1 now fail closed
+        SignedDatabaseContext contextK1AfterRetire = databaseContextSigner.issueTenantContext(tenantA.id());
+        assertThat(readMembershipIdsAsRuntime(contextK1AfterRetire.payload(), contextK1AfterRetire.signature()))
+                .isEmpty();
+
+        // 7. Capabilities issued with active K2 key continue to succeed
+        assertThat(readMembershipIdsAsRuntime(contextK2.payload(), contextK2.signature()))
+                .containsExactly(membershipA.id().value());
+
+        // Restore K1 for subsequent tests
+        executeAsMigration("UPDATE dokene.tenant_context_signing_keys SET status = 'ACTIVE', retired_at = NULL WHERE key_id = 'default'");
+        executeAsMigration("DELETE FROM dokene.tenant_context_signing_keys WHERE key_id = 'k2'");
     }
 
     private static <T> void assertDecoratorUnwrap(Wrapper wrapper, Class<T> type) throws SQLException {
