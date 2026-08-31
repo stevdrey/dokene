@@ -5,6 +5,7 @@ These skills are intentionally provider-neutral and reusable. Use the smallest r
 | Skill | Use when |
 | --- | --- |
 | `agent-task-workflow` | Scoping implementation work, preparing execution plans, reviewing PRs, or checking completion criteria. |
+| `pr-code-review` | Performing an independent PR review against the linked issue, correctness, security invariants, tests, and merge safety. |
 | `backend-java-spring` | Implementing or reviewing Java 26, Spring Boot, persistence, API, security, integration, or backend tests. |
 | `frontend-react-typescript` | Implementing or reviewing React, TypeScript, UI state, API integration, accessibility, browser security, or frontend tests. |
 
@@ -20,7 +21,13 @@ A frontend feature usually uses:
 - `agent-task-workflow`;
 - `frontend-react-typescript`.
 
-A full-stack feature normally uses all three skills.
+A full-stack feature normally uses all three implementation skills.
+
+An independent pull request review normally uses:
+
+- `agent-task-workflow`;
+- `pr-code-review`;
+- the smallest relevant implementation skill (`backend-java-spring`, `frontend-react-typescript`, or both).
 
 ## Canonical Location
 
