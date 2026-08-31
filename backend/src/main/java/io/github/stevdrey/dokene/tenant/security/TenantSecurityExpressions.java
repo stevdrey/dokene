@@ -5,6 +5,8 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantScopedResource;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12,6 +14,8 @@ import org.springframework.stereotype.Component;
  */
 @Component("tenantAuth")
 public class TenantSecurityExpressions {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantSecurityExpressions.class);
 
     private final TenantAuthorizationService authorizationService;
 
@@ -27,6 +31,7 @@ public class TenantSecurityExpressions {
             TenantPermission permission = TenantPermission.parse(permissionName);
             return authorizationService.hasPermission(permission);
         } catch (IllegalArgumentException exception) {
+            log.warn("Invalid permission name string [{}] passed to SpEL expression. Denying access.", permissionName);
             return false;
         }
     }
@@ -43,6 +48,7 @@ public class TenantSecurityExpressions {
             TenantPermission permission = TenantPermission.parse(permissionName);
             return authorizationService.hasResourceAccess(permission, resource);
         } catch (IllegalArgumentException exception) {
+            log.warn("Invalid permission name string [{}] passed to SpEL resource access expression. Denying access.", permissionName);
             return false;
         }
     }
@@ -62,6 +68,7 @@ public class TenantSecurityExpressions {
             TenantPermission permission = TenantPermission.parse(permissionName);
             return authorizationService.hasResourceAccess(permission, resourceTenantId);
         } catch (IllegalArgumentException exception) {
+            log.warn("Invalid permission name string [{}] passed to SpEL resource tenant access expression. Denying access.", permissionName);
             return false;
         }
     }

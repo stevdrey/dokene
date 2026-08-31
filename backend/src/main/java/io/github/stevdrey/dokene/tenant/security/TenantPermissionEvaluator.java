@@ -7,6 +7,8 @@ import io.github.stevdrey.dokene.tenant.domain.TenantScopedResource;
 import java.io.Serializable;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.PermissionEvaluator;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
@@ -16,6 +18,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class TenantPermissionEvaluator implements PermissionEvaluator {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantPermissionEvaluator.class);
 
     private final TenantAuthorizationService authorizationService;
 
@@ -39,6 +43,12 @@ public class TenantPermissionEvaluator implements PermissionEvaluator {
         if (targetDomainObject instanceof TenantId resourceTenantId) {
             return authorizationService.hasResourceAccess(tenantPermission, resourceTenantId);
         }
+
+        log.warn(
+                "Unsupported target domain object type [{}] evaluated for permission [{}]. Denying access.",
+                targetDomainObject.getClass().getName(),
+                tenantPermission
+        );
         return false;
     }
 
@@ -53,6 +63,12 @@ public class TenantPermissionEvaluator implements PermissionEvaluator {
             return authorizationService.hasResourceAccess(tenantPermission, new TenantId(uuid));
         }
 
+        log.warn(
+                "Unsupported target ID type [{}] or target type [{}] evaluated for permission [{}]. Denying access.",
+                targetId.getClass().getName(),
+                targetType,
+                tenantPermission
+        );
         return false;
     }
 
@@ -64,9 +80,11 @@ public class TenantPermissionEvaluator implements PermissionEvaluator {
             try {
                 return TenantPermission.parse(stringPermission);
             } catch (IllegalArgumentException exception) {
+                log.warn("Invalid permission name string [{}] passed to PermissionEvaluator. Denying access.", stringPermission);
                 return null;
             }
         }
+        log.warn("Unsupported permission object type [{}] passed to PermissionEvaluator. Denying access.", permission != null ? permission.getClass().getName() : "null");
         return null;
     }
 }
