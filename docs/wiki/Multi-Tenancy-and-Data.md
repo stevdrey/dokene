@@ -76,29 +76,30 @@ ALTER TABLE dokene.customer FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY customer_select_policy
 ON dokene.customer FOR SELECT TO dokene_runtime
-USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+USING (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customer_insert_policy
 ON dokene.customer FOR INSERT TO dokene_runtime
-WITH CHECK (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+WITH CHECK (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customer_update_policy
 ON dokene.customer FOR UPDATE TO dokene_runtime
-USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid)
-WITH CHECK (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+USING (tenant_id = dokene.current_verified_tenant_id())
+WITH CHECK (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customer_delete_policy
 ON dokene.customer FOR DELETE TO dokene_runtime
-USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+USING (tenant_id = dokene.current_verified_tenant_id());
 ```
 
-The application sets tenant context transaction-locally on the database connection:
+The application transports a short-lived, HMAC-signed tenant capability through two database settings. PostgreSQL verifies the signature, format, and expiry before returning the tenant identifier:
 
 ```sql
-SELECT set_config('dokene.current_tenant_id', '<tenant-uuid>', true);
+SELECT set_config('dokene.tenant_context', '<tenant-capability>', true),
+       set_config('dokene.tenant_context_signature', '<hmac-signature>', true);
 ```
 
-When database tenant context is absent, policies evaluate to `NULL` and fail closed.
+The settings are transport rather than authority: missing, altered, expired, or invalidly signed values evaluate to `NULL` and fail closed. The runtime role cannot read the signing key stored by the migration role.
 
 See `docs/architecture/tenant-isolation-rls-recipe.md` and `docs/adr/0003-postgresql-rls.md`.
 

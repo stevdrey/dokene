@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.tenant.persistence.jpa;
 
 import com.zaxxer.hikari.HikariDataSource;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -19,7 +20,11 @@ class TenantPersistenceConfiguration {
 
     @Bean
     @Primary
-    TenantAwareDataSource dataSource(HikariDataSource hikariDataSource, TenantContextProvider tenantContextProvider) {
-        return new TenantAwareDataSource(hikariDataSource, tenantContextProvider);
+    TenantAwareDataSource dataSource(
+            HikariDataSource hikariDataSource,
+            TenantContextProvider tenantContextProvider,
+            DatabaseContextSigner databaseContextSigner
+    ) {
+        return new TenantAwareDataSource(hikariDataSource, tenantContextProvider, databaseContextSigner);
     }
 }

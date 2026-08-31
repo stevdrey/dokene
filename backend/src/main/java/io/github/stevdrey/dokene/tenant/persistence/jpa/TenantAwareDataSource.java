@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.tenant.persistence.jpa;
 
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.lang.reflect.InvocationHandler;
@@ -13,6 +15,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,15 +25,21 @@ import org.springframework.jdbc.datasource.DelegatingDataSource;
 
 /**
  * DataSource decorator that propagates the active tenant context to PostgreSQL session
- * configuration ({@code dokene.current_tenant_id}) for Row-Level Security policy enforcement.
+ * configuration for Row-Level Security policy enforcement.
  */
 public class TenantAwareDataSource extends DelegatingDataSource {
 
     private final TenantContextProvider tenantContextProvider;
+    private final DatabaseContextSigner databaseContextSigner;
 
-    public TenantAwareDataSource(DataSource targetDataSource, TenantContextProvider tenantContextProvider) {
+    public TenantAwareDataSource(
+            DataSource targetDataSource,
+            TenantContextProvider tenantContextProvider,
+            DatabaseContextSigner databaseContextSigner
+    ) {
         super(targetDataSource);
         this.tenantContextProvider = Objects.requireNonNull(tenantContextProvider, "Tenant context provider is required");
+        this.databaseContextSigner = Objects.requireNonNull(databaseContextSigner, "Database context signer is required");
     }
 
     @Override
@@ -49,23 +58,33 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         return (Connection) Proxy.newProxyInstance(
                 Connection.class.getClassLoader(),
                 new Class<?>[]{Connection.class},
-                new TenantAwareConnectionInvocationHandler(targetConnection, tenantContextProvider)
+                new TenantAwareConnectionInvocationHandler(targetConnection, tenantContextProvider, databaseContextSigner)
         );
     }
 
     private static final class TenantAwareConnectionInvocationHandler implements InvocationHandler {
 
-        private static final String SETTING_NAME = "dokene.current_tenant_id";
+        private static final String CONTEXT_SETTING_NAME = "dokene.tenant_context";
+        private static final String CONTEXT_SIGNATURE_SETTING_NAME = "dokene.tenant_context_signature";
+        private static final long CONTEXT_RENEWAL_MARGIN_SECONDS = 5;
 
         private final Connection target;
         private final TenantContextProvider tenantContextProvider;
+        private final DatabaseContextSigner databaseContextSigner;
         private UUID appliedTransactionTenantId;
         private UUID appliedSessionTenantId;
+        private SignedDatabaseContext appliedTransactionContext;
+        private SignedDatabaseContext appliedSessionContext;
         private boolean transactionContextApplied;
 
-        TenantAwareConnectionInvocationHandler(Connection target, TenantContextProvider tenantContextProvider) {
+        TenantAwareConnectionInvocationHandler(
+                Connection target,
+                TenantContextProvider tenantContextProvider,
+                DatabaseContextSigner databaseContextSigner
+        ) {
             this.target = target;
             this.tenantContextProvider = tenantContextProvider;
+            this.databaseContextSigner = databaseContextSigner;
         }
 
         @Override
@@ -78,14 +97,11 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     if (iface.isInstance(proxy)) {
                         return proxy;
                     }
-                    if (iface.isInstance(target)) {
-                        return target;
-                    }
-                    return target.unwrap(iface);
+                    throw new SQLException("Tenant-aware JDBC proxy cannot expose " + iface.getName());
                 }
                 case "isWrapperFor" -> {
                     Class<?> iface = (Class<?>) args[0];
-                    return iface.isInstance(proxy) || iface.isInstance(target) || target.isWrapperFor(iface);
+                    return iface.isInstance(proxy);
                 }
                 case "equals" -> {
                     return proxy == args[0];
@@ -169,6 +185,11 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         void invalidateTransactionContext() {
             transactionContextApplied = false;
             appliedTransactionTenantId = null;
+            appliedTransactionContext = null;
+        }
+
+        Optional<TenantId> currentTenantId() {
+            return tenantContextProvider.currentTenantId();
         }
 
         private Statement wrapStatement(Statement targetStatement, Object connectionProxy, String sql) {
@@ -191,83 +212,108 @@ public class TenantAwareDataSource extends DelegatingDataSource {
             return (DatabaseMetaData) Proxy.newProxyInstance(
                     DatabaseMetaData.class.getClassLoader(),
                     new Class<?>[]{DatabaseMetaData.class},
-                    new TenantAwareDatabaseMetaDataInvocationHandler(targetMetadata, connectionProxy)
+                    new TenantAwareDatabaseMetaDataInvocationHandler(targetMetadata, connectionProxy, this)
             );
         }
 
         void ensureTenantContextApplied() throws SQLException {
-            boolean inTransaction = !target.getAutoCommit();
-            applyTenantContext(inTransaction);
-        }
-
-        private void applyTenantContext(boolean inTransaction) throws SQLException {
-            Optional<TenantId> activeTenant = tenantContextProvider.currentTenantId();
-            UUID targetTenantId = activeTenant.map(TenantId::value).orElse(null);
-
-            if (inTransaction) {
-                if (transactionContextApplied && Objects.equals(appliedTransactionTenantId, targetTenantId)) {
-                    return;
-                }
-
-                if (targetTenantId != null) {
-                    try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, ?, true)")) {
-                        statement.setString(1, SETTING_NAME);
-                        statement.setString(2, targetTenantId.toString());
-                        statement.execute();
-                    }
-                    appliedTransactionTenantId = targetTenantId;
-                } else {
-                    try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, '', true)")) {
-                        statement.setString(1, SETTING_NAME);
-                        statement.execute();
-                    }
-                    appliedTransactionTenantId = null;
-                }
-                transactionContextApplied = true;
-            } else {
-                if (Objects.equals(appliedSessionTenantId, targetTenantId)) {
-                    return;
-                }
-
-                if (targetTenantId != null) {
-                    try (PreparedStatement statement = target.prepareStatement("SELECT set_config(?, ?, false)")) {
-                        statement.setString(1, SETTING_NAME);
-                        statement.setString(2, targetTenantId.toString());
-                        statement.execute();
-                    }
-                    appliedSessionTenantId = targetTenantId;
-                } else {
-                    resetSessionSettingIfNecessary();
-                }
+            try {
+                applyTenantContext(!target.getAutoCommit());
+            } catch (SQLException | RuntimeException exception) {
+                invalidateContextCache();
+                abortTargetConnection();
+                throw exception;
             }
         }
 
+        private void applyTenantContext(boolean inTransaction) throws SQLException {
+            UUID targetTenantId = currentTenantId().map(TenantId::value).orElse(null);
+            if (inTransaction) {
+                applyTransactionContext(targetTenantId);
+            } else {
+                applySessionContext(targetTenantId);
+            }
+        }
+
+        private void invalidateContextCache() {
+            invalidateTransactionContext();
+            appliedSessionTenantId = null;
+            appliedSessionContext = null;
+        }
+
+        private void applyTransactionContext(UUID targetTenantId) throws SQLException {
+            if (transactionContextApplied && Objects.equals(appliedTransactionTenantId, targetTenantId)
+                    && isFresh(appliedTransactionContext)) {
+                return;
+            }
+            if (targetTenantId == null) {
+                setContext("", "", true);
+                appliedTransactionTenantId = null;
+                appliedTransactionContext = null;
+            } else {
+                SignedDatabaseContext context = databaseContextSigner.issueTenantContext(new TenantId(targetTenantId));
+                setContext(context.payload(), context.signature(), true);
+                appliedTransactionTenantId = targetTenantId;
+                appliedTransactionContext = context;
+            }
+            transactionContextApplied = true;
+        }
+
+        private void applySessionContext(UUID targetTenantId) throws SQLException {
+            if (targetTenantId == null) {
+                resetSessionSettingIfNecessary();
+                return;
+            }
+            if (Objects.equals(appliedSessionTenantId, targetTenantId) && isFresh(appliedSessionContext)) {
+                return;
+            }
+            SignedDatabaseContext context = databaseContextSigner.issueTenantContext(new TenantId(targetTenantId));
+            setContext(context.payload(), context.signature(), false);
+            appliedSessionTenantId = targetTenantId;
+            appliedSessionContext = context;
+        }
+
+        private void setContext(String payload, String signature, boolean transactionLocal) throws SQLException {
+            try (PreparedStatement statement = target.prepareStatement(
+                    "SELECT set_config(?, ?, ?), set_config(?, ?, ?)")) {
+                statement.setString(1, CONTEXT_SETTING_NAME);
+                statement.setString(2, payload);
+                statement.setBoolean(3, transactionLocal);
+                statement.setString(4, CONTEXT_SIGNATURE_SETTING_NAME);
+                statement.setString(5, signature);
+                statement.setBoolean(6, transactionLocal);
+                statement.execute();
+            }
+        }
+
+        private boolean isFresh(SignedDatabaseContext context) {
+            return context != null && context.expiresAt().isAfter(Instant.now().plusSeconds(CONTEXT_RENEWAL_MARGIN_SECONDS));
+        }
+
         private void resetSessionSettingIfNecessary() throws SQLException {
-            if (appliedSessionTenantId != null) {
-                try {
-                    if (!target.isClosed()) {
-                        if (!target.getAutoCommit()) {
-                            try {
-                                target.rollback();
-                            } catch (SQLException ignored) {
-                            }
-                            try {
-                                target.setAutoCommit(true);
-                            } catch (SQLException ignored) {
-                            }
-                        }
-                        try (Statement statement = target.createStatement()) {
-                            statement.execute("RESET " + SETTING_NAME);
-                        }
+            try {
+                if (!target.isClosed()) {
+                    if (!target.getAutoCommit()) {
+                        target.rollback();
+                        target.setAutoCommit(true);
                     }
-                    appliedSessionTenantId = null;
-                } catch (SQLException exception) {
-                    try {
-                        target.abort(Runnable::run);
-                    } catch (Throwable ignored) {
+                    try (Statement statement = target.createStatement()) {
+                        statement.execute("RESET " + CONTEXT_SETTING_NAME);
+                        statement.execute("RESET " + CONTEXT_SIGNATURE_SETTING_NAME);
                     }
-                    throw exception;
                 }
+                invalidateContextCache();
+            } catch (SQLException | RuntimeException exception) {
+                invalidateContextCache();
+                abortTargetConnection();
+                throw exception;
+            }
+        }
+
+        private void abortTargetConnection() {
+            try {
+                target.abort(Runnable::run);
+            } catch (Throwable ignored) {
             }
         }
     }
@@ -276,10 +322,16 @@ public class TenantAwareDataSource extends DelegatingDataSource {
 
         private final DatabaseMetaData target;
         private final Object connectionProxy;
+        private final TenantAwareConnectionInvocationHandler connectionHandler;
 
-        TenantAwareDatabaseMetaDataInvocationHandler(DatabaseMetaData target, Object connectionProxy) {
+        TenantAwareDatabaseMetaDataInvocationHandler(
+                DatabaseMetaData target,
+                Object connectionProxy,
+                TenantAwareConnectionInvocationHandler connectionHandler
+        ) {
             this.target = target;
             this.connectionProxy = connectionProxy;
+            this.connectionHandler = connectionHandler;
         }
 
         @Override
@@ -295,14 +347,11 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     if (iface.isInstance(proxy)) {
                         return proxy;
                     }
-                    if (iface.isInstance(target)) {
-                        return target;
-                    }
-                    return target.unwrap(iface);
+                    throw new SQLException("Tenant-aware JDBC proxy cannot expose " + iface.getName());
                 }
                 case "isWrapperFor" -> {
                     Class<?> iface = (Class<?>) args[0];
-                    return iface.isInstance(proxy) || iface.isInstance(target) || target.isWrapperFor(iface);
+                    return iface.isInstance(proxy);
                 }
                 case "equals" -> {
                     return proxy == args[0];
@@ -315,12 +364,29 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 }
                 default -> {
                     try {
-                        return method.invoke(target, args);
+                        Object result = method.invoke(target, args);
+                        if (result instanceof ResultSet resultSet) {
+                            return wrapResultSet(resultSet);
+                        }
+                        return result;
                     } catch (InvocationTargetException exception) {
                         throw exception.getCause();
                     }
                 }
             }
+        }
+
+        private ResultSet wrapResultSet(ResultSet targetResultSet) {
+            return (ResultSet) Proxy.newProxyInstance(
+                    ResultSet.class.getClassLoader(),
+                    new Class<?>[]{ResultSet.class},
+                    new TenantAwareResultSetInvocationHandler(
+                            targetResultSet,
+                            null,
+                            connectionHandler,
+                            connectionHandler.currentTenantId()
+                    )
+            );
         }
     }
 
@@ -369,14 +435,11 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     if (iface.isInstance(proxy)) {
                         return proxy;
                     }
-                    if (iface.isInstance(target)) {
-                        return target;
-                    }
-                    return target.unwrap(iface);
+                    throw new SQLException("Tenant-aware JDBC proxy cannot expose " + iface.getName());
                 }
                 case "isWrapperFor" -> {
                     Class<?> iface = (Class<?>) args[0];
-                    return iface.isInstance(proxy) || iface.isInstance(target) || target.isWrapperFor(iface);
+                    return iface.isInstance(proxy);
                 }
                 case "equals" -> {
                     return proxy == args[0];
@@ -408,9 +471,14 @@ public class TenantAwareDataSource extends DelegatingDataSource {
 
         private ResultSet wrapResultSet(ResultSet targetResultSet, Object statementProxy) {
             return (ResultSet) Proxy.newProxyInstance(
-                    ResultSet.class.getClassLoader(),
-                    new Class<?>[]{ResultSet.class},
-                    new TenantAwareResultSetInvocationHandler(targetResultSet, statementProxy, connectionHandler)
+                ResultSet.class.getClassLoader(),
+                new Class<?>[]{ResultSet.class},
+                new TenantAwareResultSetInvocationHandler(
+                        targetResultSet,
+                        statementProxy,
+                        connectionHandler,
+                        connectionHandler.currentTenantId()
+                )
             );
         }
     }
@@ -420,21 +488,27 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         private final ResultSet target;
         private final Object statementProxy;
         private final TenantAwareConnectionInvocationHandler connectionHandler;
+        private final Optional<TenantId> originTenantId;
 
         TenantAwareResultSetInvocationHandler(
                 ResultSet target,
                 Object statementProxy,
-                TenantAwareConnectionInvocationHandler connectionHandler
+                TenantAwareConnectionInvocationHandler connectionHandler,
+                Optional<TenantId> originTenantId
         ) {
             this.target = target;
             this.statementProxy = statementProxy;
             this.connectionHandler = connectionHandler;
+            this.originTenantId = originTenantId;
         }
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String methodName = method.getName();
 
+            if (requiresOriginTenantContext(methodName)) {
+                requireOriginTenantContext();
+            }
             if (performsDatabaseWork(methodName)) {
                 connectionHandler.ensureTenantContextApplied();
             }
@@ -448,14 +522,11 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                     if (iface.isInstance(proxy)) {
                         return proxy;
                     }
-                    if (iface.isInstance(target)) {
-                        return target;
-                    }
-                    return target.unwrap(iface);
+                    throw new SQLException("Tenant-aware JDBC proxy cannot expose " + iface.getName());
                 }
                 case "isWrapperFor" -> {
                     Class<?> iface = (Class<?>) args[0];
-                    return iface.isInstance(proxy) || iface.isInstance(target) || target.isWrapperFor(iface);
+                    return iface.isInstance(proxy);
                 }
                 case "equals" -> {
                     return proxy == args[0];
@@ -481,6 +552,19 @@ public class TenantAwareDataSource extends DelegatingDataSource {
                 case "updateRow", "deleteRow", "insertRow", "refreshRow" -> true;
                 default -> false;
             };
+        }
+
+        private boolean requiresOriginTenantContext(String methodName) {
+            return switch (methodName) {
+                case "close", "isClosed", "getStatement", "unwrap", "isWrapperFor", "equals", "hashCode", "toString" -> false;
+                default -> true;
+            };
+        }
+
+        private void requireOriginTenantContext() throws SQLException {
+            if (!Objects.equals(originTenantId, connectionHandler.currentTenantId())) {
+                throw new SQLException("ResultSet cannot be used after its tenant context changes");
+            }
         }
     }
 

@@ -3,7 +3,10 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.application.TenantMembershipDiscovery;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -20,7 +23,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.sql.Wrapper;
+import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,6 +60,7 @@ class TenantPersistenceIntegrationTest {
     private static final String RUNTIME_ROLE = "dokene_runtime";
     private static final String MIGRATION_PASSWORD = "migration-" + UUID.randomUUID();
     private static final String RUNTIME_PASSWORD = "runtime-" + UUID.randomUUID();
+    private static final String TENANT_CONTEXT_SIGNING_KEY = randomSigningKey();
 
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
@@ -65,6 +73,12 @@ class TenantPersistenceIntegrationTest {
 
     @Autowired
     private TenantContextProvider tenantContextProvider;
+
+    @Autowired
+    private DatabaseContextSigner databaseContextSigner;
+
+    @Autowired
+    private TenantMembershipDiscovery tenantMembershipDiscovery;
 
     @Autowired
     private DataSource dataSource;
@@ -89,11 +103,13 @@ class TenantPersistenceIntegrationTest {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
+        registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
+        registry.add("spring.flyway.placeholders.tenant_context_signing_key", () -> TENANT_CONTEXT_SIGNING_KEY);
     }
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
                 String.class
@@ -144,6 +160,8 @@ class TenantPersistenceIntegrationTest {
         assertThatThrownBy(() -> executeAsRuntime("ALTER TABLE dokene.tenant_memberships DISABLE ROW LEVEL SECURITY"))
                 .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> executeAsRuntime("DROP TABLE dokene.tenants"))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> executeAsRuntime("SELECT signing_key FROM dokene.tenant_context_signing_keys"))
                 .isInstanceOf(SQLException.class);
         assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
     }
@@ -845,7 +863,7 @@ class TenantPersistenceIntegrationTest {
         // Connect directly as dokene_migration role
         try (Connection connection = DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), MIGRATION_ROLE, MIGRATION_PASSWORD)) {
-            // Insert membership for tenant without setting dokene.current_tenant_id (permitted by migration policy)
+            // Insert membership without a runtime signed context (permitted by migration policy)
             try (PreparedStatement insert = connection.prepareStatement("""
                     INSERT INTO dokene.tenant_memberships (id, tenant_id, identity_id, role, status, created_at, updated_at, version)
                     VALUES (?, ?, ?, 'ADMIN', 'ACTIVE', ?, ?, 0)
@@ -859,7 +877,7 @@ class TenantPersistenceIntegrationTest {
                 assertThat(rows).isEqualTo(1);
             }
 
-            // Read membership as dokene_migration without setting dokene.current_tenant_id
+            // Read membership as dokene_migration without a runtime signed context
             try (PreparedStatement select = connection.prepareStatement(
                     "SELECT id FROM dokene.tenant_memberships WHERE id = ?")) {
                 select.setObject(1, membershipId);
@@ -962,11 +980,11 @@ class TenantPersistenceIntegrationTest {
             // Execute under Tenant A and get ResultSet
             ResultSet resultSet = tenantContextProvider.callWithTenantId(tenantA.id(), () -> {
                 Statement statement = connection.createStatement();
-                return statement.executeQuery("SELECT id FROM tenant_memberships");
+                ResultSet resultSetFromTenantA = statement.executeQuery("SELECT id FROM tenant_memberships");
+                assertThat(resultSetFromTenantA.next()).isTrue();
+                assertThat((UUID) resultSetFromTenantA.getObject("id")).isEqualTo(membershipA.id().value());
+                return resultSetFromTenantA;
             });
-
-            assertThat(resultSet.next()).isTrue();
-            assertThat((UUID) resultSet.getObject("id")).isEqualTo(membershipA.id().value());
 
             // Retrieve statement from ResultSet
             Statement statementFromResultSet = resultSet.getStatement();
@@ -1036,7 +1054,7 @@ class TenantPersistenceIntegrationTest {
     }
 
     @Test
-    void reappliesTenantContextBeforeUpdatableResultSetOperations() throws SQLException {
+    void rejectsUpdatableResultSetOperationsAfterTenantScopeChanges() throws SQLException {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenantA = persistTenant("Tenant A", createdAt);
         Tenant tenantB = persistTenant("Tenant B", createdAt);
@@ -1060,45 +1078,46 @@ class TenantPersistenceIntegrationTest {
                     () -> statement.executeQuery("SELECT id, role FROM tenant_memberships")
             );
             try (resultSet) {
-                assertThat(resultSet.next()).isTrue();
-                assertThat((UUID) resultSet.getObject("id")).isEqualTo(membershipA.id().value());
-
-                tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
-                    try {
-                        resultSet.refreshRow();
-                        resultSet.updateString("role", TenantRole.OPERATOR.name());
-                        resultSet.updateRow();
-                        resultSet.deleteRow();
-                    } catch (SQLException exception) {
-                        throw new RuntimeException(exception);
-                    }
+                tenantContextProvider.callWithTenantId(tenantA.id(), () -> {
+                    assertThat(resultSet.next()).isTrue();
+                    assertThat((UUID) resultSet.getObject("id")).isEqualTo(membershipA.id().value());
+                    return null;
                 });
+                assertThatThrownBy(() -> tenantContextProvider.callWithTenantId(tenantB.id(), () -> {
+                    resultSet.refreshRow();
+                    return null;
+                })).isInstanceOf(SQLException.class)
+                        .hasMessageContaining("tenant context changes");
+                assertThatThrownBy(() -> tenantContextProvider.callWithTenantId(tenantB.id(), () -> {
+                    resultSet.updateString("role", TenantRole.OPERATOR.name());
+                    return null;
+                })).isInstanceOf(SQLException.class)
+                        .hasMessageContaining("tenant context changes");
+                assertThatThrownBy(resultSet::next)
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("tenant context changes");
             }
 
             try (ResultSet insertResultSet = tenantContextProvider.callWithTenantId(
-                    tenantA.id(),
+                    tenantB.id(),
                     () -> statement.executeQuery("""
                             SELECT id, tenant_id, identity_id, role, status, created_at, updated_at, version
                             FROM tenant_memberships
                             """))) {
-                assertThat(insertResultSet.next()).isTrue();
-
-                tenantContextProvider.runWithTenantId(tenantB.id(), () -> {
-                    try {
-                        insertResultSet.moveToInsertRow();
-                        insertResultSet.updateObject("id", membershipCId);
-                        insertResultSet.updateObject("tenant_id", tenantB.id().value());
-                        insertResultSet.updateObject("identity_id", identityC.value());
-                        insertResultSet.updateString("role", TenantRole.OPERATOR.name());
-                        insertResultSet.updateString("status", TenantMembershipStatus.ACTIVE.name());
-                        insertResultSet.updateTimestamp("created_at", Timestamp.from(createdAt));
-                        insertResultSet.updateTimestamp("updated_at", Timestamp.from(createdAt));
-                        insertResultSet.updateLong("version", 0L);
-                        insertResultSet.insertRow();
-                        insertResultSet.moveToCurrentRow();
-                    } catch (SQLException exception) {
-                        throw new RuntimeException(exception);
-                    }
+                tenantContextProvider.callWithTenantId(tenantB.id(), () -> {
+                    assertThat(insertResultSet.next()).isTrue();
+                    insertResultSet.moveToInsertRow();
+                    insertResultSet.updateObject("id", membershipCId);
+                    insertResultSet.updateObject("tenant_id", tenantB.id().value());
+                    insertResultSet.updateObject("identity_id", identityC.value());
+                    insertResultSet.updateString("role", TenantRole.OPERATOR.name());
+                    insertResultSet.updateString("status", TenantMembershipStatus.ACTIVE.name());
+                    insertResultSet.updateTimestamp("created_at", Timestamp.from(createdAt));
+                    insertResultSet.updateTimestamp("updated_at", Timestamp.from(createdAt));
+                    insertResultSet.updateLong("version", 0L);
+                    insertResultSet.insertRow();
+                    insertResultSet.moveToCurrentRow();
+                    return null;
                 });
             }
         }
@@ -1127,6 +1146,104 @@ class TenantPersistenceIntegrationTest {
         }
     }
 
+    @Test
+    void rejectsForgedAndExpiredSignedTenantContexts() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Tenant A", createdAt);
+        Tenant tenantB = persistTenant("Tenant B", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        TenantMembership membershipA = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        );
+        TenantMembership membershipB = TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityB, TenantRole.ADMIN, createdAt
+        );
+        saveMembership(membershipA);
+        saveMembership(membershipB);
+
+        SignedDatabaseContext tenantAContext = databaseContextSigner.issueTenantContext(tenantA.id());
+        String forgedTenantBPayload = tenantAContext.payload().replace(
+                tenantA.id().value().toString(), tenantB.id().value().toString()
+        );
+        assertThat(readMembershipIdsAsRuntime(forgedTenantBPayload, tenantAContext.signature())).isEmpty();
+
+        HmacDatabaseContextSigner expiredSigner = new HmacDatabaseContextSigner(
+                TENANT_CONTEXT_SIGNING_KEY,
+                Clock.fixed(Instant.parse("2020-01-01T00:00:00Z"), java.time.ZoneOffset.UTC),
+                new SecureRandom()
+        );
+        SignedDatabaseContext expiredContext = expiredSigner.issueTenantContext(tenantB.id());
+        assertThat(readMembershipIdsAsRuntime(expiredContext.payload(), expiredContext.signature())).isEmpty();
+    }
+
+    @Test
+    void discoversOnlyActiveMembershipsForTheSignedIdentity() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenantA = persistTenant("Alpha workspace", createdAt);
+        Tenant tenantB = persistTenant("Beta workspace", createdAt);
+        Tenant tenantC = persistTenant("Gamma workspace", createdAt);
+        IdentityId identityA = new IdentityId(UUID.randomUUID());
+        IdentityId identityB = new IdentityId(UUID.randomUUID());
+        saveMembership(TenantMembership.createActive(
+                TenantMembershipId.random(), tenantA.id(), identityA, TenantRole.ADMIN, createdAt
+        ));
+        saveMembership(TenantMembership.createActive(
+                TenantMembershipId.random(), tenantB.id(), identityA, TenantRole.VIEWER, createdAt
+        ));
+        saveMembership(TenantMembership.createActive(
+                TenantMembershipId.random(), tenantC.id(), identityB, TenantRole.ADMIN, createdAt
+        ));
+
+        assertThat(tenantMembershipDiscovery.findActiveMemberships(identityA))
+                .extracting(TenantMembershipDiscovery.ActiveTenantMembership::tenantId)
+                .containsExactly(tenantA.id(), tenantB.id());
+
+        SignedDatabaseContext identityAContext = databaseContextSigner.issueIdentityContext(identityA);
+        String forgedIdentityBPayload = identityAContext.payload().replace(
+                identityA.value().toString(), identityB.value().toString()
+        );
+        assertThat(discoverTenantIdsAsRuntime(forgedIdentityBPayload, identityAContext.signature())).isEmpty();
+    }
+
+    @Test
+    void preventsUnwrapFromExposingPhysicalJdbcObjects() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            assertDecoratorUnwrap(connection, Connection.class);
+            assertVendorUnwrapRejected(connection, "org.postgresql.PGConnection");
+
+            DatabaseMetaData metadata = connection.getMetaData();
+            assertDecoratorUnwrap(metadata, DatabaseMetaData.class);
+            assertVendorUnwrapRejected(metadata, "org.postgresql.jdbc.PgDatabaseMetaData");
+            try (ResultSet metadataResultSet = metadata.getTables(null, null, null, null)) {
+                assertDecoratorUnwrap(metadataResultSet, ResultSet.class);
+                assertVendorUnwrapRejected(metadataResultSet, "org.postgresql.jdbc.PgResultSet");
+                assertThat(metadataResultSet.getStatement()).isNull();
+            }
+
+            try (Statement statement = connection.createStatement(); ResultSet resultSet = statement.executeQuery("SELECT 1")) {
+                assertDecoratorUnwrap(statement, Statement.class);
+                assertVendorUnwrapRejected(statement, "org.postgresql.PGStatement");
+                assertDecoratorUnwrap(resultSet, ResultSet.class);
+                assertVendorUnwrapRejected(resultSet, "org.postgresql.jdbc.PgResultSet");
+            }
+        }
+    }
+
+    private static <T> void assertDecoratorUnwrap(Wrapper wrapper, Class<T> type) throws SQLException {
+        assertThat(wrapper.isWrapperFor(type)).isTrue();
+        assertThat(wrapper.unwrap(type)).isSameAs(wrapper);
+    }
+
+    private static void assertVendorUnwrapRejected(Wrapper wrapper, String vendorClassName)
+            throws ClassNotFoundException, SQLException {
+        Class<?> vendorType = Class.forName(vendorClassName);
+        assertThat(wrapper.isWrapperFor(vendorType)).isFalse();
+        assertThatThrownBy(() -> wrapper.unwrap(vendorType))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("cannot expose");
+    }
+
     private Tenant persistTenant(String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         tenantRepository.save(tenant);
@@ -1142,6 +1259,44 @@ class TenantPersistenceIntegrationTest {
                 tenantId,
                 () -> membershipRepository.findByTenantIdAndIdentityId(tenantId, identityId)
         );
+    }
+
+    private List<UUID> readMembershipIdsAsRuntime(String contextPayload, String contextSignature) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), RUNTIME_ROLE, RUNTIME_PASSWORD);
+                PreparedStatement setContext = connection.prepareStatement(
+                        "SELECT set_config(?, ?, false), set_config(?, ?, false)")) {
+            setContext.setString(1, "dokene.tenant_context");
+            setContext.setString(2, contextPayload);
+            setContext.setString(3, "dokene.tenant_context_signature");
+            setContext.setString(4, contextSignature);
+            setContext.execute();
+            try (Statement statement = connection.createStatement();
+                    ResultSet resultSet = statement.executeQuery("SELECT id FROM dokene.tenant_memberships ORDER BY id")) {
+                List<UUID> ids = new java.util.ArrayList<>();
+                while (resultSet.next()) {
+                    ids.add(resultSet.getObject("id", UUID.class));
+                }
+                return ids;
+            }
+        }
+    }
+
+    private List<UUID> discoverTenantIdsAsRuntime(String contextPayload, String contextSignature) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), RUNTIME_ROLE, RUNTIME_PASSWORD);
+                PreparedStatement statement = connection.prepareStatement("""
+                        SELECT tenant_id
+                        FROM dokene.discover_active_tenant_memberships(?, ?)
+                        """)) {
+            statement.setString(1, contextPayload);
+            statement.setString(2, contextSignature);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<UUID> ids = new java.util.ArrayList<>();
+                while (resultSet.next()) {
+                    ids.add(resultSet.getObject("tenant_id", UUID.class));
+                }
+                return ids;
+            }
+        }
     }
 
     private void executeAndRollBack(Runnable action) {
@@ -1193,6 +1348,12 @@ class TenantPersistenceIntegrationTest {
             statement.execute("GRANT CONNECT ON DATABASE %s TO dokene_runtime".formatted(POSTGRES.getDatabaseName()));
             statement.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
         }
+    }
+
+    private static String randomSigningKey() {
+        byte[] signingKey = new byte[32];
+        new SecureRandom().nextBytes(signingKey);
+        return HexFormat.of().formatHex(signingKey);
     }
 
     private String tableOwner(String tableName) {

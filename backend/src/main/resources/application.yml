@@ -25,6 +25,12 @@ spring:
     baseline-on-migrate: false
     validate-on-migrate: true
     clean-disabled: true
+    placeholders:
+      tenant_context_signing_key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
+
+dokene:
+  tenant-context:
+    signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
 
 server:
   shutdown: graceful

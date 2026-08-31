@@ -4,7 +4,7 @@
 
 In Dokene, tenant isolation is enforced at two complementary layers:
 1. **Application Layer**: Explicit filtering in domain/repository queries using the trusted `TenantContext`.
-2. **Database Layer (RLS)**: PostgreSQL Row-Level Security policies driven by the transaction-local `dokene.current_tenant_id` setting.
+2. **Database Layer (RLS)**: PostgreSQL Row-Level Security policies driven by a short-lived, signed tenant capability verified inside PostgreSQL.
 
 Every table containing tenant-scoped business data (such as customers, purchases, templates, messages, etc.) must follow this standardized recipe.
 
@@ -55,26 +55,26 @@ CREATE POLICY customers_select_policy
     ON dokene.customers
     FOR SELECT
     TO dokene_runtime
-    USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+    USING (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customers_insert_policy
     ON dokene.customers
     FOR INSERT
     TO dokene_runtime
-    WITH CHECK (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+    WITH CHECK (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customers_update_policy
     ON dokene.customers
     FOR UPDATE
     TO dokene_runtime
-    USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid)
-    WITH CHECK (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+    USING (tenant_id = dokene.current_verified_tenant_id())
+    WITH CHECK (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customers_delete_policy
     ON dokene.customers
     FOR DELETE
     TO dokene_runtime
-    USING (tenant_id = NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid);
+    USING (tenant_id = dokene.current_verified_tenant_id());
 
 CREATE POLICY customers_migration_policy
     ON dokene.customers
@@ -88,13 +88,20 @@ CREATE POLICY customers_migration_policy
 
 ## 3. Database Session Context Mechanism
 
-- Application requests establish a `TenantContext` using `ScopedValueTenantContextProvider`.
-- Database connections automatically propagate tenant context via `TenantAwareDataSource`:
-  - **In transactions**: executes `SELECT set_config('dokene.current_tenant_id', ?, true)` deferred until statement preparation. The setting expires automatically upon `COMMIT` or `ROLLBACK`.
-  - **In auto-commit mode**: executes `SELECT set_config('dokene.current_tenant_id', ?, false)` and executes `RESET dokene.current_tenant_id` on connection close before returning to HikariCP.
-  - **Connection eviction**: if session reset fails, `Connection.abort()` is called to destroy the physical connection and eliminate pool contamination.
+- Application requests establish a `TenantContext` using `ScopedValueTenantContextProvider` only after membership bootstrap authorizes the requested tenant.
+- `DOKENE_TENANT_CONTEXT_SIGNING_KEY` is exactly 32 random bytes encoded as 64 hexadecimal characters. It is supplied independently to the application and Flyway; its value is never stored in `.env.example` or application source.
+- Flyway V3 stores that key in a migration-owned table unavailable to `dokene_runtime`, installs `pgcrypto` in `dokene`, and creates `SECURITY DEFINER` functions with a fixed `search_path`. The verifier accepts only a canonical `tenant|uuid|expiry|nonce` payload and its HMAC-SHA-256 signature, valid for 60 seconds. Every invalid form returns `NULL`.
+- Database connections automatically propagate the signed tenant capability via `TenantAwareDataSource`:
+  - **In transactions**: both `dokene.tenant_context` and `dokene.tenant_context_signature` are set transaction-locally with `set_config(..., true)` just before JDBC work. The settings expire automatically upon `COMMIT` or `ROLLBACK`.
+  - **In auto-commit mode**: both settings are set at session scope with `set_config(..., false)` and are reset on connection close before returning to HikariCP.
+  - **Connection eviction**: any context propagation or cleanup failure, including closure of the propagation statement, calls `Connection.abort()` to destroy the physical connection and eliminate pool contamination.
   - **Transaction control**: raw SQL transaction commands are rejected. Use `Connection.setAutoCommit`, `commit`, `rollback`, and savepoint APIs so the decorator can maintain the RLS context lifecycle.
-- In PostgreSQL, `NULLIF(current_setting('dokene.current_tenant_id', true), '')::uuid` evaluates to `NULL` when context is absent, causing queries to fail closed (0 rows returned for reads, RLS violation on writes).
+  - **JDBC boundaries**: `unwrap` never exposes a vendor connection, statement, metadata object, or result set. A result set remains usable only while the tenant that created it is current; closing it remains safe after scope exit.
+- The capability parameters are not authority: manually changing a custom PostgreSQL setting cannot select another tenant without a valid matching signature. `dokene.current_verified_tenant_id()` returns `NULL` otherwise, so reads return no rows and writes receive an RLS violation.
+
+### Global membership bootstrap
+
+`TenantMembershipDiscovery` is an internal port used before the requested tenant is bound. Its PostgreSQL adapter supplies a separate identity-scoped signed capability to `dokene.discover_active_tenant_memberships`, which returns only active memberships for that identity and active tenants. No HTTP tenant-listing endpoint is created by this mechanism.
 
 ---
 
