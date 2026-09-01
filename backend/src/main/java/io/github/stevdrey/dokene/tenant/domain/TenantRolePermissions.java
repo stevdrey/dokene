@@ -13,11 +13,58 @@ import java.util.Set;
 public final class TenantRolePermissions {
 
     private static final Set<TenantPermission> OWNER_PERMISSIONS = Collections.unmodifiableSet(
-            EnumSet.allOf(TenantPermission.class)
+            EnumSet.of(
+                    TenantPermission.TENANT_READ,
+                    TenantPermission.TENANT_UPDATE,
+                    TenantPermission.TENANT_ARCHIVE,
+                    TenantPermission.MEMBERSHIP_READ,
+                    TenantPermission.MEMBERSHIP_INVITE,
+                    TenantPermission.MEMBERSHIP_ROLE_UPDATE,
+                    TenantPermission.MEMBERSHIP_REVOKE,
+                    TenantPermission.CUSTOMER_READ,
+                    TenantPermission.CUSTOMER_WRITE,
+                    TenantPermission.CUSTOMER_DELETE,
+                    TenantPermission.FOLLOWUP_READ,
+                    TenantPermission.FOLLOWUP_WRITE,
+                    TenantPermission.FOLLOWUP_EVALUATE,
+                    TenantPermission.TEMPLATE_READ,
+                    TenantPermission.TEMPLATE_WRITE,
+                    TenantPermission.MESSAGE_READ,
+                    TenantPermission.MESSAGE_DRAFT,
+                    TenantPermission.MESSAGE_APPROVE,
+                    TenantPermission.MESSAGE_SEND,
+                    TenantPermission.INTEGRATION_READ,
+                    TenantPermission.INTEGRATION_MANAGE,
+                    TenantPermission.AUDIT_READ,
+                    TenantPermission.DATA_EXPORT
+            )
     );
 
     private static final Set<TenantPermission> ADMIN_PERMISSIONS = Collections.unmodifiableSet(
-            EnumSet.complementOf(EnumSet.of(TenantPermission.TENANT_ARCHIVE))
+            EnumSet.of(
+                    TenantPermission.TENANT_READ,
+                    TenantPermission.TENANT_UPDATE,
+                    TenantPermission.MEMBERSHIP_READ,
+                    TenantPermission.MEMBERSHIP_INVITE,
+                    TenantPermission.MEMBERSHIP_ROLE_UPDATE,
+                    TenantPermission.MEMBERSHIP_REVOKE,
+                    TenantPermission.CUSTOMER_READ,
+                    TenantPermission.CUSTOMER_WRITE,
+                    TenantPermission.CUSTOMER_DELETE,
+                    TenantPermission.FOLLOWUP_READ,
+                    TenantPermission.FOLLOWUP_WRITE,
+                    TenantPermission.FOLLOWUP_EVALUATE,
+                    TenantPermission.TEMPLATE_READ,
+                    TenantPermission.TEMPLATE_WRITE,
+                    TenantPermission.MESSAGE_READ,
+                    TenantPermission.MESSAGE_DRAFT,
+                    TenantPermission.MESSAGE_APPROVE,
+                    TenantPermission.MESSAGE_SEND,
+                    TenantPermission.INTEGRATION_READ,
+                    TenantPermission.INTEGRATION_MANAGE,
+                    TenantPermission.AUDIT_READ,
+                    TenantPermission.DATA_EXPORT
+            )
     );
 
     private static final Set<TenantPermission> OPERATOR_PERMISSIONS = Collections.unmodifiableSet(

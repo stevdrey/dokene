@@ -14,24 +14,65 @@ class TenantRolePermissionsTest {
     void ownerHasAllPermissions() {
         Set<TenantPermission> permissions = TenantRolePermissions.permissionsFor(TenantRole.OWNER);
 
-        assertThat(permissions).containsExactlyInAnyOrder(TenantPermission.values());
+        assertThat(permissions).containsExactlyInAnyOrder(
+                TenantPermission.TENANT_READ,
+                TenantPermission.TENANT_UPDATE,
+                TenantPermission.TENANT_ARCHIVE,
+                TenantPermission.MEMBERSHIP_READ,
+                TenantPermission.MEMBERSHIP_INVITE,
+                TenantPermission.MEMBERSHIP_ROLE_UPDATE,
+                TenantPermission.MEMBERSHIP_REVOKE,
+                TenantPermission.CUSTOMER_READ,
+                TenantPermission.CUSTOMER_WRITE,
+                TenantPermission.CUSTOMER_DELETE,
+                TenantPermission.FOLLOWUP_READ,
+                TenantPermission.FOLLOWUP_WRITE,
+                TenantPermission.FOLLOWUP_EVALUATE,
+                TenantPermission.TEMPLATE_READ,
+                TenantPermission.TEMPLATE_WRITE,
+                TenantPermission.MESSAGE_READ,
+                TenantPermission.MESSAGE_DRAFT,
+                TenantPermission.MESSAGE_APPROVE,
+                TenantPermission.MESSAGE_SEND,
+                TenantPermission.INTEGRATION_READ,
+                TenantPermission.INTEGRATION_MANAGE,
+                TenantPermission.AUDIT_READ,
+                TenantPermission.DATA_EXPORT
+        );
         for (TenantPermission permission : TenantPermission.values()) {
             assertThat(TenantRolePermissions.hasPermission(TenantRole.OWNER, permission)).isTrue();
         }
     }
 
     @Test
-    void adminHasAllPermissionsExceptTenantArchive() {
+    void adminHasExplicitAdministrativeAndOperationalPermissions() {
         Set<TenantPermission> permissions = TenantRolePermissions.permissionsFor(TenantRole.ADMIN);
 
-        assertThat(permissions).doesNotContain(TenantPermission.TENANT_ARCHIVE);
+        assertThat(permissions).containsExactlyInAnyOrder(
+                TenantPermission.TENANT_READ,
+                TenantPermission.TENANT_UPDATE,
+                TenantPermission.MEMBERSHIP_READ,
+                TenantPermission.MEMBERSHIP_INVITE,
+                TenantPermission.MEMBERSHIP_ROLE_UPDATE,
+                TenantPermission.MEMBERSHIP_REVOKE,
+                TenantPermission.CUSTOMER_READ,
+                TenantPermission.CUSTOMER_WRITE,
+                TenantPermission.CUSTOMER_DELETE,
+                TenantPermission.FOLLOWUP_READ,
+                TenantPermission.FOLLOWUP_WRITE,
+                TenantPermission.FOLLOWUP_EVALUATE,
+                TenantPermission.TEMPLATE_READ,
+                TenantPermission.TEMPLATE_WRITE,
+                TenantPermission.MESSAGE_READ,
+                TenantPermission.MESSAGE_DRAFT,
+                TenantPermission.MESSAGE_APPROVE,
+                TenantPermission.MESSAGE_SEND,
+                TenantPermission.INTEGRATION_READ,
+                TenantPermission.INTEGRATION_MANAGE,
+                TenantPermission.AUDIT_READ,
+                TenantPermission.DATA_EXPORT
+        );
         assertThat(TenantRolePermissions.hasPermission(TenantRole.ADMIN, TenantPermission.TENANT_ARCHIVE)).isFalse();
-
-        for (TenantPermission permission : TenantPermission.values()) {
-            if (permission != TenantPermission.TENANT_ARCHIVE) {
-                assertThat(TenantRolePermissions.hasPermission(TenantRole.ADMIN, permission)).isTrue();
-            }
-        }
     }
 
     @Test
