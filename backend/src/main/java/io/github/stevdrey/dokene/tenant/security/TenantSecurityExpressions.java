@@ -25,14 +25,14 @@ public class TenantSecurityExpressions {
 
     public boolean hasPermission(String permissionName) {
         if (permissionName == null) {
-            return false;
+            return authorizationService.hasPermission(null);
         }
         try {
             TenantPermission permission = TenantPermission.parse(permissionName);
             return authorizationService.hasPermission(permission);
         } catch (IllegalArgumentException exception) {
             log.warn("Invalid permission name string [{}] passed to SpEL expression. Denying access.", permissionName);
-            return false;
+            return authorizationService.hasPermission(null);
         }
     }
 
@@ -49,7 +49,7 @@ public class TenantSecurityExpressions {
             return authorizationService.hasResourceAccess(permission, resource);
         } catch (IllegalArgumentException exception) {
             log.warn("Invalid permission name string [{}] passed to SpEL resource access expression. Denying access.", permissionName);
-            return false;
+            return authorizationService.hasResourceAccess((TenantPermission) null, resource);
         }
     }
 
@@ -66,7 +66,7 @@ public class TenantSecurityExpressions {
             return authorizationService.hasResourceAccess(permission, resourceTenantId);
         } catch (IllegalArgumentException exception) {
             log.warn("Invalid permission name string [{}] passed to SpEL resource tenant access expression. Denying access.", permissionName);
-            return false;
+            return authorizationService.hasResourceAccess((TenantPermission) null, resourceTenantId);
         }
     }
 

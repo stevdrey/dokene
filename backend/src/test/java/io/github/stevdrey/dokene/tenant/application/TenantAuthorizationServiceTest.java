@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.access.AccessDeniedException;
 
 class TenantAuthorizationServiceTest {
@@ -167,6 +168,21 @@ class TenantAuthorizationServiceTest {
             assertThat(authorizationService.hasResourceAccess(TenantPermission.CUSTOMER_WRITE, ownResource)).isFalse();
 
             verify(auditListener, times(2)).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
+        });
+    }
+
+    @Test
+    void auditsMissingPermissionWhenBooleanCheckDenies() {
+        TenantContext context = new TenantContext(tenantId, identityId, membershipId, TenantRole.OWNER);
+
+        tenantContextProvider.runWithContext(context, () -> {
+            assertThat(authorizationService.hasPermission(null)).isFalse();
+
+            ArgumentCaptor<AuthorizationDeniedEvent> eventCaptor = ArgumentCaptor.forClass(AuthorizationDeniedEvent.class);
+            verify(auditListener).onAuthorizationDenied(eventCaptor.capture());
+            assertThat(eventCaptor.getValue())
+                    .extracting(AuthorizationDeniedEvent::requiredPermission, AuthorizationDeniedEvent::reason)
+                    .containsExactly(null, "Requested permission is required");
         });
     }
 

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
@@ -87,6 +88,14 @@ class TenantMethodSecurityTest {
 
         @PreAuthorize("hasPermission(#resource, 'MESSAGE_SEND')")
         public void sendMessage(TenantScopedResource resource) {
+        }
+
+        @PreAuthorize("@tenantAuth.hasPermission('INVALID_PERMISSION')")
+        public void useInvalidSpelPermission() {
+        }
+
+        @PreAuthorize("hasPermission(null, 'INVALID_PERMISSION')")
+        public void useInvalidPermissionEvaluatorPermission() {
         }
     }
 
@@ -232,6 +241,32 @@ class TenantMethodSecurityTest {
                     .isInstanceOf(AccessDeniedException.class);
 
             verify(auditListener).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
+        });
+    }
+
+    @Test
+    void auditsInvalidSpelPermission() {
+        authenticate(identityId);
+        TenantContext ownerContext = new TenantContext(tenantId, identityId, membershipId, TenantRole.OWNER);
+
+        tenantContextProvider.runWithContext(ownerContext, () -> {
+            assertThatThrownBy(() -> sampleService.useInvalidSpelPermission())
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(auditListener, times(1)).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
+        });
+    }
+
+    @Test
+    void auditsInvalidPermissionEvaluatorPermission() {
+        authenticate(identityId);
+        TenantContext ownerContext = new TenantContext(tenantId, identityId, membershipId, TenantRole.OWNER);
+
+        tenantContextProvider.runWithContext(ownerContext, () -> {
+            assertThatThrownBy(() -> sampleService.useInvalidPermissionEvaluatorPermission())
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verify(auditListener, times(1)).onAuthorizationDenied(any(AuthorizationDeniedEvent.class));
         });
     }
 

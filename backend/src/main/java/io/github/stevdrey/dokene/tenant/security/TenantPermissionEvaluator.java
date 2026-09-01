@@ -31,7 +31,7 @@ public class TenantPermissionEvaluator implements PermissionEvaluator {
     public boolean hasPermission(Authentication authentication, Object targetDomainObject, Object permission) {
         TenantPermission tenantPermission = parsePermission(permission);
         if (tenantPermission == null) {
-            return false;
+            return denyMissingPermission(targetDomainObject);
         }
 
         if (targetDomainObject == null) {
@@ -49,14 +49,14 @@ public class TenantPermissionEvaluator implements PermissionEvaluator {
                 targetDomainObject.getClass().getName(),
                 tenantPermission
         );
-        return false;
+        return authorizationService.hasResourceAccess(tenantPermission, (TenantId) null);
     }
 
     @Override
     public boolean hasPermission(Authentication authentication, Serializable targetId, String targetType, Object permission) {
         TenantPermission tenantPermission = parsePermission(permission);
-        if (tenantPermission == null || targetId == null) {
-            return false;
+        if (tenantPermission == null) {
+            return denyMissingPermission(targetId, targetType);
         }
 
         if (targetId instanceof UUID uuid && ("Tenant".equalsIgnoreCase(targetType) || "TenantId".equalsIgnoreCase(targetType))) {
@@ -65,11 +65,28 @@ public class TenantPermissionEvaluator implements PermissionEvaluator {
 
         log.warn(
                 "Unsupported target ID type [{}] or target type [{}] evaluated for permission [{}]. Denying access.",
-                targetId.getClass().getName(),
+                targetId != null ? targetId.getClass().getName() : "null",
                 targetType,
                 tenantPermission
         );
-        return false;
+        return authorizationService.hasResourceAccess(tenantPermission, (TenantId) null);
+    }
+
+    private boolean denyMissingPermission(Object targetDomainObject) {
+        if (targetDomainObject instanceof TenantScopedResource resource) {
+            return authorizationService.hasResourceAccess((TenantPermission) null, resource);
+        }
+        if (targetDomainObject instanceof TenantId resourceTenantId) {
+            return authorizationService.hasResourceAccess((TenantPermission) null, resourceTenantId);
+        }
+        return authorizationService.hasPermission(null);
+    }
+
+    private boolean denyMissingPermission(Serializable targetId, String targetType) {
+        if (targetId instanceof UUID uuid && ("Tenant".equalsIgnoreCase(targetType) || "TenantId".equalsIgnoreCase(targetType))) {
+            return authorizationService.hasResourceAccess((TenantPermission) null, new TenantId(uuid));
+        }
+        return authorizationService.hasPermission(null);
     }
 
     private TenantPermission parsePermission(Object permission) {
