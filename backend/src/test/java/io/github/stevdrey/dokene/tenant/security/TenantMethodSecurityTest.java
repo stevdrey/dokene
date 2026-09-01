@@ -25,7 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -42,7 +42,6 @@ import org.springframework.stereotype.Service;
 class TenantMethodSecurityTest {
 
     @TestConfiguration
-    @Import(TenantAuthorizationConfiguration.class)
     static class TestSecurityConfig {
 
         @Bean
@@ -51,7 +50,8 @@ class TenantMethodSecurityTest {
         }
 
         @Bean
-        AuthorizationAuditListener authorizationAuditListener() {
+        @Primary
+        AuthorizationAuditListener testAuthorizationAuditListener() {
             return mock(AuthorizationAuditListener.class);
         }
 
