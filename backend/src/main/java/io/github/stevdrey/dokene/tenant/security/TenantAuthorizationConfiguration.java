@@ -1,6 +1,5 @@
 package io.github.stevdrey.dokene.tenant.security;
 
-import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -13,12 +12,6 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 @Configuration
 @EnableMethodSecurity
 class TenantAuthorizationConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    AuthorizationAuditListener authorizationAuditListener() {
-        return AuthorizationAuditListener.noop();
-    }
 
     @Bean
     @ConditionalOnMissingBean

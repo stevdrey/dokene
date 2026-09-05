@@ -33,3 +33,11 @@ RLS policies on protected tables restrict visible rows to that tenant and reject
 - JDBC decorators never unwrap to vendor objects: `unwrap` returns only the decorator when it satisfies the requested type, and `isWrapperFor` follows the same rule. A `ResultSet` is bound to the tenant active at creation and rejects access if that context changes or disappears; it may still be closed safely.
 - Global tenant-membership discovery uses a separate identity-scoped signed capability (`identity|<key_id>|<uuid>|<expiry>|<nonce>`) and the narrowly granted `dokene.discover_active_tenant_memberships` function. It returns only active memberships of the authenticated identity and is not a public tenant-listing endpoint.
 - RLS does not replace authorization checks in application code; both layers are mandatory.
+
+## Append-only audit exception
+
+ADR 0006 specializes this policy model for `audit_events`: runtime gets only
+`SELECT`/`INSERT`, with no UPDATE/DELETE policies or privileges. Tenant rows retain
+signed-capability isolation. A narrowly constrained global denial INSERT without
+a verified tenant capability is allowed; global rows have no runtime SELECT policy.
+See [ADR 0006](0006-durable-append-only-audit.md) for attribution and failure semantics.

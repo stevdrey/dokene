@@ -32,3 +32,10 @@ Tenant roles (`TenantRole`) map deterministically and immutably to sets of permi
 3. **Provider-Neutral Domain Abstraction**: Core authorization (`TenantAuthorizationService`, `AuthorizationDecision`, `AuthorizationDeniedEvent`) is decoupled from Spring Security and identity providers.
 4. **Adapter Integration**: Spring Security integration is provided through `TenantPermissionEvaluator`, `@EnableMethodSecurity`, and `@tenantAuth` SpEL expressions (`@PreAuthorize("@tenantAuth.hasPermission('CUSTOMER_READ')")`).
 5. **Auditing without Information Leakage**: Denied authorization evaluations trigger notifications to `AuthorizationAuditListener` capturing complete security context (actor, tenant, membership, required permission, failure reason) while returning a generic `TenantAccessDeniedException` (HTTP 403) to clients to prevent reconnaissance.
+
+## Durable audit integration
+
+[ADR 0006](0006-durable-append-only-audit.md) replaces the production no-op listener
+with synchronous durable denials. Audit failures propagate and produce generic HTTP
+503 responses rather than being swallowed before returning 403. Pure `evaluate`
+methods remain side-effect-free; enforcement methods (`require*`, `has*`) audit denials.

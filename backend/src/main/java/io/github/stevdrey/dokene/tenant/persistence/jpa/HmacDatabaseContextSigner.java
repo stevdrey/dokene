@@ -4,6 +4,7 @@ import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
@@ -61,6 +62,30 @@ public class HmacDatabaseContextSigner implements DatabaseContextSigner {
     public SignedDatabaseContext issueIdentityContext(IdentityId identityId) {
         Objects.requireNonNull(identityId, "Identity ID is required");
         return issue("identity", identityId.value());
+    }
+
+    @Override
+    public SignedDatabaseContext issueAuditContext(
+            TenantId tenantId,
+            IdentityId actorId,
+            TenantMembershipId membershipId
+    ) {
+        Objects.requireNonNull(tenantId, "Tenant ID is required");
+        Objects.requireNonNull(actorId, "Actor ID is required");
+        Objects.requireNonNull(membershipId, "Membership ID is required");
+        Instant expiresAt = clock.instant().plusSeconds(CAPABILITY_LIFETIME_SECONDS);
+        byte[] nonce = new byte[NONCE_BYTES];
+        secureRandom.nextBytes(nonce);
+        String payload = "%s|%s|%s|%s|%s|%d|%s".formatted(
+                "audit",
+                keyId,
+                tenantId.value(),
+                actorId.value(),
+                membershipId.value(),
+                expiresAt.getEpochSecond(),
+                HexFormat.of().formatHex(nonce)
+        );
+        return new SignedDatabaseContext(payload, sign(payload), expiresAt);
     }
 
     public String keyId() {
