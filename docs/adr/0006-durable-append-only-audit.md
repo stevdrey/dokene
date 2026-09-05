@@ -13,7 +13,10 @@ precision), event type, outcome, correlation UUID, optional target type/UUID, an
 trusted tenant/actor/membership references. Historical identifiers have no cascading
 foreign keys: deleting or changing an operational entity must not rewrite history.
 The runtime role can append and select authorized tenant rows, but cannot update,
-delete, truncate, alter the table, or bypass RLS. Migration/database administrators
+delete, truncate, alter the table, or bypass RLS. Direct table INSERT is revoked from
+dokene_runtime; all appends must go through a migration-owned SECURITY DEFINER function
+(dokene.append_audit_event) that cryptographically verifies server-derived audit capabilities
+so runtime SQL cannot fabricate actor or membership attribution. Migration/database administrators
 remain trusted; this is not cryptographic tamper evidence against administrators.
 
 ## Attribution and correlation
@@ -32,7 +35,7 @@ Missing correlation is a programming error and prevents recording/the state chan
 
 A missing tenant context produces a global `AUTHORIZATION_DENIED` event with
 `NO_TENANT_CONTEXT` and no tenant, actor, or membership attribution. We do not infer an
-actor from unverified input. RLS permits this narrow INSERT exception only when the
+actor from unverified input. The append function permits this narrow exception only when the
 connection has no verified tenant capability. Global rows are invisible to runtime
 SELECT even without a tenant context. Investigation of those rows requires a trusted
 administrative database workflow outside this application API. They are not proof of
@@ -90,6 +93,8 @@ inside the active tenant, requires `MEMBERSHIP_ROLE_UPDATE`, checks resource own
 applies existing domain validation, and saves with optimistic concurrency control. Only
 transitions among `ADMIN`, `OPERATOR`, and `VIEWER` are supported. Both source and target
 `OWNER` roles are rejected; ownership transfer and last-owner rules need a separate use case.
+`MembershipRoleService` depends on a tenant-owned `MembershipAuditPort`, preserving one-way
+`audit -> tenant` module coupling; the `audit` module implements this port via an adapter.
 Validation/not-found/conflict errors are not successful transitions and do not create
 success events. Repository adapters remain persistence primitives, not authorized use cases;
 future production membership mutation entry points must use an authorized, audited service.

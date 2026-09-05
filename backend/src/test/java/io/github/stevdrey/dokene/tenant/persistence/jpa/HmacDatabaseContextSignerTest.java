@@ -49,6 +49,23 @@ class HmacDatabaseContextSignerTest {
     }
 
     @Test
+    void issuesAuditContextWithConfiguredKeyIdAndSevenPartPayload() {
+        HmacDatabaseContextSigner signer = new HmacDatabaseContextSigner(signingKey, "audit-k1", clock, secureRandom);
+        TenantId tenantId = TenantId.random();
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        io.github.stevdrey.dokene.tenant.domain.TenantMembershipId membershipId =
+                new io.github.stevdrey.dokene.tenant.domain.TenantMembershipId(UUID.randomUUID());
+
+        SignedDatabaseContext context = signer.issueAuditContext(tenantId, actorId, membershipId);
+
+        assertThat(context.payload()).startsWith("audit|audit-k1|" + tenantId.value() + "|" + actorId.value() + "|"
+                + membershipId.value() + "|1788134460|");
+        assertThat(context.payload().split("\\|")).hasSize(7);
+        assertThat(context.signature()).matches("^[0-9a-f]{64}$");
+        assertThat(context.expiresAt()).isEqualTo(Instant.parse("2026-08-31T00:01:00Z"));
+    }
+
+    @Test
     void rejectsInvalidKeyIdOrSigningKey() {
         assertThatThrownBy(() -> new HmacDatabaseContextSigner("invalid", "k1", clock, secureRandom))
                 .isInstanceOf(IllegalArgumentException.class)

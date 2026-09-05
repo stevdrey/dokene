@@ -9,6 +9,8 @@ import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
@@ -28,15 +30,18 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private static final Logger log = LoggerFactory.getLogger(TransactionalAuditRecorder.class);
     private final JdbcAuditStore store;
     private final TenantContextProvider contexts;
+    private final DatabaseContextSigner signer;
     private final AuditExecutionContext execution;
     private final Clock clock;
     private final TransactionTemplate independent;
     private final TransactionTemplate mandatory;
 
-    TransactionalAuditRecorder(JdbcAuditStore store, TenantContextProvider contexts, AuditExecutionContext execution,
+    TransactionalAuditRecorder(JdbcAuditStore store, TenantContextProvider contexts,
+            DatabaseContextSigner signer, AuditExecutionContext execution,
             Clock clock, PlatformTransactionManager transactions) {
         this.store = store;
         this.contexts = contexts;
+        this.signer = signer;
         this.execution = execution;
         this.clock = clock;
         independent = new TransactionTemplate(transactions);
@@ -49,14 +54,15 @@ class TransactionalAuditRecorder implements AuditRecorder {
     @Override
     public void authorizationDenied(TenantPermission permission, AuditDenialReason reason) {
         TenantContext context = contexts.current().orElse(null);
-        append(event(context, AuditEventType.AUTHORIZATION_DENIED, null, AuditOutcome.DENIED,
+        append(context, event(context, AuditEventType.AUTHORIZATION_DENIED, null, AuditOutcome.DENIED,
                 new AuditMetadata.AuthorizationDenied(permission, context == null ? AuditDenialReason.NO_TENANT_CONTEXT : reason)),
                 independent);
     }
 
     @Override
     public void membershipRoleChanged(TenantMembershipId target, TenantRole previousRole, TenantRole newRole) {
-        append(event(contexts.requireCurrent(), AuditEventType.MEMBERSHIP_ROLE_CHANGED,
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.MEMBERSHIP_ROLE_CHANGED,
                 new AuditTarget(AuditTarget.Type.MEMBERSHIP, target.value()), AuditOutcome.SUCCESS,
                 new AuditMetadata.MembershipRoleChanged(previousRole, newRole)), mandatory);
     }
@@ -68,9 +74,12 @@ class TransactionalAuditRecorder implements AuditRecorder {
                 type, target, outcome, execution.requireCurrent(), metadata);
     }
 
-    private void append(AuditEvent event, TransactionTemplate transaction) {
+    private void append(TenantContext context, AuditEvent event, TransactionTemplate transaction) {
+        SignedDatabaseContext capability = context == null
+                ? null
+                : signer.issueAuditContext(context.tenantId(), context.identityId(), context.membershipId());
         try {
-            transaction.executeWithoutResult(status -> store.append(event));
+            transaction.executeWithoutResult(status -> store.append(event, capability));
         } catch (RuntimeException exception) {
             // SQL/driver exceptions can include row values and statements. Never log their messages or causes.
             log.error("Audit persistence failed; correlationId={}", event.correlationId());

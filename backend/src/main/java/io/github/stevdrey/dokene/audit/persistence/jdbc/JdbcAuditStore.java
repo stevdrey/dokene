@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
@@ -29,26 +30,25 @@ class JdbcAuditStore {
         this.jdbc = jdbc;
     }
 
-    void append(AuditEvent event) {
+    void append(AuditEvent event, SignedDatabaseContext capability) {
         AuditMetadata.AuthorizationDenied denial = event.metadata() instanceof AuditMetadata.AuthorizationDenied value
                 ? value : null;
         AuditMetadata.MembershipRoleChanged change = event.metadata() instanceof AuditMetadata.MembershipRoleChanged value
                 ? value : null;
-        jdbc.update("""
-                INSERT INTO dokene.audit_events
-                    (id, occurred_at, tenant_id, actor_id, membership_id, event_type, target_type, target_id,
-                     outcome, correlation_id, permission, denial_reason, previous_role, new_role)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        jdbc.queryForObject("""
+                SELECT dokene.append_audit_event(
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
+                UUID.class,
                 event.id(), Timestamp.from(event.timestamp()),
-                event.tenantId() == null ? null : event.tenantId().value(),
-                event.actorId() == null ? null : event.actorId().value(),
-                event.membershipId() == null ? null : event.membershipId().value(), event.type().name(),
+                event.type().name(),
                 event.target() == null ? null : event.target().type().name(),
                 event.target() == null ? null : event.target().id(), event.outcome().name(), event.correlationId(),
                 denial == null || denial.permission() == null ? null : denial.permission().name(),
                 denial == null ? null : denial.reason().name(),
-                change == null ? null : change.previousRole().name(), change == null ? null : change.newRole().name());
+                change == null ? null : change.previousRole().name(), change == null ? null : change.newRole().name(),
+                capability == null ? null : capability.payload(),
+                capability == null ? null : capability.signature());
     }
 
     List<AuditEvent> read(TenantId tenant, AuditCursor before, int limit) {

@@ -1,6 +1,5 @@
 package io.github.stevdrey.dokene.tenant.application;
 
-import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
@@ -17,15 +16,15 @@ public class MembershipRoleService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final TenantMembershipRepository memberships;
-    private final AuditRecorder audit;
+    private final MembershipAuditPort audit;
     private final Clock clock;
 
     public MembershipRoleService(TenantAuthorizationService authorization, TenantContextProvider contexts,
-            TenantMembershipRepository memberships, AuditRecorder audit, Clock clock) {
+            TenantMembershipRepository memberships, MembershipAuditPort audit, Clock clock) {
         this.authorization = authorization;
         this.contexts = contexts;
         this.memberships = memberships;
-        this.audit = audit;
+        this.audit = Objects.requireNonNull(audit, "Membership audit port is required");
         this.clock = clock;
     }
 
@@ -44,6 +43,6 @@ public class MembershipRoleService {
         }
         membership.changeRole(newRole, clock.instant());
         memberships.save(membership);
-        audit.membershipRoleChanged(membership.id(), previousRole, newRole);
+        audit.roleChanged(membership.id(), previousRole, newRole);
     }
 }

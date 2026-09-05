@@ -195,7 +195,8 @@ class AuditIntegrationTest {
                 .containsEntry("owner", "dokene_migration");
         scoped(first, () -> {
             recorder.authorizationDenied(TenantPermission.TENANT_ARCHIVE, AuditDenialReason.INSUFFICIENT_PERMISSION);
-            for (String sql : List.of("UPDATE dokene.audit_events SET outcome = 'SUCCESS'",
+            for (String sql : List.of("INSERT INTO dokene.audit_events (id, occurred_at, outcome, correlation_id, event_type) VALUES (gen_random_uuid(), now(), 'DENIED', gen_random_uuid(), 'AUTHORIZATION_DENIED')",
+                    "UPDATE dokene.audit_events SET outcome = 'SUCCESS'",
                     "DELETE FROM dokene.audit_events", "TRUNCATE dokene.audit_events")) {
                 assertThatThrownBy(() -> jdbc.execute(sql)).isInstanceOf(RuntimeException.class);
             }
@@ -205,11 +206,51 @@ class AuditIntegrationTest {
             assertThat(reader.read().events()).isEmpty();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ?",
                     Integer.class, first.tenantId().value())).isZero();
-            assertThatThrownBy(() -> insertDenial(first.tenantId(), "UNSPECIFIED", "AUDIT_READ"))
+            assertThatThrownBy(() -> jdbc.execute("INSERT INTO dokene.audit_events (id, occurred_at, outcome, correlation_id, event_type) VALUES (gen_random_uuid(), now(), 'DENIED', gen_random_uuid(), 'AUTHORIZATION_DENIED')"))
                     .isInstanceOf(RuntimeException.class);
         });
         scoped(tenant(TenantRole.VIEWER), () -> assertThatThrownBy(reader::read).isInstanceOf(TenantAccessDeniedException.class));
         scoped(tenant(TenantRole.OPERATOR), () -> assertThatThrownBy(reader::read).isInstanceOf(TenantAccessDeniedException.class));
+    }
+
+    @Test
+    void runtimeCannotDirectlyInsertOrFabricateAuditAttribution() throws SQLException {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        UUID forgedActorId = UUID.randomUUID();
+        UUID forgedMembershipId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+
+        // 1. Direct INSERT executed as dokene_runtime is rejected (permission denied)
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO dokene.audit_events
+                    (id, occurred_at, tenant_id, actor_id, membership_id, event_type, outcome, correlation_id, denial_reason)
+                VALUES (?, now(), ?, ?, ?, 'AUTHORIZATION_DENIED', 'DENIED', gen_random_uuid(), 'UNSPECIFIED')
+                """, eventId, context.tenantId().value(), forgedActorId, forgedMembershipId))
+                .isInstanceOf(RuntimeException.class);
+
+        // 2. Calling append_audit_event function with forged/tampered capability is rejected
+        scoped(context, () -> {
+            String forgedPayload = "audit|default|" + context.tenantId().value() + "|"
+                    + forgedActorId + "|" + forgedMembershipId + "|"
+                    + (Instant.now().getEpochSecond() + 60) + "|0123456789abcdef0123456789abcdef";
+            String invalidSignature = "0".repeat(64);
+
+            assertThatThrownBy(() -> jdbc.queryForObject("""
+                    SELECT dokene.append_audit_event(
+                        ?, now(), 'AUTHORIZATION_DENIED', NULL, NULL, 'DENIED', gen_random_uuid(),
+                        'AUDIT_READ', 'UNSPECIFIED', NULL, NULL, ?, ?)
+                    """, UUID.class,
+                    UUID.randomUUID(), forgedPayload, invalidSignature))
+                    .isInstanceOf(RuntimeException.class);
+
+            // 3. Supported AuditRecorder path succeeds with trusted server-derived attribution
+            recorder.authorizationDenied(TenantPermission.AUDIT_READ, AuditDenialReason.UNSPECIFIED);
+            AuditEvent recorded = reader.read().events().getFirst();
+            assertThat(recorded.actorId()).isEqualTo(context.identityId());
+            assertThat(recorded.membershipId()).isEqualTo(context.membershipId());
+            assertThat(recorded.actorId()).isNotEqualTo(new IdentityId(forgedActorId));
+            assertThat(recorded.membershipId()).isNotEqualTo(new TenantMembershipId(forgedMembershipId));
+        });
     }
 
     @Test
@@ -245,8 +286,8 @@ class AuditIntegrationTest {
         scoped(tenant(TenantRole.ADMIN), () -> {
             assertThatThrownBy(() -> recorder.authorizationDenied(TenantPermission.AUDIT_READ, AuditDenialReason.NO_TENANT_CONTEXT))
                     .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> insertDenial(contexts.requireCurrent().tenantId(), "NO_TENANT_CONTEXT", "AUDIT_READ"))
-                    .isInstanceOf(DataIntegrityViolationException.class)
+            assertThatThrownBy(() -> migrationInsertDenial(contexts.requireCurrent().tenantId(), "NO_TENANT_CONTEXT", "AUDIT_READ"))
+                    .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("ck_audit_shape");
             assertThat(reader.read().events()).isEmpty();
             recorder.authorizationDenied(TenantPermission.AUDIT_READ, AuditDenialReason.UNSPECIFIED);
@@ -258,9 +299,9 @@ class AuditIntegrationTest {
     void rejectsUnsafeMetadataAtDatabaseBoundary() {
         scoped(tenant(TenantRole.ADMIN), () -> {
             TenantId tenant = contexts.requireCurrent().tenantId();
-            assertThatThrownBy(() -> insertDenial(tenant, "raw-secret-token", "AUDIT_READ"))
+            assertThatThrownBy(() -> migrationInsertDenial(tenant, "raw-secret-token", "AUDIT_READ"))
                     .isInstanceOf(RuntimeException.class);
-            assertThatThrownBy(() -> insertDenial(tenant, "UNSPECIFIED", "raw-request-body"))
+            assertThatThrownBy(() -> migrationInsertDenial(tenant, "UNSPECIFIED", "raw-request-body"))
                     .isInstanceOf(RuntimeException.class);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
         });
@@ -284,7 +325,7 @@ class AuditIntegrationTest {
     void auditFailureAbortsDenialAndRollsBackSuccessfulStateChange() throws SQLException {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);
-        migrationSql("REVOKE INSERT ON dokene.audit_events FROM dokene_runtime");
+        migrationSql("REVOKE EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT) FROM dokene_runtime");
         try {
             scoped(context, () -> {
                 assertThatThrownBy(() -> roles.changeRole(target, TenantRole.OPERATOR)).isInstanceOf(AuditPersistenceException.class);
@@ -294,7 +335,7 @@ class AuditIntegrationTest {
                         .isInstanceOf(AuditPersistenceException.class).hasMessage("Audit persistence unavailable").hasNoCause();
             });
         } finally {
-            migrationSql("GRANT INSERT ON dokene.audit_events TO dokene_runtime");
+            migrationSql("GRANT EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT) TO dokene_runtime");
         }
     }
 
@@ -338,7 +379,7 @@ class AuditIntegrationTest {
         scoped(tenant(TenantRole.ADMIN), () -> {
             // Fixed database timestamp tests the UUID tie breaker independently from the application clock.
             for (int index = 0; index < 7; index++) {
-                insertDenial(contexts.requireCurrent().tenantId(), "UNSPECIFIED", "AUDIT_READ");
+                migrationInsertDenial(contexts.requireCurrent().tenantId(), "UNSPECIFIED", "AUDIT_READ");
             }
             List<UUID> ids = new ArrayList<>();
             AuditPage page = reader.read(null, 2);
@@ -409,12 +450,24 @@ class AuditIntegrationTest {
         new TransactionTemplate(transactions).executeWithoutResult(status -> operation.run());
     }
 
-    private void insertDenial(TenantId tenant, String reason, String permission) {
-        jdbc.update("""
+    private void migrationInsertDenial(TenantId tenant, String reason, String permission) {
+        try (Connection connection = migration();
+             var statement = connection.prepareStatement("""
                 INSERT INTO dokene.audit_events
                     (id, occurred_at, tenant_id, actor_id, membership_id, event_type, outcome, correlation_id, denial_reason, permission)
                 VALUES (?, '2026-09-01T00:00:00Z', ?, ?, ?, 'AUTHORIZATION_DENIED', 'DENIED', ?, ?, ?)
-                """, UUID.randomUUID(), tenant.value(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), reason, permission);
+                """)) {
+            statement.setObject(1, UUID.randomUUID());
+            statement.setObject(2, tenant.value());
+            statement.setObject(3, UUID.randomUUID());
+            statement.setObject(4, UUID.randomUUID());
+            statement.setObject(5, UUID.randomUUID());
+            statement.setString(6, reason);
+            statement.setString(7, permission);
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new RuntimeException(exception);
+        }
     }
 
     private Connection migration() throws SQLException {
