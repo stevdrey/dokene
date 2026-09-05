@@ -53,3 +53,12 @@ Scheduled jobs, asynchronous tasks, and message consumers do not inherit ambient
 Their entry points must receive a trusted `TenantContext` explicitly and scope execution with
 `runWithContext` or `callWithContext`. This keeps later PostgreSQL RLS transaction/session
 propagation tied to an explicit, validated context.
+
+## Durable audit boundary
+
+The `audit` module records denials through the existing authorization listener port
+and successful membership role changes in the same transaction as the business update.
+Internal reads require `AUDIT_READ` and tenant RLS. Servlet requests receive a
+server-generated correlation scope; jobs establish correlation explicitly.
+[ADR 0006](../adr/0006-durable-append-only-audit.md) defines metadata privacy, global
+denial isolation, rollback behavior, and the explicit 503 policy for persistence failures.

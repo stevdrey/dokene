@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
@@ -225,14 +226,14 @@ class TenantAuthorizationServiceTest {
     }
 
     @Test
-    void exceptionFromAuditListenerDoesNotSuppressAccessDeniedException() {
+    void exceptionFromAuditListenerAbortsAuthorization() {
         TenantContext context = new TenantContext(tenantId, identityId, membershipId, TenantRole.VIEWER);
-        doThrow(new RuntimeException("audit failure")).when(auditListener).onAuthorizationDenied(any());
+        doThrow(new AuditPersistenceException()).when(auditListener).onAuthorizationDenied(any());
 
         tenantContextProvider.runWithContext(context, () -> {
             assertThatThrownBy(() -> authorizationService.requirePermission(TenantPermission.CUSTOMER_WRITE))
-                    .isInstanceOf(TenantAccessDeniedException.class)
-                    .hasMessage("Access denied");
+                    .isInstanceOf(AuditPersistenceException.class)
+                    .hasMessage("Audit persistence unavailable");
         });
     }
 

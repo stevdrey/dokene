@@ -8,8 +8,6 @@ import io.github.stevdrey.dokene.tenant.domain.TenantScopedResource;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -17,8 +15,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class DefaultTenantAuthorizationService implements TenantAuthorizationService {
-
-    private static final Logger log = LoggerFactory.getLogger(DefaultTenantAuthorizationService.class);
 
     private final TenantContextProvider tenantContextProvider;
     private final AuthorizationAuditListener auditListener;
@@ -159,10 +155,6 @@ public class DefaultTenantAuthorizationService implements TenantAuthorizationSer
     ) {
         Instant now = clock.instant();
         AuthorizationDeniedEvent event = AuthorizationDeniedEvent.of(context, permission, resourceTenantId, reason, now);
-        try {
-            auditListener.onAuthorizationDenied(event);
-        } catch (Exception exception) {
-            log.warn("Failed to dispatch authorization denied audit event", exception);
-        }
+        auditListener.onAuthorizationDenied(event);
     }
 }

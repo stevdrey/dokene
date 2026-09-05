@@ -108,15 +108,15 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
-        )).containsExactly("flyway_schema_history", "tenant_context_signing_keys", "tenant_memberships", "tenants");
+        )).containsExactly("audit_events", "flyway_schema_history", "tenant_context_signing_keys", "tenant_memberships", "tenants");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
                 String.class
-        )).containsExactly("tenant_memberships", "tenants");
+        )).containsExactly("audit_events", "tenant_memberships", "tenants");
         assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_memberships")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_context_signing_keys")).isEqualTo(MIGRATION_ROLE);
