@@ -28,7 +28,7 @@ public record AuditEvent(
             case AUTHORIZATION_DENIED -> {
                 if (outcome != AuditOutcome.DENIED || target != null
                         || !(metadata instanceof AuditMetadata.AuthorizationDenied denial)
-                        || (tenantId == null && denial.reason() != AuditDenialReason.NO_TENANT_CONTEXT)) {
+                        || ((tenantId == null) != (denial.reason() == AuditDenialReason.NO_TENANT_CONTEXT))) {
                     throw new IllegalArgumentException("Invalid authorization denial event");
                 }
             }

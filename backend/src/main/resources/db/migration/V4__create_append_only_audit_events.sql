@@ -25,7 +25,8 @@ CREATE TABLE dokene.audit_events (
             AND denial_reason IS NOT NULL AND denial_reason IN (
                 'NO_TENANT_CONTEXT', 'INACTIVE_MEMBERSHIP', 'MISSING_ROLE', 'MISSING_PERMISSION',
                 'MISSING_RESOURCE_TENANT', 'CROSS_TENANT_RESOURCE', 'INSUFFICIENT_PERMISSION', 'UNSPECIFIED')
-            AND (tenant_id IS NOT NULL OR denial_reason = 'NO_TENANT_CONTEXT'))
+            AND ((tenant_id IS NULL AND denial_reason = 'NO_TENANT_CONTEXT')
+                OR (tenant_id IS NOT NULL AND denial_reason <> 'NO_TENANT_CONTEXT')))
         OR (event_type = 'MEMBERSHIP_ROLE_CHANGED' AND outcome = 'SUCCESS'
             AND tenant_id IS NOT NULL AND target_type IS NOT NULL AND target_type = 'MEMBERSHIP'
             AND target_id IS NOT NULL AND permission IS NULL AND denial_reason IS NULL

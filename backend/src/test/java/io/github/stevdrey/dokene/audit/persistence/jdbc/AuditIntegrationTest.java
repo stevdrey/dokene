@@ -48,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -237,6 +238,20 @@ class AuditIntegrationTest {
                 }
             }
         }
+    }
+
+    @Test
+    void rejectsNoTenantReasonWithTenantAtApplicationAndDatabaseBoundaries() {
+        scoped(tenant(TenantRole.ADMIN), () -> {
+            assertThatThrownBy(() -> recorder.authorizationDenied(TenantPermission.AUDIT_READ, AuditDenialReason.NO_TENANT_CONTEXT))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> insertDenial(contexts.requireCurrent().tenantId(), "NO_TENANT_CONTEXT", "AUDIT_READ"))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("ck_audit_shape");
+            assertThat(reader.read().events()).isEmpty();
+            recorder.authorizationDenied(TenantPermission.AUDIT_READ, AuditDenialReason.UNSPECIFIED);
+            assertThat(reader.read().events()).hasSize(1);
+        });
     }
 
     @Test

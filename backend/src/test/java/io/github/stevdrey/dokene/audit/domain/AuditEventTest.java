@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.audit.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -10,8 +11,29 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class AuditEventTest {
+    @ParameterizedTest
+    @EnumSource(AuditDenialReason.class)
+    void noTenantContextReasonIsExclusiveToGlobalDenials(AuditDenialReason reason) {
+        Runnable global = () -> new AuditEvent(UUID.randomUUID(), Instant.now(), null, null, null,
+                AuditEventType.AUTHORIZATION_DENIED, null, AuditOutcome.DENIED, UUID.randomUUID(),
+                new AuditMetadata.AuthorizationDenied(null, reason));
+        Runnable attributed = () -> new AuditEvent(UUID.randomUUID(), Instant.now(), new TenantId(UUID.randomUUID()),
+                new IdentityId(UUID.randomUUID()), new TenantMembershipId(UUID.randomUUID()),
+                AuditEventType.AUTHORIZATION_DENIED, null, AuditOutcome.DENIED, UUID.randomUUID(),
+                new AuditMetadata.AuthorizationDenied(null, reason));
+        if (reason == AuditDenialReason.NO_TENANT_CONTEXT) {
+            assertThatCode(global::run).doesNotThrowAnyException();
+            assertThatThrownBy(attributed::run).isInstanceOf(IllegalArgumentException.class);
+        } else {
+            assertThatCode(attributed::run).doesNotThrowAnyException();
+            assertThatThrownBy(global::run).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     @Test
     void normalizesTimestampToDatabasePrecisionAndRequiresCorrelation() {
         AuditEvent event = denial(Instant.parse("2026-09-01T01:02:03.123456789Z"), UUID.randomUUID(), null, null, null);
