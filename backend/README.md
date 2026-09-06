@@ -72,4 +72,22 @@ is enabled, an empty allowlist permits every authenticated identity; a non-empty
 Tenant-scoped API operations nominate a workspace using `X-Tenant-Id: <tenant-id>`. Missing, inactive, or unauthorized
 selections fail closed with `403 Forbidden` and record an audit denial.
 
+## Customer API
+
+All `/api/customers` requests are tenant-scoped and require `X-Tenant-Id`. State-changing requests also require
+the session CSRF token. Customer payloads contain `displayName`, optional `notes`, and one to ten phone entries
+shaped as `{ "number": "8888 7777", "region": "CR", "primary": true }`; exactly one must be primary. Input is
+validated with its explicit two-letter country region and responses contain only normalized E.164 values.
+
+- `POST /api/customers` creates a profile and returns `201`.
+- `GET /api/customers/{customerId}` returns an authorized active or archived profile.
+- `PUT /api/customers/{customerId}` replaces the profile and phones; the JSON body must include the current `version`.
+- `DELETE /api/customers/{customerId}` archives the profile and requires `If-Match: "<version>"`; it returns `204`.
+- `GET /api/customers` accepts `status=ACTIVE|ARCHIVED|ALL`, `name`, the paired `phone` and `region` parameters,
+  opaque `cursor`, and `limit` from 1 to 100. Status defaults to `ACTIVE` and limit defaults to 50.
+
+Duplicate phones within a tenant, including phones on archived profiles, and stale versions return an empty
+`409 Conflict`. Invalid input returns `400`, unavailable resources return `404`, and authorization failures return
+`403`, without exposing customer content.
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

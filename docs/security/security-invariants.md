@@ -18,3 +18,4 @@ The following invariants are architectural requirements, not optional convention
 13. Audit attribution comes from trusted execution context, and metadata accepts only closed, privacy-reviewed types. Unattributed global denials remain unreadable to the runtime role.
 14. OIDC identities are linked only by a validated issuer and subject pair; email and provider role claims never establish identity linkage, membership, tenant context, or authorization.
 15. Provider tokens remain server-side. Browser authentication uses expiring, invalidatable sessions with secure cookie semantics and CSRF protection.
+16. Customer phone identity is normalized with explicit country context and unique within a tenant across active and archived history; customer mutations are authorized, RLS-protected, and audited without customer content.
