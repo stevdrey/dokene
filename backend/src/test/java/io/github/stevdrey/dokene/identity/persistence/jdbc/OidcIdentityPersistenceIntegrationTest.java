@@ -127,13 +127,13 @@ class OidcIdentityPersistenceIntegrationTest {
                     AS $$
                     BEGIN
                         IF current_setting('application_name') = 'dokene-older-oidc-login' THEN
-                            PERFORM pg_advisory_lock(739302);
-                            PERFORM pg_advisory_xact_lock(739301);
+                            PERFORM pg_advisory_lock(%d);
+                            PERFORM pg_advisory_xact_lock(%d);
                         END IF;
                         RETURN NEW;
                     END;
                     $$
-                    """);
+                    """.formatted(OLDER_LOGIN_REACHED_LOCK, OLDER_LOGIN_LOCK));
             statement.execute("""
                     CREATE TRIGGER pause_older_oidc_login_for_test
                     BEFORE INSERT ON dokene.oidc_identity_mappings

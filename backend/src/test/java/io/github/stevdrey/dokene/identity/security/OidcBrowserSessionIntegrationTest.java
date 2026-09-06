@@ -155,8 +155,18 @@ class OidcBrowserSessionIntegrationTest {
         JsonNode session = objectMapper.readTree(get(authenticated, "/api/session").body());
         assertThat(post(authenticated, "/api/account/expire-session", session.path("csrfToken").asText()).statusCode())
                 .isEqualTo(204);
-        Thread.sleep(Duration.ofMillis(1_500));
+        awaitSessionExpiration(authenticated);
         assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+    }
+
+    private void awaitSessionExpiration(Browser browser) throws Exception {
+        Instant deadline = Instant.now().plusSeconds(5);
+        while (Instant.now().isBefore(deadline)) {
+            Thread.sleep(Duration.ofMillis(1_050));
+            if (get(browser, "/api/session").statusCode() == 401) {
+                return;
+            }
+        }
     }
 
     @Test
