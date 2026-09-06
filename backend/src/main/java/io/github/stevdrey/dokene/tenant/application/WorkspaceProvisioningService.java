@@ -18,7 +18,6 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,6 +66,8 @@ public class WorkspaceProvisioningService {
             throw new TenantAccessDeniedException("Workspace provisioning is not permitted for this identity");
         }
 
+        workspaceProvisioningRepository.acquireIdempotencyLock(identityId, normalizedKey);
+
         Optional<WorkspaceProvisioningRecord> existingRecord =
                 workspaceProvisioningRepository.findByIdentityIdAndIdempotencyKey(identityId, normalizedKey);
         if (existingRecord.isPresent()) {
@@ -96,31 +97,13 @@ public class WorkspaceProvisioningService {
                 UUID.randomUUID(), normalizedKey, identityId, tenantId, normalizedDisplayName, now
         );
 
-        try {
-            tenantRepository.save(tenant);
-            tenantContextProvider.callWithTenantId(tenantId, () -> {
-                tenantMembershipRepository.save(ownerMembership);
-                return null;
-            });
-            workspaceProvisioningRepository.save(record);
-            return new ProvisionedWorkspace(tenantId, tenant.displayName(), membershipId, TenantRole.OWNER, true);
-        } catch (DataIntegrityViolationException exception) {
-            WorkspaceProvisioningRecord winnerRecord = workspaceProvisioningRepository
-                    .findByIdentityIdAndIdempotencyKey(identityId, normalizedKey)
-                    .orElseThrow(() -> exception);
-            Tenant winnerTenant = tenantRepository.findById(winnerRecord.tenantId())
-                    .orElseThrow(() -> exception);
-            if (!winnerTenant.displayName().equals(normalizedDisplayName)) {
-                throw new IdempotencyConflictException(
-                        "Idempotency key '%s' was already used with a different workspace name".formatted(normalizedKey)
-                );
-            }
-            TenantMembership winnerMembership = tenantContextProvider.callWithTenantId(winnerRecord.tenantId(), () ->
-                    tenantMembershipRepository.findByTenantIdAndIdentityId(winnerRecord.tenantId(), identityId)
-                            .orElseThrow(() -> exception)
-            );
-            return new ProvisionedWorkspace(winnerRecord.tenantId(), winnerTenant.displayName(), winnerMembership.id(), winnerMembership.role(), false);
-        }
+        tenantRepository.save(tenant);
+        tenantContextProvider.callWithTenantId(tenantId, () -> {
+            tenantMembershipRepository.save(ownerMembership);
+            return null;
+        });
+        workspaceProvisioningRepository.save(record);
+        return new ProvisionedWorkspace(tenantId, tenant.displayName(), membershipId, TenantRole.OWNER, true);
     }
 
     public record ProvisionedWorkspace(

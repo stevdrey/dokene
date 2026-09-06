@@ -3,7 +3,6 @@ package io.github.stevdrey.dokene.tenant.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
@@ -26,10 +25,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -55,7 +53,6 @@ class TenantProvisioningIntegrationTest {
     @Autowired private TenantRepository tenants;
     @Autowired private TenantMembershipRepository memberships;
     @Autowired private WorkspaceProvisioningRepository provisioningRecords;
-    @Autowired private AuditExecutionContext auditExecution;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
 
@@ -134,11 +131,21 @@ class TenantProvisioningIntegrationTest {
 
         int threadCount = 5;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch ready = new CountDownLatch(threadCount);
+        CountDownLatch start = new CountDownLatch(1);
         try {
-            List<Callable<ProvisionedWorkspace>> tasks = Collections.nCopies(threadCount,
-                    () -> provisioningService.provisionWorkspace(identity, idempotencyKey, workspaceName)
-            );
-            List<Future<ProvisionedWorkspace>> futures = executor.invokeAll(tasks);
+            List<Future<ProvisionedWorkspace>> futures = new ArrayList<>();
+            for (int index = 0; index < threadCount; index++) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    if (!start.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Timed out waiting to start concurrent provisioning");
+                    }
+                    return provisioningService.provisionWorkspace(identity, idempotencyKey, workspaceName);
+                }));
+            }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
 
             List<ProvisionedWorkspace> results = new ArrayList<>();
             for (Future<ProvisionedWorkspace> future : futures) {

@@ -72,6 +72,10 @@ class WorkspaceProvisioningServiceTest {
 
     private final WorkspaceProvisioningRepository provisioningRepository = new WorkspaceProvisioningRepository() {
         @Override
+        public void acquireIdempotencyLock(IdentityId identityId, String idempotencyKey) {
+        }
+
+        @Override
         public Optional<WorkspaceProvisioningRecord> findByIdentityIdAndIdempotencyKey(IdentityId identityId, String idempotencyKey) {
             return Optional.ofNullable(provisioningRecords.get(identityId.value() + ":" + idempotencyKey));
         }
@@ -247,54 +251,34 @@ class WorkspaceProvisioningServiceTest {
     }
 
     @Test
-    void handlesConcurrentDuplicateRaceCondition() {
-        TenantId winnerTenantId = TenantId.random();
-        Tenant winnerTenant = Tenant.create(winnerTenantId, "Race Workspace", now);
-        tenants.put(winnerTenantId, winnerTenant);
-        TenantMembership winnerMembership = TenantMembership.createActive(
-                TenantMembershipId.random(), winnerTenantId, identity, TenantRole.OWNER, now
-        );
-        memberships.put(winnerTenantId.value() + ":" + identity.value(), winnerMembership);
-
-        // Pre-populate provisioning record so service.save() will throw DataIntegrityViolationException
-        WorkspaceProvisioningRecord existingWinnerRecord = new WorkspaceProvisioningRecord(
-                UUID.randomUUID(), "race-key", identity, winnerTenantId, "Race Workspace", now
-        );
-        provisioningRecords.put(identity.value() + ":race-key", existingWinnerRecord);
-
-        // Mock repository adapter where findByIdentityIdAndIdempotencyKey returns empty at first check, but save throws and then find succeeds
-        WorkspaceProvisioningRepository racingRepo = new WorkspaceProvisioningRepository() {
-            private boolean firstCall = true;
+    void acquiresIdempotencyLockBeforeCheckingForAnExistingProvisioning() {
+        List<String> calls = new ArrayList<>();
+        WorkspaceProvisioningRepository lockingRepository = new WorkspaceProvisioningRepository() {
+            @Override
+            public void acquireIdempotencyLock(IdentityId identityId, String idempotencyKey) {
+                calls.add("lock");
+            }
 
             @Override
-            public Optional<WorkspaceProvisioningRecord> findByIdentityIdAndIdempotencyKey(IdentityId id, String key) {
-                if (firstCall) {
-                    firstCall = false;
-                    return Optional.empty(); // simulates race condition where check passed
-                }
-                return Optional.of(existingWinnerRecord);
+            public Optional<WorkspaceProvisioningRecord> findByIdentityIdAndIdempotencyKey(IdentityId identityId, String idempotencyKey) {
+                calls.add("find");
+                return Optional.empty();
             }
 
             @Override
             public WorkspaceProvisioningRecord save(WorkspaceProvisioningRecord record) {
-                throw new DataIntegrityViolationException("Unique constraint violation");
+                calls.add("save");
+                return record;
             }
         };
 
-        WorkspaceProvisioningService raceService = new WorkspaceProvisioningService(
-                tenantRepository,
-                membershipRepository,
-                racingRepo,
-                policy,
-                tenantContextProvider,
-                auditRecorder,
-                clock
+        WorkspaceProvisioningService lockingService = new WorkspaceProvisioningService(
+                tenantRepository, membershipRepository, lockingRepository, policy, tenantContextProvider, auditRecorder, clock
         );
 
-        ProvisionedWorkspace result = raceService.provisionWorkspace(identity, "race-key", "Race Workspace");
-        assertThat(result.created()).isFalse();
-        assertThat(result.tenantId()).isEqualTo(winnerTenantId);
-        assertThat(result.displayName()).isEqualTo("Race Workspace");
+        lockingService.provisionWorkspace(identity, "race-key", "Race Workspace");
+
+        assertThat(calls).containsExactly("lock", "find", "save");
     }
 
     private record AuditDenialRecord(TenantPermission permission, AuditDenialReason reason) {
