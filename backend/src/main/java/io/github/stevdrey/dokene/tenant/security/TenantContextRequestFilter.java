@@ -1,10 +1,13 @@
 package io.github.stevdrey.dokene.tenant.security;
 
+import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +15,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -30,6 +34,21 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
     private final TenantContextResolver tenantContextResolver;
     private final AuthenticatedTenantIdentityResolver identityResolver;
     private final RequestMatcher tenantScopedRequestMatcher;
+    private final AuditRecorder auditRecorder;
+
+    private static final AuditRecorder NO_OP_AUDIT = new AuditRecorder() {
+        @Override
+        public void authorizationDenied(TenantPermission permission, AuditDenialReason reason) {
+        }
+
+        @Override
+        public void membershipRoleChanged(
+                io.github.stevdrey.dokene.tenant.domain.TenantMembershipId target,
+                io.github.stevdrey.dokene.tenant.domain.TenantRole previousRole,
+                io.github.stevdrey.dokene.tenant.domain.TenantRole newRole
+        ) {
+        }
+    };
 
     TenantContextRequestFilter(
             TenantContextProvider tenantContexts,
@@ -37,10 +56,21 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
             AuthenticatedTenantIdentityResolver identityResolver,
             RequestMatcher tenantScopedRequestMatcher
     ) {
-        this.tenantContexts = tenantContexts;
-        this.tenantContextResolver = tenantContextResolver;
-        this.identityResolver = identityResolver;
-        this.tenantScopedRequestMatcher = tenantScopedRequestMatcher;
+        this(tenantContexts, tenantContextResolver, identityResolver, tenantScopedRequestMatcher, NO_OP_AUDIT);
+    }
+
+    TenantContextRequestFilter(
+            TenantContextProvider tenantContexts,
+            TenantContextResolver tenantContextResolver,
+            AuthenticatedTenantIdentityResolver identityResolver,
+            RequestMatcher tenantScopedRequestMatcher,
+            AuditRecorder auditRecorder
+    ) {
+        this.tenantContexts = Objects.requireNonNull(tenantContexts, "Tenant context provider is required");
+        this.tenantContextResolver = Objects.requireNonNull(tenantContextResolver, "Tenant context resolver is required");
+        this.identityResolver = Objects.requireNonNull(identityResolver, "Identity resolver is required");
+        this.tenantScopedRequestMatcher = Objects.requireNonNull(tenantScopedRequestMatcher, "Tenant scoped request matcher is required");
+        this.auditRecorder = Objects.requireNonNull(auditRecorder, "Audit recorder is required");
     }
 
     @Override
@@ -62,6 +92,7 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
 
         List<String> selectors = Collections.list(request.getHeaders(TENANT_ID_HEADER));
         if (selectors.isEmpty()) {
+            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
             response.sendError(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
@@ -91,6 +122,7 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
                 throw new ServletException(exception);
             }
         } catch (TenantContextAuthorizationException exception) {
+            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
             response.sendError(HttpServletResponse.SC_FORBIDDEN);
         }
     }

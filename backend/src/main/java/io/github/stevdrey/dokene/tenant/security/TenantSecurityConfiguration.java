@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.tenant.security;
 
+import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.identity.application.OidcIdentityResolver;
 import io.github.stevdrey.dokene.identity.security.InternalOidcUserService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -43,13 +44,15 @@ class TenantSecurityConfiguration {
             TenantContextProvider tenantContexts,
             TenantContextResolver tenantContextResolver,
             AuthenticatedTenantIdentityResolver identityResolver,
-            RequestMatcher tenantScopedRequestMatcher
+            RequestMatcher tenantScopedRequestMatcher,
+            AuditRecorder auditRecorder
     ) {
         return new TenantContextRequestFilter(
                 tenantContexts,
                 tenantContextResolver,
                 identityResolver,
-                tenantScopedRequestMatcher
+                tenantScopedRequestMatcher,
+                auditRecorder
         );
     }
 

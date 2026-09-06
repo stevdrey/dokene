@@ -2,7 +2,11 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
+import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.tenant.application.ScopedValueTenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
@@ -10,6 +14,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.util.Optional;
 import java.util.UUID;
@@ -75,13 +80,15 @@ class TenantContextRequestFilterTest {
     void rejectsMissingTenantSelectionOnTenantScopedEndpoint() throws Exception {
         authenticate(identityId);
         MockHttpServletResponse response = new MockHttpServletResponse();
+        AuditRecorder audit = mock();
 
-        filter((identity, requestedTenant) -> context).doFilter(requestWithoutTenant(), response, (request, result) -> {
+        filter((identity, requestedTenant) -> context, audit).doFilter(requestWithoutTenant(), response, (request, result) -> {
             throw new AssertionError("The filter chain must not run");
         });
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(tenantContexts.current()).isEmpty();
+        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
     }
 
     @Test
@@ -120,15 +127,17 @@ class TenantContextRequestFilterTest {
         authenticate(identityId);
         MockHttpServletRequest request = requestFor(tenantId);
         MockHttpServletResponse response = new MockHttpServletResponse();
+        AuditRecorder audit = mock();
 
         filter((identity, requestedTenant) -> {
             throw new TenantContextAuthorizationException();
-        }).doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
+        }, audit).doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
             throw new AssertionError("The filter chain must not run");
         });
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(tenantContexts.current()).isEmpty();
+        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
     }
 
     @Test
@@ -164,13 +173,17 @@ class TenantContextRequestFilterTest {
     }
 
     private TenantContextRequestFilter filter(TenantContextResolver resolver) {
+        return filter(resolver, mock());
+    }
+
+    private TenantContextRequestFilter filter(TenantContextResolver resolver, AuditRecorder auditRecorder) {
         AuthenticatedTenantIdentityResolver identities = authentication -> {
             if (authentication != null && authentication.getPrincipal() instanceof AuthenticatedTenantIdentity identity) {
                 return Optional.of(identity.identityId());
             }
             return Optional.empty();
         };
-        return new TenantContextRequestFilter(tenantContexts, resolver, identities, requestMatcher);
+        return new TenantContextRequestFilter(tenantContexts, resolver, identities, requestMatcher, auditRecorder);
     }
 
     private MockHttpServletRequest requestWithoutTenant() {
