@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -54,6 +55,7 @@ class CustomerControllerTest {
                 {"displayName":"Ana","notes":"notes","phones":[{"number":"8888 7777","region":"CR","primary":true}]}
                 """))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("ETag", "\"0\""))
                 .andExpect(jsonPath("$.id").value(customer.id().value().toString()))
                 .andExpect(jsonPath("$.phones[0].e164").value("+50688887777"))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("8888 7777"))));
@@ -72,6 +74,21 @@ class CustomerControllerTest {
                 {"displayName":"Ana","version":0,"phones":[{"number":"8888 7777","region":"CR","primary":true}]}
                 """))
                 .andExpect(status().isConflict()).andExpect(content().string(""));
+    }
+
+    @Test
+    void updateAcceptsIfMatchHeaderInsteadOfBodyVersion() throws Exception {
+        when(service.update(eq(customer.id()), eq(0L), eq("Ana"), eq("notes"), any())).thenReturn(customer);
+
+        mvc.perform(put("/api/customers/{id}", customer.id().value())
+                .header("If-Match", "\"0\"")
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"displayName":"Ana","notes":"notes","phones":[{"number":"8888 7777","region":"CR","primary":true}]}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"0\""))
+                .andExpect(jsonPath("$.id").value(customer.id().value().toString()))
+                .andExpect(jsonPath("$.displayName").value("Ana"));
     }
 
     @Test
@@ -104,6 +121,7 @@ class CustomerControllerTest {
 
         mvc.perform(get("/api/customers/{id}", customer.id().value()))
                 .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"0\""))
                 .andExpect(jsonPath("$.id").value(customer.id().value().toString()))
                 .andExpect(jsonPath("$.displayName").value("Ana"))
                 .andExpect(jsonPath("$.phones[0].e164").value("+50688887777"))
@@ -128,6 +146,7 @@ class CustomerControllerTest {
                 {"displayName":"Ana","notes":"notes","version":0,"phones":[{"number":"8888 7777","region":"CR","primary":true}]}
                 """))
                 .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"0\""))
                 .andExpect(jsonPath("$.id").value(customer.id().value().toString()))
                 .andExpect(jsonPath("$.displayName").value("Ana"));
     }

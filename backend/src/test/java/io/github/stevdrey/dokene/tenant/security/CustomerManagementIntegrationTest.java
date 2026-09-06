@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.customer.application.CustomerSearch;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
 import io.github.stevdrey.dokene.customer.domain.Customer;
+import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
 import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
@@ -106,6 +107,34 @@ class CustomerManagementIntegrationTest {
                 .extracting(event -> event.type()).containsExactly(
                         AuditEventType.CUSTOMER_ARCHIVED, AuditEventType.CUSTOMER_UPDATED, AuditEventType.CUSTOMER_CREATED);
         assertThat(events.toString()).doesNotContain("Ana", "private note", "+50688887777");
+    }
+
+    @Test
+    void preservesContactIdsOnUpdateForUnchangedPhones() throws Exception {
+        Customer created = inContext(contextA, () -> customers.create("Contact Stability", null,
+                List.of(new PhoneInput("8888 7777", "CR", true), new PhoneInput("8888 6666", "CR", false))));
+        UUID stablePhoneId = created.phones().stream()
+                .filter(p -> p.e164().equals("+50688887777"))
+                .findFirst().orElseThrow().id();
+        UUID removedPhoneId = created.phones().stream()
+                .filter(p -> p.e164().equals("+50688886666"))
+                .findFirst().orElseThrow().id();
+
+        Customer updated = inContext(contextA, () -> customers.update(created.id(), created.version(),
+                "Contact Stability Updated", null,
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("415 555 2671", "US", true))));
+
+        CustomerPhone keptPhone = updated.phones().stream()
+                .filter(p -> p.e164().equals("+50688887777"))
+                .findFirst().orElseThrow();
+        assertThat(keptPhone.id()).isEqualTo(stablePhoneId);
+        assertThat(keptPhone.primary()).isFalse();
+
+        CustomerPhone newPhone = updated.phones().stream()
+                .filter(p -> p.e164().equals("+14155552671"))
+                .findFirst().orElseThrow();
+        assertThat(newPhone.id()).isNotEqualTo(removedPhoneId);
+        assertThat(newPhone.primary()).isTrue();
     }
 
     @Test

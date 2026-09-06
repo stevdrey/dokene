@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,23 +37,40 @@ public class CustomerController {
     }
 
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public CustomerResponse create(@RequestBody CustomerWriteRequest request) {
-        return response(customers.create(request.displayName(), request.notes(), inputs(request.phones())));
+    public ResponseEntity<CustomerResponse> create(@RequestBody CustomerWriteRequest request) {
+        Customer customer = customers.create(request.displayName(), request.notes(), inputs(request.phones()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .eTag("\"" + customer.version() + "\"")
+                .body(response(customer));
     }
 
     @GetMapping("/{customerId}")
-    public CustomerResponse get(@PathVariable UUID customerId) {
-        return response(customers.get(new CustomerId(customerId)));
+    public ResponseEntity<CustomerResponse> get(@PathVariable UUID customerId) {
+        Customer customer = customers.get(new CustomerId(customerId));
+        return ResponseEntity.ok()
+                .eTag("\"" + customer.version() + "\"")
+                .body(response(customer));
     }
 
     @PutMapping("/{customerId}")
-    public CustomerResponse update(@PathVariable UUID customerId, @RequestBody CustomerWriteRequest request) {
-        if (request.version() == null) {
+    public ResponseEntity<CustomerResponse> update(
+            @PathVariable UUID customerId,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody CustomerWriteRequest request
+    ) {
+        long version;
+        if (ifMatch != null && !ifMatch.isBlank()) {
+            version = parseVersion(ifMatch);
+        } else if (request.version() != null) {
+            version = request.version();
+        } else {
             throw new IllegalArgumentException("Customer version is required");
         }
-        return response(customers.update(new CustomerId(customerId), request.version(), request.displayName(),
-                request.notes(), inputs(request.phones())));
+        Customer customer = customers.update(new CustomerId(customerId), version, request.displayName(),
+                request.notes(), inputs(request.phones()));
+        return ResponseEntity.ok()
+                .eTag("\"" + customer.version() + "\"")
+                .body(response(customer));
     }
 
     @DeleteMapping("/{customerId}")

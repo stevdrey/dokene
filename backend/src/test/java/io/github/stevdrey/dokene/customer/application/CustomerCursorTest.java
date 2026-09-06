@@ -60,4 +60,19 @@ class CustomerCursorTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Invalid customer cursor");
     }
+
+    @Test
+    void rejectsNullOrBlankCursor() {
+        assertThatThrownBy(() -> CustomerCursor.decode(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer cursor");
+
+        assertThatThrownBy(() -> CustomerCursor.decode(""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer cursor");
+
+        assertThatThrownBy(() -> CustomerCursor.decode("   "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer cursor");
+    }
 }

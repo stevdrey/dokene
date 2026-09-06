@@ -9,8 +9,10 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +41,7 @@ public class CustomerService {
         authorization.requirePermission(TenantPermission.CUSTOMER_WRITE);
         TenantId tenantId = contexts.requireCurrent().tenantId();
         Customer customer = Customer.create(new CustomerId(UUID.randomUUID()), tenantId,
-                displayName, notes, normalize(phones), clock.instant());
+                displayName, notes, normalize(List.of(), phones), clock.instant());
         repository.insert(customer);
         audit.created(customer.id());
         return customer;
@@ -72,7 +74,7 @@ public class CustomerService {
         if (expectedVersion < 0 || customer.version() != expectedVersion) {
             throw new CustomerConflictException();
         }
-        customer.update(displayName, notes, normalize(phones), clock.instant());
+        customer.update(displayName, notes, normalize(customer.phones(), phones), clock.instant());
         repository.update(customer, expectedVersion);
         audit.updated(customer.id());
         return customer;
@@ -98,11 +100,16 @@ public class CustomerService {
         return repository.findById(contexts.requireCurrent().tenantId(), id).orElseThrow(CustomerNotFoundException::new);
     }
 
-    private List<CustomerPhone> normalize(List<PhoneInput> phones) {
+    private List<CustomerPhone> normalize(List<CustomerPhone> existingPhones, List<PhoneInput> phones) {
         Objects.requireNonNull(phones, "Phones are required");
+        Map<String, UUID> existingIdsByPhone = (existingPhones == null) ? Map.of() :
+                existingPhones.stream().collect(Collectors.toMap(CustomerPhone::e164, CustomerPhone::id, (a, b) -> a));
         return phones.stream()
-                .map(phone -> new CustomerPhone(UUID.randomUUID(),
-                        phoneNormalizer.normalize(phone.number(), phone.region()), phone.primary()))
+                .map(phone -> {
+                    String normalized = phoneNormalizer.normalize(phone.number(), phone.region());
+                    UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());
+                    return new CustomerPhone(phoneId, normalized, phone.primary());
+                })
                 .toList();
     }
 

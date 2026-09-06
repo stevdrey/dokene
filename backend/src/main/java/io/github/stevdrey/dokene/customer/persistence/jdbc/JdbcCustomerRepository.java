@@ -14,7 +14,9 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -98,9 +100,42 @@ public class JdbcCustomerRepository implements CustomerRepository {
             if (updated != 1) {
                 throw new CustomerConflictException();
             }
-            jdbc.update("DELETE FROM dokene.customer_phone_contacts WHERE tenant_id = ? AND customer_id = ?",
+
+            List<CustomerPhone> currentDbPhones = findPhones(customer.tenantId().value(), customer.id().value());
+            Set<String> newNormalizedPhones = customer.phones().stream()
+                    .map(CustomerPhone::e164)
+                    .collect(Collectors.toSet());
+
+            for (CustomerPhone oldPhone : currentDbPhones) {
+                if (!newNormalizedPhones.contains(oldPhone.e164())) {
+                    jdbc.update("DELETE FROM dokene.customer_phone_contacts WHERE tenant_id = ? AND customer_id = ? AND id = ?",
+                            customer.tenantId().value(), customer.id().value(), oldPhone.id());
+                }
+            }
+
+            jdbc.update("UPDATE dokene.customer_phone_contacts SET is_primary = false WHERE tenant_id = ? AND customer_id = ?",
                     customer.tenantId().value(), customer.id().value());
-            insertPhones(customer);
+
+            Set<String> existingNormalizedPhones = currentDbPhones.stream()
+                    .map(CustomerPhone::e164)
+                    .collect(Collectors.toSet());
+
+            for (CustomerPhone phone : customer.phones()) {
+                if (existingNormalizedPhones.contains(phone.e164())) {
+                    jdbc.update("""
+                            UPDATE dokene.customer_phone_contacts
+                            SET is_primary = ?
+                            WHERE tenant_id = ? AND customer_id = ? AND id = ?
+                            """, phone.primary(), customer.tenantId().value(), customer.id().value(), phone.id());
+                } else {
+                    jdbc.update("""
+                            INSERT INTO dokene.customer_phone_contacts
+                                (id, tenant_id, customer_id, normalized_phone, is_primary)
+                            VALUES (?, ?, ?, ?, ?)
+                            """, phone.id(), customer.tenantId().value(), customer.id().value(), phone.e164(), phone.primary());
+                }
+            }
+
             customer.synchronizeVersion(expectedVersion + 1);
             return customer;
         } catch (DataIntegrityViolationException exception) {
@@ -137,6 +172,14 @@ public class JdbcCustomerRepository implements CustomerRepository {
         }
     }
 
+    private List<CustomerPhone> findPhones(UUID tenantId, UUID customerId) {
+        return jdbc.query("""
+                SELECT id, normalized_phone, is_primary FROM dokene.customer_phone_contacts
+                WHERE tenant_id = ? AND customer_id = ? ORDER BY is_primary DESC, normalized_phone
+                """, (result, index) -> new CustomerPhone(result.getObject("id", UUID.class),
+                result.getString("normalized_phone"), result.getBoolean("is_primary")), tenantId, customerId);
+    }
+
     private CustomerRow mapCustomerRow(ResultSet row, int index) throws SQLException {
         return new CustomerRow(row.getObject("id", UUID.class), row.getObject("tenant_id", UUID.class),
                 row.getString("display_name"), row.getString("notes"), CustomerStatus.valueOf(row.getString("status")),
@@ -146,11 +189,7 @@ public class JdbcCustomerRepository implements CustomerRepository {
     }
 
     private Customer toDomain(CustomerRow row) {
-        List<CustomerPhone> phones = jdbc.query("""
-                SELECT id, normalized_phone, is_primary FROM dokene.customer_phone_contacts
-                WHERE tenant_id = ? AND customer_id = ? ORDER BY is_primary DESC, normalized_phone
-                """, (result, index) -> new CustomerPhone(result.getObject("id", UUID.class),
-                result.getString("normalized_phone"), result.getBoolean("is_primary")), row.tenantId(), row.id());
+        List<CustomerPhone> phones = findPhones(row.tenantId(), row.id());
         return Customer.restore(new CustomerId(row.id()), new TenantId(row.tenantId()), row.displayName(), row.notes(),
                 phones, row.status(), row.createdAt(), row.updatedAt(), row.archivedAt(), row.version());
     }

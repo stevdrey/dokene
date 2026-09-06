@@ -13,6 +13,9 @@ public record CustomerCursor(Instant createdAt, UUID id) {
     }
 
     public static CustomerCursor decode(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Invalid customer cursor");
+        }
         try {
             String decoded = new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
             String[] parts = decoded.split("\\|", -1);

@@ -79,9 +79,9 @@ the session CSRF token. Customer payloads contain `displayName`, optional `notes
 shaped as `{ "number": "8888 7777", "region": "CR", "primary": true }`; exactly one must be primary. Input is
 validated with its explicit two-letter country region and responses contain only normalized E.164 values.
 
-- `POST /api/customers` creates a profile and returns `201`.
-- `GET /api/customers/{customerId}` returns an authorized active or archived profile.
-- `PUT /api/customers/{customerId}` replaces the profile and phones; the JSON body must include the current `version`.
+- `POST /api/customers` creates a profile, returns `201`, and sets `ETag: "<version>"`.
+- `GET /api/customers/{customerId}` returns an authorized active or archived profile with `ETag: "<version>"`.
+- `PUT /api/customers/{customerId}` replaces the profile and phones; requires the current version via `If-Match: "<version>"` or JSON body `version`, and returns `200` with `ETag: "<version>"`.
 - `DELETE /api/customers/{customerId}` archives the profile and requires `If-Match: "<version>"`; it returns `204`.
 - `GET /api/customers` accepts `status=ACTIVE|ARCHIVED|ALL`, `name`, the paired `phone` and `region` parameters,
   opaque `cursor`, and `limit` from 1 to 100. Status defaults to `ACTIVE` and limit defaults to 50.

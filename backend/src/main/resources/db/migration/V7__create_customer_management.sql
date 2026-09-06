@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE dokene.customers (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
@@ -36,6 +38,7 @@ CREATE UNIQUE INDEX uq_customer_phones_primary
     ON dokene.customer_phone_contacts(customer_id) WHERE is_primary;
 CREATE INDEX customers_tenant_chronology ON dokene.customers(tenant_id, created_at DESC, id DESC);
 CREATE INDEX customers_tenant_name ON dokene.customers(tenant_id, lower(display_name));
+CREATE INDEX customers_name_trgm ON dokene.customers USING gin (lower(display_name) gin_trgm_ops);
 CREATE INDEX customer_phones_customer ON dokene.customer_phone_contacts(tenant_id, customer_id);
 
 REVOKE ALL ON TABLE dokene.customers, dokene.customer_phone_contacts FROM PUBLIC;
