@@ -7,10 +7,22 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class DefaultProvisioningAuthorizationPolicyTest {
 
     private final IdentityId identity = new IdentityId(UUID.randomUUID());
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(DefaultProvisioningAuthorizationPolicy.class);
+
+    @Test
+    void deniesProvisioningByDefault() {
+        contextRunner.run(context -> {
+            DefaultProvisioningAuthorizationPolicy policy = context.getBean(DefaultProvisioningAuthorizationPolicy.class);
+
+            assertThat(policy.isAllowed(identity)).isFalse();
+        });
+    }
 
     @Test
     void allowsProvisioningWhenEnabledAndNoAllowlist() {

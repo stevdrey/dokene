@@ -59,6 +59,7 @@ class TenantProvisioningIntegrationTest {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) throws SQLException {
         TenantSecurityIntegrationFixture.configure(registry);
+        registry.add("dokene.provisioning.enabled", () -> "true");
     }
 
     @AfterEach

@@ -65,6 +65,10 @@ Once authenticated, operators use global endpoints under `/api/tenants` to manag
   When both key fields are supplied, they must match after canonical normalization or the request returns `400 Bad Request`.
 - `GET /api/tenants/{tenantId}` verifies and returns workspace details for an authorized tenant.
 
+Workspace provisioning is disabled by default. Operators must set `DOKENE_PROVISIONING_ENABLED=true` to enable it.
+`DOKENE_PROVISIONING_ALLOWED_IDENTITIES` accepts a comma-separated list of internal identity UUIDs. When provisioning
+is enabled, an empty allowlist permits every authenticated identity; a non-empty allowlist permits only the listed identities.
+
 Tenant-scoped API operations nominate a workspace using `X-Tenant-Id: <tenant-id>`. Missing, inactive, or unauthorized
 selections fail closed with `403 Forbidden` and record an audit denial.
 

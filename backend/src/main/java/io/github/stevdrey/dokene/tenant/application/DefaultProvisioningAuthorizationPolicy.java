@@ -19,7 +19,7 @@ public class DefaultProvisioningAuthorizationPolicy implements ProvisioningAutho
     private final Set<UUID> allowedIdentities;
 
     public DefaultProvisioningAuthorizationPolicy(
-            @Value("${dokene.provisioning.enabled:true}") boolean enabled,
+            @Value("${dokene.provisioning.enabled:false}") boolean enabled,
             @Value("${dokene.provisioning.allowed-identities:}") List<String> allowedIdentities
     ) {
         this.enabled = enabled;

@@ -23,16 +23,17 @@ Dokene provides a dedicated application service (`WorkspaceProvisioningService`)
 The service performs:
 1. Deterministic validation of inputs (`displayName` within `[1, 160]` characters, valid Unicode scalar sequences without NUL characters; `idempotencyKey` within `[1, 128]` characters).
 2. Authorization check against `ProvisioningAuthorizationPolicy`.
-3. Idempotency evaluation using `(identity_id, idempotency_key)`:
-   - If a matching record exists with the same display name, the existing workspace details are returned (`200 OK`).
-   - If a matching record exists with a different display name, the request is rejected with `409 Conflict`.
-4. Tenant and owner membership creation:
+3. Acquisition of a PostgreSQL transaction-scoped advisory lock derived from the authenticated identity and normalized idempotency key.
+4. Idempotency evaluation using `(identity_id, idempotency_key)` after the lock is acquired:
+   - If a matching record exists with the same canonical display name, the existing workspace details are returned (`200 OK`).
+   - If a matching record exists with a different canonical display name, the request is rejected with `409 Conflict`.
+5. Tenant and owner membership creation when no provisioning record exists:
    - A new `TenantId` is generated.
    - The `Tenant` entity is created with status `ACTIVE` and persisted.
    - The initial `TenantMembership` is created with role `OWNER` and status `ACTIVE`.
    - The membership is persisted within a constrained tenant scope via `tenantContextProvider.callWithTenantId(tenantId, ...)`.
    - A `WorkspaceProvisioningRecord` is persisted in `dokene.workspace_provisioning_records`.
-5. Concurrent duplicates caught by the database unique constraint `uq_provisioning_identity_key` safely query the winner's committed workspace.
+6. The advisory lock remains held until the provisioning transaction completes, so concurrent first requests cannot create orphan tenants or memberships. The database constraint `UNIQUE (identity_id, idempotency_key)` remains a secondary integrity invariant.
 
 ### 2. Resolution of the Bootstrap / RLS Boundary
 
@@ -48,7 +49,8 @@ Rather than granting `BYPASSRLS` to `dokene_runtime` or introducing unconstraine
 ### 3. Provisioning Authorization Policy
 
 Workspace provisioning is guarded by `ProvisioningAuthorizationPolicy`:
-- `DefaultProvisioningAuthorizationPolicy` evaluates `dokene.provisioning.enabled` (default: `true`) and an optional allowlist `dokene.provisioning.allowed-identities`.
+- `DefaultProvisioningAuthorizationPolicy` evaluates `dokene.provisioning.enabled` (default: `false`) and an optional allowlist `dokene.provisioning.allowed-identities`.
+- Operators must explicitly enable provisioning. When enabled, an empty allowlist permits every authenticated identity; a non-empty allowlist permits only the listed identities.
 - Unauthorized requests fail closed with `TenantAccessDeniedException` (HTTP 403) and dispatch a durable denial audit event via `AuditRecorder.authorizationDenied`.
 
 ### 4. Tenant Discovery & Selection Endpoints
