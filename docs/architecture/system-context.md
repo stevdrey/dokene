@@ -50,9 +50,11 @@ Tenant context propagation is execution-scoped using Java `ScopedValue` (`runWit
 across reused threads.
 
 For HTTP requests:
-- **Authenticated global endpoints** (e.g., tenant discovery `GET /api/tenants`, user profile,
-  or account operations) execute without an active `TenantContext` to avoid circular dependencies
-  during tenant selection.
+- **Authenticated global endpoints** (e.g., workspace provisioning `POST /api/tenants`, tenant discovery
+  `GET /api/tenants`, tenant validation `GET /api/tenants/{tenantId}`, user profile, or account operations)
+  execute without an active `TenantContext` to avoid circular dependencies during initial creation and
+  tenant selection. [ADR 0008](../adr/0008-workspace-provisioning-and-tenant-selection.md) defines the
+  provisioning, idempotency, and selection lifecycle.
 - **Tenant-scoped endpoints** require an explicit, verified `TenantContext`. The `X-Tenant-Id` header
   serves only as a requested target and must match an active server-side membership before establishing
   the execution scope. Requests with missing, malformed, or unauthorized tenant selectors fail closed.

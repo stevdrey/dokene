@@ -53,4 +53,23 @@ comma-separated exact allowlist (for example `http://localhost:5173` locally); w
 The frontend should send cookies with `credentials: include` and must keep OIDC/session values out of
 `localStorage` and other browser-persistent storage.
 
+## Workspace provisioning and tenant selection
+
+Once authenticated, operators use global endpoints under `/api/tenants` to manage and select workspaces:
+
+- `GET /api/tenants` lists all active workspaces where the operator has an active membership. Inactive or
+  suspended workspaces and non-active memberships are excluded server-side.
+- `POST /api/tenants` provisions a new workspace and initial `OWNER` membership atomically. Provisioning requires an
+  idempotency key passed in the `Idempotency-Key` header or `idempotencyKey` body field, plus `displayName`. Replaying
+  with the same key and name returns `200 OK` with the existing workspace; conflicting payloads return `409 Conflict`.
+  When both key fields are supplied, they must match after canonical normalization or the request returns `400 Bad Request`.
+- `GET /api/tenants/{tenantId}` verifies and returns workspace details for an authorized tenant.
+
+Workspace provisioning is disabled by default. Operators must set `DOKENE_PROVISIONING_ENABLED=true` to enable it.
+`DOKENE_PROVISIONING_ALLOWED_IDENTITIES` accepts a comma-separated list of internal identity UUIDs. When provisioning
+is enabled, an empty allowlist permits every authenticated identity; a non-empty allowlist permits only the listed identities.
+
+Tenant-scoped API operations nominate a workspace using `X-Tenant-Id: <tenant-id>`. Missing, inactive, or unauthorized
+selections fail closed with `403 Forbidden` and record an audit denial.
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.
