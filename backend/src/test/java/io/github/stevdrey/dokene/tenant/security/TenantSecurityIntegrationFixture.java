@@ -20,6 +20,7 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -32,13 +33,21 @@ final class TenantSecurityIntegrationFixture {
     static final String RUNTIME_PASSWORD = "runtime-" + UUID.randomUUID();
     static final String TENANT_CONTEXT_SIGNING_KEY = randomSigningKey();
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
+    private static final AtomicBoolean DATABASE_ROLES_CREATED = new AtomicBoolean();
 
     private TenantSecurityIntegrationFixture() {
     }
 
     static void configure(DynamicPropertyRegistry registry) throws SQLException {
         POSTGRES.start();
-        createDatabaseRoles();
+        if (DATABASE_ROLES_CREATED.compareAndSet(false, true)) {
+            try {
+                createDatabaseRoles();
+            } catch (SQLException exception) {
+                DATABASE_ROLES_CREATED.set(false);
+                throw exception;
+            }
+        }
 
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", () -> RUNTIME_ROLE);

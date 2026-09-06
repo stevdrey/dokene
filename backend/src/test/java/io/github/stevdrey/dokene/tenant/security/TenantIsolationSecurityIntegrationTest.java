@@ -43,9 +43,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Canonical end-to-end regression suite for tenant authorization and PostgreSQL RLS.
@@ -54,13 +51,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * regression in either control is independently observable.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@Testcontainers
 class TenantIsolationSecurityIntegrationTest {
 
     private static final Instant CREATED_AT = Instant.parse("2026-09-05T00:00:00Z");
-
-    @Container
-    private static final PostgreSQLContainer POSTGRES = TenantSecurityIntegrationFixture.POSTGRES;
 
     @Autowired private TenantRepository tenants;
     @Autowired private TenantMembershipRepository memberships;
