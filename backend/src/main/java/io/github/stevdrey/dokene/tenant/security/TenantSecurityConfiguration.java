@@ -63,7 +63,10 @@ class TenantSecurityConfiguration {
             @Value("${dokene.security.cors.allowed-origins:}") List<String> allowedOrigins
     ) {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(allowedOrigins.stream().filter(origin -> !origin.isBlank()).toList());
+        configuration.setAllowedOrigins(allowedOrigins.stream()
+                .map(String::trim)
+                .filter(origin -> !origin.isBlank())
+                .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Content-Type", "X-CSRF-TOKEN", "X-Tenant-Id"));
         configuration.setAllowCredentials(true);

@@ -9,6 +9,7 @@ import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
 /** Adapts a framework-validated OIDC user into Dokene's provider-neutral principal. */
@@ -34,11 +35,16 @@ public final class InternalOidcUserService implements OAuth2UserService<OidcUser
     @Override
     public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
         OidcUser oidcUser = delegate.loadUser(userRequest);
+        OidcIdToken idToken = oidcUser.getIdToken();
+        String subject = oidcUser.getSubject();
+        if (idToken == null || idToken.getIssuer() == null || subject == null) {
+            throw new OAuth2AuthenticationException(INVALID_ID_TOKEN);
+        }
         try {
-            URI issuer = oidcUser.getIdToken().getIssuer().toURI();
-            OidcIdentityMapping mapping = new OidcIdentityMapping(issuer, oidcUser.getSubject());
+            URI issuer = idToken.getIssuer().toURI();
+            OidcIdentityMapping mapping = new OidcIdentityMapping(issuer, subject);
             return new InternalOidcUser(oidcUser, identityResolver.resolve(mapping));
-        } catch (IllegalArgumentException | NullPointerException | URISyntaxException exception) {
+        } catch (IllegalArgumentException | URISyntaxException exception) {
             throw new OAuth2AuthenticationException(INVALID_ID_TOKEN);
         }
     }
