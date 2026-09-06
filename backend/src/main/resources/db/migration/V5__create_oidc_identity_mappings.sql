@@ -28,13 +28,13 @@ BEGIN
         RAISE EXCEPTION 'Invalid OIDC identity mapping';
     END IF;
 
-    INSERT INTO dokene.oidc_identity_mappings (
+    INSERT INTO dokene.oidc_identity_mappings AS existing (
         identity_id, issuer, subject, created_at, last_authenticated_at
     ) VALUES (
         gen_random_uuid(), requested_issuer, requested_subject, authenticated_at, authenticated_at
     )
     ON CONFLICT (issuer, subject) DO UPDATE
-        SET last_authenticated_at = EXCLUDED.last_authenticated_at
+        SET last_authenticated_at = GREATEST(existing.last_authenticated_at, EXCLUDED.last_authenticated_at)
     RETURNING identity_id INTO resolved_identity_id;
 
     RETURN resolved_identity_id;
