@@ -60,9 +60,7 @@ public class WorkspaceProvisioningService {
     public ProvisionedWorkspace provisionWorkspace(IdentityId identityId, String idempotencyKey, String displayName) {
         Objects.requireNonNull(identityId, "Identity ID is required");
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-        if (displayName == null || displayName.isBlank()) {
-            throw new IllegalArgumentException("Tenant display name is required");
-        }
+        String normalizedDisplayName = Tenant.normalizeDisplayName(displayName);
 
         if (!provisioningAuthorizationPolicy.isAllowed(identityId)) {
             auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
@@ -75,7 +73,7 @@ public class WorkspaceProvisioningService {
             WorkspaceProvisioningRecord record = existingRecord.get();
             Tenant existingTenant = tenantRepository.findById(record.tenantId())
                     .orElseThrow(() -> new IllegalStateException("Provisioned tenant not found"));
-            if (!existingTenant.displayName().equals(displayName.trim())) {
+            if (!existingTenant.displayName().equals(normalizedDisplayName)) {
                 throw new IdempotencyConflictException(
                         "Idempotency key '%s' was already used with a different workspace name".formatted(normalizedKey)
                 );
@@ -89,13 +87,13 @@ public class WorkspaceProvisioningService {
 
         TenantId tenantId = TenantId.random();
         Instant now = clock.instant();
-        Tenant tenant = Tenant.create(tenantId, displayName, now);
+        Tenant tenant = Tenant.create(tenantId, normalizedDisplayName, now);
         TenantMembershipId membershipId = TenantMembershipId.random();
         TenantMembership ownerMembership = TenantMembership.createActive(
                 membershipId, tenantId, identityId, TenantRole.OWNER, now
         );
         WorkspaceProvisioningRecord record = new WorkspaceProvisioningRecord(
-                UUID.randomUUID(), normalizedKey, identityId, tenantId, tenant.displayName(), now
+                UUID.randomUUID(), normalizedKey, identityId, tenantId, normalizedDisplayName, now
         );
 
         try {
@@ -112,7 +110,7 @@ public class WorkspaceProvisioningService {
                     .orElseThrow(() -> exception);
             Tenant winnerTenant = tenantRepository.findById(winnerRecord.tenantId())
                     .orElseThrow(() -> exception);
-            if (!winnerTenant.displayName().equals(tenant.displayName())) {
+            if (!winnerTenant.displayName().equals(normalizedDisplayName)) {
                 throw new IdempotencyConflictException(
                         "Idempotency key '%s' was already used with a different workspace name".formatted(normalizedKey)
                 );

@@ -167,6 +167,17 @@ class WorkspaceProvisioningServiceTest {
     }
 
     @Test
+    void replayingWithSameKeyAndUnicodeNormalizedNameSucceedsWithoutConflict() {
+        ProvisionedWorkspace first = service.provisionWorkspace(identity, "key-unicode", "Acme Corp");
+        assertThat(first.created()).isTrue();
+
+        ProvisionedWorkspace replay = service.provisionWorkspace(identity, "key-unicode", "\u00A0Acme Corp \u00A0");
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.tenantId()).isEqualTo(first.tenantId());
+        assertThat(replay.displayName()).isEqualTo("Acme Corp");
+    }
+
+    @Test
     void deniesUnauthorizedIdentityAndRecordsAuditDenial() {
         provisioningAllowed = false;
 
@@ -190,6 +201,10 @@ class WorkspaceProvisioningServiceTest {
                 .hasMessage("Idempotency key is required");
 
         assertThatThrownBy(() -> service.provisionWorkspace(identity, "key", "   "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Tenant display name cannot be blank");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Tenant display name is required");
 

@@ -97,6 +97,7 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
             return;
         }
         if (selectors.size() != 1) {
+            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
@@ -136,6 +137,7 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
         try {
             return new TenantId(UUID.fromString(selector));
         } catch (IllegalArgumentException exception) {
+            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return null;
         }

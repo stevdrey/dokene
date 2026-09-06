@@ -97,13 +97,15 @@ class TenantContextRequestFilterTest {
         MockHttpServletRequest request = requestWithoutTenant();
         request.addHeader(TenantContextRequestFilter.TENANT_ID_HEADER, "not-a-uuid");
         MockHttpServletResponse response = new MockHttpServletResponse();
+        AuditRecorder audit = mock();
 
-        filter((identity, requestedTenant) -> context).doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
+        filter((identity, requestedTenant) -> context, audit).doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
             throw new AssertionError("The filter chain must not run");
         });
 
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(tenantContexts.current()).isEmpty();
+        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
     }
 
     @Test
@@ -113,13 +115,15 @@ class TenantContextRequestFilterTest {
         request.addHeader(TenantContextRequestFilter.TENANT_ID_HEADER, tenantId.value().toString());
         request.addHeader(TenantContextRequestFilter.TENANT_ID_HEADER, TenantId.random().value().toString());
         MockHttpServletResponse response = new MockHttpServletResponse();
+        AuditRecorder audit = mock();
 
-        filter((identity, requestedTenant) -> context).doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
+        filter((identity, requestedTenant) -> context, audit).doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
             throw new AssertionError("The filter chain must not run");
         });
 
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(tenantContexts.current()).isEmpty();
+        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
     }
 
     @Test
