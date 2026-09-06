@@ -196,9 +196,33 @@ class WorkspaceProvisioningServiceTest {
 
     @Test
     void validatesBlankOrNullInputs() {
-        assertThatThrownBy(() -> service.provisionWorkspace(identity, "", "Name"))
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, null, "Name"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Idempotency key is required");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "", "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Idempotency key cannot be blank");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "   ", "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Idempotency key cannot be blank");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "\u00A0\u00A0", "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Idempotency key cannot be blank");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key\0null", "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Idempotency key cannot contain NUL characters");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key\uD800", "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Idempotency key cannot contain unpaired surrogates");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "k".repeat(129), "Name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Idempotency key cannot exceed 128 characters");
 
         assertThatThrownBy(() -> service.provisionWorkspace(identity, "key", "   "))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -210,6 +234,16 @@ class WorkspaceProvisioningServiceTest {
 
         assertThatThrownBy(() -> service.provisionWorkspace(null, "key", "Name"))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void replayingWithSameKeyWithUnicodeSpacesSucceedsWithoutConflict() {
+        ProvisionedWorkspace first = service.provisionWorkspace(identity, "key-trim", "Acme Corp");
+        assertThat(first.created()).isTrue();
+
+        ProvisionedWorkspace replay = service.provisionWorkspace(identity, "\u00A0key-trim \u00A0", "Acme Corp");
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.tenantId()).isEqualTo(first.tenantId());
     }
 
     @Test

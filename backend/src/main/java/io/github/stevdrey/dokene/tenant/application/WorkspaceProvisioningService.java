@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WorkspaceProvisioningService {
 
-    public static final int IDEMPOTENCY_KEY_MAX_LENGTH = 128;
+    public static final int IDEMPOTENCY_KEY_MAX_LENGTH = WorkspaceProvisioningRecord.IDEMPOTENCY_KEY_MAX_LENGTH;
 
     private final TenantRepository tenantRepository;
     private final TenantMembershipRepository tenantMembershipRepository;
@@ -59,7 +59,7 @@ public class WorkspaceProvisioningService {
     @Transactional
     public ProvisionedWorkspace provisionWorkspace(IdentityId identityId, String idempotencyKey, String displayName) {
         Objects.requireNonNull(identityId, "Identity ID is required");
-        String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
+        String normalizedKey = WorkspaceProvisioningRecord.normalizeIdempotencyKey(idempotencyKey);
         String normalizedDisplayName = Tenant.normalizeDisplayName(displayName);
 
         if (!provisioningAuthorizationPolicy.isAllowed(identityId)) {
@@ -121,19 +121,6 @@ public class WorkspaceProvisioningService {
             );
             return new ProvisionedWorkspace(winnerRecord.tenantId(), winnerTenant.displayName(), winnerMembership.id(), winnerMembership.role(), false);
         }
-    }
-
-    private String normalizeIdempotencyKey(String rawKey) {
-        if (rawKey == null || rawKey.isBlank()) {
-            throw new IllegalArgumentException("Idempotency key is required");
-        }
-        String trimmed = rawKey.trim();
-        if (trimmed.length() > IDEMPOTENCY_KEY_MAX_LENGTH) {
-            throw new IllegalArgumentException(
-                    "Idempotency key cannot exceed %d characters".formatted(IDEMPOTENCY_KEY_MAX_LENGTH)
-            );
-        }
-        return trimmed;
     }
 
     public record ProvisionedWorkspace(
