@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService.ProvisionedWorkspace;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRecord;
 import io.github.stevdrey.dokene.tenant.security.AuthenticatedTenantIdentity;
 import java.util.List;
 import java.util.Objects;
@@ -70,11 +71,15 @@ public class TenantController {
             @RequestBody(required = false) ProvisionWorkspaceRequest request
     ) {
         requireAuthenticated(identity);
-        String key = idempotencyHeader != null && !idempotencyHeader.isBlank()
-                ? idempotencyHeader
-                : (request != null ? request.idempotencyKey() : null);
+        String headerKey = normalizeOptionalIdempotencyKey(idempotencyHeader);
+        String requestKey = request == null ? null : normalizeOptionalIdempotencyKey(request.idempotencyKey());
 
-        if (key == null || key.isBlank()) {
+        if (headerKey != null && requestKey != null && !headerKey.equals(requestKey)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idempotency keys must match");
+        }
+        String key = headerKey != null ? headerKey : requestKey;
+
+        if (key == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idempotency key is required");
         }
         if (request == null || request.displayName() == null || request.displayName().isBlank()) {
@@ -139,6 +144,10 @@ public class TenantController {
         if (identity == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
+    }
+
+    private String normalizeOptionalIdempotencyKey(String rawKey) {
+        return rawKey == null ? null : WorkspaceProvisioningRecord.normalizeIdempotencyKey(rawKey);
     }
 
     public record ProvisionWorkspaceRequest(String displayName, String idempotencyKey) {

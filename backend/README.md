@@ -62,6 +62,7 @@ Once authenticated, operators use global endpoints under `/api/tenants` to manag
 - `POST /api/tenants` provisions a new workspace and initial `OWNER` membership atomically. Provisioning requires an
   idempotency key passed in the `Idempotency-Key` header or `idempotencyKey` body field, plus `displayName`. Replaying
   with the same key and name returns `200 OK` with the existing workspace; conflicting payloads return `409 Conflict`.
+  When both key fields are supplied, they must match after canonical normalization or the request returns `400 Bad Request`.
 - `GET /api/tenants/{tenantId}` verifies and returns workspace details for an authorized tenant.
 
 Tenant-scoped API operations nominate a workspace using `X-Tenant-Id: <tenant-id>`. Missing, inactive, or unauthorized

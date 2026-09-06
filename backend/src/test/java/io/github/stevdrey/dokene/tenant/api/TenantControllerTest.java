@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
@@ -105,6 +106,36 @@ class TenantControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().tenantId()).isEqualTo(tenantId.value());
+    }
+
+    @Test
+    void provisionWorkspaceAcceptsMatchingUnicodeNormalizedIdempotencyKeys() {
+        TenantId tenantId = TenantId.random();
+        TenantMembershipId membershipId = TenantMembershipId.random();
+        when(provisioningService.provisionWorkspace(identityId, "key-123", "Existing Workspace"))
+                .thenReturn(new ProvisionedWorkspace(tenantId, "Existing Workspace", membershipId, TenantRole.OWNER, false));
+
+        TenantController.ProvisionWorkspaceRequest request = new TenantController.ProvisionWorkspaceRequest(
+                "Existing Workspace", "\u00A0key-123 \u00A0"
+        );
+        ResponseEntity<TenantController.WorkspaceResponse> response = controller.provisionWorkspace(identity, "key-123", request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(provisioningService).provisionWorkspace(identityId, "key-123", "Existing Workspace");
+    }
+
+    @Test
+    void provisionWorkspaceRejectsConflictingHeaderAndBodyIdempotencyKeys() {
+        TenantController.ProvisionWorkspaceRequest request = new TenantController.ProvisionWorkspaceRequest(
+                "Workspace", "body-key"
+        );
+
+        assertThatThrownBy(() -> controller.provisionWorkspace(identity, "header-key", request))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        verifyNoInteractions(provisioningService);
     }
 
     @Test

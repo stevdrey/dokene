@@ -59,6 +59,7 @@ Three authenticated global endpoints are exposed under `/api/tenants`:
    - Suspended/archived workspaces and suspended/revoked memberships are excluded server-side.
 2. `POST /api/tenants`:
    - Accepts `Idempotency-Key` header (or request body field) and `displayName`.
+   - When both key fields are supplied, normalizes them with the canonical idempotency-key rules and rejects a mismatch with `400 Bad Request`.
    - Returns `201 Created` for new workspaces, or `200 OK` for idempotent retries.
 3. `GET /api/tenants/{tenantId}`:
    - Validates tenant selection for the authenticated identity via `tenantContextResolver.resolve(identityId, tenantId)`.
