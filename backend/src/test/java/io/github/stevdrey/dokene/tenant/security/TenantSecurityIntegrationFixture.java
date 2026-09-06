@@ -25,7 +25,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /** Shared PostgreSQL fixture for security tests that need real runtime and migration roles. */
-final class TenantSecurityIntegrationFixture {
+public final class TenantSecurityIntegrationFixture {
 
     static final String MIGRATION_ROLE = "dokene_migration";
     static final String RUNTIME_ROLE = "dokene_runtime";
@@ -38,7 +38,7 @@ final class TenantSecurityIntegrationFixture {
     private TenantSecurityIntegrationFixture() {
     }
 
-    static void configure(DynamicPropertyRegistry registry) throws SQLException {
+    public static void configure(DynamicPropertyRegistry registry) throws SQLException {
         POSTGRES.start();
         if (DATABASE_ROLES_CREATED.compareAndSet(false, true)) {
             try {
@@ -102,11 +102,11 @@ final class TenantSecurityIntegrationFixture {
         return connection;
     }
 
-    static Connection runtimeConnectionWithoutContext() throws SQLException {
+    public static Connection runtimeConnectionWithoutContext() throws SQLException {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), RUNTIME_ROLE, RUNTIME_PASSWORD);
     }
 
-    static Connection migrationConnection() throws SQLException {
+    public static Connection migrationConnection() throws SQLException {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), MIGRATION_ROLE, MIGRATION_PASSWORD);
     }
 

@@ -30,6 +30,7 @@
 4. Domain core → AI provider
 5. Domain core → messaging provider
 6. Provider webhooks → application
+7. OIDC provider callback → Spring Security authentication adapter
 
 ## Required mitigations
 
@@ -43,5 +44,7 @@
 - Idempotency for scheduled and outbound actions
 - Rate limiting and abuse controls
 - PII-safe logging and append-only auditing
+- OIDC issuer, signature, nonce/state, audience and time validation at the framework adapter boundary
+- Unique issuer/subject identity mappings, server-side sessions, CSRF protection, and explicit tenant membership checks
 
 This document will evolve as features and integrations are introduced.
