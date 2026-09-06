@@ -16,3 +16,5 @@ The following invariants are architectural requirements, not optional convention
 11. Runtime audit history is append-only; tenant reads require `AUDIT_READ` and signed-capability RLS.
 12. Successful security-sensitive database transitions commit atomically with audit records; denied actions require independent durable auditing. Audit persistence failures abort the operation explicitly.
 13. Audit attribution comes from trusted execution context, and metadata accepts only closed, privacy-reviewed types. Unattributed global denials remain unreadable to the runtime role.
+14. OIDC identities are linked only by a validated issuer and subject pair; email and provider role claims never establish identity linkage, membership, tenant context, or authorization.
+15. Provider tokens remain server-side. Browser authentication uses expiring, invalidatable sessions with secure cookie semantics and CSRF protection.

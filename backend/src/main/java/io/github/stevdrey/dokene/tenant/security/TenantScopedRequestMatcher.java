@@ -19,7 +19,12 @@ public class TenantScopedRequestMatcher implements RequestMatcher {
             PathPatternRequestMatcher.pathPattern("/api/tenants/**"),
             PathPatternRequestMatcher.pathPattern("/api/account/**"),
             PathPatternRequestMatcher.pathPattern("/api/profile/**"),
-            PathPatternRequestMatcher.pathPattern("/api/me/**")
+            PathPatternRequestMatcher.pathPattern("/api/me/**"),
+            PathPatternRequestMatcher.pathPattern("/api/session"),
+            PathPatternRequestMatcher.pathPattern("/oauth2/**"),
+            PathPatternRequestMatcher.pathPattern("/login/**"),
+            PathPatternRequestMatcher.pathPattern("/logout"),
+            PathPatternRequestMatcher.pathPattern("/error")
     );
 
     private final RequestMatcher tenantScopeMatcher;

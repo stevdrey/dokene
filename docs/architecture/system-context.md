@@ -20,6 +20,14 @@ Dokene is a multi-tenant SaaS that helps small businesses decide when and how to
 
 External providers and all user-controlled input are treated as untrusted. The application core must validate identity, tenant context, authorization, policy, consent, and structured AI output before any side effect occurs.
 
+## Browser authentication boundary
+
+Browser authentication uses the OIDC authorization-code flow at the Spring Security adapter boundary and a
+server-side application session. The provider's validated `(issuer, subject)` pair resolves atomically to a
+stable internal `IdentityId`; provider claims do not enter the tenant domain as roles or membership evidence.
+The browser holds only the protected session cookie and a CSRF token, never provider access or ID tokens in
+persistent storage. [ADR 0007](../adr/0007-oidc-server-side-session.md) defines the flow and API contract.
+
 ## High-level flow
 
 1. Scheduler or user requests a follow-up evaluation.

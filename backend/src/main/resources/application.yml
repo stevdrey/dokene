@@ -30,9 +30,19 @@ dokene:
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
+  security:
+    cors:
+      allowed-origins: ${DOKENE_CORS_ALLOWED_ORIGINS:}
 
 server:
   shutdown: graceful
+  servlet:
+    session:
+      timeout: ${DOKENE_SESSION_TIMEOUT:30m}
+      cookie:
+        http-only: true
+        secure: ${DOKENE_SESSION_COOKIE_SECURE:true}
+        same-site: lax
 
 management:
   endpoints:
