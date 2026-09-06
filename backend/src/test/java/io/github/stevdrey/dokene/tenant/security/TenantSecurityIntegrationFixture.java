@@ -52,6 +52,8 @@ final class TenantSecurityIntegrationFixture {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", () -> RUNTIME_ROLE);
         registry.add("spring.datasource.password", () -> RUNTIME_PASSWORD);
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
+        registry.add("spring.datasource.hikari.minimum-idle", () -> "1");
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
