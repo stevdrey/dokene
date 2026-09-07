@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.customer.application;
 
+import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
 import java.util.Locale;
 
@@ -50,7 +51,7 @@ public record CustomerSearch(Status status, String name, String normalizedPhone,
         }
 
         String normalized = value.substring(start, end);
-        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > 160) {
+        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > Customer.DISPLAY_NAME_MAX_LENGTH) {
             throw new IllegalArgumentException("Invalid customer name filter");
         }
         return normalized;

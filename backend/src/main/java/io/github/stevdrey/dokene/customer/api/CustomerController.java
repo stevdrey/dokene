@@ -93,7 +93,7 @@ public class CustomerController {
         }
         String normalizedPhone = phone == null ? null : phoneNormalizer.normalize(phone, region);
         CustomerSearch query = new CustomerSearch(CustomerSearch.Status.parse(status), name, normalizedPhone,
-                cursor == null || cursor.isBlank() ? null : CustomerCursor.decode(cursor), limit);
+                cursor == null ? null : CustomerCursor.decode(cursor), limit);
         var page = customers.search(query);
         return new CustomerPageResponse(page.customers().stream().map(this::response).toList(), page.nextCursor());
     }

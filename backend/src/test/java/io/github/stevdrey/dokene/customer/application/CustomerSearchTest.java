@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.customer.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -59,7 +60,8 @@ class CustomerSearchTest {
 
     @Test
     void rejectsOverlongOrNullByteNameFilter() {
-        assertThatThrownBy(() -> new CustomerSearch(CustomerSearch.Status.ACTIVE, "a".repeat(161), null, null, 10))
+        assertThatThrownBy(() -> new CustomerSearch(CustomerSearch.Status.ACTIVE,
+                "a".repeat(Customer.DISPLAY_NAME_MAX_LENGTH + 1), null, null, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Invalid customer name filter");
 

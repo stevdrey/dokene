@@ -113,6 +113,10 @@ class CustomerControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/customers").param("cursor", "%%%invalid-base64%%%"))
                 .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/customers").param("cursor", ""))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/customers").param("cursor", "   "))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
