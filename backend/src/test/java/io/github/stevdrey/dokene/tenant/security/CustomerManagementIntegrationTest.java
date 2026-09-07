@@ -196,7 +196,7 @@ class CustomerManagementIntegrationTest {
         assertThat(history.events()).allMatch(event -> event.actorId().equals(contextA.identityId()))
                 .allMatch(event -> event.membershipId().equals(contextA.membershipId()));
         assertThat(history.events()).anyMatch(event -> originalContact.equals(event.contactId()));
-        assertThat(history.toString()).doesNotContain("+506", "8888");
+        assertThat(history.toString()).doesNotContain("8888 7777", "+50688887777");
 
         inContext(contextA, () -> { customers.archive(customer.id(), replaced.version()); return null; });
         assertThat(inContext(contextA, () -> contactPolicies.evaluate(

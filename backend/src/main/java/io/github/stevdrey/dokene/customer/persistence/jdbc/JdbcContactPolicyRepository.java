@@ -140,12 +140,18 @@ public class JdbcContactPolicyRepository implements ContactPolicyRepository {
 
     private long incrementVersion(Customer customer, long expectedVersion) {
         if (expectedVersion < 0) throw new CustomerConflictException();
+        final long nextVersion;
+        try {
+            nextVersion = Math.incrementExact(expectedVersion);
+        } catch (ArithmeticException exception) {
+            throw new CustomerConflictException();
+        }
         int updated = jdbc.update("""
-                UPDATE dokene.customers SET contact_policy_version = contact_policy_version + 1
+                UPDATE dokene.customers SET contact_policy_version = ?
                 WHERE tenant_id = ? AND id = ? AND contact_policy_version = ?
-                """, customer.tenantId().value(), customer.id().value(), expectedVersion);
+                """, nextVersion, customer.tenantId().value(), customer.id().value(), expectedVersion);
         if (updated != 1) throw new CustomerConflictException();
-        return expectedVersion + 1;
+        return nextVersion;
     }
 
     private ContactConsent mapConsent(ResultSet row, int index) throws SQLException {
