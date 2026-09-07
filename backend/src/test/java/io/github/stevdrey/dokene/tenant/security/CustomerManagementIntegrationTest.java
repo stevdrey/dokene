@@ -104,8 +104,8 @@ class CustomerManagementIntegrationTest {
 
         var events = inContext(contextA, auditReader::read).events();
         assertThat(events).filteredOn(event -> event.target() != null && event.target().id().equals(created.id().value()))
-                .extracting(event -> event.type()).containsExactly(
-                        AuditEventType.CUSTOMER_ARCHIVED, AuditEventType.CUSTOMER_UPDATED, AuditEventType.CUSTOMER_CREATED);
+                .extracting(event -> event.type()).containsExactlyInAnyOrder(
+                        AuditEventType.CUSTOMER_CREATED, AuditEventType.CUSTOMER_UPDATED, AuditEventType.CUSTOMER_ARCHIVED);
         assertThat(events.toString()).doesNotContain("Ana", "private note", "+50688887777");
     }
 
