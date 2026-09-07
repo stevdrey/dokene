@@ -41,6 +41,31 @@ class CustomerTest {
                 "x".repeat(2001), List.of(phone("+50688887777", true)), now)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void rejectsUnicodeBlankNamesAndUnpairedSurrogates() {
+        assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "\u00A0", null,
+                List.of(phone("+50688887777", true)), now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer display name");
+
+        assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "\u2000\u3000\u0085", null,
+                List.of(phone("+50688887777", true)), now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer display name");
+
+        assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "Name\uD800", null,
+                List.of(phone("+50688887777", true)), now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer display name");
+    }
+
+    @Test
+    void trimsUnicodeWhitespaceFromDisplayName() {
+        Customer c = Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "\u00A0Ana Example\u3000", null,
+                List.of(phone("+50688887777", true)), now);
+        assertThat(c.displayName()).isEqualTo("Ana Example");
+    }
+
     private Customer customer(List<CustomerPhone> phones) {
         return Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "Customer", null, phones, now);
     }

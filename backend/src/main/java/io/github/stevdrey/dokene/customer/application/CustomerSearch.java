@@ -12,11 +12,52 @@ public record CustomerSearch(Status status, String name, String normalizedPhone,
             throw new IllegalArgumentException("Invalid customer search");
         }
         if (name != null) {
-            name = name.strip();
-            if (name.isEmpty() || name.length() > 160 || name.indexOf('\0') >= 0) {
+            name = normalizeNameFilter(name);
+        }
+    }
+
+    private static String normalizeNameFilter(String value) {
+        if (value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("Invalid customer name filter");
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char codeUnit = value.charAt(index);
+            if (Character.isHighSurrogate(codeUnit)) {
+                if (index + 1 == value.length() || !Character.isLowSurrogate(value.charAt(index + 1))) {
+                    throw new IllegalArgumentException("Invalid customer name filter");
+                }
+                index++;
+            } else if (Character.isLowSurrogate(codeUnit)) {
                 throw new IllegalArgumentException("Invalid customer name filter");
             }
         }
+
+        int start = 0;
+        int end = value.length();
+        while (start < end) {
+            int codePoint = value.codePointAt(start);
+            if (!isWhitespace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+        while (start < end) {
+            int codePoint = value.codePointBefore(end);
+            if (!isWhitespace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+
+        String normalized = value.substring(start, end);
+        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > 160) {
+            throw new IllegalArgumentException("Invalid customer name filter");
+        }
+        return normalized;
+    }
+
+    private static boolean isWhitespace(int codePoint) {
+        return codePoint == 0x0085 || Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
     }
 
     public enum Status {

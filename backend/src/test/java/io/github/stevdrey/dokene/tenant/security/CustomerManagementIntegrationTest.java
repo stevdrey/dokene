@@ -138,6 +138,34 @@ class CustomerManagementIntegrationTest {
     }
 
     @Test
+    void rejectsUnicodeBlankDisplayNameWithoutDatabaseConflict() {
+        assertThatThrownBy(() -> inContext(contextA, () -> customers.create("\u00A0\u2000\u3000", null,
+                List.of(new PhoneInput("8888 7777", "CR", true)))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid customer display name");
+    }
+
+    @Test
+    void batchedSearchReturnsAllPhonesAcrossMultipleCustomers() throws Exception {
+        Customer c1 = inContext(contextA, () -> customers.create("Batch Customer 1", null,
+                List.of(new PhoneInput("8888 7771", "CR", true), new PhoneInput("8888 7772", "CR", false))));
+        Customer c2 = inContext(contextA, () -> customers.create("Batch Customer 2", null,
+                List.of(new PhoneInput("8888 7773", "CR", true))));
+
+        var page = inContext(contextA, () -> customers.search(new CustomerSearch(
+                CustomerSearch.Status.ACTIVE, "Batch Customer", null, null, 10)));
+
+        assertThat(page.customers()).extracting(Customer::id).containsExactly(c2.id(), c1.id());
+        Customer foundC1 = page.customers().stream().filter(c -> c.id().equals(c1.id())).findFirst().orElseThrow();
+        assertThat(foundC1.phones()).extracting(CustomerPhone::e164)
+                .containsExactlyInAnyOrder("+50688887771", "+50688887772");
+
+        Customer foundC2 = page.customers().stream().filter(c -> c.id().equals(c2.id())).findFirst().orElseThrow();
+        assertThat(foundC2.phones()).extracting(CustomerPhone::e164)
+                .containsExactly("+50688887773");
+    }
+
+    @Test
     void isolatesTenantsAndAllowsSamePhoneAcrossTenants() throws Exception {
         Customer a = inContext(contextA, () -> customers.create("Tenant A", null,
                 List.of(new PhoneInput("8888 7777", "CR", true))));

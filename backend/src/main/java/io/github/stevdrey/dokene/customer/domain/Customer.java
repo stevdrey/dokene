@@ -96,11 +96,51 @@ public final class Customer implements TenantScopedResource {
 
     private static String validateDisplayName(String value) {
         Objects.requireNonNull(value, "Display name is required");
-        String normalized = value.strip();
-        if (normalized.isEmpty() || normalized.length() > DISPLAY_NAME_MAX_LENGTH || normalized.indexOf('\0') >= 0) {
+        if (value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("Invalid customer display name");
+        }
+        validateUnicodeScalars(value);
+
+        int start = 0;
+        int end = value.length();
+        while (start < end) {
+            int codePoint = value.codePointAt(start);
+            if (!isWhitespace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+        while (start < end) {
+            int codePoint = value.codePointBefore(end);
+            if (!isWhitespace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+
+        String normalized = value.substring(start, end);
+        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > DISPLAY_NAME_MAX_LENGTH) {
             throw new IllegalArgumentException("Invalid customer display name");
         }
         return normalized;
+    }
+
+    private static boolean isWhitespace(int codePoint) {
+        return codePoint == 0x0085 || Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
+    }
+
+    private static void validateUnicodeScalars(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char codeUnit = value.charAt(index);
+            if (Character.isHighSurrogate(codeUnit)) {
+                if (index + 1 == value.length() || !Character.isLowSurrogate(value.charAt(index + 1))) {
+                    throw new IllegalArgumentException("Invalid customer display name");
+                }
+                index++;
+            } else if (Character.isLowSurrogate(codeUnit)) {
+                throw new IllegalArgumentException("Invalid customer display name");
+            }
+        }
     }
 
     private static String validateNotes(String value) {

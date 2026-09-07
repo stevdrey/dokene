@@ -50,7 +50,7 @@ class CustomerSearchTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "   ", "\t", "\n"})
+    @ValueSource(strings = {"", "   ", "\t", "\n", "\u00A0", "\u2000", "\u3000", "\u0085"})
     void rejectsBlankNameFilter(String blankName) {
         assertThatThrownBy(() -> new CustomerSearch(CustomerSearch.Status.ACTIVE, blankName, null, null, 10))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -72,5 +72,8 @@ class CustomerSearchTest {
     void normalizesTrimmedNameFilter() {
         CustomerSearch search = new CustomerSearch(CustomerSearch.Status.ACTIVE, "  Ana Example  ", null, null, 10);
         assertThat(search.name()).isEqualTo("Ana Example");
+
+        CustomerSearch unicodeSearch = new CustomerSearch(CustomerSearch.Status.ACTIVE, "\u00A0Ana Example\u3000", null, null, 10);
+        assertThat(unicodeSearch.name()).isEqualTo("Ana Example");
     }
 }
