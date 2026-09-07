@@ -67,6 +67,17 @@ class TransactionalAuditRecorder implements AuditRecorder {
                 new AuditMetadata.MembershipRoleChanged(previousRole, newRole)), mandatory);
     }
 
+    @Override
+    public void customerMutated(UUID target, AuditEventType eventType) {
+        if (eventType != AuditEventType.CUSTOMER_CREATED && eventType != AuditEventType.CUSTOMER_UPDATED
+                && eventType != AuditEventType.CUSTOMER_ARCHIVED) {
+            throw new IllegalArgumentException("Unsupported customer audit event");
+        }
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, eventType, new AuditTarget(AuditTarget.Type.CUSTOMER, target),
+                AuditOutcome.SUCCESS, new AuditMetadata.CustomerMutation()), mandatory);
+    }
+
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,
             AuditOutcome outcome, AuditMetadata metadata) {
         return new AuditEvent(UUID.randomUUID(), clock.instant(), context == null ? null : context.tenantId(),

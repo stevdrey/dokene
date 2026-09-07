@@ -7,6 +7,9 @@ import java.util.Objects;
 /** Closed, scalar-only metadata. Never accepts free text or arbitrary payloads. */
 public sealed interface AuditMetadata {
 
+    record CustomerMutation() implements AuditMetadata {
+    }
+
     record AuthorizationDenied(TenantPermission permission, AuditDenialReason reason) implements AuditMetadata {
         public AuthorizationDenied {
             Objects.requireNonNull(reason, "Denial reason is required");

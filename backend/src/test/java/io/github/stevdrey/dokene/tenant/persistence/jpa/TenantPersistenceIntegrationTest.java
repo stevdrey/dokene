@@ -108,16 +108,19 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("6");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("7");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
-        )).containsExactly("audit_events", "flyway_schema_history", "oidc_identity_mappings",
+        )).containsExactly("audit_events", "customer_phone_contacts", "customers", "flyway_schema_history", "oidc_identity_mappings",
                 "tenant_context_signing_keys", "tenant_memberships", "tenants", "workspace_provisioning_records");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
                 String.class
-        )).containsExactly("audit_events", "tenant_memberships", "tenants", "workspace_provisioning_records");
+        )).containsExactly("audit_events", "customer_phone_contacts", "customers", "tenant_memberships", "tenants",
+                "workspace_provisioning_records");
+        assertThat(tableOwner("customers")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("customer_phone_contacts")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_memberships")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("oidc_identity_mappings")).isEqualTo(MIGRATION_ROLE);

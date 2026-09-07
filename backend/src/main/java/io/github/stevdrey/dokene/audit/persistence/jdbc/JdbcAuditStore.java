@@ -73,6 +73,7 @@ class JdbcAuditStore {
                     AuditDenialReason.valueOf(row.getString("denial_reason")));
             case MEMBERSHIP_ROLE_CHANGED -> new AuditMetadata.MembershipRoleChanged(
                     TenantRole.valueOf(row.getString("previous_role")), TenantRole.valueOf(row.getString("new_role")));
+            case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED -> new AuditMetadata.CustomerMutation();
         };
         return new AuditEvent(row.getObject("id", UUID.class), row.getTimestamp("occurred_at").toInstant(),
                 new TenantId(row.getObject("tenant_id", UUID.class)), new IdentityId(row.getObject("actor_id", UUID.class)),

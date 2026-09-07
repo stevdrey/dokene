@@ -70,8 +70,9 @@ class TenantSecurityConfiguration {
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
                 .toList());
-        configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Content-Type", "X-CSRF-TOKEN", "X-Tenant-Id"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Content-Type", "If-Match", "X-CSRF-TOKEN", "X-Tenant-Id"));
+        configuration.setExposedHeaders(List.of("ETag"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

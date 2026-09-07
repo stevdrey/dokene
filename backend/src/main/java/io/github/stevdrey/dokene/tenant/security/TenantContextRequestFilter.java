@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
+import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -47,6 +48,10 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
                 io.github.stevdrey.dokene.tenant.domain.TenantRole previousRole,
                 io.github.stevdrey.dokene.tenant.domain.TenantRole newRole
         ) {
+        }
+
+        @Override
+        public void customerMutated(UUID target, AuditEventType eventType) {
         }
     };
 

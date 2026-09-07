@@ -39,6 +39,13 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid membership role event");
                 }
             }
+            case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.CUSTOMER
+                        || !(metadata instanceof AuditMetadata.CustomerMutation)) {
+                    throw new IllegalArgumentException("Invalid customer mutation event");
+                }
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
+import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService.ProvisionedWorkspace;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -99,6 +100,10 @@ class WorkspaceProvisioningServiceTest {
 
         @Override
         public void membershipRoleChanged(TenantMembershipId target, TenantRole previousRole, TenantRole newRole) {
+        }
+
+        @Override
+        public void customerMutated(UUID target, AuditEventType eventType) {
         }
     };
 

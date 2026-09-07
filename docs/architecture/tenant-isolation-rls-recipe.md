@@ -15,6 +15,8 @@ Every table containing tenant-scoped business data (such as customers, purchases
 - Must include `tenant_id UUID NOT NULL`.
 - Must declare a foreign key constraint referencing `dokene.tenants(id) ON DELETE RESTRICT`.
 - Primary and unique keys should incorporate `tenant_id` where appropriate (e.g. `(tenant_id, normalized_phone_number)` or UUID primary key + unique constraints scoped by `tenant_id`).
+- Contact identity constraints must retain `tenant_id` through child-table foreign keys. Customer phone uniqueness
+  applies to active and archived profiles so archival cannot silently reassign identity.
 - All permissions must be revoked from `PUBLIC`, and DML permissions granted to `dokene_runtime`.
 
 ### Example DDL:

@@ -72,3 +72,12 @@ Internal reads require `AUDIT_READ` and tenant RLS. Servlet requests receive a
 server-generated correlation scope; jobs establish correlation explicitly.
 [ADR 0006](../adr/0006-durable-append-only-audit.md) defines metadata privacy, global
 denial isolation, rollback behavior, and the explicit 503 policy for persistence failures.
+
+## Customer memory boundary
+
+Customer profiles and phone contacts are tenant-scoped aggregates managed within the `customer` module.
+Contact identity is normalized to E.164 with explicit country region context and enforced unique per tenant
+across both active and archived records. Mutations are atomically audited without customer PII, protected by
+forced PostgreSQL RLS, and restricted by granular permissions (`CUSTOMER_READ`, `CUSTOMER_WRITE`, `CUSTOMER_DELETE`).
+[ADR 0009](../adr/0009-tenant-customer-and-phone-identity.md) defines identity, duplicate behavior, bounded cursor
+pagination, and archival semantics.
