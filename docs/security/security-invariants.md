@@ -19,3 +19,4 @@ The following invariants are architectural requirements, not optional convention
 14. OIDC identities are linked only by a validated issuer and subject pair; email and provider role claims never establish identity linkage, membership, tenant context, or authorization.
 15. Provider tokens remain server-side. Browser authentication uses expiring, invalidatable sessions with secure cookie semantics and CSRF protection.
 16. Customer phone identity is normalized with explicit country context and unique within a tenant across active and archived history; customer mutations are authorized, RLS-protected, and audited without customer content.
+17. Contact consent is channel- and contact-identity-specific, unknown consent fails closed, and customer do-not-contact overrides every grant. Consent evidence uses server time and trusted actor attribution; changing contact identity never transfers consent.
