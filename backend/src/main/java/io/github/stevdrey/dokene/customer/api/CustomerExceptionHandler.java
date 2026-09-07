@@ -14,7 +14,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice(assignableTypes = CustomerController.class)
 public class CustomerExceptionHandler {
-    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class,
+    @ExceptionHandler({IllegalArgumentException.class,
             MissingRequestHeaderException.class, MissingServletRequestParameterException.class,
             MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
     ResponseEntity<Void> invalidInput() {
@@ -26,7 +26,7 @@ public class CustomerExceptionHandler {
         return ResponseEntity.notFound().build();
     }
 
-    @ExceptionHandler(CustomerConflictException.class)
+    @ExceptionHandler({CustomerConflictException.class, IllegalStateException.class})
     ResponseEntity<Void> conflict() {
         return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }

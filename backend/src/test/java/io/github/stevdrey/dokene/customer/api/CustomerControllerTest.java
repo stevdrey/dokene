@@ -77,6 +77,16 @@ class CustomerControllerTest {
     }
 
     @Test
+    void updateMapsArchivedCustomerIllegalStateExceptionToConflict() throws Exception {
+        when(service.update(eq(customer.id()), eq(0L), eq("Ana"), eq(null), any()))
+                .thenThrow(new IllegalStateException("Archived customers cannot be updated"));
+        mvc.perform(put("/api/customers/{id}", customer.id().value()).contentType(MediaType.APPLICATION_JSON).content("""
+                {"displayName":"Ana","version":0,"phones":[{"number":"8888 7777","region":"CR","primary":true}]}
+                """))
+                .andExpect(status().isConflict()).andExpect(content().string(""));
+    }
+
+    @Test
     void updateAcceptsIfMatchHeaderInsteadOfBodyVersion() throws Exception {
         when(service.update(eq(customer.id()), eq(0L), eq("Ana"), eq("notes"), any())).thenReturn(customer);
 
