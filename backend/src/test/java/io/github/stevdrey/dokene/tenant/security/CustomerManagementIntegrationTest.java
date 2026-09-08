@@ -145,6 +145,42 @@ class CustomerManagementIntegrationTest {
     }
 
     @Test
+    void advancesContactPolicyVersionOnlyWhenContactIdentitySetChanges() throws Exception {
+        Customer created = inContext(contextA, () -> customers.create("Policy representation", "initial note",
+                List.of(new PhoneInput("8888 7777", "CR", true), new PhoneInput("8888 6666", "CR", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isZero();
+
+        Customer profileOnly = inContext(contextA, () -> customers.update(created.id(), created.version(),
+                "Policy representation updated", "updated note",
+                List.of(new PhoneInput("8888 7777", "CR", true), new PhoneInput("8888 6666", "CR", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isZero();
+
+        Customer primaryOnly = inContext(contextA, () -> customers.update(created.id(), profileOnly.version(),
+                profileOnly.displayName(), profileOnly.notes(),
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("8888 6666", "CR", true))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isZero();
+
+        Customer added = inContext(contextA, () -> customers.update(created.id(), primaryOnly.version(),
+                primaryOnly.displayName(), primaryOnly.notes(),
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("8888 6666", "CR", true),
+                        new PhoneInput("415 555 2671", "US", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isEqualTo(1);
+        assertThatThrownBy(() -> inContext(contextA, () -> contactPolicies.changeDoNotContact(created.id(), true,
+                ContactIntentSource.CUSTOMER_VERBAL, 0))).isInstanceOf(CustomerConflictException.class);
+
+        Customer replaced = inContext(contextA, () -> customers.update(created.id(), added.version(),
+                added.displayName(), added.notes(),
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("8888 5555", "CR", true),
+                        new PhoneInput("415 555 2671", "US", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isEqualTo(2);
+
+        inContext(contextA, () -> customers.update(created.id(), replaced.version(), replaced.displayName(),
+                replaced.notes(), List.of(new PhoneInput("8888 5555", "CR", true),
+                        new PhoneInput("415 555 2671", "US", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isEqualTo(3);
+    }
+
+    @Test
     void grantsRevokesOverridesRestoresAndPreservesContactHistory() throws Exception {
         Customer customer = inContext(contextA, () -> customers.create("Consent customer", null,
                 List.of(new PhoneInput("8888 7777", "CR", true))));
@@ -203,7 +239,7 @@ class CustomerManagementIntegrationTest {
                 customer.id(), replacement, ContactChannel.WHATSAPP)).reasons())
                 .containsExactly(ContactEligibilityReason.CUSTOMER_ARCHIVED, ContactEligibilityReason.CONSENT_UNKNOWN);
         assertThatThrownBy(() -> inContext(contextA, () -> contactPolicies.changeDoNotContact(customer.id(), true,
-                ContactIntentSource.CUSTOMER_VERBAL, 4))).isInstanceOf(IllegalStateException.class);
+                ContactIntentSource.CUSTOMER_VERBAL, 5))).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

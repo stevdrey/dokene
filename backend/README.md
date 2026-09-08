@@ -90,8 +90,10 @@ Duplicate phones within a tenant, including phones on archived profiles, and sta
 `409 Conflict`. Invalid input returns `400`, unavailable resources return `404`, and authorization failures return
 `403`, without exposing customer content.
 
-Phone responses include a stable `id` used by the WhatsApp consent API. A contact-policy version is separate from
-the profile version and is returned as an ETag:
+Phone responses include a stable `id` used by the WhatsApp consent API. The contact-policy and profile versions are
+logically independent, but adding, removing, or replacing a stable phone identity advances the policy version because
+the identity set is part of the policy representation. Profile-only and primary-flag changes over the same identities
+do not advance it. The contact-policy version is returned as an ETag:
 
 - `GET /api/customers/{customerId}/contact-policy` returns current do-not-contact and consent state. Missing evidence
   is reported as `UNKNOWN`.

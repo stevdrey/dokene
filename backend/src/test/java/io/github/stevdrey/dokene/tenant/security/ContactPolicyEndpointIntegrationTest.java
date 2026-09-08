@@ -134,6 +134,46 @@ class ContactPolicyEndpointIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void changesPolicyEtagAndRejectsStaleMutationAfterReplacingContactIdentity() throws Exception {
+        String customerDocument = mvc.perform(post("/api/customers").with(user(owner)).with(csrf())
+                        .header("X-Tenant-Id", tenant.id().value())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"ETag customer","phones":[
+                                  {"number":"8888 7777","region":"CR","primary":true}
+                                ]}
+                                """))
+                .andExpect(status().isCreated()).andExpect(header().string("ETag", "\"0\""))
+                .andReturn().getResponse().getContentAsString();
+        UUID customerId = UUID.fromString(objectMapper.readTree(customerDocument).get("id").asText());
+
+        mvc.perform(get("/api/customers/{id}/contact-policy", customerId).with(user(owner))
+                        .header("X-Tenant-Id", tenant.id().value()))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"0\""));
+
+        mvc.perform(put("/api/customers/{id}", customerId).with(user(owner)).with(csrf())
+                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "\"0\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"ETag customer","phones":[
+                                  {"number":"8888 6666","region":"CR","primary":true}
+                                ]}
+                                """))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""));
+
+        mvc.perform(get("/api/customers/{id}/contact-policy", customerId).with(user(owner))
+                        .header("X-Tenant-Id", tenant.id().value()))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.consents[0].status").value("UNKNOWN"));
+
+        mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).with(user(owner)).with(csrf())
+                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "\"0\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
+                .andExpect(status().isConflict());
+    }
+
     private void assertEligibility(UUID customerId, UUID contactId, boolean eligible, String reason) throws Exception {
         var result = mvc.perform(get("/api/customers/{id}/contact-eligibility", customerId).with(user(owner))
                         .header("X-Tenant-Id", tenant.id().value())

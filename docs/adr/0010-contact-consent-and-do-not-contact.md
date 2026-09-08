@@ -19,7 +19,10 @@ grant that did not already exist.
 
 The current projections support efficient eligibility evaluation. Separate append-only histories preserve every
 submitted grant, revocation, activation, and clearing event. Mutations require the current contact-policy version
-through `If-Match`; profile and contact-policy versions are independent. Successful mutations and privacy-safe
+through `If-Match`. Profile and contact-policy versions are logically independent, but the stable contact identity
+set is part of the policy representation: adding, removing, or replacing an identity advances the policy version
+atomically with the profile update. Profile-only changes and primary-flag changes over the same identities do not.
+Successful mutations and privacy-safe
 general audit events commit atomically.
 
 All reads and writes require customer permissions, application ownership checks, tenant-filtered SQL, and forced
