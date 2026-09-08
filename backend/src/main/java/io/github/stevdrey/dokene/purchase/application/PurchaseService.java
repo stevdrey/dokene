@@ -48,7 +48,6 @@ public class PurchaseService {
     @Transactional
     public RecordResult record(CustomerId customerId, Instant purchasedAt, String description, String idempotencyKey) {
         Customer customer = requireCustomer(customerId, TenantPermission.PURCHASE_WRITE);
-        if (customer.status() == CustomerStatus.ARCHIVED) throw new IllegalStateException("Archived customer purchases cannot be recorded");
         Instant purchaseTime = validatePurchasedAt(purchasedAt);
         String key = validateKey(idempotencyKey);
         Purchase candidate = Purchase.create(new PurchaseId(UUID.randomUUID()), customer.tenantId(), customer.id(),
@@ -57,6 +56,9 @@ public class PurchaseService {
         PurchaseRepository.CreateResult result = purchases.insert(candidate, key,
                 fingerprint(customer.id(), candidate.purchasedAt(), candidate.description()), actor);
         if (!result.matchingRequest()) throw new PurchaseConflictException();
+        if (customer.status() == CustomerStatus.ARCHIVED && result.created()) {
+            throw new IllegalStateException("Archived customer purchases cannot be recorded");
+        }
         if (result.created()) audit.recorded(result.purchase().id());
         return new RecordResult(result.purchase(), result.created());
     }

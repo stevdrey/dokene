@@ -132,6 +132,33 @@ class PurchaseManagementIntegrationTest {
     }
 
     @Test
+    void replaysExistingPurchaseAfterCustomerArchiveButRejectsNewPurchases() throws Exception {
+        Instant at = Instant.now().minusSeconds(10);
+        var created = inContext(contextA,
+                () -> purchases.record(customerA.id(), at, "Before archive", "archived-replay-key"));
+        inContext(contextA, () -> {
+            customers.archive(customerA.id(), customerA.version());
+            return null;
+        });
+
+        var replay = inContext(contextA,
+                () -> purchases.record(customerA.id(), at, "Before archive", "archived-replay-key"));
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.purchase().id()).isEqualTo(created.purchase().id());
+        assertThatThrownBy(() -> inContext(contextA,
+                () -> purchases.record(customerA.id(), at, "Changed", "archived-replay-key")))
+                .isInstanceOf(PurchaseConflictException.class);
+        assertThatThrownBy(() -> inContext(contextA,
+                () -> purchases.record(customerA.id(), at, "After archive", "archived-new-key")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Archived customer purchases cannot be recorded");
+        assertThat(inContext(contextA,
+                () -> purchases.list(customerA.id(), null, null, 10)).purchases())
+                .extracting(Purchase::id)
+                .containsExactly(created.purchase().id());
+    }
+
+    @Test
     void enforcesCustomerOwnershipAndRlsAndImmutableTenantReference() throws Exception {
         Purchase purchase = inContext(contextA, () -> purchases.record(customerA.id(), Instant.now().minusSeconds(1),
                 "Private detail", "isolation-key")).purchase();
