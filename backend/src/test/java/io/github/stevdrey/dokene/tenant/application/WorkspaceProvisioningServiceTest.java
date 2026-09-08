@@ -105,6 +105,10 @@ class WorkspaceProvisioningServiceTest {
         @Override
         public void customerMutated(UUID target, AuditEventType eventType) {
         }
+
+        @Override
+        public void purchaseMutated(UUID target, AuditEventType eventType) {
+        }
     };
 
     private boolean provisioningAllowed = true;

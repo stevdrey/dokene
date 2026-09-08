@@ -16,4 +16,7 @@ public interface AuditRecorder {
 
     /** Requires an existing business transaction; failure must roll back the state transition. */
     void customerMutated(UUID target, AuditEventType eventType);
+
+    /** Requires an existing business transaction; failure must roll back the state transition. */
+    void purchaseMutated(UUID target, AuditEventType eventType);
 }

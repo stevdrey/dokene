@@ -82,6 +82,11 @@ forced PostgreSQL RLS, and restricted by granular permissions (`CUSTOMER_READ`, 
 [ADR 0009](../adr/0009-tenant-customer-and-phone-identity.md) defines identity, duplicate behavior, bounded cursor
 pagination, and archival semantics.
 
+Purchase signals are tenant-scoped records owned by a customer. The `purchase` module preserves correction and
+void history, derives last purchase from valid records, and uses explicit authorization plus forced RLS. Audit events
+refer only to purchase UUIDs and exclude customer purchase details. [ADR 0011](../adr/0011-purchase-history-and-last-purchase.md)
+defines the timestamp, idempotency, pagination, traceability, and isolation contracts.
+
 WhatsApp consent is scoped to a stable phone-contact identity, while do-not-contact is a customer-wide hard override.
 Both use versioned current projections plus privacy-safe append-only evidence history with trusted actor attribution.
 [ADR 0010](../adr/0010-contact-consent-and-do-not-contact.md) defines restoration and deterministic eligibility.

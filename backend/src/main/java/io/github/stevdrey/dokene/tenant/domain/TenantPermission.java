@@ -23,6 +23,10 @@ public enum TenantPermission {
     CUSTOMER_WRITE,
     CUSTOMER_DELETE,
 
+    // Purchase history
+    PURCHASE_READ,
+    PURCHASE_WRITE,
+
     // Follow-up evaluation and management
     FOLLOWUP_READ,
     FOLLOWUP_WRITE,

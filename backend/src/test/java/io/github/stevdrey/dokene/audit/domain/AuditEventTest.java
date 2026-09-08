@@ -74,6 +74,20 @@ class AuditEventTest {
                 UUID.randomUUID(), new AuditMetadata.CustomerMutation())).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void acceptsOnlyPiiFreePurchaseMutationShape() {
+        TenantId tenant = TenantId.random();
+        AuditEvent event = new AuditEvent(UUID.randomUUID(), Instant.now(), tenant,
+                new IdentityId(UUID.randomUUID()), TenantMembershipId.random(), AuditEventType.PURCHASE_RECORDED,
+                new AuditTarget(AuditTarget.Type.PURCHASE, UUID.randomUUID()), AuditOutcome.SUCCESS,
+                UUID.randomUUID(), new AuditMetadata.PurchaseMutation());
+        assertThat(event.metadata()).isInstanceOf(AuditMetadata.PurchaseMutation.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant,
+                new IdentityId(UUID.randomUUID()), TenantMembershipId.random(), AuditEventType.PURCHASE_CORRECTED,
+                new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()), AuditOutcome.SUCCESS,
+                UUID.randomUUID(), new AuditMetadata.PurchaseMutation())).isInstanceOf(IllegalArgumentException.class);
+    }
+
     private AuditEvent denial(Instant timestamp, UUID correlation, TenantId tenant, IdentityId actor, TenantMembershipId membership) {
         return new AuditEvent(UUID.randomUUID(), timestamp, tenant, actor, membership, AuditEventType.AUTHORIZATION_DENIED,
                 null, AuditOutcome.DENIED, correlation, new AuditMetadata.AuthorizationDenied(null, AuditDenialReason.NO_TENANT_CONTEXT));

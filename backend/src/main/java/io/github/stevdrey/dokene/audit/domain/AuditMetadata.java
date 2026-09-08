@@ -10,6 +10,9 @@ public sealed interface AuditMetadata {
     record CustomerMutation() implements AuditMetadata {
     }
 
+    record PurchaseMutation() implements AuditMetadata {
+    }
+
     record AuthorizationDenied(TenantPermission permission, AuditDenialReason reason) implements AuditMetadata {
         public AuthorizationDenied {
             Objects.requireNonNull(reason, "Denial reason is required");

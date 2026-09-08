@@ -12,6 +12,7 @@ Authorization decisions are governed by a central, strongly typed vocabulary of 
 - **Tenant Lifecycle**: `TENANT_READ`, `TENANT_UPDATE`, `TENANT_ARCHIVE`
 - **Membership Management**: `MEMBERSHIP_READ`, `MEMBERSHIP_INVITE`, `MEMBERSHIP_ROLE_UPDATE`, `MEMBERSHIP_REVOKE`
 - **Customer Data**: `CUSTOMER_READ`, `CUSTOMER_WRITE`, `CUSTOMER_DELETE`
+- **Purchase History**: `PURCHASE_READ`, `PURCHASE_WRITE`
 - **Follow-up Operations**: `FOLLOWUP_READ`, `FOLLOWUP_WRITE`, `FOLLOWUP_EVALUATE`
 - **Template Management**: `TEMPLATE_READ`, `TEMPLATE_WRITE`
 - **Messaging & Approval**: `MESSAGE_READ`, `MESSAGE_DRAFT`, `MESSAGE_APPROVE`, `MESSAGE_SEND`
@@ -23,8 +24,8 @@ Tenant roles (`TenantRole`) map deterministically and immutably to sets of permi
 
 - `OWNER`: Full tenant permissions, including workspace archival (`TENANT_ARCHIVE`).
 - `ADMIN`: Comprehensive administration and operational capabilities, excluding `TENANT_ARCHIVE`.
-- `OPERATOR`: Operational permissions (customer read/write, drafts, templates, follow-up evaluation, message send/approve), without administrative tenant or membership modification capabilities.
-- `VIEWER`: Read-only access to tenant information, memberships, customers, follow-ups, templates, and messages.
+- `OPERATOR`: Operational permissions (customer and purchase read/write, drafts, templates, follow-up evaluation, message send/approve), without administrative tenant or membership modification capabilities.
+- `VIEWER`: Read-only access to tenant information, memberships, customers, purchases, follow-ups, templates, and messages.
 
 ## Invariants & Rules
 1. **Fail-Closed by Default**: Any authorization check without an active `TenantContext`, with an inactive/suspended/revoked membership, or with an unmapped permission fails immediately with denial.
