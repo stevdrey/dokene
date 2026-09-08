@@ -12,8 +12,10 @@ import io.github.stevdrey.dokene.audit.application.AuditReader;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
+import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.purchase.application.PurchaseConflictException;
+import io.github.stevdrey.dokene.purchase.application.PurchaseEventCursor;
 import io.github.stevdrey.dokene.purchase.application.PurchaseNotFoundException;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
@@ -95,7 +97,7 @@ class PurchaseManagementIntegrationTest {
         assertThat(history.events()).hasSize(2);
         assertThat(history.nextCursor()).isNotNull();
         assertThat(inContext(contextA, () -> purchases.history(customerA.id(), second.id(),
-                io.github.stevdrey.dokene.purchase.application.PurchaseEventCursor.decode(history.nextCursor()), 2)).events())
+                PurchaseEventCursor.decode(history.nextCursor()), 2)).events())
                 .hasSize(1);
 
         var auditTypes = inContext(contextA, auditReader::read).events().stream()
@@ -134,7 +136,7 @@ class PurchaseManagementIntegrationTest {
         Purchase purchase = inContext(contextA, () -> purchases.record(customerA.id(), Instant.now().minusSeconds(1),
                 "Private detail", "isolation-key")).purchase();
         assertThatThrownBy(() -> inContext(contextB, () -> purchases.get(customerA.id(), purchase.id())))
-                .isInstanceOfAny(PurchaseNotFoundException.class, io.github.stevdrey.dokene.customer.application.CustomerNotFoundException.class);
+                .isInstanceOfAny(PurchaseNotFoundException.class, CustomerNotFoundException.class);
 
         try (var connection = runtimeConnection(signer.issueTenantContext(tenantA.id()));
              var statement = connection.prepareStatement("UPDATE dokene.purchases SET tenant_id = ? WHERE id = ?")) {

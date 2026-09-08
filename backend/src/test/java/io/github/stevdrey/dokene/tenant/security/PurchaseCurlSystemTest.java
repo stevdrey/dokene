@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -164,8 +165,14 @@ class PurchaseCurlSystemTest {
             for (String header : headers) command.addAll(List.of("--header", header));
             if (body != null) command.addAll(List.of("--header", "Content-Type: application/json", "--data", body));
             Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+            boolean completed = process.waitFor(30, TimeUnit.SECONDS);
+            if (!completed) {
+                process.destroyForcibly();
+                process.waitFor();
+                throw new AssertionError("curl timed out after 30 seconds");
+            }
             String statusText = new String(process.getInputStream().readAllBytes()).strip();
-            assertThat(process.waitFor()).isZero();
+            assertThat(process.exitValue()).withFailMessage("curl failed: %s", statusText).isZero();
             return new CurlResult(Integer.parseInt(statusText), Files.readString(headerFile), Files.readString(bodyFile));
         } finally {
             Files.deleteIfExists(headerFile);

@@ -18,6 +18,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,7 +47,7 @@ public class JdbcPurchaseRepository implements PurchaseRepository {
             return new CreateResult(purchase, true, true);
         }
         Existing existing = jdbc.query("""
-                SELECT p.*, submission_fingerprint FROM dokene.purchases p
+                SELECT p.* FROM dokene.purchases p
                 WHERE tenant_id = ? AND idempotency_key = ?
                 """, (row, index) -> new Existing(mapPurchase(row, index), row.getString("submission_fingerprint")),
                 purchase.tenantId().value(), key).stream().findFirst().orElseThrow(PurchaseConflictException::new);
@@ -66,7 +67,7 @@ public class JdbcPurchaseRepository implements PurchaseRepository {
         String cursorSql = before == null ? "" : " AND (purchased_at, id) < (?, ?)";
         String sql = "SELECT * FROM dokene.purchases WHERE tenant_id = ? AND customer_id = ?" + statusSql
                 + cursorSql + " ORDER BY purchased_at DESC, id DESC LIMIT ?";
-        var args = new java.util.ArrayList<Object>();
+        var args = new ArrayList<Object>();
         args.add(tenantId.value()); args.add(customerId.value());
         if (status != null) args.add(status.name());
         if (before != null) { args.add(Timestamp.from(before.purchasedAt())); args.add(before.id()); }
