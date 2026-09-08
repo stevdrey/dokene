@@ -25,5 +25,6 @@ class TenantSecurityConfigurationTest {
                 "http://frontend-a.example.test",
                 "http://frontend-b.example.test"
         );
+        assertThat(configuration.getAllowedHeaders()).contains("Idempotency-Key");
     }
 }

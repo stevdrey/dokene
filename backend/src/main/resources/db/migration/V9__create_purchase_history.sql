@@ -53,6 +53,9 @@ CREATE INDEX purchase_history_chronology
 CREATE FUNCTION dokene.prevent_purchase_identity_change()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, dokene AS $$
 BEGIN
+    IF OLD.status = 'VOID' THEN
+        RAISE EXCEPTION 'Voided purchases are immutable' USING ERRCODE = '23000';
+    END IF;
     IF NEW.id IS DISTINCT FROM OLD.id OR NEW.tenant_id IS DISTINCT FROM OLD.tenant_id
             OR NEW.customer_id IS DISTINCT FROM OLD.customer_id
             OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key

@@ -151,6 +151,29 @@ class PurchaseManagementIntegrationTest {
         }
     }
 
+    @Test
+    void preventsVoidedPurchasesFromBeingRestoredByRuntimeSql() throws Exception {
+        Purchase purchase = inContext(contextA, () -> purchases.record(customerA.id(), Instant.now().minusSeconds(1),
+                "Voided detail", "void-immutability-key")).purchase();
+        inContext(contextA, () -> {
+            purchases.voidPurchase(customerA.id(), purchase.id(), purchase.version());
+            return null;
+        });
+
+        try (var connection = runtimeConnection(signer.issueTenantContext(tenantA.id()));
+             var statement = connection.prepareStatement("""
+                     UPDATE dokene.purchases SET status = 'VALID', voided_at = NULL,
+                         updated_at = now(), version = version + 1
+                     WHERE id = ?
+                     """)) {
+            statement.setObject(1, purchase.id().value());
+            assertThatThrownBy(statement::executeUpdate).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Voided purchases are immutable");
+        }
+        assertThat(inContext(contextA, () -> purchases.get(customerA.id(), purchase.id())).status())
+                .isEqualTo(PurchaseStatus.VOID);
+    }
+
     private <T> T inContext(TenantContext context, Callable<T> operation) throws Exception {
         return auditExecution.callWithCorrelation(UUID.randomUUID(),
                 () -> contexts.callWithContext(context, operation::call));
