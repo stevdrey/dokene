@@ -12,12 +12,18 @@ import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditReader;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.customer.application.CustomerConflictException;
+import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerCursor;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.application.CustomerSearch;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
 import io.github.stevdrey.dokene.customer.domain.Customer;
+import io.github.stevdrey.dokene.customer.domain.ContactChannel;
+import io.github.stevdrey.dokene.customer.domain.ContactEligibilityReason;
+import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
+import io.github.stevdrey.dokene.customer.domain.ContactPolicy;
+import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
 import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
@@ -53,6 +59,7 @@ class CustomerManagementIntegrationTest {
     }
 
     @Autowired CustomerService customers;
+    @Autowired ContactPolicyService contactPolicies;
     @Autowired TenantRepository tenants;
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
@@ -135,6 +142,177 @@ class CustomerManagementIntegrationTest {
                 .findFirst().orElseThrow();
         assertThat(newPhone.id()).isNotEqualTo(removedPhoneId);
         assertThat(newPhone.primary()).isTrue();
+    }
+
+    @Test
+    void advancesContactPolicyVersionOnlyWhenContactIdentitySetChanges() throws Exception {
+        Customer created = inContext(contextA, () -> customers.create("Policy representation", "initial note",
+                List.of(new PhoneInput("8888 7777", "CR", true), new PhoneInput("8888 6666", "CR", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isZero();
+
+        Customer profileOnly = inContext(contextA, () -> customers.update(created.id(), created.version(),
+                "Policy representation updated", "updated note",
+                List.of(new PhoneInput("8888 7777", "CR", true), new PhoneInput("8888 6666", "CR", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isZero();
+
+        Customer primaryOnly = inContext(contextA, () -> customers.update(created.id(), profileOnly.version(),
+                profileOnly.displayName(), profileOnly.notes(),
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("8888 6666", "CR", true))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isZero();
+
+        Customer added = inContext(contextA, () -> customers.update(created.id(), primaryOnly.version(),
+                primaryOnly.displayName(), primaryOnly.notes(),
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("8888 6666", "CR", true),
+                        new PhoneInput("415 555 2671", "US", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isEqualTo(1);
+        assertThatThrownBy(() -> inContext(contextA, () -> contactPolicies.changeDoNotContact(created.id(), true,
+                ContactIntentSource.CUSTOMER_VERBAL, 0))).isInstanceOf(CustomerConflictException.class);
+
+        Customer replaced = inContext(contextA, () -> customers.update(created.id(), added.version(),
+                added.displayName(), added.notes(),
+                List.of(new PhoneInput("8888 7777", "CR", false), new PhoneInput("8888 5555", "CR", true),
+                        new PhoneInput("415 555 2671", "US", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isEqualTo(2);
+
+        inContext(contextA, () -> customers.update(created.id(), replaced.version(), replaced.displayName(),
+                replaced.notes(), List.of(new PhoneInput("8888 5555", "CR", true),
+                        new PhoneInput("415 555 2671", "US", false))));
+        assertThat(inContext(contextA, () -> contactPolicies.get(created.id())).version()).isEqualTo(3);
+    }
+
+    @Test
+    void grantsRevokesOverridesRestoresAndPreservesContactHistory() throws Exception {
+        Customer customer = inContext(contextA, () -> customers.create("Consent customer", null,
+                List.of(new PhoneInput("8888 7777", "CR", true))));
+        UUID originalContact = customer.phones().getFirst().id();
+
+        var unknown = inContext(contextA, () -> contactPolicies.get(customer.id()));
+        assertThat(unknown.version()).isZero();
+        assertThat(unknown.consents().getFirst().status()).isEqualTo(ConsentStatus.UNKNOWN);
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), originalContact, ContactChannel.WHATSAPP)).reasons())
+                .containsExactly(ContactEligibilityReason.CONSENT_UNKNOWN);
+
+        var granted = inContext(contextA, () -> contactPolicies.changeConsent(customer.id(), originalContact,
+                ContactChannel.WHATSAPP, ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_VERBAL, 0));
+        assertThat(granted.version()).isEqualTo(1);
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), originalContact, ContactChannel.WHATSAPP)).eligible()).isTrue();
+
+        var blocked = inContext(contextA, () -> contactPolicies.changeDoNotContact(customer.id(), true,
+                ContactIntentSource.CUSTOMER_WRITTEN, 1));
+        assertThat(blocked.version()).isEqualTo(2);
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), originalContact, ContactChannel.WHATSAPP)).reasons())
+                .containsExactly(ContactEligibilityReason.DO_NOT_CONTACT);
+
+        var restored = inContext(contextA, () -> contactPolicies.changeDoNotContact(customer.id(), false,
+                ContactIntentSource.OPERATOR_CORRECTION, 2));
+        assertThat(restored.consents().getFirst().status()).isEqualTo(ConsentStatus.GRANTED);
+
+        var revoked = inContext(contextA, () -> contactPolicies.changeConsent(customer.id(), originalContact,
+                ContactChannel.WHATSAPP, ConsentStatus.REVOKED, ContactIntentSource.CUSTOMER_VERBAL, 3));
+        assertThat(revoked.version()).isEqualTo(4);
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), originalContact, ContactChannel.WHATSAPP)).reasons())
+                .containsExactly(ContactEligibilityReason.CONSENT_REVOKED);
+
+        Customer replaced = inContext(contextA, () -> customers.update(customer.id(), customer.version(),
+                "Consent customer", null, List.of(new PhoneInput("8888 6666", "CR", true))));
+        UUID replacement = replaced.phones().getFirst().id();
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), replacement, ContactChannel.WHATSAPP)).reasons())
+                .containsExactly(ContactEligibilityReason.CONSENT_UNKNOWN);
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), originalContact, ContactChannel.WHATSAPP)).reasons())
+                .containsExactly(ContactEligibilityReason.CONTACT_NOT_ACTIVE);
+
+        var history = inContext(contextA, () -> contactPolicies.history(customer.id(), null, 10));
+        assertThat(history.events()).hasSize(4);
+        assertThat(history.events()).allMatch(event -> event.actorId().equals(contextA.identityId()))
+                .allMatch(event -> event.membershipId().equals(contextA.membershipId()));
+        assertThat(history.events()).anyMatch(event -> originalContact.equals(event.contactId()));
+        assertThat(history.toString()).doesNotContain("8888 7777", "+50688887777");
+
+        inContext(contextA, () -> { customers.archive(customer.id(), replaced.version()); return null; });
+        assertThat(inContext(contextA, () -> contactPolicies.evaluate(
+                customer.id(), replacement, ContactChannel.WHATSAPP)).reasons())
+                .containsExactly(ContactEligibilityReason.CUSTOMER_ARCHIVED, ContactEligibilityReason.CONSENT_UNKNOWN);
+        assertThatThrownBy(() -> inContext(contextA, () -> contactPolicies.changeDoNotContact(customer.id(), true,
+                ContactIntentSource.CUSTOMER_VERBAL, 5))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void contactPolicyRejectsStaleUnauthorizedAndCrossTenantMutations() throws Exception {
+        Customer customer = inContext(contextA, () -> customers.create("Policy owner", null,
+                List.of(new PhoneInput("8888 1234", "CR", true))));
+        UUID contactId = customer.phones().getFirst().id();
+        inContext(contextA, () -> contactPolicies.changeConsent(customer.id(), contactId, ContactChannel.WHATSAPP,
+                ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, 0));
+
+        assertThatThrownBy(() -> inContext(contextA, () -> contactPolicies.changeDoNotContact(customer.id(), true,
+                ContactIntentSource.CUSTOMER_VERBAL, 0))).isInstanceOf(CustomerConflictException.class);
+        assertThatThrownBy(() -> inContext(contextB, () -> contactPolicies.get(customer.id())))
+                .isInstanceOf(CustomerNotFoundException.class);
+
+        TenantMembership viewer = seedMembership(memberships, contexts, tenantA.id(),
+                new IdentityId(UUID.randomUUID()), TenantRole.VIEWER, Instant.now());
+        assertThatThrownBy(() -> inContext(context(viewer), () -> contactPolicies.changeDoNotContact(customer.id(), true,
+                ContactIntentSource.CUSTOMER_VERBAL, 1))).isInstanceOf(TenantAccessDeniedException.class);
+
+        try (var connection = runtimeConnection(signer.issueTenantContext(tenantB.id()));
+             var statement = connection.prepareStatement("""
+                     INSERT INTO dokene.customer_consent_history
+                         (id, tenant_id, customer_id, phone_contact_id, channel, status, source,
+                          occurred_at, actor_id, membership_id, policy_version)
+                     VALUES (?, ?, ?, ?, 'WHATSAPP', 'GRANTED', 'CUSTOMER_VERBAL', now(), ?, ?, 1)
+                     """)) {
+            statement.setObject(1, UUID.randomUUID());
+            statement.setObject(2, tenantA.id().value());
+            statement.setObject(3, customer.id().value());
+            statement.setObject(4, contactId);
+            statement.setObject(5, contextB.identityId().value());
+            statement.setObject(6, contextB.membershipId().value());
+            assertThatThrownBy(statement::executeUpdate).isInstanceOf(SQLException.class);
+        }
+
+        try (var connection = runtimeConnection(signer.issueTenantContext(tenantA.id()));
+             var statement = connection.prepareStatement("UPDATE dokene.customer_consent_history SET status = 'REVOKED'")) {
+            assertThatThrownBy(statement::executeUpdate).isInstanceOf(SQLException.class);
+        }
+
+        assertThat(inContext(contextA, auditReader::read).events())
+                .extracting(event -> event.type())
+                .contains(AuditEventType.CUSTOMER_CONSENT_CHANGED);
+    }
+
+    @Test
+    void concurrentContactPolicyMutationsHaveOneWinner() throws Exception {
+        Customer customer = inContext(contextA, () -> customers.create("Concurrent policy", null,
+                List.of(new PhoneInput("8888 4321", "CR", true))));
+        UUID contactId = customer.phones().getFirst().id();
+        Callable<ContactPolicy> grant = () -> inContext(contextA, () -> contactPolicies.changeConsent(customer.id(), contactId,
+                ContactChannel.WHATSAPP, ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_VERBAL, 0));
+        Callable<ContactPolicy> block = () -> inContext(contextA, () -> contactPolicies.changeDoNotContact(customer.id(), true,
+                ContactIntentSource.CUSTOMER_WRITTEN, 0));
+
+        long successes = 0;
+        long conflicts = 0;
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var result : executor.invokeAll(List.of(grant, block))) {
+                try {
+                    result.get();
+                    successes++;
+                } catch (java.util.concurrent.ExecutionException exception) {
+                    if (exception.getCause() instanceof CustomerConflictException) conflicts++;
+                    else throw exception;
+                }
+            }
+        }
+        assertThat(successes).isEqualTo(1);
+        assertThat(conflicts).isEqualTo(1);
+        assertThat(inContext(contextA, () -> contactPolicies.get(customer.id())).version()).isEqualTo(1);
+        assertThat(inContext(contextA, () -> contactPolicies.history(customer.id(), null, 10)).events()).hasSize(1);
     }
 
     @Test

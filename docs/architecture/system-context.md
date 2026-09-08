@@ -81,3 +81,7 @@ across both active and archived records. Mutations are atomically audited withou
 forced PostgreSQL RLS, and restricted by granular permissions (`CUSTOMER_READ`, `CUSTOMER_WRITE`, `CUSTOMER_DELETE`).
 [ADR 0009](../adr/0009-tenant-customer-and-phone-identity.md) defines identity, duplicate behavior, bounded cursor
 pagination, and archival semantics.
+
+WhatsApp consent is scoped to a stable phone-contact identity, while do-not-contact is a customer-wide hard override.
+Both use versioned current projections plus privacy-safe append-only evidence history with trusted actor attribution.
+[ADR 0010](../adr/0010-contact-consent-and-do-not-contact.md) defines restoration and deterministic eligibility.

@@ -12,7 +12,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-@RestControllerAdvice(assignableTypes = CustomerController.class)
+@RestControllerAdvice(assignableTypes = {CustomerController.class, ContactPolicyController.class})
 public class CustomerExceptionHandler {
     @ExceptionHandler({IllegalArgumentException.class,
             MissingRequestHeaderException.class, MissingServletRequestParameterException.class,

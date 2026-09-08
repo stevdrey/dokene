@@ -131,12 +131,12 @@ public class CustomerController {
     }
 
     private PhoneResponse response(CustomerPhone phone) {
-        return new PhoneResponse(phone.e164(), phone.primary());
+        return new PhoneResponse(phone.id(), phone.e164(), phone.primary());
     }
 
     public record PhoneRequest(String number, String region, boolean primary) { }
     public record CustomerWriteRequest(String displayName, String notes, List<PhoneRequest> phones, Long version) { }
-    public record PhoneResponse(String e164, boolean primary) { }
+    public record PhoneResponse(UUID id, String e164, boolean primary) { }
     public record CustomerResponse(UUID id, String displayName, String notes, List<PhoneResponse> phones,
                                    String status, long version, Instant createdAt, Instant updatedAt, Instant archivedAt) { }
     public record CustomerPageResponse(List<CustomerResponse> customers, String nextCursor) { }

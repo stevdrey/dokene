@@ -90,4 +90,22 @@ Duplicate phones within a tenant, including phones on archived profiles, and sta
 `409 Conflict`. Invalid input returns `400`, unavailable resources return `404`, and authorization failures return
 `403`, without exposing customer content.
 
+Phone responses include a stable `id` used by the WhatsApp consent API. The contact-policy and profile versions are
+logically independent, but adding, removing, or replacing a stable phone identity advances the policy version because
+the identity set is part of the policy representation. Profile-only and primary-flag changes over the same identities
+do not advance it. The contact-policy version is returned as an ETag:
+
+- `GET /api/customers/{customerId}/contact-policy` returns current do-not-contact and consent state. Missing evidence
+  is reported as `UNKNOWN`.
+- `PUT /api/customers/{customerId}/contacts/{contactId}/consents/WHATSAPP` accepts `GRANTED` or `REVOKED` plus
+  `CUSTOMER_VERBAL`, `CUSTOMER_WRITTEN`, or `OPERATOR_CORRECTION`, and requires the policy `If-Match`.
+- `PUT /api/customers/{customerId}/do-not-contact` accepts `enabled` plus a source and requires the policy `If-Match`.
+- `GET /api/customers/{customerId}/contact-eligibility?channel=WHATSAPP&contactId=...` returns deterministic reasons.
+- `GET /api/customers/{customerId}/contact-policy/history` returns privacy-safe append-only evidence using an opaque
+  cursor and a limit from 1 to 100.
+
+Do-not-contact overrides consent. Clearing it does not manufacture a grant, and replacing a phone creates a new
+contact identity with unknown consent. These APIs record customer intent but do not make legal-compliance claims or
+authorize outbound messaging. See [ADR 0010](../docs/adr/0010-contact-consent-and-do-not-contact.md).
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

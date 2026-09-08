@@ -57,6 +57,7 @@ class CustomerControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(header().string("ETag", "\"0\""))
                 .andExpect(jsonPath("$.id").value(customer.id().value().toString()))
+                .andExpect(jsonPath("$.phones[0].id").value(customer.phones().getFirst().id().toString()))
                 .andExpect(jsonPath("$.phones[0].e164").value("+50688887777"))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("8888 7777"))));
     }

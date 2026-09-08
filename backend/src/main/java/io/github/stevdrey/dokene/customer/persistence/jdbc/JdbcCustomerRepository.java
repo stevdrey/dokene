@@ -101,18 +101,31 @@ public class JdbcCustomerRepository implements CustomerRepository {
     @Override
     public Customer update(Customer customer, long expectedVersion) {
         try {
+            List<CustomerPhone> currentDbPhones = findPhones(customer.tenantId().value(), customer.id().value());
+            Set<UUID> currentContactIds = currentDbPhones.stream()
+                    .map(CustomerPhone::id)
+                    .collect(Collectors.toSet());
+            Set<UUID> newContactIds = customer.phones().stream()
+                    .map(CustomerPhone::id)
+                    .collect(Collectors.toSet());
+            boolean contactIdentitiesChanged = !currentContactIds.equals(newContactIds);
+
             int updated = jdbc.update("""
                     UPDATE dokene.customers
-                    SET display_name = ?, notes = ?, status = ?, updated_at = ?, archived_at = ?, version = version + 1
+                    SET display_name = ?, notes = ?, status = ?, updated_at = ?, archived_at = ?,
+                        version = version + 1,
+                        contact_policy_version = CASE
+                            WHEN ? THEN contact_policy_version + 1
+                            ELSE contact_policy_version
+                        END
                     WHERE tenant_id = ? AND id = ? AND version = ?
                     """, customer.displayName(), customer.notes(), customer.status().name(),
                     Timestamp.from(customer.updatedAt()), customer.archivedAt() == null ? null : Timestamp.from(customer.archivedAt()),
-                    customer.tenantId().value(), customer.id().value(), expectedVersion);
+                    contactIdentitiesChanged, customer.tenantId().value(), customer.id().value(), expectedVersion);
             if (updated != 1) {
                 throw new CustomerConflictException();
             }
 
-            List<CustomerPhone> currentDbPhones = findPhones(customer.tenantId().value(), customer.id().value());
             Set<String> newNormalizedPhones = customer.phones().stream()
                     .map(CustomerPhone::e164)
                     .collect(Collectors.toSet());

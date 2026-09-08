@@ -70,7 +70,9 @@ class TransactionalAuditRecorder implements AuditRecorder {
     @Override
     public void customerMutated(UUID target, AuditEventType eventType) {
         if (eventType != AuditEventType.CUSTOMER_CREATED && eventType != AuditEventType.CUSTOMER_UPDATED
-                && eventType != AuditEventType.CUSTOMER_ARCHIVED) {
+                && eventType != AuditEventType.CUSTOMER_ARCHIVED
+                && eventType != AuditEventType.CUSTOMER_CONSENT_CHANGED
+                && eventType != AuditEventType.CUSTOMER_DO_NOT_CONTACT_CHANGED) {
             throw new IllegalArgumentException("Unsupported customer audit event");
         }
         TenantContext context = contexts.requireCurrent();

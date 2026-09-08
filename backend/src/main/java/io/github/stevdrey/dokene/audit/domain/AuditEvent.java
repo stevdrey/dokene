@@ -39,7 +39,8 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid membership role event");
                 }
             }
-            case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED -> {
+            case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED,
+                    CUSTOMER_CONSENT_CHANGED, CUSTOMER_DO_NOT_CONTACT_CHANGED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
                         || target.type() != AuditTarget.Type.CUSTOMER
                         || !(metadata instanceof AuditMetadata.CustomerMutation)) {
