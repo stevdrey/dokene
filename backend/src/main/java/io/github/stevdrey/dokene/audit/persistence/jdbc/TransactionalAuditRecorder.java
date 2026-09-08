@@ -80,6 +80,17 @@ class TransactionalAuditRecorder implements AuditRecorder {
                 AuditOutcome.SUCCESS, new AuditMetadata.CustomerMutation()), mandatory);
     }
 
+    @Override
+    public void purchaseMutated(UUID target, AuditEventType eventType) {
+        if (eventType != AuditEventType.PURCHASE_RECORDED && eventType != AuditEventType.PURCHASE_CORRECTED
+                && eventType != AuditEventType.PURCHASE_VOIDED) {
+            throw new IllegalArgumentException("Unsupported purchase audit event");
+        }
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, eventType, new AuditTarget(AuditTarget.Type.PURCHASE, target),
+                AuditOutcome.SUCCESS, new AuditMetadata.PurchaseMutation()), mandatory);
+    }
+
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,
             AuditOutcome outcome, AuditMetadata metadata) {
         return new AuditEvent(UUID.randomUUID(), clock.instant(), context == null ? null : context.tenantId(),

@@ -53,6 +53,10 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
         @Override
         public void customerMutated(UUID target, AuditEventType eventType) {
         }
+
+        @Override
+        public void purchaseMutated(UUID target, AuditEventType eventType) {
+        }
     };
 
     TenantContextRequestFilter(

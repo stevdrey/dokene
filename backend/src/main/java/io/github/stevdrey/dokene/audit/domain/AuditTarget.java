@@ -4,7 +4,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record AuditTarget(Type type, UUID id) {
-    public enum Type { MEMBERSHIP, CUSTOMER }
+    public enum Type { MEMBERSHIP, CUSTOMER, PURCHASE }
 
     public AuditTarget {
         Objects.requireNonNull(type, "Resource type is required");

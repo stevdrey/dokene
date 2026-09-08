@@ -108,4 +108,24 @@ Do-not-contact overrides consent. Clearing it does not manufacture a grant, and 
 contact identity with unknown consent. These APIs record customer intent but do not make legal-compliance claims or
 authorize outbound messaging. See [ADR 0010](../docs/adr/0010-contact-consent-and-do-not-contact.md).
 
+## Purchase API
+
+Purchase history lives under `/api/customers/{customerId}/purchases` and requires the trusted tenant context. A
+purchase request contains an ISO-8601 UTC `purchasedAt` instant and a required `description` of at most 500
+characters. Future instants are rejected and stored timestamps use microsecond precision.
+
+- `POST /api/customers/{customerId}/purchases` requires `Idempotency-Key`, returns `201` for a new record and `200`
+  for an exact replay. Reusing a key with different normalized content returns `409`.
+- `GET /api/customers/{customerId}/purchases` lists history in descending purchase-time order, accepts optional
+  `status=VALID|VOID`, an opaque `cursor`, and `limit` from 1 to 100.
+- `GET /api/customers/{customerId}/purchases/last` returns the latest valid purchase or `204` when none exists.
+- `GET` and `PUT /api/customers/{customerId}/purchases/{purchaseId}` inspect or correct a purchase. Correction
+  requires the current `If-Match` version.
+- `DELETE /api/customers/{customerId}/purchases/{purchaseId}` irreversibly voids rather than deletes and requires
+  `If-Match`.
+- `GET /api/customers/{customerId}/purchases/{purchaseId}/history` returns bounded append-only revision snapshots.
+
+Last purchase is derived from valid history, including backdated inserts, corrected timestamps, and voids. Tenant
+and customer identity cannot be reassigned. See [ADR 0011](../docs/adr/0011-purchase-history-and-last-purchase.md).
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

@@ -47,6 +47,7 @@ Metadata is a sealed set of typed records persisted as constrained scalar column
 
 - Authorization denial: optional enumerated permission and enumerated denial reason.
 - Membership role change: previous and new role, excluding `OWNER` and no-op changes.
+- Customer and purchase mutations: no metadata beyond the privacy-reviewed target UUID.
 
 The listener translates only known reasons; unknown text becomes `UNSPECIFIED`.
 There is no general string/map/JSON payload API. SQL checks reject unknown permission,

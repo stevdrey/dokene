@@ -47,6 +47,13 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid customer mutation event");
                 }
             }
+            case PURCHASE_RECORDED, PURCHASE_CORRECTED, PURCHASE_VOIDED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.PURCHASE
+                        || !(metadata instanceof AuditMetadata.PurchaseMutation)) {
+                    throw new IllegalArgumentException("Invalid purchase mutation event");
+                }
+            }
         }
     }
 }
