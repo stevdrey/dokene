@@ -1,5 +1,8 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.domain.AuditEventType;
+import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
@@ -30,10 +33,12 @@ public class FollowUpService {
     private final TenantContextProvider contexts;
     private final FollowUpPolicyEvaluator evaluator;
     private final Clock clock;
+    private final AuditRecorder audit;
 
     public FollowUpService(CustomerRepository customers, ContactPolicyRepository contacts,
             PurchaseRepository purchases, FollowUpPolicyRepository policies,
-            TenantAuthorizationService authorization, TenantContextProvider contexts, Clock clock) {
+            TenantAuthorizationService authorization, TenantContextProvider contexts, Clock clock,
+            AuditRecorder audit) {
         this.customers = Objects.requireNonNull(customers);
         this.contacts = Objects.requireNonNull(contacts);
         this.purchases = Objects.requireNonNull(purchases);
@@ -41,6 +46,7 @@ public class FollowUpService {
         this.authorization = Objects.requireNonNull(authorization);
         this.contexts = Objects.requireNonNull(contexts);
         this.clock = Objects.requireNonNull(clock);
+        this.audit = Objects.requireNonNull(audit);
         evaluator = new FollowUpPolicyEvaluator(clock);
     }
 
@@ -67,36 +73,52 @@ public class FollowUpService {
     }
 
     @Transactional
-    public TenantFollowUpPolicy configureTenant(int cadenceDays, ZoneId zoneId) {
+    public TenantFollowUpPolicy configureTenant(int cadenceDays, ZoneId zoneId, long expectedVersion) {
         authorization.requirePermission(TenantPermission.FOLLOWUP_WRITE);
-        return policies.saveTenantPolicy(
-                new TenantFollowUpPolicy(contexts.requireCurrent().tenantId(), cadenceDays, zoneId));
+        var tenantId = contexts.requireCurrent().tenantId();
+        var updated = policies.updateTenantPolicy(
+                new TenantFollowUpPolicy(tenantId, cadenceDays, zoneId, expectedVersion), expectedVersion);
+        audit.followUpMutated(AuditTarget.Type.TENANT, tenantId.value(),
+                AuditEventType.TENANT_FOLLOW_UP_POLICY_CHANGED);
+        return updated;
     }
 
     @Transactional
     public CustomerFollowUpPolicy configureCustomer(CustomerId customerId, Integer cadenceDays,
-            LocalDate explicitNextDate) {
+            LocalDate explicitNextDate, long expectedVersion) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
-        var current = policies.customerPolicy(customer.tenantId(), customer.id());
-        return policies.saveCustomerPolicy(new CustomerFollowUpPolicy(customer.tenantId(), customer.id(),
-                cadenceDays, explicitNextDate, current.snoozedUntil(), current.lastManualFollowUpDate()));
+        var updated = policies.updateCustomerPolicy(customer.tenantId(), customer.id(), cadenceDays,
+                explicitNextDate, expectedVersion);
+        audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
+                AuditEventType.CUSTOMER_FOLLOW_UP_POLICY_CHANGED);
+        return updated;
     }
 
     @Transactional
-    public CustomerFollowUpPolicy recordManualFollowUp(CustomerId customerId) {
+    public ManualFollowUpResult recordManualFollowUp(CustomerId customerId, long expectedVersion,
+            String idempotencyKey) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
         LocalDate today = LocalDate.now(clock.withZone(policies.tenantPolicy(customer.tenantId()).zoneId()));
-        return policies.recordManualFollowUp(customer.tenantId(), customer.id(), today);
+        var context = contexts.requireCurrent();
+        var result = policies.recordManualFollowUp(customer.tenantId(), customer.id(), today, expectedVersion,
+                idempotencyKey, clock.instant(), context.identityId(), context.membershipId());
+        if (result.created()) {
+            audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
+                    AuditEventType.MANUAL_FOLLOW_UP_RECORDED);
+        }
+        return result;
     }
 
     @Transactional
-    public CustomerFollowUpPolicy snooze(CustomerId customerId, LocalDate until) {
+    public CustomerFollowUpPolicy snooze(CustomerId customerId, LocalDate until, long expectedVersion) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
         LocalDate today = LocalDate.now(clock.withZone(policies.tenantPolicy(customer.tenantId()).zoneId()));
         if (Objects.requireNonNull(until, "Snooze date is required").isBefore(today)) {
             throw new IllegalArgumentException("Snooze date cannot be in the past");
         }
-        return policies.snooze(customer.tenantId(), customer.id(), until);
+        var updated = policies.snooze(customer.tenantId(), customer.id(), until, expectedVersion);
+        audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(), AuditEventType.FOLLOW_UP_SNOOZED);
+        return updated;
     }
 
     private Customer requireCustomer(CustomerId customerId, TenantPermission permission) {

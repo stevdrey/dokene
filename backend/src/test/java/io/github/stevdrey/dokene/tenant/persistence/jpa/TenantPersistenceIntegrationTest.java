@@ -115,7 +115,8 @@ class TenantPersistenceIntegrationTest {
         )).containsExactly("audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
-                "flyway_schema_history", "oidc_identity_mappings", "purchase_history", "purchases",
+                "flyway_schema_history", "manual_follow_up_completions", "oidc_identity_mappings",
+                "purchase_history", "purchases",
                 "tenant_context_signing_keys", "tenant_follow_up_policies", "tenant_memberships", "tenants",
                 "workspace_provisioning_records");
         assertThat(jdbcTemplate.queryForList(
@@ -124,13 +125,14 @@ class TenantPersistenceIntegrationTest {
         )).containsExactly("audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
-                "purchase_history", "purchases",
+                "manual_follow_up_completions", "purchase_history", "purchases",
                 "tenant_follow_up_policies", "tenant_memberships", "tenants", "workspace_provisioning_records");
         assertThat(tableOwner("customer_consent_history")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_contact_consents")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_do_not_contact")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_do_not_contact_history")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_follow_up_policies")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("manual_follow_up_completions")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customers")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_phone_contacts")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("purchases")).isEqualTo(MIGRATION_ROLE);

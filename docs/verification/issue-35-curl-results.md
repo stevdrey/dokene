@@ -21,24 +21,30 @@ cd backend
 ./gradlew test --tests '*FollowUpCurlSystemTest' --no-daemon --console=plain
 ```
 
-Final result: `BUILD SUCCESSFUL in 41s`; one system-test scenario passed. Testcontainers stopped the temporary
+Review-fix focused result: `BUILD SUCCESSFUL in 1m`; thirteen follow-up tests passed. Testcontainers stopped the temporary
 application resources and database after the JVM completed.
 
-The final complete backend run used `./gradlew test --no-daemon --console=plain`. Its JUnit XML reports contain
-331 tests with zero failures and zero errors. A subsequent `docker ps` check found no remaining
-`postgres:17-alpine` Testcontainers container.
+The final complete backend run used `./gradlew build --no-daemon --console=plain` with Java 26. It completed with
+`BUILD SUCCESSFUL in 1m 43s`; its JUnit XML reports contain 335 tests with zero failures and zero errors. A
+subsequent `docker ps` check found no remaining `postgres:17-alpine` container (only Testcontainers Ryuk remained).
 
 ## Verified requests
 
 | Scenario | Expected and observed |
 | --- | --- |
 | Create a tenant-scoped customer | `201 Created` |
-| Read the initial tenant policy | `200 OK`, 30 days, `UTC` |
-| Configure cadence and `America/Costa_Rica` | `200 OK` |
+| Read the initial tenant policy | `200 OK`, 30 days, `UTC`, `ETag: "0"` |
+| Configure cadence and `America/Costa_Rica` | `200 OK`, `ETag: "1"` |
+| Missing, malformed, or stale tenant `If-Match` | `400`, `400`, or `409 Conflict`, respectively |
+| Fixed-offset zones `+02:00` and `GMT+02:00` | `400 Bad Request` |
 | Evaluate before consent | `200 OK`, `INELIGIBLE`, `NO_ELIGIBLE_CONTACT` |
 | Grant WhatsApp consent and set today's explicit date | `200 OK`, then `DUE` and eligible |
-| Snooze until tomorrow | `200 OK`, then `NOT_YET_DUE` and `SNOOZED` |
-| Record a manual follow-up | `200 OK`; manual date stored and explicit/snooze dates cleared |
+| Configure a customer policy with its ETag | `200 OK` and a new ETag |
+| Snooze until tomorrow with `If-Match` | `200 OK`, then `NOT_YET_DUE` and `SNOOZED` |
+| Manual follow-up without required headers | `400 Bad Request` |
+| First manual follow-up with `If-Match` and `Idempotency-Key` | `201 Created`, stable completion ID/date/version |
+| Replay the same key with stale `If-Match` | `200 OK`, same completion ID |
+| Invalid manual idempotency key | `400 Bad Request` |
 | Zero or 3651-day cadence | `400 Bad Request` |
 | Unknown IANA time zone | `400 Bad Request` |
 | Missing time zone | `400 Bad Request` |

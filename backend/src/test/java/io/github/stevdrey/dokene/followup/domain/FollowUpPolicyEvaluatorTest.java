@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.followup.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.ContactChannel;
@@ -20,6 +21,17 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class FollowUpPolicyEvaluatorTest {
+
+    @Test
+    void acceptsRegionalIanaZonesAndUtcButRejectsFixedOffsets() {
+        assertThat(new TenantFollowUpPolicy(tenantId, 30, ZoneId.of("America/Costa_Rica")).zoneId().getId())
+                .isEqualTo("America/Costa_Rica");
+        assertThat(new TenantFollowUpPolicy(tenantId, 30, ZoneId.of("UTC")).zoneId().getId()).isEqualTo("UTC");
+        assertThatThrownBy(() -> new TenantFollowUpPolicy(tenantId, 30, ZoneId.of("+02:00")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TenantFollowUpPolicy(tenantId, 30, ZoneId.of("GMT+02:00")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
     private static final Instant NOW = Instant.parse("2026-03-08T07:30:00Z");
     private final TenantId tenantId = new TenantId(UUID.randomUUID());
     private final CustomerId customerId = new CustomerId(UUID.randomUUID());

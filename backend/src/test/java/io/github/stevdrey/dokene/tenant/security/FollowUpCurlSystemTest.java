@@ -80,17 +80,28 @@ class FollowUpCurlSystemTest {
         UUID contactId = UUID.fromString(customerBody.get("phones").get(0).get("id").asText());
         String base = "/api/customers/" + customerId;
 
-        JsonNode defaultPolicy = json.readTree(curl("GET", "/api/follow-up-policy", null).body());
+        CurlResult defaultPolicyResult = curl("GET", "/api/follow-up-policy", null);
+        JsonNode defaultPolicy = json.readTree(defaultPolicyResult.body());
         assertThat(defaultPolicy.get("cadenceDays").asInt()).isEqualTo(30);
         assertThat(defaultPolicy.get("timeZone").asText()).isEqualTo("UTC");
-        assertStatus(curl("PUT", "/api/follow-up-policy",
-                "{\"cadenceDays\":14,\"timeZone\":\"America/Costa_Rica\"}"), 200);
-        assertStatus(curl("PUT", "/api/follow-up-policy",
+        CurlResult tenantUpdated = curlWithHeader("PUT", "/api/follow-up-policy", "If-Match",
+                defaultPolicyResult.header("etag"),
+                "{\"cadenceDays\":14,\"timeZone\":\"America/Costa_Rica\"}");
+        assertStatus(tenantUpdated, 200);
+        assertThat(tenantUpdated.header("etag")).isEqualTo("\"1\"");
+        assertStatus(curl("PUT", "/api/follow-up-policy", "{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"), 400);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"0\"",
+                "{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"), 409);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "bad",
+                "{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"), 400);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
                 "{\"cadenceDays\":0,\"timeZone\":\"UTC\"}"), 400);
-        assertStatus(curl("PUT", "/api/follow-up-policy",
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
                 "{\"cadenceDays\":30,\"timeZone\":\"Not/AZone\"}"), 400);
-        assertStatus(curl("PUT", "/api/follow-up-policy", "{\"cadenceDays\":30}"), 400);
-        assertStatus(curl("PUT", "/api/follow-up-policy", "{not-json}"), 400);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
+                "{\"cadenceDays\":30,\"timeZone\":\"+02:00\"}"), 400);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
+                "{\"cadenceDays\":30,\"timeZone\":\"GMT+02:00\"}"), 400);
 
         assertThat(json.readTree(curl("GET", base + "/follow-up-eligibility", null).body())
                 .get("reasons").toString()).contains("NO_ELIGIBLE_CONTACT");
@@ -100,24 +111,40 @@ class FollowUpCurlSystemTest {
                 "{\"status\":\"GRANTED\",\"source\":\"CUSTOMER_WRITTEN\"}"), 200);
 
         LocalDate today = LocalDate.now(ZoneId.of("America/Costa_Rica"));
-        assertStatus(curl("PUT", base + "/follow-up-policy",
-                "{\"cadenceDays\":7,\"explicitNextDate\":\"" + today + "\"}"), 200);
+        CurlResult customerPolicy = curl("GET", base + "/follow-up-policy", null);
+        CurlResult customerUpdated = curlWithHeader("PUT", base + "/follow-up-policy", "If-Match",
+                customerPolicy.header("etag"),
+                "{\"cadenceDays\":7,\"explicitNextDate\":\"" + today + "\"}");
+        assertStatus(customerUpdated, 200);
         JsonNode due = json.readTree(curl("GET", base + "/follow-up-eligibility", null).body());
         assertThat(due.get("status").asText()).isEqualTo("DUE");
         assertThat(due.get("eligible").asBoolean()).isTrue();
 
         LocalDate tomorrow = today.plusDays(1);
-        assertStatus(curl("PUT", base + "/follow-up-snooze", "{\"until\":\"" + tomorrow + "\"}"), 200);
+        CurlResult snooze = curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match",
+                customerUpdated.header("etag"), "{\"until\":\"" + tomorrow + "\"}");
+        assertStatus(snooze, 200);
         JsonNode snoozed = json.readTree(curl("GET", base + "/follow-up-eligibility", null).body());
         assertThat(snoozed.get("status").asText()).isEqualTo("NOT_YET_DUE");
         assertThat(snoozed.get("reasons").toString()).contains("SNOOZED");
 
-        JsonNode manual = json.readTree(curl("POST", base + "/manual-follow-ups", null).body());
-        assertThat(manual.get("lastManualFollowUpDate").asText()).isEqualTo(today.toString());
-        assertThat(manual.get("explicitNextDate").isNull()).isTrue();
-        assertThat(manual.get("snoozedUntil").isNull()).isTrue();
+        assertStatus(curl("POST", base + "/manual-follow-ups", null), 400);
+        CurlResult manualResult = curlRaw("POST", base + "/manual-follow-ups", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: " + snooze.header("etag"), "Idempotency-Key: curl-manual-1"), null);
+        assertStatus(manualResult, 201);
+        JsonNode manual = json.readTree(manualResult.body());
+        assertThat(manual.get("completedOn").asText()).isEqualTo(today.toString());
+        CurlResult replay = curlRaw("POST", base + "/manual-follow-ups", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"0\"", "Idempotency-Key: curl-manual-1"), null);
+        assertStatus(replay, 200);
+        assertThat(json.readTree(replay.body()).get("id")).isEqualTo(manual.get("id"));
+        assertStatus(curlRaw("POST", base + "/manual-follow-ups", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"3\"", "Idempotency-Key: invalid key"), null), 400);
 
-        assertStatus(curl("PUT", base + "/follow-up-snooze",
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match", "\"3\"",
                 "{\"until\":\"" + today.minusDays(1) + "\"}"), 400);
         assertStatus(curl("PUT", base + "/follow-up-snooze", "{\"until\":\"not-a-date\"}"), 400);
         assertStatus(curl("PUT", base + "/follow-up-policy", "{\"cadenceDays\":3651}"), 400);
@@ -125,7 +152,8 @@ class FollowUpCurlSystemTest {
 
         assertStatus(curlAs("GET", base + "/follow-up-policy", viewerIdentityId, tenantId, null), 200);
         assertStatus(curlAs("GET", base + "/follow-up-eligibility", viewerIdentityId, tenantId, null), 403);
-        assertStatus(curlAs("PUT", "/api/follow-up-policy", viewerIdentityId, tenantId,
+        assertStatus(curlRaw("PUT", "/api/follow-up-policy", List.of("X-Test-Identity: " + viewerIdentityId,
+                "X-Tenant-Id: " + tenantId, "If-Match: \"1\""),
                 "{\"cadenceDays\":20,\"timeZone\":\"UTC\"}"), 403);
         assertStatus(curlAs("GET", base + "/follow-up-eligibility", foreignIdentityId, foreignTenantId, null), 404);
 

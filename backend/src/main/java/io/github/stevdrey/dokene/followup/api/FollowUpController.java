@@ -13,17 +13,22 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api")
 public class FollowUpController {
+    private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9._:-]{1,128}");
     private final FollowUpService followUps;
 
     public FollowUpController(FollowUpService followUps) {
@@ -31,29 +36,35 @@ public class FollowUpController {
     }
 
     @GetMapping("/follow-up-policy")
-    public TenantPolicyResponse tenantPolicy() {
-        return response(followUps.tenantPolicy());
+    public ResponseEntity<TenantPolicyResponse> tenantPolicy() {
+        var policy = followUps.tenantPolicy();
+        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
     @PutMapping("/follow-up-policy")
-    public TenantPolicyResponse configureTenant(@RequestBody TenantPolicyRequest request) {
+    public ResponseEntity<TenantPolicyResponse> configureTenant(@RequestHeader("If-Match") String ifMatch,
+            @RequestBody TenantPolicyRequest request) {
         if (request == null || request.cadenceDays() == null || request.timeZone() == null) {
             throw new IllegalArgumentException("Cadence and time zone are required");
         }
-        return response(followUps.configureTenant(request.cadenceDays(), ZoneId.of(request.timeZone())));
+        var policy = followUps.configureTenant(request.cadenceDays(), ZoneId.of(request.timeZone()), version(ifMatch));
+        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
     @GetMapping("/customers/{customerId}/follow-up-policy")
-    public CustomerPolicyResponse customerPolicy(@PathVariable UUID customerId) {
-        return response(followUps.customerPolicy(new CustomerId(customerId)));
+    public ResponseEntity<CustomerPolicyResponse> customerPolicy(@PathVariable UUID customerId) {
+        var policy = followUps.customerPolicy(new CustomerId(customerId));
+        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
     @PutMapping("/customers/{customerId}/follow-up-policy")
-    public CustomerPolicyResponse configureCustomer(@PathVariable UUID customerId,
+    public ResponseEntity<CustomerPolicyResponse> configureCustomer(@PathVariable UUID customerId,
+            @RequestHeader("If-Match") String ifMatch,
             @RequestBody CustomerPolicyRequest request) {
         if (request == null) throw new IllegalArgumentException("Customer policy is required");
-        return response(followUps.configureCustomer(new CustomerId(customerId), request.cadenceDays(),
-                request.explicitNextDate()));
+        var policy = followUps.configureCustomer(new CustomerId(customerId), request.cadenceDays(),
+                request.explicitNextDate(), version(ifMatch));
+        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
     @GetMapping("/customers/{customerId}/follow-up-eligibility")
@@ -62,14 +73,26 @@ public class FollowUpController {
     }
 
     @PostMapping("/customers/{customerId}/manual-follow-ups")
-    public CustomerPolicyResponse recordManualFollowUp(@PathVariable UUID customerId) {
-        return response(followUps.recordManualFollowUp(new CustomerId(customerId)));
+    public ResponseEntity<ManualFollowUpResponse> recordManualFollowUp(@PathVariable UUID customerId,
+            @RequestHeader("If-Match") String ifMatch,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        if (!IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
+            throw new IllegalArgumentException("Invalid idempotency key");
+        }
+        var result = followUps.recordManualFollowUp(new CustomerId(customerId), version(ifMatch), idempotencyKey);
+        var completion = result.completion();
+        var response = new ManualFollowUpResponse(completion.id(), completion.customerId().value(),
+                completion.completedOn(), completion.policyVersion());
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .eTag(etag(completion.policyVersion())).body(response);
     }
 
     @PutMapping("/customers/{customerId}/follow-up-snooze")
-    public CustomerPolicyResponse snooze(@PathVariable UUID customerId, @RequestBody SnoozeRequest request) {
+    public ResponseEntity<CustomerPolicyResponse> snooze(@PathVariable UUID customerId,
+            @RequestHeader("If-Match") String ifMatch, @RequestBody SnoozeRequest request) {
         if (request == null || request.until() == null) throw new IllegalArgumentException("Snooze date is required");
-        return response(followUps.snooze(new CustomerId(customerId), request.until()));
+        var policy = followUps.snooze(new CustomerId(customerId), request.until(), version(ifMatch));
+        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
     private TenantPolicyResponse response(TenantFollowUpPolicy policy) {
@@ -88,12 +111,26 @@ public class FollowUpController {
                 evaluation.effectiveCadenceDays(), evaluation.lastPurchaseAt());
     }
 
+    private long version(String ifMatch) {
+        if (ifMatch == null || !ifMatch.matches("\"[0-9]+\"")) {
+            throw new IllegalArgumentException("If-Match must contain one strong numeric ETag");
+        }
+        try {
+            return Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1));
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("Invalid If-Match version", exception);
+        }
+    }
+
+    private String etag(long version) { return "\"" + version + "\""; }
+
     public record TenantPolicyRequest(Integer cadenceDays, String timeZone) { }
     public record CustomerPolicyRequest(Integer cadenceDays, LocalDate explicitNextDate) { }
     public record SnoozeRequest(LocalDate until) { }
     public record TenantPolicyResponse(int cadenceDays, String timeZone) { }
     public record CustomerPolicyResponse(UUID customerId, Integer cadenceDays, LocalDate explicitNextDate,
                                          LocalDate snoozedUntil, LocalDate lastManualFollowUpDate) { }
+    public record ManualFollowUpResponse(UUID id, UUID customerId, LocalDate completedOn, long policyVersion) { }
     public record EvaluationResponse(UUID customerId, boolean eligible, FollowUpStatus status,
                                      List<FollowUpReason> reasons, Instant evaluatedAt, LocalDate tenantDate,
                                      String tenantTimeZone, LocalDate nextFollowUpDate,

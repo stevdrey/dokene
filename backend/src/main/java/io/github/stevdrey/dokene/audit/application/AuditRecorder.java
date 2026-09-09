@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.audit.application;
 
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
+import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
@@ -19,4 +20,9 @@ public interface AuditRecorder {
 
     /** Requires an existing business transaction; failure must roll back the state transition. */
     void purchaseMutated(UUID target, AuditEventType eventType);
+
+    /** Requires an existing business transaction; failure must roll back the state transition. */
+    default void followUpMutated(AuditTarget.Type targetType, UUID target, AuditEventType eventType) {
+        throw new UnsupportedOperationException("Follow-up audit is not configured");
+    }
 }

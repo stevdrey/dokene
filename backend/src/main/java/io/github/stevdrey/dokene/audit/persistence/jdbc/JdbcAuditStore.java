@@ -76,6 +76,8 @@ class JdbcAuditStore {
             case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED,
                     CUSTOMER_CONSENT_CHANGED, CUSTOMER_DO_NOT_CONTACT_CHANGED -> new AuditMetadata.CustomerMutation();
             case PURCHASE_RECORDED, PURCHASE_CORRECTED, PURCHASE_VOIDED -> new AuditMetadata.PurchaseMutation();
+            case TENANT_FOLLOW_UP_POLICY_CHANGED, CUSTOMER_FOLLOW_UP_POLICY_CHANGED,
+                    FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED -> new AuditMetadata.FollowUpMutation();
         };
         return new AuditEvent(row.getObject("id", UUID.class), row.getTimestamp("occurred_at").toInstant(),
                 new TenantId(row.getObject("tenant_id", UUID.class)), new IdentityId(row.getObject("actor_id", UUID.class)),

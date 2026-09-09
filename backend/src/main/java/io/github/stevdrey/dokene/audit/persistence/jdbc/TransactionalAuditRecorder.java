@@ -91,6 +91,22 @@ class TransactionalAuditRecorder implements AuditRecorder {
                 AuditOutcome.SUCCESS, new AuditMetadata.PurchaseMutation()), mandatory);
     }
 
+    @Override
+    public void followUpMutated(AuditTarget.Type targetType, UUID target, AuditEventType eventType) {
+        boolean tenantEvent = eventType == AuditEventType.TENANT_FOLLOW_UP_POLICY_CHANGED;
+        boolean customerEvent = eventType == AuditEventType.CUSTOMER_FOLLOW_UP_POLICY_CHANGED
+                || eventType == AuditEventType.FOLLOW_UP_SNOOZED
+                || eventType == AuditEventType.MANUAL_FOLLOW_UP_RECORDED;
+        if ((tenantEvent && targetType != AuditTarget.Type.TENANT)
+                || (customerEvent && targetType != AuditTarget.Type.CUSTOMER)
+                || (!tenantEvent && !customerEvent)) {
+            throw new IllegalArgumentException("Unsupported follow-up audit event");
+        }
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, eventType, new AuditTarget(targetType, target), AuditOutcome.SUCCESS,
+                new AuditMetadata.FollowUpMutation()), mandatory);
+    }
+
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,
             AuditOutcome outcome, AuditMetadata metadata) {
         return new AuditEvent(UUID.randomUUID(), clock.instant(), context == null ? null : context.tenantId(),
