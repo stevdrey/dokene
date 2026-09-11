@@ -121,11 +121,11 @@ public class FollowUpService {
         if (evaluation.status() == FollowUpStatus.INELIGIBLE) {
             throw new FollowUpConflictException();
         }
-        Instant now = clock.instant();
+        Instant occurredAt = evaluation.evaluatedAt();
         LocalDate today = evaluation.tenantDate();
         var context = contexts.requireCurrent();
         var result = policies.recordManualFollowUp(customer.tenantId(), customer.id(), today, expectedVersion,
-                idempotencyKey, now, context.identityId(), context.membershipId(), notes);
+                idempotencyKey, occurredAt, context.identityId(), context.membershipId(), notes);
         if (result.created()) {
             audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
                     AuditEventType.MANUAL_FOLLOW_UP_RECORDED);
@@ -154,11 +154,11 @@ public class FollowUpService {
         if (evaluation.status() != FollowUpStatus.DUE && evaluation.status() != FollowUpStatus.OVERDUE) {
             throw new FollowUpConflictException();
         }
-        Instant now = clock.instant();
+        Instant occurredAt = evaluation.evaluatedAt();
         LocalDate today = evaluation.tenantDate();
         var context = contexts.requireCurrent();
         var result = policies.recordDismissal(customer.tenantId(), customer.id(), today, expectedVersion,
-                idempotencyKey, now, context.identityId(), context.membershipId(), notes);
+                idempotencyKey, occurredAt, context.identityId(), context.membershipId(), notes);
         if (result.created()) {
             audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
                     AuditEventType.FOLLOW_UP_DISMISSED);

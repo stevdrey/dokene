@@ -382,6 +382,40 @@ class FollowUpManagementIntegrationTest {
                 .containsExactly(overdueCustomer.id(), customer.id());
     }
 
+    @Test
+    void queueReturnsConsentedPhonePreferringPrimary() throws Exception {
+        var multiPhoneCustomer = inContext(contextA, () -> customers.create("Multi-phone customer", null,
+                List.of(new PhoneInput("87770001", "CR", true),
+                        new PhoneInput("87770002", "CR", false))));
+        inContext(contextA, () -> followUps.configureCustomer(multiPhoneCustomer.id(), 14, LocalDate.now(), 0));
+
+        UUID primaryPhoneId = multiPhoneCustomer.phones().stream()
+                .filter(p -> p.primary()).findFirst().orElseThrow().id();
+        UUID secondaryPhoneId = multiPhoneCustomer.phones().stream()
+                .filter(p -> !p.primary()).findFirst().orElseThrow().id();
+
+        var policy1 = inContext(contextA, () -> contacts.get(multiPhoneCustomer.id()));
+        inContext(contextA, () -> contacts.changeConsent(multiPhoneCustomer.id(), secondaryPhoneId,
+                ContactChannel.WHATSAPP, ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, policy1.version()));
+        var policy2 = inContext(contextA, () -> contacts.get(multiPhoneCustomer.id()));
+        inContext(contextA, () -> contacts.changeConsent(multiPhoneCustomer.id(), primaryPhoneId,
+                ContactChannel.WHATSAPP, ConsentStatus.REVOKED, ContactIntentSource.CUSTOMER_WRITTEN, policy2.version()));
+
+        FollowUpQueuePage queue1 = inContext(contextA, () -> followUps.dueQueue(new FollowUpQueueQuery(null, null, 10)));
+        var item1 = queue1.items().stream()
+                .filter(i -> i.customerId().equals(multiPhoneCustomer.id())).findFirst().orElseThrow();
+        assertThat(item1.primaryPhone()).isEqualTo("+50687770002");
+
+        var policy3 = inContext(contextA, () -> contacts.get(multiPhoneCustomer.id()));
+        inContext(contextA, () -> contacts.changeConsent(multiPhoneCustomer.id(), primaryPhoneId,
+                ContactChannel.WHATSAPP, ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, policy3.version()));
+
+        FollowUpQueuePage queue2 = inContext(contextA, () -> followUps.dueQueue(new FollowUpQueueQuery(null, null, 10)));
+        var item2 = queue2.items().stream()
+                .filter(i -> i.customerId().equals(multiPhoneCustomer.id())).findFirst().orElseThrow();
+        assertThat(item2.primaryPhone()).isEqualTo("+50687770001");
+    }
+
     private void grantWhatsAppConsent(Customer target) throws Exception {
         var policy = inContext(contextA, () -> contacts.get(target.id()));
         UUID contactId = target.phones().getFirst().id();

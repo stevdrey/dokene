@@ -23,6 +23,9 @@ policy state (`customer_follow_up_policies`).
 2. **Ordering and Cursor Pagination**: Items are ordered deterministically by `due_date ASC, customer_id ASC`.
    Pagination uses an opaque, URL-safe Base64 cursor encoding `dueDate|customerId`.
 3. **Filtering**: The queue supports optional filtering by `status=DUE` or `status=OVERDUE`.
+4. **Consented Contact Selection**: The contact phone returned in queue items is resolved strictly from phone contacts
+   with `GRANTED` WhatsApp consent (preferring primary when consented, else the first consented secondary phone).
+   Non-consented or opted-out numbers are never returned in the queue, preventing communication to ungranted contacts.
 
 ### Operator Dispositions and State Transitions
 
@@ -73,6 +76,9 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
 - **Queue Snapshot Consistency**: The due queue is evaluated in a single database statement where `tenant_today`,
   cadence, and timing sources are derived from a unified `dokene.tenant_follow_up_policies` snapshot, preventing split-read
   anomalies between time zone resolution and candidate derivation.
+- **Single-Instant Timestamp Alignment**: In manual follow-ups and dismissals, both the timestamp (`occurredAt`)
+  and the tenant-local date (`completedOn`/`dismissedOn`) are derived from the single instant evaluated during
+  eligibility check (`evaluation.evaluatedAt()`), preventing midnight-boundary inconsistencies between date and timestamp.
 - **Idempotency**: Dismissals and manual completions require an `Idempotency-Key` header matching `^[A-Za-z0-9._:-]{1,128}$`.
   - The first invocation inserts the disposition record and updates policy in a single database transaction (`201 Created`).
   - An exact replay with the same key returns the existing record (`200 OK`) without re-evaluating, re-mutating policy,

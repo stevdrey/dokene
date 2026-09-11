@@ -103,7 +103,11 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                         c.id AS customer_id,
                         c.display_name,
                         (SELECT p.normalized_phone FROM dokene.customer_phone_contacts p
-                         WHERE p.tenant_id = c.tenant_id AND p.customer_id = c.id AND p.is_primary = true LIMIT 1) AS primary_phone,
+                         JOIN dokene.customer_contact_consents cc
+                           ON cc.tenant_id = p.tenant_id AND cc.customer_id = p.customer_id AND cc.phone_contact_id = p.id
+                         WHERE p.tenant_id = c.tenant_id AND p.customer_id = c.id
+                           AND cc.channel = 'WHATSAPP' AND cc.status = 'GRANTED'
+                         ORDER BY p.is_primary DESC, p.id ASC LIMIT 1) AS primary_phone,
                         cfp.version AS policy_version,
                         COALESCE(cfp.cadence_days, tp.cadence_days) AS effective_cadence,
                         cfp.snoozed_until,
