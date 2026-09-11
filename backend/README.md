@@ -128,4 +128,23 @@ characters. Future instants are rejected and stored timestamps use microsecond p
 Last purchase is derived from valid history, including backdated inserts, corrected timestamps, and voids. Tenant
 and customer identity cannot be reassigned. See [ADR 0011](../docs/adr/0011-purchase-history-and-last-purchase.md).
 
+## Follow-up policy
+
+The `followup` module evaluates the current customer, WhatsApp consent, latest valid purchase, tenant policy and
+customer policy with an injected clock. Tenant policies have a 30-day/UTC initial value and may define an IANA time
+zone; customer cadence overrides tenant cadence. Timing precedence is active snooze, explicit next date, last manual
+follow-up plus cadence, then last purchase plus cadence. A customer without a timing anchor is not eligible.
+
+Results are provider-neutral and report `INELIGIBLE`, `NOT_YET_DUE`, `DUE`, or `OVERDUE`, closed reason codes, the
+timing source and relevant calendar context. Archive, do-not-contact and missing granted consent always win.
+`FollowUpService.recordManualFollowUp` and `FollowUpService.snooze` are the contract for the future manual queue;
+this module adds no scheduler, AI decision or outbound action. See
+[ADR 0012](../docs/adr/0012-deterministic-follow-up-eligibility.md).
+
+- `GET` and `PUT /api/follow-up-policy` read or configure the tenant cadence and IANA time zone.
+- `GET` and `PUT /api/customers/{customerId}/follow-up-policy` read or configure a customer cadence/date override.
+- `GET /api/customers/{customerId}/follow-up-eligibility` returns the typed current decision.
+- `POST /api/customers/{customerId}/manual-follow-ups` records completion and starts a new cadence.
+- `PUT /api/customers/{customerId}/follow-up-snooze` postpones eligibility to the supplied local date.
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

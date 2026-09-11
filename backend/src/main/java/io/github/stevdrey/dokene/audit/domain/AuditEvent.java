@@ -54,6 +54,20 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid purchase mutation event");
                 }
             }
+            case TENANT_FOLLOW_UP_POLICY_CHANGED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.TENANT
+                        || !(metadata instanceof AuditMetadata.FollowUpMutation)) {
+                    throw new IllegalArgumentException("Invalid tenant follow-up mutation event");
+                }
+            }
+            case CUSTOMER_FOLLOW_UP_POLICY_CHANGED, FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.CUSTOMER
+                        || !(metadata instanceof AuditMetadata.FollowUpMutation)) {
+                    throw new IllegalArgumentException("Invalid customer follow-up mutation event");
+                }
+            }
         }
     }
 }

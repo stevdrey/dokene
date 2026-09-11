@@ -90,3 +90,8 @@ defines the timestamp, idempotency, pagination, traceability, and isolation cont
 WhatsApp consent is scoped to a stable phone-contact identity, while do-not-contact is a customer-wide hard override.
 Both use versioned current projections plus privacy-safe append-only evidence history with trusted actor attribution.
 [ADR 0010](../adr/0010-contact-consent-and-do-not-contact.md) defines restoration and deterministic eligibility.
+
+The `followup` module combines current customer/contact state, latest valid purchase, tenant-local calendar policy,
+customer overrides, and manual follow-up state into a typed deterministic decision. It reads all tenant scope from
+trusted context and produces no external side effect. [ADR 0012](../adr/0012-deterministic-follow-up-eligibility.md)
+defines precedence, no-purchase behavior, time-zone semantics, and the future queue contract.
