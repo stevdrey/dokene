@@ -14,6 +14,7 @@ import io.github.stevdrey.dokene.customer.application.CustomerRepository;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.CustomerFollowUpPolicy;
+import io.github.stevdrey.dokene.followup.domain.FollowUpDismissal;
 import io.github.stevdrey.dokene.followup.domain.ManualFollowUpCompletion;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
@@ -23,6 +24,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
 import java.time.Instant;
@@ -75,8 +77,23 @@ class FollowUpServiceTest {
         customer = mock(Customer.class);
         when(customer.id()).thenReturn(customerId);
         when(customer.tenantId()).thenReturn(tenantId);
+        when(customer.status()).thenReturn(io.github.stevdrey.dokene.customer.domain.CustomerStatus.ACTIVE);
+        var phone = io.github.stevdrey.dokene.customer.domain.CustomerPhone.create("+15551234567", true);
+        when(customer.phones()).thenReturn(List.of(phone));
         when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(customer));
         when(policies.tenantPolicy(tenantId)).thenReturn(new TenantFollowUpPolicy(tenantId, 30, tenantZone, 0));
+
+        LocalDate today = fixedInstant.atZone(tenantZone).toLocalDate();
+        var contactPolicy = new io.github.stevdrey.dokene.customer.domain.ContactPolicy(customerId, 1, false, null, null,
+                List.of(new io.github.stevdrey.dokene.customer.domain.ContactConsent(phone.id(),
+                        io.github.stevdrey.dokene.customer.domain.ContactChannel.WHATSAPP,
+                        io.github.stevdrey.dokene.customer.domain.ConsentStatus.GRANTED,
+                        io.github.stevdrey.dokene.customer.domain.ContactIntentSource.CUSTOMER_WRITTEN,
+                        fixedInstant.minusSeconds(3600))));
+        when(contacts.find(customer)).thenReturn(contactPolicy);
+
+        var dueCustomerPolicy = new CustomerFollowUpPolicy(tenantId, customerId, 30, today, null, null, 0);
+        when(policies.customerPolicy(tenantId, customerId)).thenReturn(dueCustomerPolicy);
 
         service = new FollowUpService(customers, contacts, purchases, policies,
                 authorization, contexts, clock, audit);
@@ -116,7 +133,7 @@ class FollowUpServiceTest {
         ManualFollowUpCompletion completion = new ManualFollowUpCompletion(UUID.randomUUID(), tenantId, customerId,
                 expectedDate, 1, fixedInstant, identityId, membershipId);
         when(policies.recordManualFollowUp(eq(tenantId), eq(customerId), eq(expectedDate), eq(0L),
-                eq("idem-key-1"), eq(fixedInstant), eq(identityId), eq(membershipId)))
+                eq("idem-key-1"), eq(fixedInstant), eq(identityId), eq(membershipId), eq(null)))
                 .thenReturn(new ManualFollowUpResult(completion, true));
 
         ManualFollowUpResult result = service.recordManualFollowUp(customerId, 0, "idem-key-1");
@@ -128,11 +145,60 @@ class FollowUpServiceTest {
         ArgumentCaptor<Instant> instantCaptor = ArgumentCaptor.forClass(Instant.class);
 
         verify(policies).recordManualFollowUp(eq(tenantId), eq(customerId), dateCaptor.capture(), eq(0L),
-                eq("idem-key-1"), instantCaptor.capture(), eq(identityId), eq(membershipId));
+                eq("idem-key-1"), instantCaptor.capture(), eq(identityId), eq(membershipId), eq(null));
 
         assertThat(dateCaptor.getValue()).isEqualTo(expectedDate);
         assertThat(instantCaptor.getValue()).isEqualTo(fixedInstant);
         assertThat(instantCaptor.getValue().atZone(tenantZone).toLocalDate()).isEqualTo(dateCaptor.getValue());
+    }
+
+    @Test
+    void recordManualFollowUpRejectsIneligibleCustomer() {
+        // Customer has no granted consent
+        when(contacts.find(customer)).thenReturn(new io.github.stevdrey.dokene.customer.domain.ContactPolicy(customerId,
+                1, false, null, null, List.of()));
+        assertThatThrownBy(() -> service.recordManualFollowUp(customerId, 0, "idem-key-1"))
+                .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void dismissRecordsDismissalAndEmitsAudit() {
+        LocalDate expectedDate = fixedInstant.atZone(tenantZone).toLocalDate();
+        var dismissal = new FollowUpDismissal(UUID.randomUUID(), tenantId, customerId,
+                expectedDate, 1, fixedInstant, identityId, membershipId, "not needed");
+        when(policies.recordDismissal(tenantId, customerId, expectedDate, 0L, "dismiss-key-1",
+                fixedInstant, identityId, membershipId, "not needed"))
+                .thenReturn(new FollowUpDismissalResult(dismissal, true));
+
+        var result = service.dismiss(customerId, 0L, "dismiss-key-1", "not needed");
+        assertThat(result.created()).isTrue();
+        assertThat(result.dismissal()).isEqualTo(dismissal);
+
+        verify(audit).followUpMutated(io.github.stevdrey.dokene.audit.domain.AuditTarget.Type.CUSTOMER,
+                customerId.value(), io.github.stevdrey.dokene.audit.domain.AuditEventType.FOLLOW_UP_DISMISSED);
+    }
+
+    @Test
+    void dismissRejectsIneligibleOrNotYetDueCustomer() {
+        // Ineligible (DNC)
+        when(contacts.find(customer)).thenReturn(new io.github.stevdrey.dokene.customer.domain.ContactPolicy(customerId,
+                1, true, null, null, List.of()));
+        assertThatThrownBy(() -> service.dismiss(customerId, 0L, "dismiss-key-1", null))
+                .isInstanceOf(FollowUpConflictException.class);
+
+        // Not yet due
+        LocalDate tomorrow = fixedInstant.atZone(tenantZone).toLocalDate().plusDays(1);
+        UUID phoneId = customer.phones().getFirst().id();
+        when(contacts.find(customer)).thenReturn(new io.github.stevdrey.dokene.customer.domain.ContactPolicy(customerId,
+                1, false, null, null, List.of(new io.github.stevdrey.dokene.customer.domain.ContactConsent(
+                        phoneId, io.github.stevdrey.dokene.customer.domain.ContactChannel.WHATSAPP,
+                        io.github.stevdrey.dokene.customer.domain.ConsentStatus.GRANTED,
+                        io.github.stevdrey.dokene.customer.domain.ContactIntentSource.CUSTOMER_WRITTEN,
+                        fixedInstant.minusSeconds(3600)))));
+        when(policies.customerPolicy(tenantId, customerId)).thenReturn(
+                new CustomerFollowUpPolicy(tenantId, customerId, 30, tomorrow, null, null, 0));
+        assertThatThrownBy(() -> service.dismiss(customerId, 0L, "dismiss-key-1", null))
+                .isInstanceOf(FollowUpConflictException.class);
     }
 
     @Test
@@ -141,5 +207,26 @@ class FollowUpServiceTest {
         assertThatThrownBy(() -> service.snooze(customerId, yesterday, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Snooze date cannot be in the past");
+    }
+
+    @Test
+    void snoozeRejectsIneligibleOrNotYetDueCustomer() {
+        // Ineligible (revoked consent)
+        when(contacts.find(customer)).thenReturn(new io.github.stevdrey.dokene.customer.domain.ContactPolicy(customerId,
+                1, false, null, null, List.of()));
+        assertThatThrownBy(() -> service.snooze(customerId, fixedInstant.atZone(tenantZone).toLocalDate().plusDays(5), 0))
+                .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void dueQueueRequiresPermissionAndDelegatesToRepository() {
+        LocalDate today = fixedInstant.atZone(tenantZone).toLocalDate();
+        var query = new FollowUpQueueQuery(null, null, 50);
+        var expectedPage = new FollowUpQueuePage(List.of(), null);
+        when(policies.findDueQueue(tenantId, query, today, tenantZone, fixedInstant)).thenReturn(expectedPage);
+
+        var page = service.dueQueue(query);
+        assertThat(page).isEqualTo(expectedPage);
+        verify(authorization).requirePermission(TenantPermission.FOLLOWUP_READ);
     }
 }

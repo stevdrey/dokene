@@ -96,7 +96,8 @@ class TransactionalAuditRecorder implements AuditRecorder {
         boolean tenantEvent = eventType == AuditEventType.TENANT_FOLLOW_UP_POLICY_CHANGED;
         boolean customerEvent = eventType == AuditEventType.CUSTOMER_FOLLOW_UP_POLICY_CHANGED
                 || eventType == AuditEventType.FOLLOW_UP_SNOOZED
-                || eventType == AuditEventType.MANUAL_FOLLOW_UP_RECORDED;
+                || eventType == AuditEventType.MANUAL_FOLLOW_UP_RECORDED
+                || eventType == AuditEventType.FOLLOW_UP_DISMISSED;
         if ((tenantEvent && targetType != AuditTarget.Type.TENANT)
                 || (customerEvent && targetType != AuditTarget.Type.CUSTOMER)
                 || (!tenantEvent && !customerEvent)) {

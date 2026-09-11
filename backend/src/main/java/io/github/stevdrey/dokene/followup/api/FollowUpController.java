@@ -23,6 +23,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import io.github.stevdrey.dokene.followup.application.FollowUpQueueCursor;
+import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
+import io.github.stevdrey.dokene.followup.domain.FollowUpQueueItem;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -67,6 +71,26 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @GetMapping("/follow-up-queue")
+    public FollowUpQueuePageResponse dueQueue(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "50") int limit) {
+        FollowUpStatus statusFilter = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                statusFilter = FollowUpStatus.valueOf(status.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Status filter must be DUE or OVERDUE");
+            }
+        }
+        FollowUpQueueCursor cursorObj = cursor != null && !cursor.isBlank()
+                ? FollowUpQueueCursor.decode(cursor) : null;
+        var page = followUps.dueQueue(new FollowUpQueueQuery(statusFilter, cursorObj, limit));
+        var items = page.items().stream().map(this::response).toList();
+        return new FollowUpQueuePageResponse(items, page.nextCursor());
+    }
+
     @GetMapping("/customers/{customerId}/follow-up-eligibility")
     public EvaluationResponse evaluate(@PathVariable UUID customerId) {
         return response(followUps.evaluate(new CustomerId(customerId)));
@@ -75,16 +99,35 @@ public class FollowUpController {
     @PostMapping("/customers/{customerId}/manual-follow-ups")
     public ResponseEntity<ManualFollowUpResponse> recordManualFollowUp(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
-            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody(required = false) ManualFollowUpRequest request) {
         if (!IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
             throw new IllegalArgumentException("Invalid idempotency key");
         }
-        var result = followUps.recordManualFollowUp(new CustomerId(customerId), version(ifMatch), idempotencyKey);
+        String notes = request != null ? request.notes() : null;
+        var result = followUps.recordManualFollowUp(new CustomerId(customerId), version(ifMatch), idempotencyKey, notes);
         var completion = result.completion();
         var response = new ManualFollowUpResponse(completion.id(), completion.customerId().value(),
-                completion.completedOn(), completion.policyVersion());
+                completion.completedOn(), completion.policyVersion(), completion.notes());
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .eTag(etag(completion.policyVersion())).body(response);
+    }
+
+    @PostMapping("/customers/{customerId}/follow-up-dismissals")
+    public ResponseEntity<DismissalResponse> dismiss(@PathVariable UUID customerId,
+            @RequestHeader("If-Match") String ifMatch,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody(required = false) DismissRequest request) {
+        if (!IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
+            throw new IllegalArgumentException("Invalid idempotency key");
+        }
+        String notes = request != null ? request.notes() : null;
+        var result = followUps.dismiss(new CustomerId(customerId), version(ifMatch), idempotencyKey, notes);
+        var dismissal = result.dismissal();
+        var response = new DismissalResponse(dismissal.id(), dismissal.customerId().value(),
+                dismissal.dismissedOn(), dismissal.policyVersion(), dismissal.notes());
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .eTag(etag(dismissal.policyVersion())).body(response);
     }
 
     @PutMapping("/customers/{customerId}/follow-up-snooze")
@@ -101,7 +144,7 @@ public class FollowUpController {
 
     private CustomerPolicyResponse response(CustomerFollowUpPolicy policy) {
         return new CustomerPolicyResponse(policy.customerId().value(), policy.cadenceDays(), policy.explicitNextDate(),
-                policy.snoozedUntil(), policy.lastManualFollowUpDate());
+                policy.snoozedUntil(), policy.lastManualFollowUpDate(), policy.lastDismissedDate());
     }
 
     private EvaluationResponse response(FollowUpEvaluation evaluation) {
@@ -109,6 +152,13 @@ public class FollowUpController {
                 evaluation.reasons(), evaluation.evaluatedAt(), evaluation.tenantDate(),
                 evaluation.tenantZone().getId(), evaluation.nextFollowUpDate(), evaluation.timingSource(),
                 evaluation.effectiveCadenceDays(), evaluation.lastPurchaseAt());
+    }
+
+    private QueueItemResponse response(FollowUpQueueItem item) {
+        return new QueueItemResponse(item.customerId().value(), item.displayName(), item.primaryPhone(),
+                item.status(), item.reasons(), item.dueDate(), item.timingSource(), item.policyVersion(),
+                item.effectiveCadenceDays(), item.lastPurchaseAt(), item.lastManualFollowUpDate(),
+                item.lastDismissedDate(), item.evaluatedAt());
     }
 
     private long version(String ifMatch) {
@@ -131,13 +181,26 @@ public class FollowUpController {
     public record TenantPolicyRequest(Integer cadenceDays, String timeZone) { }
     public record CustomerPolicyRequest(Integer cadenceDays, LocalDate explicitNextDate) { }
     public record SnoozeRequest(LocalDate until) { }
+    public record ManualFollowUpRequest(String notes) { }
+    public record DismissRequest(String notes) { }
     public record TenantPolicyResponse(int cadenceDays, String timeZone) { }
     public record CustomerPolicyResponse(UUID customerId, Integer cadenceDays, LocalDate explicitNextDate,
-                                         LocalDate snoozedUntil, LocalDate lastManualFollowUpDate) { }
-    public record ManualFollowUpResponse(UUID id, UUID customerId, LocalDate completedOn, long policyVersion) { }
+                                         LocalDate snoozedUntil, LocalDate lastManualFollowUpDate,
+                                         LocalDate lastDismissedDate) { }
+    public record ManualFollowUpResponse(UUID id, UUID customerId, LocalDate completedOn,
+                                         long policyVersion, String notes) { }
+    public record DismissalResponse(UUID id, UUID customerId, LocalDate dismissedOn,
+                                    long policyVersion, String notes) { }
     public record EvaluationResponse(UUID customerId, boolean eligible, FollowUpStatus status,
                                      List<FollowUpReason> reasons, Instant evaluatedAt, LocalDate tenantDate,
                                      String tenantTimeZone, LocalDate nextFollowUpDate,
                                      FollowUpTimingSource timingSource, int effectiveCadenceDays,
                                      Instant lastPurchaseAt) { }
+    public record QueueItemResponse(UUID customerId, String displayName, String primaryPhone,
+                                    FollowUpStatus status, List<FollowUpReason> reasons, LocalDate dueDate,
+                                    FollowUpTimingSource timingSource, long policyVersion,
+                                    int effectiveCadenceDays, Instant lastPurchaseAt,
+                                    LocalDate lastManualFollowUpDate, LocalDate lastDismissedDate,
+                                    Instant evaluatedAt) { }
+    public record FollowUpQueuePageResponse(List<QueueItemResponse> items, String nextCursor) { }
 }
