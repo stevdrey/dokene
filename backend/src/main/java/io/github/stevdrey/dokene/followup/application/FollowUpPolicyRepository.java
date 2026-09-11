@@ -18,8 +18,7 @@ public interface FollowUpPolicyRepository {
     TenantFollowUpPolicy updateTenantPolicy(TenantFollowUpPolicy policy, long expectedVersion);
     CustomerFollowUpPolicy updateCustomerPolicy(TenantId tenantId, CustomerId customerId, Integer cadenceDays,
                                                 LocalDate explicitNextDate, long expectedVersion);
-    FollowUpQueuePage findDueQueue(TenantId tenantId, FollowUpQueueQuery query, LocalDate today,
-            java.time.ZoneId zoneId, Instant evaluatedAt);
+    FollowUpQueuePage findDueQueue(TenantId tenantId, FollowUpQueueQuery query, Instant evaluatedAt);
     Optional<ManualFollowUpCompletion> findCompletion(TenantId tenantId, String idempotencyKey);
     Optional<FollowUpDismissal> findDismissal(TenantId tenantId, String idempotencyKey);
     ManualFollowUpResult recordManualFollowUp(TenantId tenantId, CustomerId customerId, LocalDate date,

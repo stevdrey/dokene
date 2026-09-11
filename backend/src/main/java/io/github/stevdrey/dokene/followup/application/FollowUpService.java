@@ -102,16 +102,14 @@ public class FollowUpService {
     public FollowUpQueuePage dueQueue(FollowUpQueueQuery query) {
         authorization.requirePermission(TenantPermission.FOLLOWUP_READ);
         var tenantId = contexts.requireCurrent().tenantId();
-        var tenantPolicy = policies.tenantPolicy(tenantId);
         Instant now = clock.instant();
-        LocalDate today = now.atZone(tenantPolicy.zoneId()).toLocalDate();
-        return policies.findDueQueue(tenantId, query, today, tenantPolicy.zoneId(), now);
+        return policies.findDueQueue(tenantId, query, now);
     }
 
     @Transactional
     public ManualFollowUpResult recordManualFollowUp(CustomerId customerId, long expectedVersion,
             String idempotencyKey, String notes) {
-        Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.FOLLOWUP_WRITE);
         var existing = policies.findCompletion(customer.tenantId(), idempotencyKey);
         if (existing.isPresent()) {
             if (!existing.get().customerId().equals(customerId)) {
@@ -144,7 +142,7 @@ public class FollowUpService {
     @Transactional
     public FollowUpDismissalResult dismiss(CustomerId customerId, long expectedVersion,
             String idempotencyKey, String notes) {
-        Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.FOLLOWUP_WRITE);
         var existing = policies.findDismissal(customer.tenantId(), idempotencyKey);
         if (existing.isPresent()) {
             if (!existing.get().customerId().equals(customerId)) {
@@ -170,7 +168,7 @@ public class FollowUpService {
 
     @Transactional
     public CustomerFollowUpPolicy snooze(CustomerId customerId, LocalDate until, long expectedVersion) {
-        Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.FOLLOWUP_WRITE);
         FollowUpEvaluation evaluation = evaluateCustomer(customer);
         LocalDate today = evaluation.tenantDate();
         if (Objects.requireNonNull(until, "Snooze date is required").isBefore(today)) {
@@ -195,6 +193,15 @@ public class FollowUpService {
     private Customer requireCustomer(CustomerId customerId, TenantPermission permission) {
         authorization.requirePermission(permission);
         Customer customer = customers.findById(contexts.requireCurrent().tenantId(),
+                Objects.requireNonNull(customerId, "Customer ID is required"))
+                .orElseThrow(CustomerNotFoundException::new);
+        authorization.requireResourceAccess(permission, customer);
+        return customer;
+    }
+
+    private Customer requireCustomerForUpdate(CustomerId customerId, TenantPermission permission) {
+        authorization.requirePermission(permission);
+        Customer customer = customers.findByIdForUpdate(contexts.requireCurrent().tenantId(),
                 Objects.requireNonNull(customerId, "Customer ID is required"))
                 .orElseThrow(CustomerNotFoundException::new);
         authorization.requireResourceAccess(permission, customer);

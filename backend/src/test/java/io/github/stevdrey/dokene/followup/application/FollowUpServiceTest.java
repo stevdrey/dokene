@@ -81,6 +81,7 @@ class FollowUpServiceTest {
         var phone = io.github.stevdrey.dokene.customer.domain.CustomerPhone.create("+15551234567", true);
         when(customer.phones()).thenReturn(List.of(phone));
         when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(customer));
+        when(customers.findByIdForUpdate(tenantId, customerId)).thenReturn(Optional.of(customer));
         when(policies.tenantPolicy(tenantId)).thenReturn(new TenantFollowUpPolicy(tenantId, 30, tenantZone, 0));
 
         LocalDate today = fixedInstant.atZone(tenantZone).toLocalDate();
@@ -220,13 +221,31 @@ class FollowUpServiceTest {
 
     @Test
     void dueQueueRequiresPermissionAndDelegatesToRepository() {
-        LocalDate today = fixedInstant.atZone(tenantZone).toLocalDate();
         var query = new FollowUpQueueQuery(null, null, 50);
         var expectedPage = new FollowUpQueuePage(List.of(), null);
-        when(policies.findDueQueue(tenantId, query, today, tenantZone, fixedInstant)).thenReturn(expectedPage);
+        when(policies.findDueQueue(tenantId, query, fixedInstant)).thenReturn(expectedPage);
 
         var page = service.dueQueue(query);
         assertThat(page).isEqualTo(expectedPage);
         verify(authorization).requirePermission(TenantPermission.FOLLOWUP_READ);
+    }
+
+    @Test
+    void dispositionsAcquireCustomerLockForUpdate() {
+        when(policies.snooze(eq(tenantId), eq(customerId), any(), eq(0L)))
+                .thenReturn(new CustomerFollowUpPolicy(tenantId, customerId, 30, null, null, null, 1L));
+        LocalDate futureDate = fixedInstant.atZone(tenantZone).toLocalDate().plusDays(5);
+        service.snooze(customerId, futureDate, 0L);
+        verify(customers).findByIdForUpdate(tenantId, customerId);
+
+        when(policies.recordDismissal(eq(tenantId), eq(customerId), any(), eq(0L), any(), any(), any(), any(), any()))
+                .thenReturn(new FollowUpDismissalResult(mock(FollowUpDismissal.class), true));
+        service.dismiss(customerId, 0L, "key-dismiss", "note");
+        verify(customers, org.mockito.Mockito.times(2)).findByIdForUpdate(tenantId, customerId);
+
+        when(policies.recordManualFollowUp(eq(tenantId), eq(customerId), any(), eq(0L), any(), any(), any(), any(), any()))
+                .thenReturn(new ManualFollowUpResult(mock(ManualFollowUpCompletion.class), true));
+        service.recordManualFollowUp(customerId, 0L, "key-manual", "note");
+        verify(customers, org.mockito.Mockito.times(3)).findByIdForUpdate(tenantId, customerId);
     }
 }

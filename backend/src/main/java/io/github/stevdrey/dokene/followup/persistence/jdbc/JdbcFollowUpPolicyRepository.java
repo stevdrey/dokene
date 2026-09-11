@@ -86,34 +86,35 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
     }
 
     @Override
-    public FollowUpQueuePage findDueQueue(TenantId tenantId, FollowUpQueueQuery query, LocalDate today,
-            ZoneId zoneId, Instant evaluatedAt) {
+    public FollowUpQueuePage findDueQueue(TenantId tenantId, FollowUpQueueQuery query, Instant evaluatedAt) {
         var params = new java.util.ArrayList<Object>();
-        params.add(zoneId.getId());
         params.add(tenantId.value());
-        params.add(sqlDate(today));
-        params.add(sqlDate(today));
-        params.add(sqlDate(today));
-        params.add(sqlDate(today));
-        params.add(sqlDate(today));
+        params.add(Timestamp.from(evaluatedAt));
+        params.add(tenantId.value());
 
         var sql = new StringBuilder("""
-                WITH raw_candidates AS (
+                WITH tenant_policy AS (
+                    SELECT cadence_days, time_zone
+                    FROM dokene.tenant_follow_up_policies
+                    WHERE tenant_id = ?
+                ),
+                raw_candidates AS (
                     SELECT
                         c.id AS customer_id,
                         c.display_name,
                         (SELECT p.normalized_phone FROM dokene.customer_phone_contacts p
                          WHERE p.tenant_id = c.tenant_id AND p.customer_id = c.id AND p.is_primary = true LIMIT 1) AS primary_phone,
                         cfp.version AS policy_version,
-                        COALESCE(cfp.cadence_days, tfp.cadence_days) AS effective_cadence,
+                        COALESCE(cfp.cadence_days, tp.cadence_days) AS effective_cadence,
                         cfp.snoozed_until,
                         cfp.explicit_next_date,
                         cfp.last_manual_follow_up_date,
                         cfp.last_dismissed_date,
                         lp.last_purchase_at,
-                        (lp.last_purchase_at AT TIME ZONE ?)::date AS last_purchase_date
+                        (lp.last_purchase_at AT TIME ZONE tp.time_zone)::date AS last_purchase_date,
+                        (? AT TIME ZONE tp.time_zone)::date AS tenant_today
                     FROM dokene.customers c
-                    JOIN dokene.tenant_follow_up_policies tfp ON tfp.tenant_id = c.tenant_id
+                    JOIN tenant_policy tp ON true
                     JOIN dokene.customer_follow_up_policies cfp ON cfp.tenant_id = c.tenant_id AND cfp.customer_id = c.id
                     LEFT JOIN LATERAL (
                         SELECT pur.purchased_at AS last_purchase_at
@@ -146,8 +147,9 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                         last_purchase_at,
                         last_manual_follow_up_date,
                         last_dismissed_date,
+                        tenant_today,
                         CASE
-                            WHEN snoozed_until IS NOT NULL AND snoozed_until >= ? THEN snoozed_until
+                            WHEN snoozed_until IS NOT NULL AND snoozed_until >= tenant_today THEN snoozed_until
                             WHEN explicit_next_date IS NOT NULL THEN explicit_next_date
                             WHEN (
                                 (last_manual_follow_up_date IS NOT NULL AND (last_dismissed_date IS NULL OR last_manual_follow_up_date >= last_dismissed_date) AND (last_purchase_date IS NULL OR last_manual_follow_up_date >= last_purchase_date))
@@ -159,7 +161,7 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                             ELSE NULL
                         END AS due_date,
                         CASE
-                            WHEN snoozed_until IS NOT NULL AND snoozed_until >= ? THEN 'SNOOZE'
+                            WHEN snoozed_until IS NOT NULL AND snoozed_until >= tenant_today THEN 'SNOOZE'
                             WHEN explicit_next_date IS NOT NULL THEN 'EXPLICIT_DATE'
                             WHEN (
                                 (last_manual_follow_up_date IS NOT NULL AND (last_dismissed_date IS NULL OR last_manual_follow_up_date >= last_dismissed_date) AND (last_purchase_date IS NULL OR last_manual_follow_up_date >= last_purchase_date))
@@ -183,19 +185,17 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                     last_dismissed_date,
                     due_date,
                     timing_source,
-                    CASE WHEN due_date = ? THEN 'DUE' ELSE 'OVERDUE' END AS status,
-                    CASE WHEN due_date = ? THEN 'DUE_TODAY' ELSE 'OVERDUE' END AS reason
+                    CASE WHEN due_date = tenant_today THEN 'DUE' ELSE 'OVERDUE' END AS status,
+                    CASE WHEN due_date = tenant_today THEN 'DUE_TODAY' ELSE 'OVERDUE' END AS reason
                 FROM evaluated_candidates
                 WHERE due_date IS NOT NULL
-                  AND due_date <= ?
+                  AND due_date <= tenant_today
                 """);
 
         if (query.statusFilter() == io.github.stevdrey.dokene.followup.domain.FollowUpStatus.DUE) {
-            sql.append(" AND due_date = ?");
-            params.add(sqlDate(today));
+            sql.append(" AND due_date = tenant_today");
         } else if (query.statusFilter() == io.github.stevdrey.dokene.followup.domain.FollowUpStatus.OVERDUE) {
-            sql.append(" AND due_date < ?");
-            params.add(sqlDate(today));
+            sql.append(" AND due_date < tenant_today");
         }
 
         if (query.cursor() != null) {
@@ -267,6 +267,26 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                 UPDATE dokene.customer_follow_up_policies
                 SET explicit_next_date = NULL, snoozed_until = NULL, last_manual_follow_up_date = ?, version = ?
                 WHERE tenant_id = ? AND customer_id = ? AND version = ?
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.customers c
+                      WHERE c.tenant_id = customer_follow_up_policies.tenant_id
+                        AND c.id = customer_follow_up_policies.customer_id
+                        AND c.status = 'ACTIVE'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dokene.customer_do_not_contact dnc
+                      WHERE dnc.tenant_id = customer_follow_up_policies.tenant_id
+                        AND dnc.customer_id = customer_follow_up_policies.customer_id
+                        AND dnc.enabled = true
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.customer_phone_contacts phone
+                      JOIN dokene.customer_contact_consents cc
+                        ON cc.tenant_id = phone.tenant_id AND cc.customer_id = phone.customer_id AND cc.phone_contact_id = phone.id
+                      WHERE phone.tenant_id = customer_follow_up_policies.tenant_id
+                        AND phone.customer_id = customer_follow_up_policies.customer_id
+                        AND cc.channel = 'WHATSAPP' AND cc.status = 'GRANTED'
+                  )
                 """, sqlDate(date), nextVersion, tenantId.value(), customerId.value(), expectedVersion);
         requireUpdated(updated);
         return new ManualFollowUpResult(inserted.getFirst(), true);
@@ -295,6 +315,26 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                 UPDATE dokene.customer_follow_up_policies
                 SET explicit_next_date = NULL, snoozed_until = NULL, last_dismissed_date = ?, version = ?
                 WHERE tenant_id = ? AND customer_id = ? AND version = ?
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.customers c
+                      WHERE c.tenant_id = customer_follow_up_policies.tenant_id
+                        AND c.id = customer_follow_up_policies.customer_id
+                        AND c.status = 'ACTIVE'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dokene.customer_do_not_contact dnc
+                      WHERE dnc.tenant_id = customer_follow_up_policies.tenant_id
+                        AND dnc.customer_id = customer_follow_up_policies.customer_id
+                        AND dnc.enabled = true
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.customer_phone_contacts phone
+                      JOIN dokene.customer_contact_consents cc
+                        ON cc.tenant_id = phone.tenant_id AND cc.customer_id = phone.customer_id AND cc.phone_contact_id = phone.id
+                      WHERE phone.tenant_id = customer_follow_up_policies.tenant_id
+                        AND phone.customer_id = customer_follow_up_policies.customer_id
+                        AND cc.channel = 'WHATSAPP' AND cc.status = 'GRANTED'
+                  )
                 """, sqlDate(date), nextVersion, tenantId.value(), customerId.value(), expectedVersion);
         requireUpdated(updated);
         return new FollowUpDismissalResult(inserted.getFirst(), true);
@@ -305,8 +345,29 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
             long expectedVersion) {
         long nextVersion = nextVersion(expectedVersion);
         int updated = jdbc.update("""
-                UPDATE dokene.customer_follow_up_policies SET snoozed_until = ?, version = ?
+                UPDATE dokene.customer_follow_up_policies
+                SET snoozed_until = ?, version = ?
                 WHERE tenant_id = ? AND customer_id = ? AND version = ?
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.customers c
+                      WHERE c.tenant_id = customer_follow_up_policies.tenant_id
+                        AND c.id = customer_follow_up_policies.customer_id
+                        AND c.status = 'ACTIVE'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dokene.customer_do_not_contact dnc
+                      WHERE dnc.tenant_id = customer_follow_up_policies.tenant_id
+                        AND dnc.customer_id = customer_follow_up_policies.customer_id
+                        AND dnc.enabled = true
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.customer_phone_contacts phone
+                      JOIN dokene.customer_contact_consents cc
+                        ON cc.tenant_id = phone.tenant_id AND cc.customer_id = phone.customer_id AND cc.phone_contact_id = phone.id
+                      WHERE phone.tenant_id = customer_follow_up_policies.tenant_id
+                        AND phone.customer_id = customer_follow_up_policies.customer_id
+                        AND cc.channel = 'WHATSAPP' AND cc.status = 'GRANTED'
+                  )
                 """, sqlDate(until), nextVersion, tenantId.value(), customerId.value(), expectedVersion);
         requireUpdated(updated);
         return customerPolicy(tenantId, customerId);

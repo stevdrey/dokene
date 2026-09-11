@@ -22,6 +22,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactChannel;
 import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
+import io.github.stevdrey.dokene.followup.application.FollowUpPolicyRepository;
 import io.github.stevdrey.dokene.followup.application.FollowUpConflictException;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueuePage;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
@@ -62,6 +63,7 @@ class FollowUpManagementIntegrationTest {
     }
 
     @Autowired FollowUpService followUps;
+    @Autowired FollowUpPolicyRepository policies;
     @Autowired ContactPolicyService contacts;
     @Autowired PurchaseService purchases;
     @Autowired CustomerService customers;
@@ -328,6 +330,30 @@ class FollowUpManagementIntegrationTest {
 
         assertThatThrownBy(() -> inContext(contextA, () -> followUps.snooze(customer.id(), LocalDate.now().plusDays(2), 1)))
                 .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void databaseLevelEligibilityPredicatesRejectDispositionsOnIneligibleCustomers() throws Exception {
+        // Customer has no WhatsApp consent yet
+        var policy = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+
+        assertThatThrownBy(() -> inContext(contextA, () -> {
+            policies.snooze(customer.tenantId(), customer.id(), tomorrow, policy.version());
+            return null;
+        })).isInstanceOf(FollowUpConflictException.class);
+
+        assertThatThrownBy(() -> inContext(contextA, () -> {
+            policies.recordDismissal(customer.tenantId(), customer.id(), tomorrow, policy.version(),
+                    "direct-db-dismiss", Instant.now(), contextA.identityId(), contextA.membershipId(), null);
+            return null;
+        })).isInstanceOf(FollowUpConflictException.class);
+
+        assertThatThrownBy(() -> inContext(contextA, () -> {
+            policies.recordManualFollowUp(customer.tenantId(), customer.id(), tomorrow, policy.version(),
+                    "direct-db-manual", Instant.now(), contextA.identityId(), contextA.membershipId(), null);
+            return null;
+        })).isInstanceOf(FollowUpConflictException.class);
     }
 
     @Test

@@ -62,6 +62,17 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
 
 - **Optimistic Concurrency**: All policy updates, snoozes, dismissals, and manual completions require a strong
   numeric `If-Match` ETag matching the expected version. Stale versions reject with `409 Conflict`.
+- **Atomic Eligibility Enforcement**: Dispositions enforce eligibility atomically under `READ_COMMITTED` via a
+  two-layer guarantee:
+  1. Governing customer row locking (`SELECT ... FOR UPDATE` on `dokene.customers`) during disposition handling,
+     which serializes with concurrent consent revocations (`changeConsent`), do-not-contact updates (`changeDoNotContact`),
+     and customer archival (`archiveCustomer`).
+  2. Database-level eligibility predicates directly embedded in the `customer_follow_up_policies` `UPDATE` statements
+     (`status = 'ACTIVE'`, no active DNC, granted WhatsApp consent), ensuring that any concurrent race that invalidates
+     eligibility results in 0 rows updated and fails with `409 Conflict`.
+- **Queue Snapshot Consistency**: The due queue is evaluated in a single database statement where `tenant_today`,
+  cadence, and timing sources are derived from a unified `dokene.tenant_follow_up_policies` snapshot, preventing split-read
+  anomalies between time zone resolution and candidate derivation.
 - **Idempotency**: Dismissals and manual completions require an `Idempotency-Key` header matching `^[A-Za-z0-9._:-]{1,128}$`.
   - The first invocation inserts the disposition record and updates policy in a single database transaction (`201 Created`).
   - An exact replay with the same key returns the existing record (`200 OK`) without re-evaluating, re-mutating policy,
