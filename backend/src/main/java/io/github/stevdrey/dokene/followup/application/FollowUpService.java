@@ -17,6 +17,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Objects;
@@ -87,6 +88,8 @@ public class FollowUpService {
     public CustomerFollowUpPolicy configureCustomer(CustomerId customerId, Integer cadenceDays,
             LocalDate explicitNextDate, long expectedVersion) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
+        new CustomerFollowUpPolicy(customer.tenantId(), customer.id(), cadenceDays, explicitNextDate, null, null,
+                expectedVersion);
         var updated = policies.updateCustomerPolicy(customer.tenantId(), customer.id(), cadenceDays,
                 explicitNextDate, expectedVersion);
         audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
@@ -98,10 +101,12 @@ public class FollowUpService {
     public ManualFollowUpResult recordManualFollowUp(CustomerId customerId, long expectedVersion,
             String idempotencyKey) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
-        LocalDate today = LocalDate.now(clock.withZone(policies.tenantPolicy(customer.tenantId()).zoneId()));
+        Instant now = clock.instant();
+        ZoneId zoneId = policies.tenantPolicy(customer.tenantId()).zoneId();
+        LocalDate today = now.atZone(zoneId).toLocalDate();
         var context = contexts.requireCurrent();
         var result = policies.recordManualFollowUp(customer.tenantId(), customer.id(), today, expectedVersion,
-                idempotencyKey, clock.instant(), context.identityId(), context.membershipId());
+                idempotencyKey, now, context.identityId(), context.membershipId());
         if (result.created()) {
             audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
                     AuditEventType.MANUAL_FOLLOW_UP_RECORDED);
@@ -112,7 +117,9 @@ public class FollowUpService {
     @Transactional
     public CustomerFollowUpPolicy snooze(CustomerId customerId, LocalDate until, long expectedVersion) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
-        LocalDate today = LocalDate.now(clock.withZone(policies.tenantPolicy(customer.tenantId()).zoneId()));
+        Instant now = clock.instant();
+        ZoneId zoneId = policies.tenantPolicy(customer.tenantId()).zoneId();
+        LocalDate today = now.atZone(zoneId).toLocalDate();
         if (Objects.requireNonNull(until, "Snooze date is required").isBefore(today)) {
             throw new IllegalArgumentException("Snooze date cannot be in the past");
         }

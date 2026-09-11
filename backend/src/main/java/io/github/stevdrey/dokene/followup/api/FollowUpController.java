@@ -112,11 +112,15 @@ public class FollowUpController {
     }
 
     private long version(String ifMatch) {
-        if (ifMatch == null || !ifMatch.matches("\"[0-9]+\"")) {
+        if (ifMatch == null || !ifMatch.matches("\"(0|[1-9][0-9]*)\"")) {
             throw new IllegalArgumentException("If-Match must contain one strong numeric ETag");
         }
         try {
-            return Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1));
+            long version = Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1));
+            if (!etag(version).equals(ifMatch)) {
+                throw new IllegalArgumentException("If-Match must contain one strong numeric ETag");
+            }
+            return version;
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Invalid If-Match version", exception);
         }

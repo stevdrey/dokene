@@ -35,13 +35,17 @@ subsequent `docker ps` check found no remaining `postgres:17-alpine` container (
 | Create a tenant-scoped customer | `201 Created` |
 | Read the initial tenant policy | `200 OK`, 30 days, `UTC`, `ETag: "0"` |
 | Configure cadence and `America/Costa_Rica` | `200 OK`, `ETag: "1"` |
-| Missing, malformed, or stale tenant `If-Match` | `400`, `400`, or `409 Conflict`, respectively |
+| Missing, malformed, noncanonical, or stale tenant `If-Match` | `400`, `400`, `400`, or `409 Conflict`, respectively |
 | Fixed-offset zones `+02:00` and `GMT+02:00` | `400 Bad Request` |
 | Evaluate before consent | `200 OK`, `INELIGIBLE`, `NO_ELIGIBLE_CONTACT` |
 | Grant WhatsApp consent and set today's explicit date | `200 OK`, then `DUE` and eligible |
-| Configure a customer policy with its ETag | `200 OK` and a new ETag |
+| Configure customer policy with noncanonical ETag | `400 Bad Request` |
+| Configure customer policy with valid ETag but out-of-bounds cadence (0, 3651, -5) | `400 Bad Request` |
+| Configure a customer policy with its canonical ETag | `200 OK` and a new ETag |
 | Snooze until tomorrow with `If-Match` | `200 OK`, then `NOT_YET_DUE` and `SNOOZED` |
+| Snooze with noncanonical `If-Match` | `400 Bad Request` |
 | Manual follow-up without required headers | `400 Bad Request` |
+| Manual follow-up with noncanonical `If-Match` | `400 Bad Request` |
 | First manual follow-up with `If-Match` and `Idempotency-Key` | `201 Created`, stable completion ID/date/version |
 | Replay the same key with stale `If-Match` | `200 OK`, same completion ID |
 | Invalid manual idempotency key | `400 Bad Request` |

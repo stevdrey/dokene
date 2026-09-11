@@ -94,6 +94,8 @@ class FollowUpCurlSystemTest {
                 "{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"), 409);
         assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "bad",
                 "{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"), 400);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"01\"",
+                "{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"), 400);
         assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
                 "{\"cadenceDays\":0,\"timeZone\":\"UTC\"}"), 400);
         assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
@@ -112,6 +114,14 @@ class FollowUpCurlSystemTest {
 
         LocalDate today = LocalDate.now(ZoneId.of("America/Costa_Rica"));
         CurlResult customerPolicy = curl("GET", base + "/follow-up-policy", null);
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-policy", "If-Match", "\"00\"",
+                "{\"cadenceDays\":7,\"explicitNextDate\":\"" + today + "\"}"), 400);
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-policy", "If-Match",
+                customerPolicy.header("etag"), "{\"cadenceDays\":0}"), 400);
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-policy", "If-Match",
+                customerPolicy.header("etag"), "{\"cadenceDays\":3651}"), 400);
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-policy", "If-Match",
+                customerPolicy.header("etag"), "{\"cadenceDays\":-5}"), 400);
         CurlResult customerUpdated = curlWithHeader("PUT", base + "/follow-up-policy", "If-Match",
                 customerPolicy.header("etag"),
                 "{\"cadenceDays\":7,\"explicitNextDate\":\"" + today + "\"}");
@@ -121,6 +131,8 @@ class FollowUpCurlSystemTest {
         assertThat(due.get("eligible").asBoolean()).isTrue();
 
         LocalDate tomorrow = today.plusDays(1);
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match", "\"01\"",
+                "{\"until\":\"" + tomorrow + "\"}"), 400);
         CurlResult snooze = curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match",
                 customerUpdated.header("etag"), "{\"until\":\"" + tomorrow + "\"}");
         assertStatus(snooze, 200);
@@ -129,6 +141,9 @@ class FollowUpCurlSystemTest {
         assertThat(snoozed.get("reasons").toString()).contains("SNOOZED");
 
         assertStatus(curl("POST", base + "/manual-follow-ups", null), 400);
+        assertStatus(curlRaw("POST", base + "/manual-follow-ups", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"02\"", "Idempotency-Key: curl-manual-invalid-etag"), null), 400);
         CurlResult manualResult = curlRaw("POST", base + "/manual-follow-ups", List.of(
                 "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
                 "If-Match: " + snooze.header("etag"), "Idempotency-Key: curl-manual-1"), null);
