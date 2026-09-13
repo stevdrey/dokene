@@ -31,9 +31,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const switchWorkspace = useCallback((tenantId: string) => {
-    setWorkspaces((currentWorkspaces) => {
-      const found = currentWorkspaces.find((w) => w.tenantId === tenantId);
+  const switchWorkspace = useCallback(
+    (tenantId: string) => {
+      const found = workspaces.find((w) => w.tenantId === tenantId);
       if (found) {
         apiClient.setCurrentTenantId(found.tenantId);
         setActiveWorkspace(found);
@@ -43,9 +43,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // ignore storage error
         }
       }
-      return currentWorkspaces;
-    });
-  }, []);
+    },
+    [workspaces]
+  );
 
   const refreshWorkspaces = useCallback(async () => {
     if (sessionStatus !== 'authenticated') {

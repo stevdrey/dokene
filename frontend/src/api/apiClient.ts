@@ -140,11 +140,13 @@ class ApiClient {
     }
 
     // Connect caller signal if provided
+    let callerAbortListener: (() => void) | undefined;
     if (callerSignal) {
       if (callerSignal.aborted) {
-        internalController.abort();
+        internalController.abort(callerSignal.reason);
       } else {
-        callerSignal.addEventListener('abort', () => internalController.abort(), { once: true });
+        callerAbortListener = () => internalController.abort(callerSignal.reason);
+        callerSignal.addEventListener('abort', callerAbortListener, { once: true });
       }
     }
 
@@ -189,10 +191,16 @@ class ApiClient {
       return (await response.json()) as T;
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
+        if (callerSignal?.aborted) {
+          throw err;
+        }
         throw new AbortedTenantRequestError();
       }
       throw err;
     } finally {
+      if (callerSignal && callerAbortListener) {
+        callerSignal.removeEventListener('abort', callerAbortListener);
+      }
       if (effectiveTenantId) {
         const set = this.activeTenantControllers.get(effectiveTenantId);
         if (set) {

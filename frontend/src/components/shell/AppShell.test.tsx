@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AppShell } from './AppShell';
 import { useSession } from '../../features/auth/SessionContext';
 import { useTenant } from '../../features/tenants/TenantContext';
+import { ApiError } from '../../api/apiClient';
 
 vi.mock('../../features/auth/SessionContext', () => ({
   useSession: vi.fn(),
@@ -106,5 +107,27 @@ describe('AppShell', () => {
     });
 
     expect(mockSwitchWorkspace).toHaveBeenCalledWith('t-2');
+  });
+
+  it('displays creation form in workspace selector and handles error in Spanish', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(409, 'Conflict'));
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    fireEvent.change(input, { target: { value: 'Nuevo Café' } });
+
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledWith('Nuevo Café');
+    expect(screen.getByText('Ya existe un espacio de trabajo con este nombre.')).toBeInTheDocument();
   });
 });

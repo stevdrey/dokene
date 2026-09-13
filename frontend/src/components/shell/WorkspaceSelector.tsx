@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTenant, Workspace } from '../../features/tenants/TenantContext';
+import { ApiError } from '../../api/apiClient';
 
 export interface WorkspaceSelectorProps {
   compact?: boolean;
@@ -67,7 +68,19 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
       setIsOpen(false);
       triggerRef.current?.focus();
     } catch (err) {
-      setProvisionError(err instanceof Error ? err.message : 'Error al crear el espacio');
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setProvisionError('Ya existe un espacio de trabajo con este nombre.');
+        } else if (err.status === 400) {
+          setProvisionError('El nombre del espacio de trabajo no es válido.');
+        } else if (err.status === 403) {
+          setProvisionError('No tienes permisos para crear espacios de trabajo.');
+        } else {
+          setProvisionError('No se pudo crear el espacio de trabajo. Inténtalo nuevamente.');
+        }
+      } else {
+        setProvisionError('Error al crear el espacio de trabajo.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -92,6 +105,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
         onClick={() => setIsOpen(!isOpen)}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-controls="workspace-listbox"
         aria-label="Seleccionar espacio de trabajo"
         style={{
           width: '100%',
@@ -132,8 +146,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
 
       {isOpen && (
         <div
-          role="listbox"
-          aria-label="Espacios de trabajo disponibles"
+          id="workspace-dropdown-menu"
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -149,53 +162,65 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
             overflowY: 'auto',
           }}
         >
-          {workspaces.map((ws) => {
-            const isSelected = activeWorkspace?.tenantId === ws.tenantId;
-            return (
-              <div
-                key={ws.tenantId}
-                role="option"
-                aria-selected={isSelected}
-                tabIndex={0}
-                onClick={() => handleSelect(ws)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleSelect(ws);
-                  }
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '8px 10px',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: 'pointer',
-                  backgroundColor: isSelected ? 'var(--color-surface-selected)' : 'transparent',
-                  color: isSelected ? 'var(--color-brand)' : 'var(--color-text-main)',
-                  fontWeight: isSelected ? 600 : 400,
-                  fontSize: 'var(--font-size-secondary)',
-                  outline: 'none',
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {ws.displayName}
-                  </span>
-                  <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
-                    {formatRole(ws.role)}
-                  </span>
+          <div
+            id="workspace-listbox"
+            role="listbox"
+            aria-label="Espacios de trabajo disponibles"
+            style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
+          >
+            {workspaces.map((ws) => {
+              const isSelected = activeWorkspace?.tenantId === ws.tenantId;
+              return (
+                <div
+                  key={ws.tenantId}
+                  role="option"
+                  aria-selected={isSelected}
+                  tabIndex={0}
+                  onClick={() => handleSelect(ws)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleSelect(ws);
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    backgroundColor: isSelected ? 'var(--color-surface-selected)' : 'transparent',
+                    color: isSelected ? 'var(--color-brand)' : 'var(--color-text-main)',
+                    fontWeight: isSelected ? 600 : 400,
+                    fontSize: 'var(--font-size-secondary)',
+                    outline: 'none',
+                    minHeight: '44px',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ws.displayName}
+                    </span>
+                    <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
+                      {formatRole(ws.role)}
+                    </span>
+                  </div>
+                  {isSelected && (
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--color-primary)' }}>
+                      check
+                    </span>
+                  )}
                 </div>
-                {isSelected && (
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--color-primary)' }}>
-                    check
-                  </span>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
 
-          <div style={{ borderTop: '1px solid var(--color-outline-subtle)', margin: '4px 0' }} />
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            style={{ borderTop: '1px solid var(--color-outline-subtle)', margin: '4px 0' }}
+          />
 
           {isCreating ? (
             <form onSubmit={handleCreate} style={{ padding: '8px' }}>
@@ -209,31 +234,35 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 aria-label="Nombre del nuevo negocio"
                 style={{
                   width: '100%',
-                  padding: '6px 8px',
+                  padding: '8px 10px',
                   fontSize: 'var(--font-size-secondary)',
                   borderRadius: 'var(--radius-sm)',
                   border: '1px solid var(--color-outline)',
-                  marginBottom: '6px',
+                  marginBottom: '8px',
+                  minHeight: '44px',
                 }}
               />
               {provisionError && (
-                <div style={{ color: 'var(--color-error-text)', fontSize: '12px', marginBottom: '6px' }}>
+                <div role="alert" style={{ color: 'var(--color-error-text)', fontSize: '12px', marginBottom: '8px' }}>
                   {provisionError}
                 </div>
               )}
-              <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
                   disabled={isSubmitting}
                   style={{
-                    padding: '4px 8px',
-                    fontSize: '12px',
+                    padding: '8px 14px',
+                    fontSize: '13px',
                     borderRadius: 'var(--radius-sm)',
                     border: '1px solid var(--color-outline)',
                     background: 'transparent',
                     cursor: 'pointer',
-                    minHeight: '32px',
+                    minHeight: '44px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   Cancelar
@@ -242,15 +271,18 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                   type="submit"
                   disabled={isSubmitting || !newWorkspaceName.trim()}
                   style={{
-                    padding: '4px 10px',
-                    fontSize: '12px',
+                    padding: '8px 16px',
+                    fontSize: '13px',
                     borderRadius: 'var(--radius-sm)',
                     border: 'none',
                     backgroundColor: 'var(--color-primary)',
                     color: 'var(--color-on-primary)',
                     fontWeight: 500,
                     cursor: 'pointer',
-                    minHeight: '32px',
+                    minHeight: '44px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   {isSubmitting ? 'Creando...' : 'Crear'}
@@ -275,6 +307,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 fontWeight: 500,
                 cursor: 'pointer',
                 textAlign: 'left',
+                minHeight: '44px',
               }}
             >
               <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>

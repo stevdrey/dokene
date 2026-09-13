@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { apiClient, UnauthorizedError } from '../../api/apiClient';
+import { apiClient } from '../../api/apiClient';
 
 export interface SessionData {
   authenticated: boolean;
