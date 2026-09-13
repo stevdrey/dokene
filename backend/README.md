@@ -53,9 +53,9 @@ Session lifecycle, cookie attributes, and security controls:
 - `server.servlet.session.timeout` defaults to 30 minutes. Expired and invalid sessions fail closed, returning `401 Unauthorized`
   for `/api/**` endpoints without redirect loops.
 - Cookies are `HttpOnly`, `Secure` (with `DOKENE_SESSION_COOKIE_SECURE=false` permitted only for local plain HTTP),
-  and `SameSite=Lax`.
-- `server.forward-headers-strategy: framework` processes `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-Port`
-  so behind reverse proxies/load balancers, OAuth2 redirect URIs are constructed with the public HTTPS scheme and host.
+- `server.forward-headers-strategy` defaults to `none` (`SERVER_FORWARD_HEADERS_STRATEGY=none`) to avoid trusting
+  unverified client proxy headers. When deployed behind a trusted reverse proxy or load balancer with TLS offloading,
+  set `SERVER_FORWARD_HEADERS_STRATEGY=framework`. The edge proxy must sanitize/overwrite incoming `X-Forwarded-*` headers.
 
 Frontend contract:
 
@@ -63,7 +63,10 @@ Frontend contract:
   expired requests return `401 Unauthorized`.
 - Send the `csrfToken` as `X-CSRF-TOKEN` on all state-changing requests (POST, PUT, DELETE, PATCH).
 - `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server session, clears security context, deletes `JSESSIONID`,
-  and returns `204 No Content`.
+  and returns `204 No Content` for local session logout.
+- `POST /logout?provider=true` requires `X-CSRF-TOKEN`, invalidates the local session, deletes `JSESSIONID`, and
+  redirects (`302 Found`) to the provider's `end_session_endpoint` with `id_token_hint` (held server-side) and
+  `post_logout_redirect_uri={baseUrl}/` for Single Sign-Out (SSO).
 - CORS rejects cross-origin credentialed traffic by default. `DOKENE_CORS_ALLOWED_ORIGINS` may contain a
   comma-separated exact allowlist (for example `http://localhost:5173` locally); wildcard origins are rejected.
   Same-origin deployment is the preferred production topology.

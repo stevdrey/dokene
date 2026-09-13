@@ -49,9 +49,11 @@ logs, or audit events.
   closed with `401 Unauthorized` rather than redirecting to an HTML login page or creating redirect loops.
 - **Cookie Security**: The session cookie is configured with `HttpOnly=true`, `SameSite=Lax`, and `Secure=true`
   (with local plain HTTP development permitted only via an explicit `DOKENE_SESSION_COOKIE_SECURE=false` override).
-- **Reverse Proxy & Forwarded Headers**: Forwarded headers are parsed via `server.forward-headers-strategy=framework`
-  so that `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-Port` reconstruct the authoritative public HTTPS
-  base URL for OAuth2 redirect URI generation behind reverse proxies and TLS-offloading gateways.
+- **Reverse Proxy & Forwarded Headers (Opt-In)**: Forwarded header trust defaults to `none` (`server.forward-headers-strategy=${SERVER_FORWARD_HEADERS_STRATEGY:none}`)
+  to prevent untrusted clients from spoofing host or protocol headers. In deployments behind a trusted reverse proxy
+  or ingress controller with TLS offloading, operators explicitly configure `SERVER_FORWARD_HEADERS_STRATEGY=framework`.
+  The edge proxy/load balancer MUST strip and overwrite inbound `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`,
+  and `X-Forwarded-Port` headers from untrusted clients before proxying traffic to Dokene.
 
 ### Frontend BFF Contract & CSRF Protection
 
@@ -66,9 +68,14 @@ The BFF exposes a minimal same-origin session contract:
 4. **CSRF Protection**: CSRF protection is enforced for all state-changing HTTP methods (POST, PUT, DELETE, PATCH).
    The frontend retrieves the CSRF token from `GET /api/session` and transmits it in the `X-CSRF-TOKEN` header on
    mutation requests.
-5. **Logout**: `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server `HttpSession`, clears the security
-   context, deletes the `JSESSIONID` cookie, and returns `204 No Content` for API clients. Single Sign-Out (SSO)
-   provider logout can be initiated without exposing tokens to the client.
+5. **Logout (Local vs Provider SSO)**:
+   - **Local Session Logout**: `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server `HttpSession`, clears the
+     security context, deletes the `JSESSIONID` cookie, and returns `204 No Content` for API clients.
+   - **Provider SSO Logout**: `POST /logout?provider=true` requires `X-CSRF-TOKEN` (or `_csrf` form field), invalidates the
+     local session, deletes `JSESSIONID`, and delegates to Spring Security's native `OidcClientInitiatedLogoutSuccessHandler`.
+     The handler extracts the `idToken` from the server-side `OidcUser` (never exposed to client JavaScript) and redirects
+     (`302 Found`) the browser to the provider's `end_session_endpoint` with `id_token_hint` and `post_logout_redirect_uri={baseUrl}/`.
+     Keycloak terminates its SSO session and redirects the browser back to the application.
 6. **CORS & Origin Model**: Same-origin deployment is the default architectural expectation. Cross-origin requests
    are rejected unless exact origins are explicitly configured in `dokene.security.cors.allowed-origins` (e.g.,
    `http://localhost:5173` for Vite local development).

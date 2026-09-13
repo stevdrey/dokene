@@ -50,17 +50,19 @@ set -a; [ -f .env ] && . ./.env; set +a
 | Unauthorized cross-origin request | Request with `Origin: https://attacker.example.com` | Deny CORS | No `Access-Control-Allow-Origin` header emitted | PASS |
 | Mutation without CSRF token | Authenticated `POST /logout` without `X-CSRF-TOKEN` | `403 Forbidden` | `HTTP/1.1 403` | PASS |
 | Mutation with forged CSRF token | Authenticated `POST /logout` with invalid `X-CSRF-TOKEN` | `403 Forbidden` | `HTTP/1.1 403` | PASS |
+| Host-header poisoning / untrusted proxy header | Request with `X-Forwarded-Host: attacker.example.com` under default `none` strategy | Ignore untrusted header | Auth redirect uses socket authority (`http://localhost:8080`), attacker host ignored | PASS |
 | Cross-tenant boundary breach | Authenticated identity accessing `GET /api/customers` with foreign `X-Tenant-Id` | `403 Forbidden` | `HTTP/1.1 403` | PASS |
 
-### 3. Happy Path: Full OIDC BFF Flow
+### 3. Happy Path: Full OIDC BFF Flow & Two-Tier Logout
 
 | Step | Operation | Details | Status |
 | --- | --- | --- | --- |
-| 1. Initiate login | `GET /oauth2/authorization/dokene` | `302 Found` redirecting to Keycloak auth endpoint with PKCE (`code_challenge`) and state. Set initial pre-auth session cookie `JSESSIONID=4F1B0E9CB4A72260BAA57461C41D97C7`. | PASS |
+| 1. Initiate login | `GET /oauth2/authorization/dokene` | `302 Found` redirecting to Keycloak auth endpoint with PKCE (`code_challenge`) and state. Set initial pre-auth session cookie. | PASS |
 | 2. Submit credentials | `POST .../login-actions/authenticate` | Submitted `testuser` credentials to Keycloak; received `302 Found` redirect to Dokene callback with single-use authorization code. | PASS |
-| 3. Code exchange & rotation | `GET /login/oauth2/code/dokene?code=...&state=...` | Spring Boot executed confidential code exchange server-side; rotated session to `JSESSIONID=E5FE2DAFF3ED61F2BBB3FC26C1A4F10A`; responded with `302 Found` redirecting to `/api/session`. | PASS |
+| 3. Code exchange & rotation | `GET /login/oauth2/code/dokene?code=...&state=...` | Spring Boot executed confidential code exchange server-side; rotated session to fresh `JSESSIONID`; responded with `302 Found` redirecting to `/api/session`. | PASS |
 | 4. Session inspection | `GET /api/session` | Returned `200 OK` with JSON `{ "authenticated": true, "identityId": "...", "csrfToken": "..." }`. No provider tokens (`access_token`, `id_token`, `refresh_token`) or client secret present. | PASS |
-| 5. Protected logout | `POST /logout` with `X-CSRF-TOKEN` | Returned `204 No Content`, cleared server session and deleted `JSESSIONID` cookie. Subsequent `GET /api/session` returned `401 Unauthorized`. | PASS |
+| 5. Local session logout | `POST /logout` with `X-CSRF-TOKEN` | Returned `204 No Content`, cleared server session and deleted `JSESSIONID` cookie. Subsequent `GET /api/session` returned `401 Unauthorized`. | PASS |
+| 6. Provider session logout | `POST /logout?provider=true` with `X-CSRF-TOKEN` | Returned `302 Found` redirecting to Keycloak `protocol/openid-connect/logout?id_token_hint=...&post_logout_redirect_uri=...`. Server session cleared; raw tokens never exposed to client. Subsequent `GET /api/session` returned `401 Unauthorized`. | PASS |
 
 ### 4. Edge Cases
 

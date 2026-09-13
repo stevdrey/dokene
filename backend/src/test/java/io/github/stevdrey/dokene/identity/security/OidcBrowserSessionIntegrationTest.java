@@ -269,10 +269,31 @@ class OidcBrowserSessionIntegrationTest {
     }
 
     @Test
-    void forwardedHeadersReconstructHttpsAuthorizationRedirectUri() throws Exception {
+    void providerLogoutRedirectsToProviderEndSessionEndpointAndInvalidatesLocalSession() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        JsonNode session = objectMapper.readTree(get(authenticated, "/api/session").body());
+        String csrf = session.path("csrfToken").asText();
+
+        assertThat(post(authenticated, "/logout?provider=true", null).statusCode()).isEqualTo(403);
+        assertThat(post(authenticated, "/logout?provider=true", "invalid-csrf").statusCode()).isEqualTo(403);
+
+        HttpResponse<String> logoutResponse = post(authenticated, "/logout?provider=true", csrf);
+        assertThat(logoutResponse.statusCode()).isEqualTo(302);
+        String redirectUrl = logoutResponse.headers().firstValue("Location").orElseThrow();
+        assertThat(redirectUrl)
+                .startsWith(OIDC.issuer() + "/logout")
+                .contains("id_token_hint=")
+                .contains("post_logout_redirect_uri=");
+
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void defaultConfigurationDoesNotTrustForwardedHeadersFromUntrustedClients() throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/oauth2/authorization/dokene"))
                 .header("X-Forwarded-Proto", "https")
-                .header("X-Forwarded-Host", "auth.dokene.example")
+                .header("X-Forwarded-Host", "attacker.example.com")
                 .header("X-Forwarded-Port", "443")
                 .GET()
                 .build();
@@ -283,7 +304,8 @@ class OidcBrowserSessionIntegrationTest {
 
         assertThat(response.statusCode()).isEqualTo(302);
         String location = response.headers().firstValue("Location").orElseThrow();
-        assertThat(location).contains("redirect_uri=https://auth.dokene.example/login/oauth2/code/dokene");
+        assertThat(location).doesNotContain("attacker.example.com");
+        assertThat(location).contains("redirect_uri=http://127.0.0.1:" + port + "/login/oauth2/code/dokene");
     }
 
     private static String sessionId(Browser browser) {
@@ -431,6 +453,7 @@ class OidcBrowserSessionIntegrationTest {
             created.createContext("/authorize", this::authorize);
             created.createContext("/token", this::token);
             created.createContext("/jwks", this::jwks);
+            created.createContext("/logout", this::logout);
             created.start();
             server.set(created);
         }
@@ -449,11 +472,17 @@ class OidcBrowserSessionIntegrationTest {
         private void discovery(HttpExchange exchange) throws IOException {
             json(exchange, 200, """
                     {"issuer":"%s","authorization_endpoint":"%s/authorize","token_endpoint":"%s/token",
+                    "end_session_endpoint":"%s/logout",
                     "jwks_uri":"%s/jwks","response_types_supported":["code"],"subject_types_supported":["public"],
                     "id_token_signing_alg_values_supported":["RS256"],"grant_types_supported":["authorization_code"],
                     "token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post"],
                     "scopes_supported":["openid","profile"]}
-                    """.formatted(issuer, issuer, issuer, issuer));
+                    """.formatted(issuer, issuer, issuer, issuer, issuer));
+        }
+
+        private void logout(HttpExchange exchange) throws IOException {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
         }
 
         private void authorize(HttpExchange exchange) throws IOException {
