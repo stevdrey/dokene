@@ -8,6 +8,7 @@ export const NoMembershipsView: React.FC = () => {
   const [workspaceName, setWorkspaceName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,7 +16,8 @@ export const NoMembershipsView: React.FC = () => {
     setIsSubmitting(true);
     setError(null);
     try {
-      await provisionWorkspace(workspaceName.trim());
+      await provisionWorkspace(workspaceName.trim(), operationKey);
+      setOperationKey(crypto.randomUUID());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al crear el espacio');
     } finally {

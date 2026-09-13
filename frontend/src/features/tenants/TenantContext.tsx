@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { apiClient } from '../../api/apiClient';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { apiClient, StaleSessionError, AbortedTenantRequestError } from '../../api/apiClient';
 import { useSession } from '../auth/SessionContext';
 
 export interface Workspace {
@@ -25,11 +25,12 @@ const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 const STORAGE_KEY = 'dokene_active_tenant_id';
 
 export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { status: sessionStatus } = useSession();
+  const { status: sessionStatus, identityId } = useSession();
   const [status, setStatus] = useState<TenantStatus>('loading');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const refreshGenerationRef = useRef(0);
 
   const switchWorkspace = useCallback(
     (tenantId: string) => {
@@ -48,6 +49,8 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const refreshWorkspaces = useCallback(async () => {
+    const currentRefreshGen = ++refreshGenerationRef.current;
+
     if (sessionStatus !== 'authenticated') {
       setStatus('loading');
       setWorkspaces([]);
@@ -61,6 +64,11 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       const list = await apiClient.get<Workspace[]>('/api/tenants');
+
+      if (currentRefreshGen !== refreshGenerationRef.current) {
+        return;
+      }
+
       setWorkspaces(list);
 
       if (!list || list.length === 0) {
@@ -99,6 +107,13 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       setStatus('ready');
     } catch (err) {
+      if (currentRefreshGen !== refreshGenerationRef.current) {
+        return;
+      }
+      if (err instanceof StaleSessionError || err instanceof AbortedTenantRequestError) {
+        // Discard late/cancelled response silently
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Error al cargar espacios de trabajo');
       setStatus('error');
     }
@@ -132,6 +147,7 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   useEffect(() => {
+    refreshGenerationRef.current++;
     if (sessionStatus === 'authenticated') {
       refreshWorkspaces();
     } else {
@@ -145,7 +161,7 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // ignore
       }
     }
-  }, [sessionStatus, refreshWorkspaces]);
+  }, [sessionStatus, identityId, refreshWorkspaces]);
 
   return (
     <TenantContext.Provider

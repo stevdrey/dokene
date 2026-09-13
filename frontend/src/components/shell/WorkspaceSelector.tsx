@@ -13,10 +13,24 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [provisionError, setProvisionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
 
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleStartCreate = () => {
+    setOperationKey(crypto.randomUUID());
+    setProvisionError(null);
+    setIsCreating(true);
+  };
+
+  const handleCancelCreate = () => {
+    setIsCreating(false);
+    setProvisionError(null);
+    setNewWorkspaceName('');
+    setOperationKey(crypto.randomUUID());
+  };
 
   // Close on outside click
   useEffect(() => {
@@ -62,10 +76,11 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
     setIsSubmitting(true);
     setProvisionError(null);
     try {
-      await provisionWorkspace(newWorkspaceName.trim());
+      await provisionWorkspace(newWorkspaceName.trim(), operationKey);
       setNewWorkspaceName('');
       setIsCreating(false);
       setIsOpen(false);
+      setOperationKey(crypto.randomUUID());
       triggerRef.current?.focus();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -250,7 +265,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
-                  onClick={() => setIsCreating(false)}
+                  onClick={handleCancelCreate}
                   disabled={isSubmitting}
                   style={{
                     padding: '8px 14px',
@@ -292,7 +307,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
           ) : (
             <button
               type="button"
-              onClick={() => setIsCreating(true)}
+              onClick={handleStartCreate}
               style={{
                 width: '100%',
                 display: 'flex',

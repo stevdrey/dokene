@@ -30,13 +30,22 @@ export class AbortedTenantRequestError extends Error {
   }
 }
 
+export class StaleSessionError extends Error {
+  constructor(message = 'Request cancelled due to session invalidation') {
+    super(message);
+    this.name = 'StaleSessionError';
+  }
+}
+
 type UnauthorizedHandler = () => void;
 
 class ApiClient {
   private csrfToken: string | null = null;
   private currentTenantId: string | null = null;
+  private sessionGeneration = 0;
   private unauthorizedHandlers = new Set<UnauthorizedHandler>();
   private activeTenantControllers = new Map<string, Set<AbortController>>();
+  private activeControllers = new Set<AbortController>();
 
   setCsrfToken(token: string | null): void {
     this.csrfToken = token;
@@ -51,6 +60,15 @@ class ApiClient {
 
   getCurrentTenantId(): string | null {
     return this.currentTenantId;
+  }
+
+  getSessionGeneration(): number {
+    return this.sessionGeneration;
+  }
+
+  invalidateSession(): void {
+    this.sessionGeneration++;
+    this.cancelAllRequests();
   }
 
   onUnauthorized(handler: UnauthorizedHandler): () => void {
@@ -79,6 +97,7 @@ class ApiClient {
         } catch {
           // ignore already aborted
         }
+        this.activeControllers.delete(controller);
       });
       controllers.clear();
       this.activeTenantControllers.delete(tenantId);
@@ -86,15 +105,15 @@ class ApiClient {
   }
 
   cancelAllRequests(): void {
-    this.activeTenantControllers.forEach((controllers) => {
-      controllers.forEach((controller) => {
-        try {
-          controller.abort();
-        } catch {
-          // ignore
-        }
-      });
+    this.sessionGeneration++;
+    this.activeControllers.forEach((controller) => {
+      try {
+        controller.abort();
+      } catch {
+        // ignore
+      }
     });
+    this.activeControllers.clear();
     this.activeTenantControllers.clear();
   }
 
@@ -123,13 +142,16 @@ class ApiClient {
     }
 
     const effectiveTenantId = targetTenantId || (tenantScoped ? this.currentTenantId : null);
+    const requestSessionGeneration = this.sessionGeneration;
+    const requestTenantId = effectiveTenantId;
 
     if (effectiveTenantId) {
       headers.set('X-Tenant-Id', effectiveTenantId);
     }
 
-    // Per-tenant abort tracking
+    // Abort tracking across all requests and per-tenant
     const internalController = new AbortController();
+    this.activeControllers.add(internalController);
     if (effectiveTenantId) {
       let set = this.activeTenantControllers.get(effectiveTenantId);
       if (!set) {
@@ -158,10 +180,17 @@ class ApiClient {
         signal: internalController.signal,
       });
 
+      // Guard: Session invalidation / logout / user switch check
+      if (this.sessionGeneration !== requestSessionGeneration) {
+        throw new StaleSessionError(
+          `Discarding late response for session generation ${requestSessionGeneration}; current is ${this.sessionGeneration}`
+        );
+      }
+
       // Guard: Late response from previous tenant check
-      if (effectiveTenantId && this.currentTenantId !== effectiveTenantId) {
+      if (requestTenantId && this.currentTenantId !== requestTenantId) {
         throw new AbortedTenantRequestError(
-          `Discarding late response for tenant ${effectiveTenantId}; current tenant is ${this.currentTenantId}`
+          `Discarding late response for tenant ${requestTenantId}; current tenant is ${this.currentTenantId}`
         );
       }
 
@@ -194,10 +223,14 @@ class ApiClient {
         if (callerSignal?.aborted) {
           throw err;
         }
+        if (this.sessionGeneration !== requestSessionGeneration) {
+          throw new StaleSessionError();
+        }
         throw new AbortedTenantRequestError();
       }
       throw err;
     } finally {
+      this.activeControllers.delete(internalController);
       if (callerSignal && callerAbortListener) {
         callerSignal.removeEventListener('abort', callerAbortListener);
       }

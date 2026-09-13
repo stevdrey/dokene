@@ -26,6 +26,7 @@ describe('AppShell', () => {
       identityId: 'd45b7f64-9917-4a62-b3fc-2c963f66afa6',
       csrfToken: 'csrf-123',
       wasExpired: false,
+      error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),
       logout: mockLogout,
@@ -109,8 +110,8 @@ describe('AppShell', () => {
     expect(mockSwitchWorkspace).toHaveBeenCalledWith('t-2');
   });
 
-  it('displays creation form in workspace selector and handles error in Spanish', async () => {
-    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(409, 'Conflict'));
+  it('displays creation form in workspace selector and preserves idempotency key on retry', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(500, 'Server Error'));
     render(<AppShell />);
 
     const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
@@ -127,7 +128,25 @@ describe('AppShell', () => {
       fireEvent.click(createButton);
     });
 
-    expect(mockProvisionWorkspace).toHaveBeenCalledWith('Nuevo Café');
-    expect(screen.getByText('Ya existe un espacio de trabajo con este nombre.')).toBeInTheDocument();
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const firstCallKey = mockProvisionWorkspace.mock.calls[0][1];
+    expect(firstCallKey).toBeDefined();
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Nuevo Café', firstCallKey);
+    expect(screen.getByText('No se pudo crear el espacio de trabajo. Inténtalo nuevamente.')).toBeInTheDocument();
+
+    // Retry form submission
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-3',
+      displayName: 'Nuevo Café',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const secondCallKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(secondCallKey).toBe(firstCallKey);
   });
 });

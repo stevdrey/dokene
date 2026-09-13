@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { App } from './App';
 
@@ -83,6 +83,35 @@ describe('App routing transitions', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Seguimientos');
       expect(screen.getAllByText(/Café & Taller Artesano/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('renders connection error view when session check fails with 500 and recovers on retry', async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/session') {
+        callCount++;
+        if (callCount === 1) {
+          return new Response('Server Error', { status: 500, statusText: 'Internal Server Error' });
+        }
+        return new Response(null, { status: 401 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Error de conexión')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Reintentar/i })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      screen.getByRole('button', { name: /Reintentar/i }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Iniciar sesión con OIDC/i })).toBeInTheDocument();
     });
   });
 });

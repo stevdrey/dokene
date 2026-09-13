@@ -38,6 +38,7 @@ describe('TenantContext', () => {
       identityId: 'id-1',
       csrfToken: 'csrf-1',
       wasExpired: false,
+      error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),
       logout: vi.fn(),
@@ -78,6 +79,7 @@ describe('TenantContext', () => {
       identityId: 'id-1',
       csrfToken: 'csrf-1',
       wasExpired: false,
+      error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),
       logout: vi.fn(),
@@ -112,6 +114,7 @@ describe('TenantContext', () => {
       identityId: 'id-1',
       csrfToken: 'csrf-1',
       wasExpired: false,
+      error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),
       logout: vi.fn(),
@@ -158,6 +161,7 @@ describe('TenantContext', () => {
       identityId: 'id-1',
       csrfToken: 'csrf-1',
       wasExpired: false,
+      error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),
       logout: vi.fn(),
@@ -238,5 +242,185 @@ describe('TenantContext', () => {
 
     // 5. Verify the request is rejected with AbortedTenantRequestError and not returned to client
     await expect(requestPromise).rejects.toThrow(AbortedTenantRequestError);
+  });
+
+  it('prevents late responses from previous session during cross-session race condition', async () => {
+    let resolveSessionARequest: (res: Response) => void;
+    const slowResponsePromiseA = new Promise<Response>((resolve) => {
+      resolveSessionARequest = resolve;
+    });
+
+    let isSessionA = true;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/tenants') {
+        if (isSessionA) {
+          return slowResponsePromiseA;
+        }
+        return new Response(
+          JSON.stringify([
+            { tenantId: 'tenant-session-b', displayName: 'Workspace B', role: 'TENANT_ADMIN' },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    // 1. Session A starts and triggers slow /api/tenants
+    const sessionMock = vi.mocked(useSession);
+    sessionMock.mockReturnValue({
+      status: 'authenticated',
+      identityId: 'user-a',
+      csrfToken: 'csrf-a',
+      wasExpired: false,
+      error: null,
+      loginUrl: '/login',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    } as SessionContextValue);
+
+    const { rerender } = render(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    // 2. User logs out and session is invalidated
+    act(() => {
+      apiClient.invalidateSession();
+      isSessionA = false;
+      sessionMock.mockReturnValue({
+        status: 'unauthenticated',
+        identityId: null,
+        csrfToken: null,
+        wasExpired: false,
+        error: null,
+        loginUrl: '/login',
+        checkSession: vi.fn(),
+        logout: vi.fn(),
+      } as SessionContextValue);
+    });
+
+    rerender(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    // 3. Session B authenticates
+    act(() => {
+      sessionMock.mockReturnValue({
+        status: 'authenticated',
+        identityId: 'user-b',
+        csrfToken: 'csrf-b',
+        wasExpired: false,
+        error: null,
+        loginUrl: '/login',
+        checkSession: vi.fn(),
+        logout: vi.fn(),
+      } as SessionContextValue);
+    });
+
+    rerender(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Workspace B');
+      expect(screen.getByTestId('activeTenantId')).toHaveTextContent('tenant-session-b');
+    });
+
+    // 4. Delayed response for Session A now resolves
+    resolveSessionARequest!(
+      new Response(
+        JSON.stringify([
+          { tenantId: 'tenant-session-a', displayName: 'Workspace A (Stale)', role: 'TENANT_ADMIN' },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    // 5. Confirm Session A's workspaces NEVER overwrite Session B's state
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Workspace B');
+    expect(screen.getByTestId('activeTenantId')).toHaveTextContent('tenant-session-b');
+  });
+
+  it('prevents older overlapping refreshWorkspaces calls from overwriting newer calls', async () => {
+    vi.mocked(useSession).mockReturnValue({
+      status: 'authenticated',
+      identityId: 'id-1',
+      csrfToken: 'csrf-1',
+      wasExpired: false,
+      error: null,
+      loginUrl: '/login',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    } as SessionContextValue);
+
+    let resolveFirstCall: (res: Response) => void;
+    const slowFirstPromise = new Promise<Response>((resolve) => {
+      resolveFirstCall = resolve;
+    });
+
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/tenants') {
+        callCount++;
+        if (callCount === 1) {
+          return slowFirstPromise;
+        }
+        return new Response(
+          JSON.stringify([
+            { tenantId: 'tenant-fast', displayName: 'Fast Workspace', role: 'TENANT_ADMIN' },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const ConsumerWithRefresh: React.FC = () => {
+      const { activeWorkspace, refreshWorkspaces } = useTenant();
+      return (
+        <div>
+          <div data-testid="activeWorkspace">{activeWorkspace ? activeWorkspace.displayName : 'none'}</div>
+          <button onClick={() => refreshWorkspaces()}>Refresh</button>
+        </div>
+      );
+    };
+
+    render(
+      <TenantProvider>
+        <ConsumerWithRefresh />
+      </TenantProvider>
+    );
+
+    // Initial load is waiting on slowFirstPromise (call 1)
+    // Trigger second refresh (call 2)
+    await act(async () => {
+      screen.getByText('Refresh').click();
+    });
+
+    // Call 2 completes fast
+    await waitFor(() => {
+      expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Fast Workspace');
+    });
+
+    // Now call 1 completes later
+    resolveFirstCall!(
+      new Response(
+        JSON.stringify([
+          { tenantId: 'tenant-slow', displayName: 'Slow Workspace', role: 'TENANT_ADMIN' },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    // Confirm call 1's results do not overwrite call 2's results
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Fast Workspace');
   });
 });
