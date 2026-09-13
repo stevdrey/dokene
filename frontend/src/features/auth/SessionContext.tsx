@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { apiClient, UnauthorizedError, ApiError } from '../../api/apiClient';
+import { apiClient, UnauthorizedError, ApiError, StaleSessionError } from '../../api/apiClient';
 
 export interface SessionData {
   authenticated: boolean;
@@ -37,8 +37,10 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
   const [wasExpired, setWasExpired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wasAuthenticatedRef = useRef(false);
+  const checkSessionGenerationRef = useRef(0);
 
   const handleUnauthorized = useCallback(() => {
+    checkSessionGenerationRef.current++;
     const hadSession = wasAuthenticatedRef.current;
     wasAuthenticatedRef.current = false;
     apiClient.setCsrfToken(null);
@@ -52,10 +54,16 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
   }, []);
 
   const checkSession = useCallback(async () => {
+    const currentGen = ++checkSessionGenerationRef.current;
     setStatus('loading');
     setError(null);
     try {
       const data = await apiClient.get<SessionData>('/api/session');
+
+      if (currentGen !== checkSessionGenerationRef.current) {
+        return;
+      }
+
       if (data && data.authenticated) {
         setIdentityId(data.identityId);
         setCsrfToken(data.csrfToken);
@@ -77,6 +85,15 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
         setError(null);
       }
     } catch (err: unknown) {
+      if (err instanceof StaleSessionError || (err instanceof Error && err.name === 'AbortError')) {
+        // Discard late/cancelled response silently after session invalidation or logout
+        return;
+      }
+
+      if (currentGen !== checkSessionGenerationRef.current) {
+        return;
+      }
+
       if (err instanceof UnauthorizedError || (err instanceof ApiError && err.status === 401)) {
         const hadSession = wasAuthenticatedRef.current;
         wasAuthenticatedRef.current = false;
@@ -97,6 +114,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
   }, []);
 
   const logout = useCallback(async () => {
+    checkSessionGenerationRef.current++;
     try {
       await apiClient.post<void>('/logout');
     } catch {

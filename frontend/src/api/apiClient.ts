@@ -67,7 +67,6 @@ class ApiClient {
   }
 
   invalidateSession(): void {
-    this.sessionGeneration++;
     this.cancelAllRequests();
   }
 

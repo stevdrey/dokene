@@ -228,4 +228,65 @@ describe('SessionContext', () => {
     expect(logoutCalled).toBe(true);
     expect(screen.getByTestId('identityId')).toHaveTextContent('none');
   });
+
+  it('prevents a stale checkSession() from overwriting unauthenticated state after logout', async () => {
+    let resolveSessionCheck: (res: Response) => void;
+    const slowSessionPromise = new Promise<Response>((resolve) => {
+      resolveSessionCheck = resolve;
+    });
+
+    let isSlowCheck = true;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/session') {
+        if (isSlowCheck) {
+          return slowSessionPromise;
+        }
+        return new Response(null, { status: 401 });
+      }
+      if (url === '/logout') {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(
+      <SessionProvider>
+        <TestSessionConsumer />
+      </SessionProvider>
+    );
+
+    // Initial checkSession is in flight and slow
+    expect(screen.getByTestId('status')).toHaveTextContent('loading');
+
+    // User explicitly logs out / session is invalidated before the check finishes
+    await act(async () => {
+      screen.getByText('Cerrar sesión').click();
+    });
+
+    // Session status immediately becomes unauthenticated
+    expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
+    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+    expect(screen.getByTestId('error')).toHaveTextContent('none');
+
+    // Now the slow checkSession resolves (returning authenticated data)
+    isSlowCheck = false;
+    await act(async () => {
+      resolveSessionCheck!(
+        new Response(
+          JSON.stringify({
+            authenticated: true,
+            identityId: 'stale-user',
+            csrfToken: 'stale-csrf',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+    });
+
+    // Final state must remain unauthenticated; neither error nor stale user data should be applied!
+    expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
+    expect(screen.getByTestId('identityId')).toHaveTextContent('none');
+    expect(screen.getByTestId('error')).toHaveTextContent('none');
+    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+  });
 });
