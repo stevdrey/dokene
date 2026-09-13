@@ -24,6 +24,18 @@ services:
       - /bin/bash
       - -c
       - |
+        if [ -z "$$KEYCLOAK_ADMIN" ]; then
+          echo "Error: Set KEYCLOAK_ADMIN in .env" >&2
+          exit 1
+        fi
+        if [ -z "$$KEYCLOAK_ADMIN_PASSWORD" ]; then
+          echo "Error: Set KEYCLOAK_ADMIN_PASSWORD in .env" >&2
+          exit 1
+        fi
+        if [ -z "$$DOKENE_OIDC_CLIENT_SECRET" ]; then
+          echo "Error: Set SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET in .env" >&2
+          exit 1
+        fi
         escape_json() {
           local str="$$1"
           str="$${str//\\/\\\\}"
@@ -42,9 +54,9 @@ services:
         printf "%s\n" "$$content" > /opt/keycloak/data/import/dokene-realm.json
         exec /opt/keycloak/bin/kc.sh start-dev --import-realm
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?Set KEYCLOAK_ADMIN in .env}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
-      DOKENE_OIDC_CLIENT_SECRET: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:?Set SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET in .env}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+      DOKENE_OIDC_CLIENT_SECRET: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-}
       DOKENE_TEST_USER_PASSWORD: ${DOKENE_TEST_USER_PASSWORD:-testpassword}
     ports:
       - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
