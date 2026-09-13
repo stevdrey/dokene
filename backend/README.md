@@ -128,23 +128,28 @@ characters. Future instants are rejected and stored timestamps use microsecond p
 Last purchase is derived from valid history, including backdated inserts, corrected timestamps, and voids. Tenant
 and customer identity cannot be reassigned. See [ADR 0011](../docs/adr/0011-purchase-history-and-last-purchase.md).
 
-## Follow-up policy
+## Follow-up queue and dispositions
 
-The `followup` module evaluates the current customer, WhatsApp consent, latest valid purchase, tenant policy and
-customer policy with an injected clock. Tenant policies have a 30-day/UTC initial value and may define an IANA time
-zone; customer cadence overrides tenant cadence. Timing precedence is active snooze, explicit next date, last manual
-follow-up plus cadence, then last purchase plus cadence. A customer without a timing anchor is not eligible.
+The `followup` module evaluates the current customer, WhatsApp consent, latest valid purchase, tenant policy,
+customer policy, manual follow-up, and dismissal state with an injected clock. Tenant policies have a 30-day/UTC
+initial value and may define an IANA time zone; customer cadence overrides tenant cadence. Timing precedence is
+active snooze, explicit next date, latest anchor (last manual follow-up, last dismissal, or last purchase) plus
+cadence. A customer without a timing anchor is not eligible.
 
 Results are provider-neutral and report `INELIGIBLE`, `NOT_YET_DUE`, `DUE`, or `OVERDUE`, closed reason codes, the
 timing source and relevant calendar context. Archive, do-not-contact and missing granted consent always win.
-`FollowUpService.recordManualFollowUp` and `FollowUpService.snooze` are the contract for the future manual queue;
-this module adds no scheduler, AI decision or outbound action. See
-[ADR 0012](../docs/adr/0012-deterministic-follow-up-eligibility.md).
+The due follow-up queue is derived dynamically from current state, supporting cursor pagination and status filtering.
+Dispositions (snooze, dismiss, manual follow-up) provide the state-transition contract for operator workflows;
+this module adds no scheduler, messaging dispatch, or AI drafting. See
+[ADR 0012](../docs/adr/0012-deterministic-follow-up-eligibility.md) and
+[ADR 0013](../docs/adr/0013-due-follow-up-queue-and-operator-dispositions.md).
 
 - `GET` and `PUT /api/follow-up-policy` read or configure the tenant cadence and IANA time zone.
 - `GET` and `PUT /api/customers/{customerId}/follow-up-policy` read or configure a customer cadence/date override.
 - `GET /api/customers/{customerId}/follow-up-eligibility` returns the typed current decision.
-- `POST /api/customers/{customerId}/manual-follow-ups` records completion and starts a new cadence.
+- `GET /api/follow-up-queue` returns a cursor-paginated list of due and overdue follow-ups with customer context.
+- `POST /api/customers/{customerId}/manual-follow-ups` records manual completion (with optional notes) and advances cadence.
+- `POST /api/customers/{customerId}/follow-up-dismissals` dismisses current cycle (with optional notes) and advances cadence.
 - `PUT /api/customers/{customerId}/follow-up-snooze` postpones eligibility to the supplied local date.
 
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

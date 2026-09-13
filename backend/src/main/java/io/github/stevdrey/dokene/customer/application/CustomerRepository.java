@@ -8,6 +8,7 @@ import java.util.Optional;
 
 public interface CustomerRepository {
     Optional<Customer> findById(TenantId tenantId, CustomerId customerId);
+    Optional<Customer> findByIdForUpdate(TenantId tenantId, CustomerId customerId);
     List<Customer> search(TenantId tenantId, CustomerSearch search, int fetchLimit);
     Customer insert(Customer customer);
     Customer update(Customer customer, long expectedVersion);
