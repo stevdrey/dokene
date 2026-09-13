@@ -54,11 +54,12 @@ Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/im
 The `dokene-bff` client is configured strictly as a confidential OpenID Connect client:
 - Authorization Code flow enabled (`standardFlowEnabled: true`).
 - Direct Access Grants (resource owner password flow) and Implicit flow are disabled.
-- Client secret is never committed; Keycloak dynamically interpolates `${env.DOKENE_OIDC_CLIENT_SECRET}` from `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET` in `.env`.
+- Client secret is never committed; Keycloak's container entrypoint safely escapes and interpolates `${env.DOKENE_OIDC_CLIENT_SECRET}` from `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET` in `.env` into the realm definition, safely supporting characters such as `/` (from `openssl rand -base64 32`), `&`, `\`, and quotes without shell or JSON corruption.
 - Redirect URIs are restricted to the local Spring Security callback endpoints:
   - `http://localhost:8080/login/oauth2/code/dokene`
   - `http://127.0.0.1:8080/login/oauth2/code/dokene`
 - Post-logout redirect URIs are restricted to local application roots (`http://localhost:8080/`, `http://localhost:5173/`).
+- The discovery endpoint `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_DOKENE_ISSUER_URI` dynamically tracks `KEYCLOAK_PORT` (`http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene`) so changing `KEYCLOAK_PORT` in `.env` automatically keeps Spring's discovery target synchronized.
 
 In accordance with Security Invariant #14, Keycloak authenticates external identity only; Keycloak roles are not authoritative for Dokene tenant membership, internal identities, or application permissions.
 
