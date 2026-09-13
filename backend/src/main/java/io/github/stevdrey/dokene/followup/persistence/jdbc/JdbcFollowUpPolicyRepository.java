@@ -28,6 +28,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -89,7 +90,7 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
     public FollowUpQueuePage findDueQueue(TenantId tenantId, FollowUpQueueQuery query, Instant evaluatedAt) {
         var params = new java.util.ArrayList<Object>();
         params.add(tenantId.value());
-        params.add(Timestamp.from(evaluatedAt));
+        params.add(evaluatedAt.atOffset(ZoneOffset.UTC));
         params.add(tenantId.value());
 
         var sql = new StringBuilder("""
@@ -116,7 +117,7 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                         cfp.last_dismissed_date,
                         lp.last_purchase_at,
                         (lp.last_purchase_at AT TIME ZONE tp.time_zone)::date AS last_purchase_date,
-                        (? AT TIME ZONE tp.time_zone)::date AS tenant_today
+                        (CAST(? AS timestamptz) AT TIME ZONE tp.time_zone)::date AS tenant_today
                     FROM dokene.customers c
                     JOIN tenant_policy tp ON true
                     JOIN dokene.customer_follow_up_policies cfp ON cfp.tenant_id = c.tenant_id AND cfp.customer_id = c.id
@@ -194,6 +195,7 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                 FROM evaluated_candidates
                 WHERE due_date IS NOT NULL
                   AND due_date <= tenant_today
+                  AND timing_source <> 'SNOOZE'
                 """);
 
         if (query.statusFilter() == io.github.stevdrey.dokene.followup.domain.FollowUpStatus.DUE) {

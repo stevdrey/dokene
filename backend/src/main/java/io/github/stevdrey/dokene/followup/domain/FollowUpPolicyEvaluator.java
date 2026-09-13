@@ -87,9 +87,13 @@ public final class FollowUpPolicyEvaluator {
             dueDate = anchorDate.plusDays(cadence);
         }
 
+        if (source == FollowUpTimingSource.SNOOZE) {
+            return result(customer, FollowUpStatus.NOT_YET_DUE, java.util.List.of(FollowUpReason.SNOOZED), now, today,
+                    tenantPolicy, dueDate, source, cadence, lastPurchaseAt);
+        }
         if (today.isBefore(dueDate)) {
-            FollowUpReason reason = source == FollowUpTimingSource.SNOOZE ? FollowUpReason.SNOOZED
-                    : source == FollowUpTimingSource.EXPLICIT_DATE ? FollowUpReason.EXPLICIT_DATE_NOT_DUE
+            FollowUpReason reason = source == FollowUpTimingSource.EXPLICIT_DATE
+                    ? FollowUpReason.EXPLICIT_DATE_NOT_DUE
                     : FollowUpReason.CADENCE_NOT_DUE;
             return result(customer, FollowUpStatus.NOT_YET_DUE, java.util.List.of(reason), now, today,
                     tenantPolicy, dueDate, source, cadence, lastPurchaseAt);

@@ -71,6 +71,20 @@ class FollowUpPolicyEvaluatorTest {
     }
 
     @Test
+    void sameDaySnoozeRemainsNotYetDue() {
+        LocalDate tenantToday = NOW.atZone(tenantPolicy.zoneId()).toLocalDate();
+        var policy = new CustomerFollowUpPolicy(tenantId, customerId, 7,
+                tenantToday.minusDays(1), tenantToday, null);
+
+        var result = evaluator.evaluate(customer, contactPolicy, tenantPolicy, policy, null);
+
+        assertThat(result.status()).isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(result.reasons()).containsExactly(FollowUpReason.SNOOZED);
+        assertThat(result.nextFollowUpDate()).isEqualTo(tenantToday);
+        assertThat(result.timingSource()).isEqualTo(FollowUpTimingSource.SNOOZE);
+    }
+
+    @Test
     void noPurchaseWithoutAnotherAnchorIsIneligible() {
         var result = evaluator.evaluate(customer, contactPolicy, tenantPolicy,
                 CustomerFollowUpPolicy.empty(tenantId, customerId), null);

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
@@ -176,6 +177,20 @@ class FollowUpServiceTest {
         var result = service.recordManualFollowUp(customerId, 0, "idem-key-no-purchase");
 
         assertThat(result).isEqualTo(new ManualFollowUpResult(completion, true));
+    }
+
+    @Test
+    void dispositionsRejectOversizedNotesBeforePersistence() {
+        String oversizedNotes = "x".repeat(501);
+
+        assertThatThrownBy(() -> service.recordManualFollowUp(customerId, 0, "manual-key", oversizedNotes))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Notes cannot exceed 500 characters");
+        assertThatThrownBy(() -> service.dismiss(customerId, 0, "dismiss-key", oversizedNotes))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Notes cannot exceed 500 characters");
+
+        verifyNoInteractions(customers, policies);
     }
 
     @Test

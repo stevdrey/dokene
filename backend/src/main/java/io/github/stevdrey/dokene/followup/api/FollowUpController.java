@@ -104,7 +104,7 @@ public class FollowUpController {
         if (!IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
             throw new IllegalArgumentException("Invalid idempotency key");
         }
-        String notes = request != null ? request.notes() : null;
+        String notes = validateNotes(request != null ? request.notes() : null);
         var result = followUps.recordManualFollowUp(new CustomerId(customerId), version(ifMatch), idempotencyKey, notes);
         var completion = result.completion();
         var response = new ManualFollowUpResponse(completion.id(), completion.customerId().value(),
@@ -121,7 +121,7 @@ public class FollowUpController {
         if (!IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
             throw new IllegalArgumentException("Invalid idempotency key");
         }
-        String notes = request != null ? request.notes() : null;
+        String notes = validateNotes(request != null ? request.notes() : null);
         var result = followUps.dismiss(new CustomerId(customerId), version(ifMatch), idempotencyKey, notes);
         var dismissal = result.dismissal();
         var response = new DismissalResponse(dismissal.id(), dismissal.customerId().value(),
@@ -174,6 +174,13 @@ public class FollowUpController {
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Invalid If-Match version", exception);
         }
+    }
+
+    private String validateNotes(String notes) {
+        if (notes != null && notes.length() > 500) {
+            throw new IllegalArgumentException("Notes cannot exceed 500 characters");
+        }
+        return notes;
     }
 
     private String etag(long version) { return "\"" + version + "\""; }

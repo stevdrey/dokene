@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -117,6 +118,30 @@ class FollowUpControllerTest {
                 .header("If-Match", invalidEtag)
                 .header("Idempotency-Key", "valid-key-1"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void recordManualFollowUpRejectsOversizedNotesBeforeServiceInvocation() throws Exception {
+        mvc.perform(post("/api/customers/{id}/manual-follow-ups", customerId)
+                .header("If-Match", "\"0\"")
+                .header("Idempotency-Key", "valid-key-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"notes\":\"" + "x".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void dismissRejectsOversizedNotesBeforeServiceInvocation() throws Exception {
+        mvc.perform(post("/api/customers/{id}/follow-up-dismissals", customerId)
+                .header("If-Match", "\"0\"")
+                .header("Idempotency-Key", "valid-key-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"notes\":\"" + "x".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(service);
     }
 
     @Test

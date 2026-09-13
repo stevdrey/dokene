@@ -27,6 +27,7 @@ import io.github.stevdrey.dokene.followup.application.FollowUpConflictException;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueuePage;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
 import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
+import io.github.stevdrey.dokene.followup.domain.FollowUpPolicyEvaluator;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
@@ -36,15 +37,18 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +58,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 class FollowUpManagementIntegrationTest {
@@ -73,6 +79,7 @@ class FollowUpManagementIntegrationTest {
     @Autowired AuditExecutionContext auditExecution;
     @Autowired AuditReader auditReader;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
     @MockitoSpyBean AuditRecorder auditRecorder;
 
     private TenantContext contextA;
@@ -156,7 +163,7 @@ class FollowUpManagementIntegrationTest {
         var first = inContext(contextA, () -> followUps.recordManualFollowUp(customer.id(), snoozed.version(),
                 "manual-integration-1", "Spoke with client"));
         var replay = inContext(contextA, () -> followUps.recordManualFollowUp(customer.id(), 0,
-                "manual-integration-1", "Spoke with client"));
+                "manual-integration-1", "Different note"));
         assertThat(first.created()).isTrue();
         assertThat(replay.created()).isFalse();
         assertThat(replay.completion()).isEqualTo(first.completion());
@@ -248,12 +255,56 @@ class FollowUpManagementIntegrationTest {
     }
 
     @Test
-    void dismissAdvancesCadenceCycleAndClearsSnooze() throws Exception {
+    void sameDaySnoozeRemainsNotYetDueAndOutsideQueue() throws Exception {
+        grantWhatsAppConsent(customer);
+        ZoneId tenantZone = ZoneId.of("America/Costa_Rica");
+        inContext(contextA, () -> followUps.configureTenant(14, tenantZone, 0));
+        LocalDate tenantToday = LocalDate.now(tenantZone);
+        var configured = inContext(contextA,
+                () -> followUps.configureCustomer(customer.id(), 7, tenantToday, 0));
+
+        inContext(contextA, () -> followUps.snooze(customer.id(), tenantToday, configured.version()));
+
+        var evaluation = inContext(contextA, () -> followUps.evaluate(customer.id()));
+        assertThat(evaluation.status()).isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(evaluation.reasons()).containsExactly(FollowUpReason.SNOOZED);
+        var queue = inContext(contextA, () -> followUps.dueQueue(new FollowUpQueueQuery(null, null, 10)));
+        assertThat(queue.items()).extracting(item -> item.customerId()).doesNotContain(customer.id());
+    }
+
+    @Test
+    void queueAndEvaluatorUseSameTenantDateNearUtcBoundary() throws Exception {
+        grantWhatsAppConsent(customer);
+        ZoneId tenantZone = ZoneId.of("America/Costa_Rica");
+        Instant boundary = Instant.parse("2026-09-10T01:00:00Z");
+        LocalDate tenantDate = LocalDate.of(2026, 9, 9);
+        var tenantPolicy = inContext(contextA, () -> followUps.configureTenant(14, tenantZone, 0));
+        var customerPolicy = inContext(contextA,
+                () -> followUps.configureCustomer(customer.id(), 7, tenantDate, 0));
+        var contactPolicy = inContext(contextA, () -> contacts.get(customer.id()));
+        var evaluator = new FollowUpPolicyEvaluator(Clock.fixed(boundary, ZoneOffset.UTC));
+
+        var javaEvaluation = evaluator.evaluate(customer, contactPolicy, tenantPolicy, customerPolicy, null);
+        var queue = inContext(contextA,
+                () -> policies.findDueQueue(customer.tenantId(), new FollowUpQueueQuery(null, null, 10), boundary));
+
+        assertThat(javaEvaluation.tenantDate()).isEqualTo(tenantDate);
+        assertThat(javaEvaluation.status()).isEqualTo(FollowUpStatus.DUE);
+        assertThat(queue.items()).singleElement().satisfies(item -> {
+            assertThat(item.customerId()).isEqualTo(customer.id());
+            assertThat(item.dueDate()).isEqualTo(javaEvaluation.nextFollowUpDate());
+            assertThat(item.status()).isEqualTo(javaEvaluation.status());
+        });
+    }
+
+    @Test
+    void dismissAdvancesCadenceCycleAndClearsExpiredSnooze() throws Exception {
         grantWhatsAppConsent(customer);
         inContext(contextA, () -> followUps.configureTenant(14, ZoneId.of("America/Costa_Rica"), 0));
         LocalDate tenantToday = LocalDate.now(ZoneId.of("America/Costa_Rica"));
         var configured = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, tenantToday, 0));
-        var snoozed = inContext(contextA, () -> followUps.snooze(customer.id(), tenantToday, configured.version()));
+        var snoozed = inContext(contextA, () -> policies.snooze(customer.tenantId(), customer.id(),
+                tenantToday.minusDays(1), configured.version()));
 
         var first = inContext(contextA, () -> followUps.dismiss(customer.id(), snoozed.version(),
                 "dismiss-integration-1", "Dismissed for now"));
@@ -277,6 +328,7 @@ class FollowUpManagementIntegrationTest {
                 "dismiss-integration-1", "Different note"));
         assertThat(replay.created()).isFalse();
         assertThat(replay.dismissal()).isEqualTo(first.dismissal());
+        assertThat(replay.dismissal().notes()).isEqualTo("Dismissed for now");
 
         inContext(contextA, () -> {
             var events = auditReader.read(null, 100).events();
@@ -335,6 +387,111 @@ class FollowUpManagementIntegrationTest {
     }
 
     @Test
+    void purchaseCommitBeforeDispositionInvalidatesStaleDueState() throws Exception {
+        grantWhatsAppConsent(customer);
+        ZoneId tenantZone = ZoneId.of("America/Costa_Rica");
+        inContext(contextA, () -> followUps.configureTenant(14, tenantZone, 0));
+        Instant oldPurchase = LocalDate.now(tenantZone).minusDays(30).atStartOfDay(tenantZone).toInstant();
+        inContext(contextA, () -> purchases.record(customer.id(), oldPurchase, "Old purchase", "old-purchase"));
+        var policy = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
+        assertThat(inContext(contextA, () -> followUps.evaluate(customer.id())).status())
+                .isEqualTo(FollowUpStatus.OVERDUE);
+
+        var purchaseWritten = new CountDownLatch(1);
+        var releasePurchaseCommit = new CountDownLatch(1);
+        var dispositionStarted = new CountDownLatch(1);
+        var transaction = new TransactionTemplate(transactionManager);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var purchaseChange = executor.submit(() -> inContext(contextA, () -> {
+                transaction.executeWithoutResult(ignored -> {
+                    purchases.record(customer.id(), Instant.now().minusSeconds(1),
+                            "Recent purchase", "recent-purchase");
+                    purchaseWritten.countDown();
+                    awaitLatch(releasePurchaseCommit, "Purchase transaction was not released");
+                });
+                return null;
+            }));
+            awaitLatch(purchaseWritten, "Purchase mutation did not acquire the customer lock");
+
+            var disposition = executor.submit(() -> {
+                dispositionStarted.countDown();
+                try {
+                    inContext(contextA, () -> followUps.dismiss(customer.id(), policy.version(),
+                            "stale-dismiss", null));
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+            awaitLatch(dispositionStarted, "Disposition did not start");
+            assertThatThrownBy(() -> disposition.get(1, TimeUnit.SECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            releasePurchaseCommit.countDown();
+            purchaseChange.get(30, TimeUnit.SECONDS);
+            assertThat(disposition.get(30, TimeUnit.SECONDS)).isInstanceOf(FollowUpConflictException.class);
+        }
+
+        assertThat(inContext(contextA, () -> followUps.evaluate(customer.id())).status())
+                .isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(inContext(contextA, () -> jdbc.queryForObject("""
+                SELECT count(*) FROM dokene.follow_up_dismissals WHERE idempotency_key = 'stale-dismiss'
+                """, Integer.class))).isZero();
+    }
+
+    @Test
+    void purchaseCommitBeforeSnoozeInvalidatesStaleDueState() throws Exception {
+        grantWhatsAppConsent(customer);
+        ZoneId tenantZone = ZoneId.of("America/Costa_Rica");
+        inContext(contextA, () -> followUps.configureTenant(14, tenantZone, 0));
+        Instant oldPurchase = LocalDate.now(tenantZone).minusDays(30).atStartOfDay(tenantZone).toInstant();
+        inContext(contextA, () -> purchases.record(customer.id(), oldPurchase, "Old purchase", "old-purchase-snooze"));
+        var policy = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
+        assertThat(inContext(contextA, () -> followUps.evaluate(customer.id())).status())
+                .isEqualTo(FollowUpStatus.OVERDUE);
+
+        var purchaseWritten = new CountDownLatch(1);
+        var releasePurchaseCommit = new CountDownLatch(1);
+        var snoozeStarted = new CountDownLatch(1);
+        var transaction = new TransactionTemplate(transactionManager);
+        LocalDate snoozeUntil = LocalDate.now(tenantZone).plusDays(5);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var purchaseChange = executor.submit(() -> inContext(contextA, () -> {
+                transaction.executeWithoutResult(ignored -> {
+                    purchases.record(customer.id(), Instant.now().minusSeconds(1),
+                            "Recent purchase", "recent-purchase-snooze");
+                    purchaseWritten.countDown();
+                    awaitLatch(releasePurchaseCommit, "Purchase transaction was not released");
+                });
+                return null;
+            }));
+            awaitLatch(purchaseWritten, "Purchase mutation did not acquire the customer lock");
+
+            var snoozeAction = executor.submit(() -> {
+                snoozeStarted.countDown();
+                try {
+                    inContext(contextA, () -> followUps.snooze(customer.id(), snoozeUntil, policy.version()));
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+            awaitLatch(snoozeStarted, "Snooze did not start");
+            assertThatThrownBy(() -> snoozeAction.get(1, TimeUnit.SECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            releasePurchaseCommit.countDown();
+            purchaseChange.get(30, TimeUnit.SECONDS);
+            assertThat(snoozeAction.get(30, TimeUnit.SECONDS)).isInstanceOf(FollowUpConflictException.class);
+        }
+
+        assertThat(inContext(contextA, () -> followUps.evaluate(customer.id())).status())
+                .isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(inContext(contextA, () -> followUps.customerPolicy(customer.id())).snoozedUntil())
+                .isNull();
+    }
+
+    @Test
     void databaseLevelEligibilityPredicatesRejectDispositionsOnIneligibleCustomers() throws Exception {
         // Customer has no WhatsApp consent yet
         var policy = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
@@ -361,13 +518,17 @@ class FollowUpManagementIntegrationTest {
     @Test
     void timeTransitionsClassifyOverdueAndDue() throws Exception {
         grantWhatsAppConsent(customer);
-        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 14, LocalDate.now(), 0));
+        ZoneId tenantZone = ZoneId.of("America/Costa_Rica");
+        inContext(contextA, () -> followUps.configureTenant(14, tenantZone, 0));
+        LocalDate tenantToday = LocalDate.now(tenantZone);
+        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 14, tenantToday, 0));
 
         var overdueCustomer = inContext(contextA, () -> customers.create("Overdue customer", null,
                 List.of(new PhoneInput("8666" + String.format("%04d",
                         Math.abs(UUID.randomUUID().hashCode()) % 10000), "CR", true))));
         grantWhatsAppConsent(overdueCustomer);
-        inContext(contextA, () -> followUps.configureCustomer(overdueCustomer.id(), 14, LocalDate.now().minusDays(3), 0));
+        inContext(contextA, () -> followUps.configureCustomer(overdueCustomer.id(), 14,
+                tenantToday.minusDays(3), 0));
 
         FollowUpQueuePage overdueQueue = inContext(contextA, () -> followUps.dueQueue(new FollowUpQueueQuery(FollowUpStatus.OVERDUE, null, 10)));
         assertThat(overdueQueue.items()).extracting(item -> item.customerId())
@@ -434,6 +595,15 @@ class FollowUpManagementIntegrationTest {
             // Exactly one request is expected to lose the optimistic update.
         } catch (Exception exception) {
             throw new AssertionError(exception);
+        }
+    }
+
+    private void awaitLatch(CountDownLatch latch, String message) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) throw new AssertionError(message);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(message, exception);
         }
     }
 

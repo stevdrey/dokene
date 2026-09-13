@@ -35,6 +35,8 @@ Operators can act on due/overdue customers through three explicit dispositions:
    Postpones follow-up to a specific calendar date in the tenant's time zone (`until >= today`).
    Applies only to customers currently `DUE` or `OVERDUE`; calling snooze on a customer `NOT_YET_DUE` or
    `INELIGIBLE` fails with `409 Conflict`. Input validation (e.g., date in the past) returns `400 Bad Request`.
+   Snoozing until today keeps the customer `NOT_YET_DUE` and excludes them from the due queue until
+   `tenant_today > snoozed_until`.
 2. **Dismissal (`POST /api/customers/{id}/follow-up-dismissals`)**:
    Dismisses the current follow-up without contacting the customer (e.g., customer recently contacted via
    another channel or follow-up not relevant this cycle).
@@ -73,6 +75,9 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
   2. Database-level eligibility predicates directly embedded in the `customer_follow_up_policies` `UPDATE` statements
      (`status = 'ACTIVE'`, no active DNC, granted WhatsApp consent), ensuring that any concurrent race that invalidates
      eligibility results in 0 rows updated and fails with `409 Conflict`.
+- **Purchase/Disposition Serialization**: Purchase recording, correction, and voiding acquire the same governing
+  customer-row lock as dispositions. A purchase mutation that wins the lock commits before disposition eligibility is
+  evaluated; a disposition that wins the lock completes before a purchase mutation can change its timing inputs.
 - **Queue Snapshot Consistency**: The due queue is evaluated in a single database statement where `tenant_today`,
   cadence, and timing sources are derived from a unified `dokene.tenant_follow_up_policies` snapshot, preventing split-read
   anomalies between time zone resolution and candidate derivation.
@@ -81,8 +86,9 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
   eligibility check (`evaluation.evaluatedAt()`), preventing midnight-boundary inconsistencies between date and timestamp.
 - **Idempotency**: Dismissals and manual completions require an `Idempotency-Key` header matching `^[A-Za-z0-9._:-]{1,128}$`.
   - The first invocation inserts the disposition record and updates policy in a single database transaction (`201 Created`).
-  - An exact replay with the same key returns the existing record (`200 OK`) without re-evaluating, re-mutating policy,
-    or creating duplicate audit events.
+  - Idempotency is key-dominant: the first successful request wins. A replay with the same key and customer returns the
+    original record (`200 OK`) without re-evaluating, re-mutating policy, changing the original notes, or creating
+    duplicate audit events, even when the replay supplies different notes.
   - Reusing an idempotency key with a different customer ID rejects with `409 Conflict`.
 
 ### Security, Tenant Isolation, and Privacy Invariants

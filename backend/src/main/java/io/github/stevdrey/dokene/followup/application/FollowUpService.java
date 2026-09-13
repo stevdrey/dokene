@@ -110,6 +110,7 @@ public class FollowUpService {
     @Transactional
     public ManualFollowUpResult recordManualFollowUp(CustomerId customerId, long expectedVersion,
             String idempotencyKey, String notes) {
+        String validatedNotes = validateNotes(notes);
         Customer customer = requireCustomerForUpdate(customerId, TenantPermission.FOLLOWUP_WRITE);
         var existing = policies.findCompletion(customer.tenantId(), idempotencyKey);
         if (existing.isPresent()) {
@@ -126,7 +127,7 @@ public class FollowUpService {
         LocalDate today = evaluation.tenantDate();
         var context = contexts.requireCurrent();
         var result = policies.recordManualFollowUp(customer.tenantId(), customer.id(), today, expectedVersion,
-                idempotencyKey, occurredAt, context.identityId(), context.membershipId(), notes);
+                idempotencyKey, occurredAt, context.identityId(), context.membershipId(), validatedNotes);
         if (result.created()) {
             audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
                     AuditEventType.MANUAL_FOLLOW_UP_RECORDED);
@@ -143,6 +144,7 @@ public class FollowUpService {
     @Transactional
     public FollowUpDismissalResult dismiss(CustomerId customerId, long expectedVersion,
             String idempotencyKey, String notes) {
+        String validatedNotes = validateNotes(notes);
         Customer customer = requireCustomerForUpdate(customerId, TenantPermission.FOLLOWUP_WRITE);
         var existing = policies.findDismissal(customer.tenantId(), idempotencyKey);
         if (existing.isPresent()) {
@@ -159,7 +161,7 @@ public class FollowUpService {
         LocalDate today = evaluation.tenantDate();
         var context = contexts.requireCurrent();
         var result = policies.recordDismissal(customer.tenantId(), customer.id(), today, expectedVersion,
-                idempotencyKey, occurredAt, context.identityId(), context.membershipId(), notes);
+                idempotencyKey, occurredAt, context.identityId(), context.membershipId(), validatedNotes);
         if (result.created()) {
             audit.followUpMutated(AuditTarget.Type.CUSTOMER, customer.id().value(),
                     AuditEventType.FOLLOW_UP_DISMISSED);
@@ -194,6 +196,13 @@ public class FollowUpService {
     private boolean hasHardEligibilityFailure(FollowUpEvaluation evaluation) {
         return evaluation.status() == FollowUpStatus.INELIGIBLE
                 && evaluation.reasons().stream().anyMatch(reason -> reason != FollowUpReason.NO_PURCHASE_HISTORY);
+    }
+
+    private String validateNotes(String notes) {
+        if (notes != null && notes.length() > 500) {
+            throw new IllegalArgumentException("Notes cannot exceed 500 characters");
+        }
+        return notes;
     }
 
     private Customer requireCustomer(CustomerId customerId, TenantPermission permission) {

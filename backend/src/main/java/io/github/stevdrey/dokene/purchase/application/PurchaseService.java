@@ -47,7 +47,7 @@ public class PurchaseService {
 
     @Transactional
     public RecordResult record(CustomerId customerId, Instant purchasedAt, String description, String idempotencyKey) {
-        Customer customer = requireCustomer(customerId, TenantPermission.PURCHASE_WRITE);
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.PURCHASE_WRITE);
         Instant purchaseTime = validatePurchasedAt(purchasedAt);
         String key = validateKey(idempotencyKey);
         Purchase candidate = Purchase.create(new PurchaseId(UUID.randomUUID()), customer.tenantId(), customer.id(),
@@ -91,7 +91,7 @@ public class PurchaseService {
     @Transactional
     public Purchase correct(CustomerId customerId, PurchaseId purchaseId, Instant purchasedAt,
             String description, long expectedVersion) {
-        Customer customer = requireCustomer(customerId, TenantPermission.PURCHASE_WRITE);
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.PURCHASE_WRITE);
         Purchase purchase = find(customer, purchaseId);
         authorization.requireResourceAccess(TenantPermission.PURCHASE_WRITE, purchase);
         requireVersion(purchase, expectedVersion);
@@ -103,7 +103,7 @@ public class PurchaseService {
 
     @Transactional
     public void voidPurchase(CustomerId customerId, PurchaseId purchaseId, long expectedVersion) {
-        Customer customer = requireCustomer(customerId, TenantPermission.PURCHASE_WRITE);
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.PURCHASE_WRITE);
         Purchase purchase = find(customer, purchaseId);
         authorization.requireResourceAccess(TenantPermission.PURCHASE_WRITE, purchase);
         requireVersion(purchase, expectedVersion);
@@ -128,6 +128,14 @@ public class PurchaseService {
         authorization.requirePermission(permission);
         Customer customer = customers.findById(contexts.requireCurrent().tenantId(), Objects.requireNonNull(id))
                 .orElseThrow(CustomerNotFoundException::new);
+        authorization.requireResourceAccess(permission, customer);
+        return customer;
+    }
+
+    private Customer requireCustomerForUpdate(CustomerId id, TenantPermission permission) {
+        authorization.requirePermission(permission);
+        Customer customer = customers.findByIdForUpdate(contexts.requireCurrent().tenantId(),
+                Objects.requireNonNull(id)).orElseThrow(CustomerNotFoundException::new);
         authorization.requireResourceAccess(permission, customer);
         return customer;
     }
