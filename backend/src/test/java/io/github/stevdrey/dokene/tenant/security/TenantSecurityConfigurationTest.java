@@ -27,4 +27,15 @@ class TenantSecurityConfigurationTest {
         );
         assertThat(configuration.getAllowedHeaders()).contains("Idempotency-Key");
     }
+
+    @Test
+    void emptyCorsOriginsConfiguresNoAllowedOriginsRejectingCrossOriginRequests() {
+        CorsConfigurationSource source = new TenantSecurityConfiguration().corsConfigurationSource(List.of(" ", ""));
+
+        CorsConfiguration configuration = source.getCorsConfiguration(new MockHttpServletRequest("GET", "/api/session"));
+
+        assertThat(configuration).isNotNull();
+        assertThat(configuration.getAllowedOrigins()).isEmpty();
+        assertThat(configuration.checkOrigin("https://malicious.example.test")).isNull();
+    }
 }

@@ -36,6 +36,7 @@ dokene:
 
 server:
   shutdown: graceful
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
   servlet:
     session:
       timeout: ${DOKENE_SESSION_TIMEOUT:30m}
