@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSession } from '../../features/auth/SessionContext';
-import { useTenant } from '../../features/tenants/TenantContext';
+import { useTenant, formatTenantRole } from '../../features/tenants/TenantContext';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
 export type ActiveTab = 'seguimientos' | 'clientes' | 'configuracion' | 'mas';
@@ -15,7 +15,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('seguimientos');
 
   const initials = identityId ? identityId.substring(0, 2).toUpperCase() : 'OP';
-  const roleLabel = activeWorkspace?.role === 'TENANT_ADMIN' ? 'Administradora' : 'Operador';
+  const roleLabel = formatTenantRole(activeWorkspace?.role);
 
   return (
     <div className="dokene-app-layout">
@@ -185,7 +185,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="material-symbols-outlined" style={{ color: 'var(--color-brand)', fontSize: '24px' }}>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ color: 'var(--color-brand)', fontSize: '24px' }}>
                 spa
               </span>
               <span
@@ -227,7 +227,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 onClick={() => setActiveTab('seguimientos')}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                     assignment_turned_in
                   </span>
                   <span>Seguimientos</span>
@@ -241,7 +241,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 onClick={() => setActiveTab('clientes')}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                     group
                   </span>
                   <span>Clientes</span>
@@ -273,7 +273,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 onClick={() => setActiveTab('configuracion')}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                     settings
                   </span>
                   <span>Configuración</span>
@@ -328,7 +328,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                 logout
               </span>
               <span>Cerrar sesión</span>
@@ -341,7 +341,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       <header className="desktop-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: 'var(--font-size-secondary)' }}>
           <span style={{ color: 'var(--color-text-muted)' }}>Dokene</span>
-          <span className="material-symbols-outlined" style={{ fontSize: '14px', color: 'var(--color-text-muted)' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px', color: 'var(--color-text-muted)' }}>
             chevron_right
           </span>
           <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
@@ -364,7 +364,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
               color: 'var(--color-on-primary)',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
               person
             </span>
           </div>
@@ -409,7 +409,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             alignItems: 'center',
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
             logout
           </span>
         </button>
@@ -449,7 +449,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           aria-current={activeTab === 'seguimientos' ? 'page' : undefined}
           onClick={() => setActiveTab('seguimientos')}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>
             assignment_turned_in
           </span>
           <span style={{ marginTop: '2px' }}>Seguimientos</span>
@@ -461,7 +461,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           aria-current={activeTab === 'clientes' ? 'page' : undefined}
           onClick={() => setActiveTab('clientes')}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>
             group
           </span>
           <span style={{ marginTop: '2px' }}>Clientes</span>
@@ -473,7 +473,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           aria-current={activeTab === 'mas' ? 'page' : undefined}
           onClick={() => setActiveTab('mas')}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>
             more_horiz
           </span>
           <span style={{ marginTop: '2px' }}>Más</span>

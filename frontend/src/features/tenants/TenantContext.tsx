@@ -2,10 +2,29 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { apiClient, StaleSessionError, AbortedTenantRequestError } from '../../api/apiClient';
 import { useSession } from '../auth/SessionContext';
 
+export type TenantRoleType = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER';
+
+export function formatTenantRole(role?: string | null): string {
+  switch (role) {
+    case 'OWNER':
+      return 'Propietario(a)';
+    case 'ADMIN':
+    case 'TENANT_ADMIN':
+      return 'Administrador(a)';
+    case 'OPERATOR':
+    case 'TENANT_OPERATOR':
+      return 'Operador(a)';
+    case 'VIEWER':
+      return 'Lector(a)';
+    default:
+      return role || 'Miembro';
+  }
+}
+
 export interface Workspace {
   tenantId: string;
   displayName: string;
-  role: string;
+  role: TenantRoleType | string;
 }
 
 export type TenantStatus = 'loading' | 'no-memberships' | 'ready' | 'error';
@@ -22,7 +41,11 @@ export interface TenantContextValue {
 
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 
-const STORAGE_KEY = 'dokene_active_tenant_id';
+const LEGACY_STORAGE_KEY = 'dokene_active_tenant_id';
+
+export function getTenantStorageKey(identityId: string | null | undefined): string {
+  return identityId ? `dokene_active_tenant_id_${identityId}` : LEGACY_STORAGE_KEY;
+}
 
 export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { status: sessionStatus, identityId } = useSession();
@@ -32,6 +55,8 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [error, setError] = useState<string | null>(null);
   const refreshGenerationRef = useRef(0);
 
+  const storageKey = getTenantStorageKey(identityId);
+
   const switchWorkspace = useCallback(
     (tenantId: string) => {
       const found = workspaces.find((w) => w.tenantId === tenantId);
@@ -39,13 +64,13 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         apiClient.setCurrentTenantId(found.tenantId);
         setActiveWorkspace(found);
         try {
-          sessionStorage.setItem(STORAGE_KEY, found.tenantId);
+          sessionStorage.setItem(storageKey, found.tenantId);
         } catch {
           // ignore storage error
         }
       }
     },
-    [workspaces]
+    [workspaces, storageKey]
   );
 
   const refreshWorkspaces = useCallback(async () => {
@@ -76,7 +101,8 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setActiveWorkspace(null);
         apiClient.setCurrentTenantId(null);
         try {
-          sessionStorage.removeItem(STORAGE_KEY);
+          sessionStorage.removeItem(storageKey);
+          sessionStorage.removeItem(LEGACY_STORAGE_KEY);
         } catch {
           // ignore
         }
@@ -86,7 +112,7 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Check persisted workspace or choose first
       let selected: Workspace | undefined;
       try {
-        const savedId = sessionStorage.getItem(STORAGE_KEY);
+        const savedId = sessionStorage.getItem(storageKey) || sessionStorage.getItem(LEGACY_STORAGE_KEY);
         if (savedId) {
           selected = list.find((w) => w.tenantId === savedId);
         }
@@ -101,7 +127,7 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setActiveWorkspace(selected);
       apiClient.setCurrentTenantId(selected.tenantId);
       try {
-        sessionStorage.setItem(STORAGE_KEY, selected.tenantId);
+        sessionStorage.setItem(storageKey, selected.tenantId);
       } catch {
         // ignore
       }
@@ -117,7 +143,7 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setError(err instanceof Error ? err.message : 'Error al cargar espacios de trabajo');
       setStatus('error');
     }
-  }, [sessionStatus]);
+  }, [sessionStatus, storageKey]);
 
   const provisionWorkspace = useCallback(
     async (displayName: string, idempotencyKey?: string): Promise<Workspace> => {
@@ -136,32 +162,40 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       apiClient.setCurrentTenantId(newWs.tenantId);
       setActiveWorkspace(newWs);
       try {
-        sessionStorage.setItem(STORAGE_KEY, newWs.tenantId);
+        sessionStorage.setItem(storageKey, newWs.tenantId);
       } catch {
         // ignore
       }
       setStatus('ready');
       return newWs;
     },
-    []
+    [storageKey]
   );
 
   useEffect(() => {
     refreshGenerationRef.current++;
     if (sessionStatus === 'authenticated') {
       refreshWorkspaces();
-    } else {
+    } else if (sessionStatus === 'unauthenticated') {
+      // Only wipe persisted storage when definitively unauthenticated
       setStatus('loading');
       setWorkspaces([]);
       setActiveWorkspace(null);
       apiClient.setCurrentTenantId(null);
       try {
-        sessionStorage.removeItem(STORAGE_KEY);
+        sessionStorage.removeItem(storageKey);
+        sessionStorage.removeItem(LEGACY_STORAGE_KEY);
       } catch {
         // ignore
       }
+    } else {
+      // 'loading' or 'error': keep sessionStorage untouched so selection is retained once session is resolved
+      setStatus('loading');
+      setWorkspaces([]);
+      setActiveWorkspace(null);
+      apiClient.setCurrentTenantId(null);
     }
-  }, [sessionStatus, identityId, refreshWorkspaces]);
+  }, [sessionStatus, identityId, storageKey, refreshWorkspaces]);
 
   return (
     <TenantContext.Provider

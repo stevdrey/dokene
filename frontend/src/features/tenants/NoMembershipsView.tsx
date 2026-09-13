@@ -61,7 +61,7 @@ export const NoMembershipsView: React.FC = () => {
             marginBottom: '16px',
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '28px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '28px' }}>
             domain_disabled
           </span>
         </div>
@@ -158,7 +158,7 @@ export const NoMembershipsView: React.FC = () => {
               gap: '8px',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
               add_business
             </span>
             <span>{isSubmitting ? 'Creando espacio...' : 'Crear espacio de trabajo'}</span>

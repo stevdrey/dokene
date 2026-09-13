@@ -96,7 +96,7 @@ class OidcBrowserSessionIntegrationTest {
         HttpResponse<String> firstCallback = authenticate(firstBrowser, TokenMode.VALID);
         assertThat(firstCallback.statusCode()).isEqualTo(302);
         assertThat(countMappings()).isEqualTo(1);
-        assertThat(firstCallback.headers().firstValue("Location").orElseThrow()).endsWith("/api/session");
+        assertThat(firstCallback.headers().firstValue("Location").orElseThrow()).endsWith("/");
 
         HttpResponse<String> firstSession = get(firstBrowser, "/api/session");
         assertThat(firstSession.statusCode()).isEqualTo(200);

@@ -109,7 +109,7 @@ class TenantSecurityConfiguration {
         if (clientRegistrations.getIfAvailable() != null) {
             http.oauth2Login(oauth -> oauth
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
-                    .defaultSuccessUrl("/api/session", true));
+                    .defaultSuccessUrl("/", true));
         }
         return http.build();
     }

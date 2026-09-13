@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useTenant, Workspace } from '../../features/tenants/TenantContext';
+import { useTenant, Workspace, formatTenantRole } from '../../features/tenants/TenantContext';
 import { ApiError } from '../../api/apiClient';
 
 export interface WorkspaceSelectorProps {
@@ -101,17 +101,6 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
     }
   };
 
-  const formatRole = (role: string) => {
-    switch (role) {
-      case 'TENANT_ADMIN':
-        return 'Administrador';
-      case 'TENANT_OPERATOR':
-        return 'Operador';
-      default:
-        return role;
-    }
-  };
-
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
       <button
@@ -139,7 +128,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', flex: 1 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--color-text-muted)' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px', color: 'var(--color-text-muted)' }}>
             store
           </span>
           <span
@@ -154,7 +143,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
             {activeWorkspace ? activeWorkspace.displayName : 'Seleccionar espacio'}
           </span>
         </div>
-        <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--color-text-muted)' }}>
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '16px', color: 'var(--color-text-muted)' }}>
           unfold_more
         </span>
       </button>
@@ -191,6 +180,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                   role="option"
                   aria-selected={isSelected}
                   tabIndex={0}
+                  className="workspace-option"
                   onClick={() => handleSelect(ws)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -209,7 +199,6 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                     color: isSelected ? 'var(--color-brand)' : 'var(--color-text-main)',
                     fontWeight: isSelected ? 600 : 400,
                     fontSize: 'var(--font-size-secondary)',
-                    outline: 'none',
                     minHeight: '44px',
                   }}
                 >
@@ -218,11 +207,11 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                       {ws.displayName}
                     </span>
                     <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
-                      {formatRole(ws.role)}
+                      {formatTenantRole(ws.role)}
                     </span>
                   </div>
                   {isSelected && (
-                    <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--color-primary)' }}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px', color: 'var(--color-primary)' }}>
                       check
                     </span>
                   )}
@@ -325,7 +314,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 minHeight: '44px',
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                 add_business
               </span>
               <span>Nuevo espacio de trabajo</span>
@@ -333,6 +322,12 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
           )}
         </div>
       )}
+      <style>{`
+        .workspace-option:focus-visible {
+          outline: 2px solid var(--color-primary);
+          outline-offset: -2px;
+        }
+      `}</style>
     </div>
   );
 };

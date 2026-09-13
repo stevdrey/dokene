@@ -117,9 +117,6 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
     checkSessionGenerationRef.current++;
     try {
       await apiClient.post<void>('/logout');
-    } catch {
-      // Even if network fails, clear client session state
-    } finally {
       wasAuthenticatedRef.current = false;
       apiClient.setCsrfToken(null);
       apiClient.setCurrentTenantId(null);
@@ -129,6 +126,10 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
       setWasExpired(false);
       setError(null);
       setStatus('unauthenticated');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al cerrar sesión';
+      setError(msg);
+      throw err;
     }
   }, []);
 

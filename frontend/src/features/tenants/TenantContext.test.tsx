@@ -423,4 +423,61 @@ describe('TenantContext', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Fast Workspace');
   });
+
+  it('preserves saved workspace in sessionStorage during initial loading state and restores it on authenticated', async () => {
+    sessionStorage.setItem('dokene_active_tenant_id_user-persisted', 'tenant-2');
+
+    let sessionStatusState: 'loading' | 'authenticated' = 'loading';
+    const mockUseSession = vi.mocked(useSession);
+
+    mockUseSession.mockImplementation(() => ({
+      status: sessionStatusState,
+      identityId: 'user-persisted',
+      csrfToken: 'csrf-1',
+      wasExpired: false,
+      error: null,
+      loginUrl: '/login',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    } as SessionContextValue));
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/tenants') {
+        return new Response(
+          JSON.stringify([
+            { tenantId: 'tenant-1', displayName: 'Café Artesano', role: 'ADMIN' },
+            { tenantId: 'tenant-2', displayName: 'Taller Mecánico', role: 'OPERATOR' },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const { rerender } = render(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    // In loading state: sessionStorage MUST NOT be wiped!
+    expect(sessionStorage.getItem('dokene_active_tenant_id_user-persisted')).toBe('tenant-2');
+    expect(screen.getByTestId('status')).toHaveTextContent('loading');
+
+    // Now session becomes authenticated
+    sessionStatusState = 'authenticated';
+    rerender(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status')).toHaveTextContent('ready');
+    });
+
+    // Tenant 2 must be selected because it was preserved in sessionStorage
+    expect(screen.getByTestId('activeTenantId')).toHaveTextContent('tenant-2');
+    expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Taller Mecánico');
+  });
 });

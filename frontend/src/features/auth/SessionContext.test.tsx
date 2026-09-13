@@ -12,7 +12,7 @@ const TestSessionConsumer: React.FC = () => {
       <div data-testid="identityId">{identityId || 'none'}</div>
       <div data-testid="wasExpired">{wasExpired ? 'yes' : 'no'}</div>
       <div data-testid="error">{error || 'none'}</div>
-      <button onClick={() => logout()}>Cerrar sesión</button>
+      <button onClick={() => logout().catch(() => {})}>Cerrar sesión</button>
       <button onClick={() => checkSession()}>Reintentar sesión</button>
     </div>
   );
@@ -288,5 +288,45 @@ describe('SessionContext', () => {
     expect(screen.getByTestId('identityId')).toHaveTextContent('none');
     expect(screen.getByTestId('error')).toHaveTextContent('none');
     expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+  });
+
+  it('retains authenticated state and surfaces error when logout fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/session') {
+        return new Response(
+          JSON.stringify({
+            authenticated: true,
+            identityId: 'user-keep',
+            csrfToken: 'csrf-keep',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url === '/logout') {
+        return new Response(JSON.stringify({ message: 'Internal Server Error' }), { status: 500 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(
+      <SessionProvider>
+        <TestSessionConsumer />
+      </SessionProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status')).toHaveTextContent('authenticated');
+    });
+
+    await act(async () => {
+      screen.getByText('Cerrar sesión').click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error')).not.toHaveTextContent('none');
+    });
+    // Must remain authenticated, not unauthenticated!
+    expect(screen.getByTestId('status')).toHaveTextContent('authenticated');
+    expect(screen.getByTestId('identityId')).toHaveTextContent('user-keep');
   });
 });

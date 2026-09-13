@@ -25,7 +25,7 @@ const MainAppContent: React.FC = () => {
           gap: '12px',
         }}
       >
-        <span className="material-symbols-outlined" style={{ animation: 'spin 1s linear infinite' }}>
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }}>
           progress_activity
         </span>
         <span>Cargando Dokene...</span>
@@ -63,7 +63,7 @@ const MainAppContent: React.FC = () => {
             textAlign: 'center',
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '32px', color: 'var(--color-error-text)', marginBottom: '8px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: 'var(--color-error-text)', marginBottom: '8px' }}>
             wifi_off
           </span>
           <h2 style={{ fontSize: 'var(--font-size-section-heading)', margin: '0 0 8px' }}>Error de conexión</h2>
@@ -111,7 +111,7 @@ const MainAppContent: React.FC = () => {
           gap: '12px',
         }}
       >
-        <span className="material-symbols-outlined" style={{ animation: 'spin 1s linear infinite' }}>
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }}>
           progress_activity
         </span>
         <span>Cargando espacios de trabajo...</span>
@@ -153,7 +153,7 @@ const MainAppContent: React.FC = () => {
             textAlign: 'center',
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '32px', color: 'var(--color-error-text)', marginBottom: '8px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: 'var(--color-error-text)', marginBottom: '8px' }}>
             error
           </span>
           <h2 style={{ fontSize: 'var(--font-size-section-heading)', margin: '0 0 8px' }}>Error de conexión</h2>

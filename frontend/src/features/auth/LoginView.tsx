@@ -44,7 +44,7 @@ export const LoginView: React.FC = () => {
             marginBottom: '16px',
           }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '30px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '30px' }}>
             spa
           </span>
         </div>
@@ -90,7 +90,7 @@ export const LoginView: React.FC = () => {
               gap: '8px',
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
               warning
             </span>
             <span>Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente.</span>
@@ -120,7 +120,7 @@ export const LoginView: React.FC = () => {
           onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-primary-hover)')}
           onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-primary)')}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
             login
           </span>
           <span>Iniciar sesión con OIDC</span>

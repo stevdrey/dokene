@@ -10,9 +10,13 @@ vi.mock('../../features/auth/SessionContext', () => ({
   useSession: vi.fn(),
 }));
 
-vi.mock('../../features/tenants/TenantContext', () => ({
-  useTenant: vi.fn(),
-}));
+vi.mock('../../features/tenants/TenantContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../features/tenants/TenantContext')>();
+  return {
+    ...actual,
+    useTenant: vi.fn(),
+  };
+});
 
 describe('AppShell', () => {
   const mockLogout = vi.fn();
@@ -35,10 +39,10 @@ describe('AppShell', () => {
     vi.mocked(useTenant).mockReturnValue({
       status: 'ready',
       workspaces: [
-        { tenantId: 't-1', displayName: 'Café & Taller Artesano', role: 'TENANT_ADMIN' },
-        { tenantId: 't-2', displayName: 'Floristería del Valle', role: 'TENANT_OPERATOR' },
+        { tenantId: 't-1', displayName: 'Café & Taller Artesano', role: 'ADMIN' },
+        { tenantId: 't-2', displayName: 'Floristería del Valle', role: 'OPERATOR' },
       ],
-      activeWorkspace: { tenantId: 't-1', displayName: 'Café & Taller Artesano', role: 'TENANT_ADMIN' },
+      activeWorkspace: { tenantId: 't-1', displayName: 'Café & Taller Artesano', role: 'ADMIN' },
       error: null,
       switchWorkspace: mockSwitchWorkspace,
       refreshWorkspaces: vi.fn(),
@@ -59,7 +63,7 @@ describe('AppShell', () => {
 
     // User initials (first two characters uppercase of identityId "d45b...")
     expect(screen.getByText('D4')).toBeInTheDocument();
-    expect(screen.getByText('Administradora')).toBeInTheDocument();
+    expect(screen.getByText('Administrador(a)')).toBeInTheDocument();
   });
 
   it('switches tabs when clicking navigation buttons', () => {
