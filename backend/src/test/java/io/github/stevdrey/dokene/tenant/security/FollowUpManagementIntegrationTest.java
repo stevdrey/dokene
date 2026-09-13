@@ -250,8 +250,9 @@ class FollowUpManagementIntegrationTest {
     void dismissAdvancesCadenceCycleAndClearsSnooze() throws Exception {
         grantWhatsAppConsent(customer);
         inContext(contextA, () -> followUps.configureTenant(14, ZoneId.of("America/Costa_Rica"), 0));
-        var configured = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, LocalDate.now(), 0));
-        var snoozed = inContext(contextA, () -> followUps.snooze(customer.id(), LocalDate.now(), configured.version()));
+        LocalDate tenantToday = LocalDate.now(ZoneId.of("America/Costa_Rica"));
+        var configured = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, tenantToday, 0));
+        var snoozed = inContext(contextA, () -> followUps.snooze(customer.id(), tenantToday, configured.version()));
 
         var first = inContext(contextA, () -> followUps.dismiss(customer.id(), snoozed.version(),
                 "dismiss-integration-1", "Dismissed for now"));

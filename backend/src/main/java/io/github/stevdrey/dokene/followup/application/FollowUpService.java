@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.CustomerFollowUpPolicy;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.followup.domain.FollowUpPolicyEvaluator;
+import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
@@ -118,7 +119,7 @@ public class FollowUpService {
             return new ManualFollowUpResult(existing.get(), false);
         }
         FollowUpEvaluation evaluation = evaluateCustomer(customer);
-        if (evaluation.status() == FollowUpStatus.INELIGIBLE) {
+        if (hasHardEligibilityFailure(evaluation)) {
             throw new FollowUpConflictException();
         }
         Instant occurredAt = evaluation.evaluatedAt();
@@ -188,6 +189,11 @@ public class FollowUpService {
         var lastPurchase = purchases.lastValid(customer.tenantId(), customer.id())
                 .map(purchase -> purchase.purchasedAt()).orElse(null);
         return evaluator.evaluate(customer, contacts.find(customer), tenantPolicy, customerPolicy, lastPurchase);
+    }
+
+    private boolean hasHardEligibilityFailure(FollowUpEvaluation evaluation) {
+        return evaluation.status() == FollowUpStatus.INELIGIBLE
+                && evaluation.reasons().stream().anyMatch(reason -> reason != FollowUpReason.NO_PURCHASE_HISTORY);
     }
 
     private Customer requireCustomer(CustomerId customerId, TenantPermission permission) {

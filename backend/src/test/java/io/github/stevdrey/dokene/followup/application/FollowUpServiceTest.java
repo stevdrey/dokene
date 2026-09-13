@@ -163,6 +163,22 @@ class FollowUpServiceTest {
     }
 
     @Test
+    void recordManualFollowUpAllowsEligibleCustomerWithoutPurchaseHistory() {
+        LocalDate expectedDate = fixedInstant.atZone(tenantZone).toLocalDate();
+        when(policies.customerPolicy(tenantId, customerId)).thenReturn(
+                new CustomerFollowUpPolicy(tenantId, customerId, null, null, null, null, 0));
+        var completion = new ManualFollowUpCompletion(UUID.randomUUID(), tenantId, customerId,
+                expectedDate, 1, fixedInstant, identityId, membershipId);
+        when(policies.recordManualFollowUp(eq(tenantId), eq(customerId), eq(expectedDate), eq(0L),
+                eq("idem-key-no-purchase"), eq(fixedInstant), eq(identityId), eq(membershipId), eq(null)))
+                .thenReturn(new ManualFollowUpResult(completion, true));
+
+        var result = service.recordManualFollowUp(customerId, 0, "idem-key-no-purchase");
+
+        assertThat(result).isEqualTo(new ManualFollowUpResult(completion, true));
+    }
+
+    @Test
     void dismissRecordsDismissalAndEmitsAudit() {
         LocalDate expectedDate = fixedInstant.atZone(tenantZone).toLocalDate();
         var dismissal = new FollowUpDismissal(UUID.randomUUID(), tenantId, customerId,
