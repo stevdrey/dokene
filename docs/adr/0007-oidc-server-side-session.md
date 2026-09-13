@@ -24,7 +24,7 @@ and never receives or handles OAuth access tokens, refresh tokens, ID tokens, or
 
 Login begins when the browser navigates to `/oauth2/authorization/{registrationId}`, and the registered provider
 callback is `/login/oauth2/code/{registrationId}`. Spring Security handles the Authorization Code exchange as a
-confidential client, performs provider discovery, and validates state, PKCE verifier, token signatures, issuer,
+confidential client, performs provider discovery, and enforces PKCE (RFC 7636 with S256 `code_challenge` and `code_verifier` validation) alongside state, token signatures, issuer,
 audience, nonce, and temporal validity claims before any internal identity adaptation occurs.
 
 The adapter takes only the framework-validated, case-sensitive `(issuer, subject)` pair. PostgreSQL resolves it
