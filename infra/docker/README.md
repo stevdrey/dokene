@@ -39,7 +39,7 @@ A reproducible local Keycloak service is provided for OIDC BFF authorization-cod
 
 ### Startup and realm import
 
-Keycloak is defined in `compose.yaml` with an explicit image version (`quay.io/keycloak/keycloak:26.1.3`) and runs in development mode (`start-dev --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080.
+Keycloak is defined in `compose.yaml` with an explicit image version (`quay.io/keycloak/keycloak:26.7.3`) and runs in development mode (`start-dev --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080. Local bootstrap administrator credentials are configured via `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` in `.env`.
 
 To start both PostgreSQL and Keycloak together:
 

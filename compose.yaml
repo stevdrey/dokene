@@ -19,17 +19,17 @@ services:
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.1.3
+    image: quay.io/keycloak/keycloak:26.7.3
     entrypoint:
       - /bin/bash
       - -c
       - |
-        if [ -z "$$KEYCLOAK_ADMIN" ]; then
-          echo "Error: Set KEYCLOAK_ADMIN in .env" >&2
+        if [ -z "$$KC_BOOTSTRAP_ADMIN_USERNAME" ]; then
+          echo "Error: Set KC_BOOTSTRAP_ADMIN_USERNAME in .env" >&2
           exit 1
         fi
-        if [ -z "$$KEYCLOAK_ADMIN_PASSWORD" ]; then
-          echo "Error: Set KEYCLOAK_ADMIN_PASSWORD in .env" >&2
+        if [ -z "$$KC_BOOTSTRAP_ADMIN_PASSWORD" ]; then
+          echo "Error: Set KC_BOOTSTRAP_ADMIN_PASSWORD in .env" >&2
           exit 1
         fi
         if [ -z "$$DOKENE_OIDC_CLIENT_SECRET" ]; then
@@ -40,9 +40,19 @@ services:
           local str="$$1"
           str="$${str//\\/\\\\}"
           str="$${str//\"/\\\"}"
+          str="$${str//$$'\b'/\\b}"
+          str="$${str//$$'\f'/\\f}"
           str="$${str//$$'\n'/\\n}"
           str="$${str//$$'\r'/\\r}"
           str="$${str//$$'\t'/\\t}"
+          for i in $$(seq 1 31); do
+            case "$$i" in
+              8|9|10|12|13) continue ;;
+            esac
+            printf -v hex "%02x" "$$i"
+            printf -v ctrl "%b" "\x$$hex"
+            str="$${str//$$ctrl/\\u00$$hex}"
+          done
           printf "%s" "$$str"
         }
         mkdir -p /opt/keycloak/data/import
@@ -54,8 +64,8 @@ services:
         printf "%s\n" "$$content" > /opt/keycloak/data/import/dokene-realm.json
         exec /opt/keycloak/bin/kc.sh start-dev --import-realm
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-}
       DOKENE_OIDC_CLIENT_SECRET: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-}
       DOKENE_TEST_USER_PASSWORD: ${DOKENE_TEST_USER_PASSWORD:-testpassword}
     ports:
