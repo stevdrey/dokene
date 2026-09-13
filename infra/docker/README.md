@@ -39,7 +39,7 @@ A reproducible local Keycloak service is provided for OIDC BFF authorization-cod
 
 ### Startup and realm import
 
-Keycloak is defined in `compose.yaml` with an explicit image version (`quay.io/keycloak/keycloak:26.1.3`) and runs in development mode (`start-dev --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:8081:8080`) to prevent collisions with the Spring Boot application on port 8080.
+Keycloak is defined in `compose.yaml` with an explicit image version (`quay.io/keycloak/keycloak:26.1.3`) and runs in development mode (`start-dev --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080.
 
 To start both PostgreSQL and Keycloak together:
 
@@ -68,7 +68,8 @@ In accordance with Security Invariant #14, Keycloak authenticates external ident
 Verify the imported realm and OIDC configuration:
 
 ```bash
-curl -fsS http://localhost:8081/realms/dokene/.well-known/openid-configuration | jq .
+set -a; [ -f .env ] && . ./.env; set +a
+curl -fsS "http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene/.well-known/openid-configuration" | jq .
 ```
 
 ### Development test user
