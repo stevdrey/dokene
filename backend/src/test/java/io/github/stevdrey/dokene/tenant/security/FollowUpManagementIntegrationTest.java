@@ -148,9 +148,10 @@ class FollowUpManagementIntegrationTest {
     void manualCompletionIsIdempotentAndAuditsEachTransitionOnce() throws Exception {
         grantWhatsAppConsent(customer);
         var tenant = inContext(contextA, () -> followUps.configureTenant(14, ZoneId.of("America/Costa_Rica"), 0));
+        LocalDate tenantToday = LocalDate.now(ZoneId.of("America/Costa_Rica"));
         var configured = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7,
-                LocalDate.now(), 0));
-        var snoozed = inContext(contextA, () -> followUps.snooze(customer.id(), LocalDate.now().plusDays(1),
+                tenantToday, 0));
+        var snoozed = inContext(contextA, () -> followUps.snooze(customer.id(), tenantToday.plusDays(1),
                 configured.version()));
         var first = inContext(contextA, () -> followUps.recordManualFollowUp(customer.id(), snoozed.version(),
                 "manual-integration-1", "Spoke with client"));
