@@ -88,4 +88,27 @@ describe('PurchaseSection', () => {
       );
     });
   });
+
+  it('validates invalid or missing purchase date without throwing unhandled exceptions', async () => {
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Registrar compra/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+
+    const descInput = screen.getByLabelText(/Descripción de la compra/i);
+    fireEvent.change(descInput, { target: { value: 'Compra de prueba' } });
+
+    const dateInput = screen.getByLabelText(/Fecha y hora de la compra/i);
+    fireEvent.change(dateInput, { target: { value: '' } });
+
+    const form = screen.getByRole('dialog', { name: /Registrar nueva compra/i }).querySelector('form')!;
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/La fecha y hora de la compra es obligatoria/i);
+    });
+  });
 });

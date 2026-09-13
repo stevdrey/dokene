@@ -85,11 +85,16 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
       return;
     }
 
-    const selectedInstant = new Date(purchaseDate).toISOString();
-    if (new Date(purchaseDate).getTime() > Date.now()) {
+    if (!purchaseDate || isNaN(new Date(purchaseDate).getTime())) {
+      setModalError('La fecha y hora de la compra es obligatoria y debe ser válida.');
+      return;
+    }
+    const parsedDate = new Date(purchaseDate);
+    if (parsedDate.getTime() > Date.now()) {
       setModalError('La fecha de la compra no puede estar en el futuro.');
       return;
     }
+    const selectedInstant = parsedDate.toISOString();
 
     setIsSubmitting(true);
     try {
@@ -129,11 +134,16 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
       return;
     }
 
-    const selectedInstant = new Date(purchaseDate).toISOString();
-    if (new Date(purchaseDate).getTime() > Date.now()) {
+    if (!purchaseDate || isNaN(new Date(purchaseDate).getTime())) {
+      setModalError('La fecha y hora de la compra es obligatoria y debe ser válida.');
+      return;
+    }
+    const parsedEditDate = new Date(purchaseDate);
+    if (parsedEditDate.getTime() > Date.now()) {
       setModalError('La fecha de la compra no puede estar en el futuro.');
       return;
     }
+    const selectedInstant = parsedEditDate.toISOString();
 
     setIsSubmitting(true);
     try {

@@ -117,4 +117,41 @@ describe('ConsentSection', () => {
       );
     });
   });
+
+  it('renders audit history modal with correct labels for DO_NOT_CONTACT_CHANGED', async () => {
+    vi.spyOn(customerApi, 'getContactPolicyHistory').mockResolvedValue({
+      events: [
+        {
+          id: 'evt-1',
+          type: 'DO_NOT_CONTACT_CHANGED',
+          contactId: '',
+          channel: 'WHATSAPP',
+          consentStatus: null as any,
+          doNotContact: true,
+          source: 'CUSTOMER_VERBAL',
+          occurredAt: '2025-01-14T10:00:00Z',
+          actorId: 'act-1',
+          membershipId: 'mem-1',
+          policyVersion: 2
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Historial/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Historial/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /Historial de consentimientos y políticas/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Protocolo No contactar')).toBeInTheDocument();
+    expect(screen.getByText(/Restricción activada \(No contactar\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Desconocido \(No solicitado\)/i)).not.toBeInTheDocument();
+  });
 });

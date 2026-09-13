@@ -12,7 +12,7 @@ interface CustomerFormModalProps {
   customerToEdit?: CustomerResponse | null;
 }
 
-const SUPPORTED_REGIONS = [
+export const SUPPORTED_REGIONS = [
   { code: 'CL', label: 'Chile (+56)' },
   { code: 'AR', label: 'Argentina (+54)' },
   { code: 'CO', label: 'Colombia (+57)' },
@@ -21,6 +21,19 @@ const SUPPORTED_REGIONS = [
   { code: 'ES', label: 'España (+34)' },
   { code: 'US', label: 'Estados Unidos (+1)' }
 ];
+
+export function detectRegionFromE164(e164?: string | null): string {
+  if (!e164) return 'CL';
+  const clean = e164.trim();
+  if (clean.startsWith('+56')) return 'CL';
+  if (clean.startsWith('+54')) return 'AR';
+  if (clean.startsWith('+57')) return 'CO';
+  if (clean.startsWith('+51')) return 'PE';
+  if (clean.startsWith('+52')) return 'MX';
+  if (clean.startsWith('+34')) return 'ES';
+  if (clean.startsWith('+1')) return 'US';
+  return 'CL';
+}
 
 export function CustomerFormModal({
   isOpen,
@@ -46,7 +59,7 @@ export function CustomerFormModal({
         setPhones(
           customerToEdit.phones.map((p) => ({
             number: p.e164,
-            region: 'CL',
+            region: detectRegionFromE164(p.e164),
             primary: p.primary
           }))
         );

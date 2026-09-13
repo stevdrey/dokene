@@ -42,8 +42,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       border = '1px solid transparent';
     }
 
-    const minHeight = size === 'sm' ? '36px' : '44px';
-    const padding = size === 'sm' ? 'var(--space-4) var(--space-12)' : 'var(--space-8) var(--space-16)';
+    const minHeight = '44px';
+    const padding = size === 'sm' ? 'var(--space-8) var(--space-12)' : 'var(--space-8) var(--space-16)';
 
     return (
       <button

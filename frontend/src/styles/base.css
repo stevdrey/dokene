@@ -76,3 +76,33 @@ button:disabled, input:disabled, select:disabled, textarea:disabled {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* Layout & Responsive Shell */
+.desktop-sidebar {
+  display: none;
+  flex-direction: column;
+}
+
+.mobile-bottom-nav {
+  display: flex;
+}
+
+.app-main-content {
+  margin-left: 0;
+  padding-bottom: 76px;
+}
+
+@media (min-width: 769px) {
+  .desktop-sidebar {
+    display: flex;
+  }
+
+  .mobile-bottom-nav {
+    display: none;
+  }
+
+  .app-main-content {
+    margin-left: var(--sidebar-width);
+    padding-bottom: var(--space-32);
+  }
+}

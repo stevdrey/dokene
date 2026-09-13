@@ -101,4 +101,55 @@ describe('CustomerFormModal', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/Conflicto/i);
     });
   });
+
+  it('detects region correctly and preserves international country code when editing', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    const customerToEdit = {
+      id: 'cust-arg-1',
+      displayName: 'Martín Palermo',
+      notes: 'Contacto Buenos Aires',
+      phones: [{ id: 'p-arg', e164: '+5491112345678', primary: true }],
+      status: 'ACTIVE' as const,
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      archivedAt: null
+    };
+
+    vi.spyOn(customerApi, 'updateCustomer').mockResolvedValueOnce({
+      ...customerToEdit,
+      version: 2
+    });
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+        customerToEdit={customerToEdit}
+      />
+    );
+
+    expect(screen.getByRole('dialog', { name: /Editar cliente/i })).toBeInTheDocument();
+
+    const regionSelect = screen.getByLabelText(/Región para teléfono 1/i) as HTMLSelectElement;
+    expect(regionSelect.value).toBe('AR');
+
+    const submitBtn = screen.getByRole('button', { name: /Guardar cambios/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(customerApi.updateCustomer).toHaveBeenCalledWith(
+        'cust-arg-1',
+        1,
+        expect.objectContaining({
+          phones: [{ number: '+5491112345678', region: 'AR', primary: true }]
+        })
+      );
+      expect(onSaved).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
 });

@@ -517,28 +517,46 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
           {historyEvents && historyEvents.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
-              {historyEvents.map((evt) => (
-                <div
-                  key={evt.id}
-                  style={{
-                    padding: 'var(--space-12)',
-                    backgroundColor: 'var(--color-surface-inset)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-outline-subtle)',
-                    fontSize: 'var(--font-size-dense)'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600 }}>{evt.type}</span>
-                    <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
-                      {formatDate(evt.occurredAt)}
-                    </span>
+              {historyEvents.map((evt) => {
+                const isDncEvent = evt.type === 'DO_NOT_CONTACT_CHANGED';
+                const eventTitle = isDncEvent ? 'Protocolo No contactar' : 'Consentimiento WhatsApp';
+                const eventStatusText = isDncEvent
+                  ? (evt.doNotContact ? 'Restricción activada (No contactar)' : 'Restricción desactivada')
+                  : formatStatus(evt.consentStatus);
+                const badgeVariant = isDncEvent
+                  ? (evt.doNotContact ? 'error' : 'success')
+                  : (evt.consentStatus === 'GRANTED' ? 'success' : evt.consentStatus === 'REVOKED' ? 'error' : 'warning');
+
+                return (
+                  <div
+                    key={evt.id}
+                    style={{
+                      padding: 'var(--space-12)',
+                      backgroundColor: 'var(--color-surface-inset)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-outline-subtle)',
+                      fontSize: 'var(--font-size-dense)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+                        <span style={{ fontWeight: 600 }}>{eventTitle}</span>
+                        <Badge variant={badgeVariant}>
+                          {isDncEvent
+                            ? (evt.doNotContact ? 'No contactar' : 'Permitido')
+                            : (evt.consentStatus === 'GRANTED' ? 'Concedido' : evt.consentStatus === 'REVOKED' ? 'Revocado' : 'Desconocido')}
+                        </Badge>
+                      </div>
+                      <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
+                        {formatDate(evt.occurredAt)}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: '4px', color: 'var(--color-text-supporting)' }}>
+                      Estado: {eventStatusText} • Fuente: {formatSource(evt.source)}
+                    </div>
                   </div>
-                  <div style={{ marginTop: '4px', color: 'var(--color-text-supporting)' }}>
-                    Estado: {formatStatus(evt.consentStatus)} • Fuente: {formatSource(evt.source)}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p style={{ color: 'var(--color-text-supporting)', fontSize: 'var(--font-size-dense)' }}>
