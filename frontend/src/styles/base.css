@@ -1,0 +1,108 @@
+@import './tokens.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-family-sans);
+  color: var(--color-text-main);
+  background-color: var(--color-canvas-desktop);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--color-canvas-desktop);
+}
+
+@media (max-width: 768px) {
+  body {
+    background-color: var(--color-canvas-mobile);
+  }
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+button:disabled, input:disabled, select:disabled, textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Accessible focus ring (2px offset) */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Ensure accessible hit target minimum */
+.interactive-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Utility classes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Layout & Responsive Shell */
+.desktop-sidebar {
+  display: none;
+  flex-direction: column;
+}
+
+.mobile-bottom-nav {
+  display: flex;
+}
+
+.app-main-content {
+  margin-left: 0;
+  padding-bottom: 76px;
+}
+
+@media (min-width: 769px) {
+  .desktop-sidebar {
+    display: flex;
+  }
+
+  .mobile-bottom-nav {
+    display: none;
+  }
+
+  .app-main-content {
+    margin-left: var(--sidebar-width);
+    padding-bottom: var(--space-32);
+  }
+}
