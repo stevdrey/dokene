@@ -104,8 +104,9 @@ body {
 }
 
 /* Base Accessible Interactive Target (min 44x44) */
-button, a.nav-link, select, input[type="button"], input[type="submit"] {
+button, a.nav-link, select, input[type="button"], input[type="submit"], .interactive-target {
   min-height: 44px;
+  min-width: 44px;
 }
 
 /* Material Symbols Outlined (Self-hosted) */

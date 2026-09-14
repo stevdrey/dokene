@@ -43,6 +43,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     }
 
     const minHeight = '44px';
+    const minWidth = '44px';
     const padding = size === 'sm' ? 'var(--space-8) var(--space-12)' : 'var(--space-8) var(--space-16)';
 
     return (
@@ -57,6 +58,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           borderRadius: 'var(--radius-md)',
           padding,
           minHeight,
+          minWidth,
           fontWeight: 500,
           fontSize: size === 'sm' ? 'var(--font-size-meta)' : 'var(--font-size-dense)',
           display: 'inline-flex',

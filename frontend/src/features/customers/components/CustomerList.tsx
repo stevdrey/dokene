@@ -200,7 +200,11 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+        <div
+          role="group"
+          aria-label="Filtrar por estado del cliente"
+          style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}
+        >
           {(['ACTIVE', 'ARCHIVED', 'ALL'] as const).map((st) => {
             const isSelected = statusFilter === st;
             const labels = { ACTIVE: 'Activos', ARCHIVED: 'Archivados', ALL: 'Todos' };
@@ -209,6 +213,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
                 key={st}
                 variant={isSelected ? 'primary' : 'ghost'}
                 size="sm"
+                aria-pressed={isSelected}
                 onClick={() => setStatusFilter(st)}
               >
                 {labels[st]}

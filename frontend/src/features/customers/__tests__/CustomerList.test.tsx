@@ -80,6 +80,9 @@ describe('CustomerList', () => {
       expect(customerApi.listCustomers).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'ACTIVE' })
       );
+      expect(screen.getByRole('button', { name: 'Activos' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Archivados' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'false');
     });
 
     const archivedTab = screen.getByRole('button', { name: 'Archivados' });
@@ -89,6 +92,9 @@ describe('CustomerList', () => {
       expect(customerApi.listCustomers).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'ARCHIVED' })
       );
+      expect(screen.getByRole('button', { name: 'Activos' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Archivados' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'false');
     });
 
     const allTab = screen.getByRole('button', { name: 'Todos' });
@@ -98,6 +104,9 @@ describe('CustomerList', () => {
       expect(customerApi.listCustomers).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'ALL' })
       );
+      expect(screen.getByRole('button', { name: 'Activos' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Archivados' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Todos' })).toHaveAttribute('aria-pressed', 'true');
     });
   });
 
