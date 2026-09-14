@@ -14,7 +14,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
   const [provisionError, setProvisionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
-  const lastAttemptedNameRef = useRef<string | null>(null);
+  const attemptedKeysRef = useRef<Map<string, string>>(new Map());
 
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -22,15 +22,24 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
 
   const handleNameChange = (val: string) => {
     setNewWorkspaceName(val);
-    if (lastAttemptedNameRef.current !== null && val.trim() !== lastAttemptedNameRef.current) {
-      setOperationKey(crypto.randomUUID());
-      lastAttemptedNameRef.current = null;
+    const trimmed = val.trim();
+    if (attemptedKeysRef.current.has(trimmed)) {
+      setOperationKey(attemptedKeysRef.current.get(trimmed)!);
+    } else {
+      const isCurrentKeyAttempted = Array.from(attemptedKeysRef.current.values()).includes(operationKey);
+      if (isCurrentKeyAttempted) {
+        setOperationKey(crypto.randomUUID());
+      }
     }
   };
 
   const handleStartCreate = () => {
-    setOperationKey(crypto.randomUUID());
-    lastAttemptedNameRef.current = null;
+    const trimmed = newWorkspaceName.trim();
+    if (attemptedKeysRef.current.has(trimmed)) {
+      setOperationKey(attemptedKeysRef.current.get(trimmed)!);
+    } else if (!trimmed) {
+      setOperationKey(crypto.randomUUID());
+    }
     setProvisionError(null);
     setIsCreating(true);
   };
@@ -39,7 +48,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
     setIsCreating(false);
     setProvisionError(null);
     setNewWorkspaceName('');
-    lastAttemptedNameRef.current = null;
+    attemptedKeysRef.current.clear();
     setOperationKey(crypto.randomUUID());
   };
 
@@ -85,7 +94,11 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
     e.preventDefault();
     const trimmed = newWorkspaceName.trim();
     if (!trimmed) return;
-    lastAttemptedNameRef.current = trimmed;
+    if (trimmed.length > 160) {
+      setProvisionError('El nombre del espacio de trabajo no puede exceder los 160 caracteres.');
+      return;
+    }
+    attemptedKeysRef.current.set(trimmed, operationKey);
     setIsSubmitting(true);
     setProvisionError(null);
     try {
@@ -93,15 +106,15 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
       setNewWorkspaceName('');
       setIsCreating(false);
       setIsOpen(false);
+      attemptedKeysRef.current.clear();
       setOperationKey(crypto.randomUUID());
-      lastAttemptedNameRef.current = null;
       triggerRef.current?.focus();
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
           setProvisionError('Ya existe un espacio de trabajo con este nombre.');
         } else if (err.status === 400) {
-          setProvisionError('El nombre del espacio de trabajo no es válido.');
+          setProvisionError('El nombre del espacio de trabajo no es válido o excede los 160 caracteres.');
         } else if (err.status === 403) {
           setProvisionError('No tienes permisos para crear espacios de trabajo.');
         } else {
@@ -249,6 +262,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 onChange={(e) => handleNameChange(e.target.value)}
                 placeholder="Nombre del negocio"
                 disabled={isSubmitting}
+                maxLength={160}
                 aria-label="Nombre del nuevo negocio"
                 style={{
                   width: '100%',

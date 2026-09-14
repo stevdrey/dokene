@@ -458,7 +458,19 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
               type="button"
               onClick={() => setLogoutError(null)}
               aria-label="Cerrar aviso de error"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center' }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'inherit',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '44px',
+                minHeight: '44px',
+                padding: '10px',
+                borderRadius: 'var(--radius-sm)',
+              }}
             >
               <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                 close

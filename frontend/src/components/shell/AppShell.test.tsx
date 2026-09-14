@@ -105,6 +105,7 @@ describe('AppShell', () => {
     expect(screen.getByText('Fallo de red al cerrar sesión')).toBeInTheDocument();
 
     const dismissBtn = screen.getByRole('button', { name: 'Cerrar aviso de error' });
+    expect(dismissBtn).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
     fireEvent.click(dismissBtn);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -211,5 +212,97 @@ describe('AppShell', () => {
     expect(secondCallKey).toBeDefined();
     expect(secondCallKey).not.toBe(firstCallKey);
     expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Segundo Nombre', secondCallKey);
+  });
+
+  it('restores the attempted idempotency key when returning to the attempted name in WorkspaceSelector', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(500, 'Server Error'));
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    fireEvent.change(input, { target: { value: 'Nombre Original' } });
+
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const originalKey = mockProvisionWorkspace.mock.calls[0][1];
+
+    // Change to another name
+    fireEvent.change(input, { target: { value: 'Nombre Temporal' } });
+
+    // Change back to original name
+    fireEvent.change(input, { target: { value: 'Nombre Original' } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-orig',
+      displayName: 'Nombre Original',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const restoredKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(restoredKey).toBe(originalKey);
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Nombre Original', originalKey);
+  });
+
+  it('retains the existing idempotency key when reopening an unfinished creation in WorkspaceSelector', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(500, 'Server Error'));
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    fireEvent.change(input, { target: { value: 'Borrador Inconcluso' } });
+
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const initialKey = mockProvisionWorkspace.mock.calls[0][1];
+
+    // Close the dropdown via Escape
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    // Reopen dropdown and reopen creation form
+    fireEvent.click(selectorButton);
+    const reopenButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(reopenButton);
+
+    // The name is preserved
+    const reopenedInput = screen.getByLabelText('Nombre del nuevo negocio') as HTMLInputElement;
+    expect(reopenedInput.value).toBe('Borrador Inconcluso');
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-unf',
+      displayName: 'Borrador Inconcluso',
+      role: 'TENANT_ADMIN',
+    });
+
+    const submitRetryButton = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(submitRetryButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const retryKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(retryKey).toBe(initialKey);
   });
 });

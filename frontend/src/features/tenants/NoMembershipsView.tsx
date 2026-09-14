@@ -12,13 +12,18 @@ export const NoMembershipsView: React.FC = () => {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isProvisioningForbidden, setIsProvisioningForbidden] = useState(false);
   const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
-  const lastAttemptedNameRef = useRef<string | null>(null);
+  const attemptedKeysRef = useRef<Map<string, string>>(new Map());
 
   const handleNameChange = (val: string) => {
     setWorkspaceName(val);
-    if (lastAttemptedNameRef.current !== null && val.trim() !== lastAttemptedNameRef.current) {
-      setOperationKey(crypto.randomUUID());
-      lastAttemptedNameRef.current = null;
+    const trimmed = val.trim();
+    if (attemptedKeysRef.current.has(trimmed)) {
+      setOperationKey(attemptedKeysRef.current.get(trimmed)!);
+    } else {
+      const isCurrentKeyAttempted = Array.from(attemptedKeysRef.current.values()).includes(operationKey);
+      if (isCurrentKeyAttempted) {
+        setOperationKey(crypto.randomUUID());
+      }
     }
   };
 
@@ -35,13 +40,17 @@ export const NoMembershipsView: React.FC = () => {
     e.preventDefault();
     const trimmed = workspaceName.trim();
     if (!trimmed) return;
-    lastAttemptedNameRef.current = trimmed;
+    if (trimmed.length > 160) {
+      setError('El nombre del espacio no puede exceder los 160 caracteres.');
+      return;
+    }
+    attemptedKeysRef.current.set(trimmed, operationKey);
     setIsSubmitting(true);
     setError(null);
     try {
       await provisionWorkspace(trimmed, operationKey);
+      attemptedKeysRef.current.clear();
       setOperationKey(crypto.randomUUID());
-      lastAttemptedNameRef.current = null;
     } catch (err) {
       if (
         err instanceof ForbiddenError ||
@@ -50,6 +59,14 @@ export const NoMembershipsView: React.FC = () => {
       ) {
         setIsProvisioningForbidden(true);
         setError(null);
+      } else if (err instanceof ApiError) {
+        if (err.status === 400) {
+          setError('El nombre del espacio de trabajo no es válido o excede los 160 caracteres.');
+        } else if (err.status === 409) {
+          setError('Ya existe un espacio de trabajo con este nombre.');
+        } else {
+          setError('No se pudo crear el espacio de trabajo. Inténtalo nuevamente.');
+        }
       } else {
         setError(err instanceof Error ? err.message : 'Error al crear el espacio');
       }
@@ -199,6 +216,7 @@ export const NoMembershipsView: React.FC = () => {
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="Ej. Café & Taller Artesano"
               disabled={isSubmitting}
+              maxLength={160}
               required
               style={{
                 width: '100%',
@@ -267,7 +285,19 @@ export const NoMembershipsView: React.FC = () => {
               type="button"
               onClick={() => setLogoutError(null)}
               aria-label="Cerrar aviso de error de cierre de sesión"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center' }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'inherit',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '44px',
+                minHeight: '44px',
+                padding: '10px',
+                borderRadius: 'var(--radius-sm)',
+              }}
             >
               <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
                 close

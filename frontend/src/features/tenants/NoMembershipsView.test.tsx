@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NoMembershipsView } from './NoMembershipsView';
 import { useTenant } from './TenantContext';
 import { useSession } from '../auth/SessionContext';
+import { ApiError } from '../../api/apiClient';
 
 vi.mock('./TenantContext', () => ({
   useTenant: vi.fn(),
@@ -146,7 +147,77 @@ describe('NoMembershipsView', () => {
     expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Mi Pastelería', secondKey);
   });
 
-  it('handles logout rejection and displays retryable error alert', async () => {
+  it('restores the attempted idempotency key when returning to the attempted workspace name', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new Error('Network timeout'));
+    render(<NoMembershipsView />);
+
+    const input = screen.getByLabelText(/Nombre del negocio/i);
+    fireEvent.change(input, { target: { value: 'Mi Panadería' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Crear espacio de trabajo/i });
+
+    // First attempt with original name
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const firstKey = mockProvisionWorkspace.mock.calls[0][1];
+
+    // Change the name to a different business name
+    fireEvent.change(input, { target: { value: 'Mi Pastelería' } });
+
+    // Return to the first name
+    fireEvent.change(input, { target: { value: 'Mi Panadería' } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-1',
+      displayName: 'Mi Panadería',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const restoredKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(restoredKey).toBe(firstKey);
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Mi Panadería', firstKey);
+  });
+
+  it('validates workspace name length client-side and maps 400 server validation errors', async () => {
+    render(<NoMembershipsView />);
+
+    const input = screen.getByLabelText(/Nombre del negocio/i);
+    const submitBtn = screen.getByRole('button', { name: /Crear espacio de trabajo/i });
+
+    // Client-side length validation (> 160 chars)
+    const tooLongName = 'A'.repeat(161);
+    fireEvent.change(input, { target: { value: tooLongName } });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).not.toHaveBeenCalled();
+    expect(screen.getByText('El nombre del espacio no puede exceder los 160 caracteres.')).toBeInTheDocument();
+
+    // Server-side 400 validation mapping
+    fireEvent.change(input, { target: { value: 'Nombre Inválido Servidor' } });
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(400, 'Bad Request'));
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText('El nombre del espacio de trabajo no es válido o excede los 160 caracteres.')
+    ).toBeInTheDocument();
+  });
+
+  it('handles logout rejection and displays retryable error alert with accessible touch target', async () => {
     mockLogout.mockRejectedValueOnce(new Error('Fallo de red al cerrar sesión'));
     render(<NoMembershipsView />);
 
@@ -160,6 +231,7 @@ describe('NoMembershipsView', () => {
     expect(screen.getByText('Fallo de red al cerrar sesión')).toBeInTheDocument();
 
     const dismissBtn = screen.getByRole('button', { name: /Cerrar aviso de error de cierre de sesión/i });
+    expect(dismissBtn).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
     fireEvent.click(dismissBtn);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
