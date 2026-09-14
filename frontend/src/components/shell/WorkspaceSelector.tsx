@@ -14,13 +14,23 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
   const [provisionError, setProvisionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
+  const lastAttemptedNameRef = useRef<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const handleNameChange = (val: string) => {
+    setNewWorkspaceName(val);
+    if (lastAttemptedNameRef.current !== null && val.trim() !== lastAttemptedNameRef.current) {
+      setOperationKey(crypto.randomUUID());
+      lastAttemptedNameRef.current = null;
+    }
+  };
+
   const handleStartCreate = () => {
     setOperationKey(crypto.randomUUID());
+    lastAttemptedNameRef.current = null;
     setProvisionError(null);
     setIsCreating(true);
   };
@@ -29,6 +39,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
     setIsCreating(false);
     setProvisionError(null);
     setNewWorkspaceName('');
+    lastAttemptedNameRef.current = null;
     setOperationKey(crypto.randomUUID());
   };
 
@@ -72,15 +83,18 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkspaceName.trim()) return;
+    const trimmed = newWorkspaceName.trim();
+    if (!trimmed) return;
+    lastAttemptedNameRef.current = trimmed;
     setIsSubmitting(true);
     setProvisionError(null);
     try {
-      await provisionWorkspace(newWorkspaceName.trim(), operationKey);
+      await provisionWorkspace(trimmed, operationKey);
       setNewWorkspaceName('');
       setIsCreating(false);
       setIsOpen(false);
       setOperationKey(crypto.randomUUID());
+      lastAttemptedNameRef.current = null;
       triggerRef.current?.focus();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -232,7 +246,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 ref={inputRef}
                 type="text"
                 value={newWorkspaceName}
-                onChange={(e) => setNewWorkspaceName(e.target.value)}
+                onChange={(e) => handleNameChange(e.target.value)}
                 placeholder="Nombre del negocio"
                 disabled={isSubmitting}
                 aria-label="Nombre del nuevo negocio"

@@ -171,4 +171,45 @@ describe('AppShell', () => {
     const secondCallKey = mockProvisionWorkspace.mock.calls[1][1];
     expect(secondCallKey).toBe(firstCallKey);
   });
+
+  it('renews idempotency key when changing workspace name in workspace selector after an attempt', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(500, 'Server Error'));
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    fireEvent.change(input, { target: { value: 'Primer Nombre' } });
+
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const firstCallKey = mockProvisionWorkspace.mock.calls[0][1];
+
+    // Change the name to a different name
+    fireEvent.change(input, { target: { value: 'Segundo Nombre' } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-3',
+      displayName: 'Segundo Nombre',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const secondCallKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(secondCallKey).toBeDefined();
+    expect(secondCallKey).not.toBe(firstCallKey);
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Segundo Nombre', secondCallKey);
+  });
 });

@@ -108,4 +108,59 @@ describe('NoMembershipsView', () => {
     expect(screen.queryByRole('button', { name: /Crear espacio de trabajo/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Cerrar sesión/i })).toBeInTheDocument();
   });
+
+  it('renews idempotency key when changing the workspace name after an attempted submission', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new Error('Conflict or timeout'));
+    render(<NoMembershipsView />);
+
+    const input = screen.getByLabelText(/Nombre del negocio/i);
+    fireEvent.change(input, { target: { value: 'Mi Panadería' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Crear espacio de trabajo/i });
+
+    // First attempt with original name
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const firstKey = mockProvisionWorkspace.mock.calls[0][1];
+
+    // Change the name to a different business name
+    fireEvent.change(input, { target: { value: 'Mi Pastelería' } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-new',
+      displayName: 'Mi Pastelería',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const secondKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(secondKey).toBeDefined();
+    expect(secondKey).not.toBe(firstKey);
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Mi Pastelería', secondKey);
+  });
+
+  it('handles logout rejection and displays retryable error alert', async () => {
+    mockLogout.mockRejectedValueOnce(new Error('Fallo de red al cerrar sesión'));
+    render(<NoMembershipsView />);
+
+    const logoutBtn = screen.getByRole('button', { name: /Cerrar sesión/i });
+    await act(async () => {
+      fireEvent.click(logoutBtn);
+    });
+
+    expect(mockLogout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText('Fallo de red al cerrar sesión')).toBeInTheDocument();
+
+    const dismissBtn = screen.getByRole('button', { name: /Cerrar aviso de error de cierre de sesión/i });
+    fireEvent.click(dismissBtn);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
