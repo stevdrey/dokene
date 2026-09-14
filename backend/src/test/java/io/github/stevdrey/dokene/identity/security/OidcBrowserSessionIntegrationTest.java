@@ -101,7 +101,16 @@ class OidcBrowserSessionIntegrationTest {
         HttpResponse<String> firstCallback = authenticate(firstBrowser, TokenMode.VALID);
         assertThat(firstCallback.statusCode()).isEqualTo(302);
         assertThat(countMappings()).isEqualTo(1);
-        assertThat(firstCallback.headers().firstValue("Location").orElseThrow()).endsWith("/");
+        String callbackLocation = firstCallback.headers().firstValue("Location").orElseThrow();
+        assertThat(callbackLocation).endsWith("/");
+        assertThat(callbackLocation).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET);
+
+        List<String> setCookies = firstCallback.headers().allValues("Set-Cookie");
+        assertThat(setCookies).anySatisfy(cookie -> {
+            assertThat(cookie).containsIgnoringCase("JSESSIONID=");
+            assertThat(cookie).containsIgnoringCase("HttpOnly");
+            assertThat(cookie).containsIgnoringCase("SameSite=Lax");
+        });
 
         HttpResponse<String> firstSession = get(firstBrowser, "/api/session");
         assertThat(firstSession.statusCode()).isEqualTo(200);
@@ -117,7 +126,7 @@ class OidcBrowserSessionIntegrationTest {
 
         assertThat(secondBody.path("identityId").asText()).isEqualTo(firstBody.path("identityId").asText());
         assertThat(countMappings()).isEqualTo(1);
-        assertThat(firstSession.body()).doesNotContain("access_token", "id_token", "refresh_token");
+        assertThat(firstSession.body()).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET);
     }
 
     @Test
@@ -162,6 +171,13 @@ class OidcBrowserSessionIntegrationTest {
                 .isEqualTo(204);
         awaitSessionExpiration(authenticated);
         assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+
+        // Expired sessions can recover through a new login
+        HttpResponse<String> reauthCallback = authenticate(authenticated, TokenMode.VALID);
+        assertThat(reauthCallback.statusCode()).isEqualTo(302);
+        HttpResponse<String> recoveredSession = get(authenticated, "/api/session");
+        assertThat(recoveredSession.statusCode()).isEqualTo(200);
+        assertThat(objectMapper.readTree(recoveredSession.body()).path("authenticated").asBoolean()).isTrue();
     }
 
     private void awaitSessionExpiration(Browser browser) throws Exception {
@@ -179,11 +195,22 @@ class OidcBrowserSessionIntegrationTest {
         Browser authenticated = browser();
         authenticate(authenticated, TokenMode.VALID);
         JsonNode session = objectMapper.readTree(get(authenticated, "/api/session").body());
+        String loggedOutSessionId = sessionId(authenticated);
 
         assertThat(post(authenticated, "/logout", null).statusCode()).isEqualTo(403);
         assertThat(post(authenticated, "/logout", "invalid-token").statusCode()).isEqualTo(403);
-        assertThat(post(authenticated, "/logout", session.path("csrfToken").asText()).statusCode()).isEqualTo(204);
+        HttpResponse<String> logoutResponse = post(authenticated, "/logout", session.path("csrfToken").asText());
+        assertThat(logoutResponse.statusCode()).isEqualTo(204);
         assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+
+        // Reuse of logged-out session identifier must fail closed
+        HttpRequest staleSessionRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/session"))
+                .header("Cookie", "JSESSIONID=" + loggedOutSessionId)
+                .GET()
+                .build();
+        HttpResponse<String> staleResponse = HttpClient.newHttpClient()
+                .send(staleSessionRequest, HttpResponse.BodyHandlers.ofString());
+        assertThat(staleResponse.statusCode()).isEqualTo(401);
     }
 
     @Test

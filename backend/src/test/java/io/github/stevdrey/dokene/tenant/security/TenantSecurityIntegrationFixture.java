@@ -60,12 +60,12 @@ public final class TenantSecurityIntegrationFixture {
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
     }
 
-    static Tenant seedTenant(TenantRepository tenants, String displayName, Instant createdAt) {
+    public static Tenant seedTenant(TenantRepository tenants, String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
         return tenants.save(tenant);
     }
 
-    static TenantMembership seedMembership(
+    public static TenantMembership seedMembership(
             TenantMembershipRepository memberships,
             TenantContextProvider contexts,
             TenantId tenantId,
@@ -80,7 +80,7 @@ public final class TenantSecurityIntegrationFixture {
         return membership;
     }
 
-    static TenantContext context(TenantMembership membership) {
+    public static TenantContext context(TenantMembership membership) {
         return new TenantContext(
                 membership.tenantId(), membership.identityId(), membership.id(), membership.role(), membership.status()
         );
