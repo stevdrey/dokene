@@ -110,7 +110,8 @@ set -a; [ -f .env ] && . ./.env; set +a
 | --- | --- | --- | --- | --- |
 | Authenticated identity without membership | Authenticated user (Charlie) calls `GET /api/tenants` | `200 OK` with empty list `[]` | Empty array returned | PASS |
 | Authenticated identity without membership accessing tenant API | Authenticated Charlie calls `GET /api/customers` with `X-Tenant-Id: <random-uuid>` | `403 Forbidden` | HTTP 403 fail-closed (no membership in nominated tenant) | PASS |
-| Cross-tenant customer isolation | User B (Tenant B) accesses User A's customer (`GET /api/customers/{idA}`) with `X-Tenant-Id: {tenantB}` | `404 Not Found` | Row Level Security ensures query yields empty result | PASS |
+| Cross-tenant customer isolation | User B (Tenant B) accesses User A's customer (`GET /api/customers/{idA}`) with `X-Tenant-Id: {tenantB}` | `404 Not Found` | Application tenant predicate (`WHERE tenant_id = ? AND id = ?`) yields empty result, returning 404 | PASS |
+| Independent PostgreSQL RLS enforcement | Direct runtime SQL under User B's signed database context selecting User A's customer ID without `tenant_id` predicate | 0 rows returned, 0 rows updated | PostgreSQL RLS policy filters out foreign rows independently of application predicates | PASS |
 | Forged tenant selector | User B accesses User A's customer with forged `X-Tenant-Id: {tenantA}` | `403 Forbidden` | Membership verification rejects foreign tenant selector | PASS |
 | Forged tenant list query | User B calls `GET /api/customers` with forged `X-Tenant-Id: {tenantA}` | `403 Forbidden` | Membership verification rejects selector | PASS |
 | Forged tenant mutation | User B calls `POST /api/customers` with forged `X-Tenant-Id: {tenantA}` | `403 Forbidden` | Membership verification rejects mutation | PASS |

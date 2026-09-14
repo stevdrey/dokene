@@ -86,7 +86,7 @@ public final class TenantSecurityIntegrationFixture {
         );
     }
 
-    static Connection runtimeConnection(SignedDatabaseContext context) throws SQLException {
+    public static Connection runtimeConnection(SignedDatabaseContext context) throws SQLException {
         Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), RUNTIME_ROLE, RUNTIME_PASSWORD);
         try (PreparedStatement settings = connection.prepareStatement(
                 "SELECT set_config(?, ?, false), set_config(?, ?, false)")) {

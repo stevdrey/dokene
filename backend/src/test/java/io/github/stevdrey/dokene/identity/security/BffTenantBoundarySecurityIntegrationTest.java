@@ -13,6 +13,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -36,6 +37,9 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
@@ -102,6 +106,9 @@ class BffTenantBoundarySecurityIntegrationTest {
 
     @Autowired
     private TenantContextProvider contexts;
+
+    @Autowired
+    private DatabaseContextSigner signer;
 
     @Test
     void authenticatedIdentityWithoutMembershipFailsClosedOnTenantApis() throws Exception {
@@ -171,9 +178,24 @@ class BffTenantBoundarySecurityIntegrationTest {
         HttpResponse<String> aliceRead = getWithTenant(alice, "/api/customers/" + aliceCustomerId, tenant1.id().value());
         assertThat(aliceRead.statusCode()).isEqualTo(200);
 
-        // 4. Bob attempts to access Alice's customer under Bob's tenant (guessed UUID) -> 404 (PostgreSQL RLS isolates rows)
+        // 4. Bob attempts to access Alice's customer under Bob's tenant (guessed UUID)
+        // -> 404 at application layer (enforced by JdbcCustomerRepository WHERE tenant_id = ? AND id = ?)
         HttpResponse<String> bobGuessedRead = getWithTenant(bob, "/api/customers/" + aliceCustomerId, tenant2.id().value());
         assertThat(bobGuessedRead.statusCode()).isEqualTo(404);
+
+        // Exercise PostgreSQL Row Level Security independently of the application repository WHERE predicate:
+        // Under Bob's signed database context, direct runtime SQL selecting Alice's ID without tenant_id predicate
+        // returns empty because the PostgreSQL RLS policy filters it out.
+        try (Connection bobConnection = TenantSecurityIntegrationFixture.runtimeConnection(signer.issueTenantContext(tenant2.id()));
+                PreparedStatement selectStmt = bobConnection.prepareStatement("SELECT id FROM dokene.customers WHERE id = ?");
+                PreparedStatement updateStmt = bobConnection.prepareStatement("UPDATE dokene.customers SET display_name = 'Hacked' WHERE id = ?")) {
+            selectStmt.setObject(1, aliceCustomerId);
+            try (ResultSet rs = selectStmt.executeQuery()) {
+                assertThat(rs.next()).isFalse();
+            }
+            updateStmt.setObject(1, aliceCustomerId);
+            assertThat(updateStmt.executeUpdate()).isZero();
+        }
 
         // 5. Bob attempts to access Tenant 1 by forging X-Tenant-Id -> 403 Forbidden (membership verification fails)
         HttpResponse<String> bobForgedRead = getWithTenant(bob, "/api/customers/" + aliceCustomerId, tenant1.id().value());
