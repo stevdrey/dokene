@@ -13,6 +13,16 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const { logout, identityId } = useSession();
   const { activeWorkspace } = useTenant();
   const [activeTab, setActiveTab] = useState<ActiveTab>('seguimientos');
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  const handleLogout = async () => {
+    setLogoutError(null);
+    try {
+      await logout();
+    } catch (err) {
+      setLogoutError(err instanceof Error ? err.message : 'Error al cerrar sesión');
+    }
+  };
 
   const initials = identityId ? identityId.substring(0, 2).toUpperCase() : 'OP';
   const roleLabel = formatTenantRole(activeWorkspace?.role);
@@ -113,7 +123,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           .desktop-main {
             margin-left: 0;
             margin-top: var(--header-height);
-            margin-bottom: var(--bottom-nav-height);
+            margin-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
             padding: var(--space-16);
             width: 100%;
           }
@@ -142,11 +152,12 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             bottom: 0;
             left: 0;
             right: 0;
-            height: var(--bottom-nav-height);
+            height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
             background-color: rgba(231, 255, 246, 0.95);
             backdrop-filter: blur(12px);
             border-top: 1px solid var(--color-outline);
             padding-bottom: env(safe-area-inset-bottom, 0px);
+            box-sizing: border-box;
             z-index: 50;
           }
 
@@ -320,7 +331,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
           <button
             type="button"
-            onClick={() => logout()}
+            onClick={handleLogout}
             className="nav-item"
             style={{
               color: 'var(--color-error-text)',
@@ -397,7 +408,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
         <button
           type="button"
-          onClick={() => logout()}
+          onClick={handleLogout}
           aria-label="Cerrar sesión"
           style={{
             background: 'none',
@@ -420,6 +431,41 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
       {/* MAIN CONTENT AREA */}
       <main className="desktop-main">
+        {logoutError && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: '16px',
+              padding: '12px 16px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-error-bg)',
+              color: 'var(--color-error-text)',
+              border: '1px solid var(--color-error-border)',
+              fontSize: 'var(--font-size-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
+                error
+              </span>
+              <span>{logoutError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLogoutError(null)}
+              aria-label="Cerrar aviso de error"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center' }}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
+                close
+              </span>
+            </button>
+          </div>
+        )}
         {children ? (
           children
         ) : (

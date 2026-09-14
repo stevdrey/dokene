@@ -39,7 +39,7 @@ or logs.
 Configure one provider with standard Spring Boot properties; the `.env.example` uses the registration ID `dokene`.
 At minimum set the client ID, client secret, scopes including `openid`, redirect URI, and provider issuer URI.
 Register `{baseUrl}/login/oauth2/code/dokene` as the provider callback and initiate login at
-`/oauth2/authorization/dokene`. A successful callback redirects to `GET /api/session`.
+`/oauth2/authorization/dokene`. A successful callback redirects to the frontend application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain authenticated session state.
 
 The callback validates authorization state and the provider's OIDC response through Spring Security. A valid
 issuer and subject are atomically mapped to a stable internal `IdentityId`; email and provider role claims are

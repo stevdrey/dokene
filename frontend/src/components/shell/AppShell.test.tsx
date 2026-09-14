@@ -91,6 +91,24 @@ describe('AppShell', () => {
     expect(mockLogout).toHaveBeenCalledTimes(1);
   });
 
+  it('displays error alert when logout fails and allows dismissal', async () => {
+    mockLogout.mockRejectedValueOnce(new Error('Fallo de red al cerrar sesión'));
+    render(<AppShell />);
+
+    const logoutButtons = screen.getAllByRole('button', { name: /Cerrar sesión/i });
+    await act(async () => {
+      logoutButtons[0].click();
+    });
+
+    expect(mockLogout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByText('Fallo de red al cerrar sesión')).toBeInTheDocument();
+
+    const dismissBtn = screen.getByRole('button', { name: 'Cerrar aviso de error' });
+    fireEvent.click(dismissBtn);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('opens workspace dropdown and switches workspace when an option is selected', () => {
     render(<AppShell />);
 

@@ -91,13 +91,14 @@ class TenantSecurityConfiguration {
             HttpSecurity http,
             TenantContextRequestFilter tenantContextRequestFilter,
             OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService,
-            ObjectProvider<ClientRegistrationRepository> clientRegistrations
+            ObjectProvider<ClientRegistrationRepository> clientRegistrations,
+            @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl
     )
             throws Exception {
         LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
 
         http.authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/oauth2/**", "/login/**", "/error").permitAll()
+                        .requestMatchers("/", "/oauth2/**", "/login/**", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/session").authenticated()
                         .anyRequest().authenticated())
                 .sessionManagement(session -> session
@@ -118,7 +119,7 @@ class TenantSecurityConfiguration {
         if (clientRegistrations.getIfAvailable() != null) {
             http.oauth2Login(oauth -> oauth
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
-                    .defaultSuccessUrl("/", true));
+                    .defaultSuccessUrl(postLoginRedirectUrl, true));
         }
         return http.build();
     }
