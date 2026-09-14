@@ -61,7 +61,7 @@ The BFF exposes a minimal same-origin session contract:
 
 1. **Login Initiation**: Navigating to `/oauth2/authorization/{registrationId}` (e.g., `/oauth2/authorization/dokene`)
    initiates the confidential authorization-code redirect to Keycloak/OIDC provider.
-2. **Post-Login Target**: The authentication success handler redirects to `GET /api/session`.
+2. **Post-Login Target**: The authentication success handler redirects to the application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain initial session state.
 3. **Session Check**: `GET /api/session` returns application-safe session metadata:
    `{ "authenticated": true, "identityId": "<uuid>", "csrfToken": "<token>" }`.
    Unauthenticated calls return `401 Unauthorized`.
