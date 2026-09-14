@@ -305,4 +305,107 @@ describe('AppShell', () => {
     const retryKey = mockProvisionWorkspace.mock.calls[1][1];
     expect(retryKey).toBe(initialKey);
   });
+
+  it('navigates to configuracion from the mobile Más opciones tab', () => {
+    render(<AppShell />);
+
+    const masTabBtn = screen.getByRole('button', { name: 'Más opciones', hidden: true });
+    fireEvent.click(masTabBtn);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Más opciones' })).toBeInTheDocument();
+
+    // Click the settings button inside the Más view
+    const settingsOptionBtn = screen.getByRole('button', { name: 'Abrir Configuración' });
+    fireEvent.click(settingsOptionBtn);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Configuración' })).toBeInTheDocument();
+  });
+
+  it('normalizes boundary whitespace characters identically to backend in WorkspaceSelector', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ApiError(500, 'Server Error'));
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    fireEvent.change(input, { target: { value: '\u0085Tienda Central\u001E' } });
+
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const firstKey = mockProvisionWorkspace.mock.calls[0][1];
+    expect(mockProvisionWorkspace).toHaveBeenCalledWith('Tienda Central', firstKey);
+
+    // Change to clean version without boundary characters
+    fireEvent.change(input, { target: { value: 'Tienda Central' } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-central',
+      displayName: 'Tienda Central',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const secondKey = mockProvisionWorkspace.mock.calls[1][1];
+    expect(secondKey).toBe(firstKey);
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Tienda Central', firstKey);
+  });
+
+  it('supports workspace names with supplementary characters up to 160 code points in WorkspaceSelector', async () => {
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+
+    // 100 emojis: 200 code units, 100 code points -> valid
+    const emojis100 = '🎉'.repeat(100);
+    fireEvent.change(input, { target: { value: emojis100 } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-emojis',
+      displayName: emojis100,
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(createButton);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    expect(mockProvisionWorkspace).toHaveBeenCalledWith(emojis100, expect.any(String));
+
+    // Reopen and test 161 emojis -> invalid
+    fireEvent.click(selectorButton);
+    fireEvent.click(screen.getByText('Nuevo espacio de trabajo'));
+    const input2 = screen.getByLabelText('Nombre del nuevo negocio');
+    const emojis161 = '🎉'.repeat(161);
+    fireEvent.change(input2, { target: { value: emojis161 } });
+
+    const createButton2 = screen.getByRole('button', { name: 'Crear' });
+    await act(async () => {
+      fireEvent.click(createButton2);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1); // not called again
+    expect(
+      screen.getByText('El nombre del espacio de trabajo no puede exceder los 160 caracteres.')
+    ).toBeInTheDocument();
+  });
 });

@@ -1,5 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useTenant, Workspace, formatTenantRole } from '../../features/tenants/TenantContext';
+import {
+  useTenant,
+  Workspace,
+  formatTenantRole,
+  normalizeWorkspaceName,
+  countCodePoints,
+  MAX_WORKSPACE_NAME_CODE_POINTS,
+} from '../../features/tenants/TenantContext';
 import { ApiError } from '../../api/apiClient';
 
 export interface WorkspaceSelectorProps {
@@ -22,9 +29,9 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
 
   const handleNameChange = (val: string) => {
     setNewWorkspaceName(val);
-    const trimmed = val.trim();
-    if (attemptedKeysRef.current.has(trimmed)) {
-      setOperationKey(attemptedKeysRef.current.get(trimmed)!);
+    const normalized = normalizeWorkspaceName(val);
+    if (attemptedKeysRef.current.has(normalized)) {
+      setOperationKey(attemptedKeysRef.current.get(normalized)!);
     } else {
       const isCurrentKeyAttempted = Array.from(attemptedKeysRef.current.values()).includes(operationKey);
       if (isCurrentKeyAttempted) {
@@ -34,10 +41,10 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
   };
 
   const handleStartCreate = () => {
-    const trimmed = newWorkspaceName.trim();
-    if (attemptedKeysRef.current.has(trimmed)) {
-      setOperationKey(attemptedKeysRef.current.get(trimmed)!);
-    } else if (!trimmed) {
+    const normalized = normalizeWorkspaceName(newWorkspaceName);
+    if (attemptedKeysRef.current.has(normalized)) {
+      setOperationKey(attemptedKeysRef.current.get(normalized)!);
+    } else if (!normalized) {
       setOperationKey(crypto.randomUUID());
     }
     setProvisionError(null);
@@ -92,17 +99,17 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = newWorkspaceName.trim();
-    if (!trimmed) return;
-    if (trimmed.length > 160) {
+    const normalized = normalizeWorkspaceName(newWorkspaceName);
+    if (!normalized) return;
+    if (countCodePoints(normalized) > MAX_WORKSPACE_NAME_CODE_POINTS) {
       setProvisionError('El nombre del espacio de trabajo no puede exceder los 160 caracteres.');
       return;
     }
-    attemptedKeysRef.current.set(trimmed, operationKey);
+    attemptedKeysRef.current.set(normalized, operationKey);
     setIsSubmitting(true);
     setProvisionError(null);
     try {
-      await provisionWorkspace(trimmed, operationKey);
+      await provisionWorkspace(normalized, operationKey);
       setNewWorkspaceName('');
       setIsCreating(false);
       setIsOpen(false);
@@ -262,7 +269,6 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 onChange={(e) => handleNameChange(e.target.value)}
                 placeholder="Nombre del negocio"
                 disabled={isSubmitting}
-                maxLength={160}
                 aria-label="Nombre del nuevo negocio"
                 style={{
                   width: '100%',

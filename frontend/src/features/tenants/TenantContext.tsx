@@ -21,6 +21,25 @@ export function formatTenantRole(role?: string | null): string {
   }
 }
 
+export const MAX_WORKSPACE_NAME_CODE_POINTS = 160;
+
+/**
+ * Counts Unicode code points in a string (handling surrogate pairs / supplementary characters).
+ */
+export function countCodePoints(str: string): number {
+  return Array.from(str).length;
+}
+
+const BACKEND_DISPLAY_NAME_WHITESPACE_REGEX = /^[\s\u0085\u001c-\u001f\p{Z}]+|[\s\u0085\u001c-\u001f\p{Z}]+$/gu;
+
+/**
+ * Normalizes a workspace display name matching backend Tenant.normalizeDisplayName whitespace stripping.
+ */
+export function normalizeWorkspaceName(name: string): string {
+  if (!name) return '';
+  return name.replace(BACKEND_DISPLAY_NAME_WHITESPACE_REGEX, '');
+}
+
 export interface Workspace {
   tenantId: string;
   displayName: string;

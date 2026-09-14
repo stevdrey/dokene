@@ -6,9 +6,13 @@ import { useTenant } from './TenantContext';
 import { useSession } from '../auth/SessionContext';
 import { ApiError } from '../../api/apiClient';
 
-vi.mock('./TenantContext', () => ({
-  useTenant: vi.fn(),
-}));
+vi.mock('./TenantContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./TenantContext')>();
+  return {
+    ...actual,
+    useTenant: vi.fn(),
+  };
+});
 
 vi.mock('../auth/SessionContext', () => ({
   useSession: vi.fn(),
@@ -234,5 +238,79 @@ describe('NoMembershipsView', () => {
     expect(dismissBtn).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
     fireEvent.click(dismissBtn);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('accepts names with supplementary characters up to 160 code points and rejects over 160 code points', async () => {
+    render(<NoMembershipsView />);
+
+    const input = screen.getByLabelText(/Nombre del negocio/i);
+    const submitBtn = screen.getByRole('button', { name: /Crear espacio de trabajo/i });
+
+    // 100 emojis: 200 UTF-16 code units but only 100 Unicode code points -> valid
+    const valid100Emojis = '🚀'.repeat(100);
+    fireEvent.change(input, { target: { value: valid100Emojis } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-emoji',
+      displayName: valid100Emojis,
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    expect(mockProvisionWorkspace).toHaveBeenCalledWith(valid100Emojis, expect.any(String));
+
+    // 161 emojis: 161 Unicode code points -> exceeds 160 limit
+    const tooManyEmojis = '🚀'.repeat(161);
+    fireEvent.change(input, { target: { value: tooManyEmojis } });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('El nombre del espacio no puede exceder los 160 caracteres.')).toBeInTheDocument();
+  });
+
+  it('normalizes boundary whitespace characters identically to backend for idempotency key association', async () => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new Error('Ambiguous network error'));
+    render(<NoMembershipsView />);
+
+    const input = screen.getByLabelText(/Nombre del negocio/i);
+    const submitBtn = screen.getByRole('button', { name: /Crear espacio de trabajo/i });
+
+    // Input with U+0085 (next line) and U+001F (unit separator)
+    const rawWithBoundary = '\u0085Café del Valle\u001F';
+    fireEvent.change(input, { target: { value: rawWithBoundary } });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    const firstKey = mockProvisionWorkspace.mock.calls[0][1];
+    expect(mockProvisionWorkspace).toHaveBeenCalledWith('Café del Valle', firstKey);
+
+    // User removes the invisible boundary characters, typing clean "Café del Valle"
+    fireEvent.change(input, { target: { value: 'Café del Valle' } });
+
+    mockProvisionWorkspace.mockResolvedValueOnce({
+      tenantId: 't-valle',
+      displayName: 'Café del Valle',
+      role: 'TENANT_ADMIN',
+    });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(2);
+    const secondKey = mockProvisionWorkspace.mock.calls[1][1];
+    // Key should be preserved because backend canonical name is identical!
+    expect(secondKey).toBe(firstKey);
+    expect(mockProvisionWorkspace).toHaveBeenLastCalledWith('Café del Valle', firstKey);
   });
 });

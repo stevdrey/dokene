@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useTenant } from './TenantContext';
+import { useTenant, normalizeWorkspaceName, countCodePoints, MAX_WORKSPACE_NAME_CODE_POINTS } from './TenantContext';
 import { useSession } from '../auth/SessionContext';
 import { ForbiddenError, ApiError } from '../../api/apiClient';
 
@@ -16,9 +16,9 @@ export const NoMembershipsView: React.FC = () => {
 
   const handleNameChange = (val: string) => {
     setWorkspaceName(val);
-    const trimmed = val.trim();
-    if (attemptedKeysRef.current.has(trimmed)) {
-      setOperationKey(attemptedKeysRef.current.get(trimmed)!);
+    const normalized = normalizeWorkspaceName(val);
+    if (attemptedKeysRef.current.has(normalized)) {
+      setOperationKey(attemptedKeysRef.current.get(normalized)!);
     } else {
       const isCurrentKeyAttempted = Array.from(attemptedKeysRef.current.values()).includes(operationKey);
       if (isCurrentKeyAttempted) {
@@ -38,17 +38,17 @@ export const NoMembershipsView: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = workspaceName.trim();
-    if (!trimmed) return;
-    if (trimmed.length > 160) {
+    const normalized = normalizeWorkspaceName(workspaceName);
+    if (!normalized) return;
+    if (countCodePoints(normalized) > MAX_WORKSPACE_NAME_CODE_POINTS) {
       setError('El nombre del espacio no puede exceder los 160 caracteres.');
       return;
     }
-    attemptedKeysRef.current.set(trimmed, operationKey);
+    attemptedKeysRef.current.set(normalized, operationKey);
     setIsSubmitting(true);
     setError(null);
     try {
-      await provisionWorkspace(trimmed, operationKey);
+      await provisionWorkspace(normalized, operationKey);
       attemptedKeysRef.current.clear();
       setOperationKey(crypto.randomUUID());
     } catch (err) {
@@ -216,7 +216,6 @@ export const NoMembershipsView: React.FC = () => {
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="Ej. Café & Taller Artesano"
               disabled={isSubmitting}
-              maxLength={160}
               required
               style={{
                 width: '100%',
@@ -231,7 +230,7 @@ export const NoMembershipsView: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isSubmitting || !workspaceName.trim()}
+              disabled={isSubmitting || !normalizeWorkspaceName(workspaceName)}
               style={{
                 width: '100%',
                 minHeight: '44px',

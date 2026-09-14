@@ -498,6 +498,40 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-secondary)' }}>
               Espacio activo: <strong>{activeWorkspace?.displayName}</strong>
             </p>
+            {activeTab === 'mas' && (
+              <div style={{ marginTop: '24px' }}>
+                <button
+                  type="button"
+                  aria-label="Abrir Configuración"
+                  onClick={() => setActiveTab('configuracion')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    minHeight: '44px',
+                    backgroundColor: 'var(--color-surface)',
+                    border: '1px solid var(--color-outline)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--color-text-main)',
+                    fontSize: 'var(--font-size-body)',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    width: '100%',
+                    maxWidth: '400px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px', color: 'var(--color-brand)' }}>
+                    settings
+                  </span>
+                  <span>Configuración</span>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ marginLeft: 'auto', fontSize: '18px', color: 'var(--color-text-muted)' }}>
+                    chevron_right
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -530,6 +564,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
         <button
           type="button"
+          aria-label="Más opciones"
           className={`mobile-nav-btn ${activeTab === 'mas' ? 'active' : ''}`}
           aria-current={activeTab === 'mas' ? 'page' : undefined}
           onClick={() => setActiveTab('mas')}
