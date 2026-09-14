@@ -16,6 +16,7 @@ import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -42,8 +43,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -56,6 +60,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ExtendWith(OutputCaptureExtension.class)
 @Import(OidcBrowserSessionIntegrationTest.SessionExpirationController.class)
 class OidcBrowserSessionIntegrationTest {
 
@@ -192,6 +197,123 @@ class OidcBrowserSessionIntegrationTest {
 
         assertThat(authenticated.client().send(request, HttpResponse.BodyHandlers.ofString()).statusCode())
                 .isEqualTo(403);
+    }
+
+    @Test
+    void sessionFixationProtectsAgainstSessionAdoption() throws Exception {
+        Browser browser = browser();
+        HttpResponse<String> authorization = beginAuthentication(browser);
+        String preAuthSessionId = sessionId(browser);
+        assertThat(preAuthSessionId).isNotBlank();
+
+        String providerLocation = authorization.headers().firstValue("Location").orElseThrow();
+        HttpResponse<String> providerRedirect = getAbsolute(browser, providerLocation + "&mode=VALID");
+        HttpResponse<String> callback = getAbsolute(browser, providerRedirect.headers().firstValue("Location").orElseThrow());
+        assertThat(callback.statusCode()).isEqualTo(302);
+
+        String postAuthSessionId = sessionId(browser);
+        assertThat(postAuthSessionId).isNotBlank().isNotEqualTo(preAuthSessionId);
+
+        assertThat(get(browser, "/api/session").statusCode()).isEqualTo(200);
+
+        HttpRequest staleSessionRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/session"))
+                .header("Cookie", "JSESSIONID=" + preAuthSessionId)
+                .GET()
+                .build();
+        HttpResponse<String> staleResponse = HttpClient.newHttpClient()
+                .send(staleSessionRequest, HttpResponse.BodyHandlers.ofString());
+        assertThat(staleResponse.statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void invalidAndTamperedSessionCookiesFailClosedWith401() throws Exception {
+        HttpRequest forgedRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/session"))
+                .header("Cookie", "JSESSIONID=forged-session-token-12345")
+                .GET()
+                .build();
+        HttpResponse<String> response = HttpClient.newHttpClient()
+                .send(forgedRequest, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void unauthenticatedApiRequestsFailClosedWith401WithoutRedirectLoops() throws Exception {
+        Browser anon = browser();
+        assertThat(get(anon, "/api/session").statusCode()).isEqualTo(401);
+        assertThat(get(anon, "/api/tenants").statusCode()).isEqualTo(401);
+        assertThat(get(anon, "/api/customers").statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void stateChangingRequestsRequireCsrf() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        JsonNode session = objectMapper.readTree(get(authenticated, "/api/session").body());
+        String csrf = session.path("csrfToken").asText();
+
+        assertThat(post(authenticated, "/api/account/expire-session", null).statusCode()).isEqualTo(403);
+        assertThat(post(authenticated, "/api/account/expire-session", "invalid-csrf").statusCode()).isEqualTo(403);
+        assertThat(post(authenticated, "/api/account/expire-session", csrf).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void oauthClientSecretAndTokensAreNeverLogged(CapturedOutput output) throws Exception {
+        Browser browser = browser();
+        authenticate(browser, TokenMode.VALID);
+        HttpResponse<String> session = get(browser, "/api/session");
+        assertThat(session.statusCode()).isEqualTo(200);
+
+        String logs = output.getAll();
+        assertThat(logs).doesNotContain(CLIENT_SECRET);
+        assertThat(logs).doesNotContain("server-side-access-token");
+    }
+
+    @Test
+    void providerLogoutRedirectsToProviderEndSessionEndpointAndInvalidatesLocalSession() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        JsonNode session = objectMapper.readTree(get(authenticated, "/api/session").body());
+        String csrf = session.path("csrfToken").asText();
+
+        assertThat(post(authenticated, "/logout?provider=true", null).statusCode()).isEqualTo(403);
+        assertThat(post(authenticated, "/logout?provider=true", "invalid-csrf").statusCode()).isEqualTo(403);
+
+        HttpResponse<String> logoutResponse = post(authenticated, "/logout?provider=true", csrf);
+        assertThat(logoutResponse.statusCode()).isEqualTo(302);
+        String redirectUrl = logoutResponse.headers().firstValue("Location").orElseThrow();
+        assertThat(redirectUrl)
+                .startsWith(OIDC.issuer() + "/logout")
+                .contains("id_token_hint=")
+                .contains("post_logout_redirect_uri=");
+
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void defaultConfigurationDoesNotTrustForwardedHeadersFromUntrustedClients() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/oauth2/authorization/dokene"))
+                .header("X-Forwarded-Proto", "https")
+                .header("X-Forwarded-Host", "attacker.example.com")
+                .header("X-Forwarded-Port", "443")
+                .GET()
+                .build();
+        HttpResponse<String> response = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build()
+                .send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(302);
+        String location = response.headers().firstValue("Location").orElseThrow();
+        assertThat(location).doesNotContain("attacker.example.com");
+        assertThat(location).contains("redirect_uri=http://127.0.0.1:" + port + "/login/oauth2/code/dokene");
+    }
+
+    private static String sessionId(Browser browser) {
+        return browser.cookies().getCookieStore().getCookies().stream()
+                .filter(cookie -> "JSESSIONID".equalsIgnoreCase(cookie.getName()))
+                .map(HttpCookie::getValue)
+                .findFirst()
+                .orElseThrow();
     }
 
     private void assertRejectedToken(TokenMode mode) throws Exception {
@@ -331,6 +453,7 @@ class OidcBrowserSessionIntegrationTest {
             created.createContext("/authorize", this::authorize);
             created.createContext("/token", this::token);
             created.createContext("/jwks", this::jwks);
+            created.createContext("/logout", this::logout);
             created.start();
             server.set(created);
         }
@@ -349,11 +472,17 @@ class OidcBrowserSessionIntegrationTest {
         private void discovery(HttpExchange exchange) throws IOException {
             json(exchange, 200, """
                     {"issuer":"%s","authorization_endpoint":"%s/authorize","token_endpoint":"%s/token",
+                    "end_session_endpoint":"%s/logout",
                     "jwks_uri":"%s/jwks","response_types_supported":["code"],"subject_types_supported":["public"],
                     "id_token_signing_alg_values_supported":["RS256"],"grant_types_supported":["authorization_code"],
                     "token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post"],
                     "scopes_supported":["openid","profile"]}
-                    """.formatted(issuer, issuer, issuer, issuer));
+                    """.formatted(issuer, issuer, issuer, issuer, issuer));
+        }
+
+        private void logout(HttpExchange exchange) throws IOException {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
         }
 
         private void authorize(HttpExchange exchange) throws IOException {
