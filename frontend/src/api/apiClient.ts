@@ -91,6 +91,30 @@ class ApiClient {
     });
   }
 
+  registerRequest(controller: AbortController, tenantId?: string | null): () => void {
+    this.activeControllers.add(controller);
+    if (tenantId) {
+      let set = this.activeTenantControllers.get(tenantId);
+      if (!set) {
+        set = new Set();
+        this.activeTenantControllers.set(tenantId, set);
+      }
+      set.add(controller);
+    }
+    return () => {
+      this.activeControllers.delete(controller);
+      if (tenantId) {
+        const set = this.activeTenantControllers.get(tenantId);
+        if (set) {
+          set.delete(controller);
+          if (set.size === 0) {
+            this.activeTenantControllers.delete(tenantId);
+          }
+        }
+      }
+    };
+  }
+
   cancelTenantRequests(tenantId: string): void {
     const controllers = this.activeTenantControllers.get(tenantId);
     if (controllers) {

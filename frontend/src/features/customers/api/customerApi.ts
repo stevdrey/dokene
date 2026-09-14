@@ -173,16 +173,11 @@ export const customerApi = {
   },
 
   async getLastPurchase(customerId: string): Promise<PurchaseResponse | null> {
-    try {
-      const { data } = await httpClient.request<PurchaseResponse>(
-        `/api/customers/${customerId}/purchases/last`,
-        { method: 'GET' }
-      );
-      return data || null;
-    } catch (err: unknown) {
-      // 204 No Content is converted to undefined/null by httpClient
-      return null;
-    }
+    const { data } = await httpClient.request<PurchaseResponse>(
+      `/api/customers/${customerId}/purchases/last`,
+      { method: 'GET' }
+    );
+    return data ?? null;
   },
 
   async recordPurchase(

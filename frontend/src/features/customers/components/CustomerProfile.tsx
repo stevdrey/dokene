@@ -25,6 +25,8 @@ interface CustomerProfileProps {
 export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
   const [customer, setCustomer] = useState<CustomerResponse | null>(null);
   const [lastPurchase, setLastPurchase] = useState<PurchaseResponse | null>(null);
+  const [lastPurchaseError, setLastPurchaseError] = useState<string | null>(null);
+  const [isRetryingLastPurchase, setIsRetryingLastPurchase] = useState(false);
   const [eligibility, setEligibility] = useState<EligibilityResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,12 +37,21 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setLastPurchaseError(null);
     try {
       const res = await customerApi.getCustomer(customerId);
       setCustomer(res.customer);
 
-      const last = await customerApi.getLastPurchase(customerId);
-      setLastPurchase(last);
+      try {
+        const last = await customerApi.getLastPurchase(customerId);
+        setLastPurchase(last);
+      } catch (lastErr: unknown) {
+        if (lastErr instanceof Error && (lastErr.name === 'AbortedTenantRequestError' || lastErr.name === 'StaleSessionError')) {
+          return;
+        }
+        setLastPurchase(null);
+        setLastPurchaseError(lastErr instanceof Error ? lastErr.message : 'Error al cargar última compra');
+      }
 
       const primaryPhone = res.customer.phones.find((p) => p.primary) || res.customer.phones[0];
       if (primaryPhone) {
@@ -52,12 +63,32 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
         }
       }
     } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
       else setError('No se pudo cargar la información del cliente.');
     } finally {
       setIsLoading(false);
     }
   }, [customerId]);
+
+  const retryLastPurchase = async () => {
+    setIsRetryingLastPurchase(true);
+    setLastPurchaseError(null);
+    try {
+      const last = await customerApi.getLastPurchase(customerId);
+      setLastPurchase(last);
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
+      setLastPurchase(null);
+      setLastPurchaseError(err instanceof Error ? err.message : 'Error al cargar última compra');
+    } finally {
+      setIsRetryingLastPurchase(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -271,7 +302,21 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
                 <div style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-supporting)', marginBottom: '4px' }}>
                   Última compra registrada
                 </div>
-                {lastPurchase ? (
+                {lastPurchaseError ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+                    <span role="alert" style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-error-text)' }}>
+                      {lastPurchaseError}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      onClick={retryLastPurchase}
+                      disabled={isRetryingLastPurchase}
+                      style={{ alignSelf: 'flex-start' }}
+                    >
+                      {isRetryingLastPurchase ? 'Reintentando...' : 'Reintentar'}
+                    </Button>
+                  </div>
+                ) : lastPurchase ? (
                   <>
                     <div style={{ fontSize: 'var(--font-size-section-heading)', fontWeight: 600, color: 'var(--color-text-main)' }}>
                       {formatDate(lastPurchase.purchasedAt)}

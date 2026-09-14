@@ -1,5 +1,7 @@
-import { apiClient } from '@/api/apiClient';
+import { apiClient, AbortedTenantRequestError, StaleSessionError } from '@/api/apiClient';
 import { ApiErrorPayload } from '@/shared/types';
+
+export { AbortedTenantRequestError, StaleSessionError };
 
 export class ApiError extends Error {
   readonly status: number;
@@ -20,6 +22,7 @@ class HttpClient {
 
   setTenantId(tenantId: string | null) {
     this.activeTenantId = tenantId;
+    apiClient.setCurrentTenantId(tenantId);
   }
 
   getTenantId(): string | null {
@@ -28,6 +31,7 @@ class HttpClient {
 
   setCsrfToken(token: string | null) {
     this.csrfToken = token;
+    apiClient.setCsrfToken(token);
   }
 
   getCsrfToken(): string | null {
@@ -88,57 +92,85 @@ class HttpClient {
       requestHeaders['Idempotency-Key'] = idempotencyKey;
     }
 
-    const response = await fetch(endpoint, {
-      method,
-      headers: requestHeaders,
-      credentials: 'include',
-      body: body !== undefined ? JSON.stringify(body) : undefined
-    });
+    const internalController = new AbortController();
+    const unregister = apiClient.registerRequest(internalController, effectiveTenantId);
+    const requestSessionGeneration = apiClient.getSessionGeneration();
+    const requestTenantId = effectiveTenantId;
 
-    if (response.status === 401) {
-      if (this.onUnauthorizedCallback) {
-        this.onUnauthorizedCallback();
+    try {
+      const response = await fetch(endpoint, {
+        method,
+        headers: requestHeaders,
+        credentials: 'include',
+        signal: internalController.signal,
+        body: body !== undefined ? JSON.stringify(body) : undefined
+      });
+
+      if (apiClient.getSessionGeneration() !== requestSessionGeneration) {
+        throw new StaleSessionError();
       }
-      throw new ApiError(401, 'Sesión no autorizada o expirada');
-    }
 
-    if (!response.ok) {
-      let errorPayload: ApiErrorPayload | undefined;
-      let errorMessage = `Error HTTP ${response.status}`;
-      try {
-        errorPayload = await response.json();
-        if (errorPayload?.message) {
-          errorMessage = errorPayload.message;
+      const currentTenant = apiClient.getCurrentTenantId() ?? this.activeTenantId;
+      if (requestTenantId && currentTenant && currentTenant !== requestTenantId) {
+        throw new AbortedTenantRequestError();
+      }
+
+      if (response.status === 401) {
+        if (this.onUnauthorizedCallback) {
+          this.onUnauthorizedCallback();
         }
-      } catch {
-        // Response is not JSON
+        throw new ApiError(401, 'Sesión no autorizada o expirada');
       }
 
-      if (response.status === 409) {
-        errorMessage = errorMessage || 'Conflicto: el registro o número de contacto ya existe o está en conflicto.';
-      } else if (response.status === 412) {
-        errorMessage = 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';
-      } else if (response.status === 403) {
-        errorMessage = errorMessage || 'Acceso denegado en este espacio de trabajo.';
+      if (!response.ok) {
+        let errorPayload: ApiErrorPayload | undefined;
+        let errorMessage = `Error HTTP ${response.status}`;
+        try {
+          errorPayload = await response.json();
+          if (errorPayload?.message) {
+            errorMessage = errorPayload.message;
+          }
+        } catch {
+          // Response is not JSON
+        }
+
+        if (response.status === 409) {
+          errorMessage = errorMessage || 'Conflicto: el registro o número de contacto ya existe o está en conflicto.';
+        } else if (response.status === 412) {
+          errorMessage = 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';
+        } else if (response.status === 403) {
+          errorMessage = errorMessage || 'Acceso denegado en este espacio de trabajo.';
+        }
+
+        throw new ApiError(response.status, errorMessage, errorPayload);
       }
 
-      throw new ApiError(response.status, errorMessage, errorPayload);
-    }
+      const etag = response.headers.get('ETag');
 
-    const etag = response.headers.get('ETag');
+      if (response.status === 204 || response.headers.get('content-length') === '0') {
+        return { data: undefined as unknown as T, etag };
+      }
 
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        return { data, etag };
+      }
+
       return { data: undefined as unknown as T, etag };
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        if (apiClient.getSessionGeneration() !== requestSessionGeneration) {
+          throw new StaleSessionError();
+        }
+        throw new AbortedTenantRequestError();
+      }
+      throw err;
+    } finally {
+      unregister();
     }
-
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const data = await response.json();
-      return { data, etag };
-    }
-
-    return { data: undefined as unknown as T, etag };
   }
 }
 
 export const httpClient = new HttpClient();
+

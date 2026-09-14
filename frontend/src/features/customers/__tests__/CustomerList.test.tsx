@@ -128,4 +128,19 @@ describe('CustomerList', () => {
       expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
     });
   });
+
+  it('silently ignores AbortedTenantRequestError and StaleSessionError without displaying an error alert', async () => {
+    const abortedError = new Error('Aborted tenant request');
+    abortedError.name = 'AbortedTenantRequestError';
+
+    vi.spyOn(customerApi, 'listCustomers').mockRejectedValueOnce(abortedError);
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(customerApi.listCustomers).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

@@ -36,6 +36,9 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
       setCustomers(page.customers);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
       else setError('Error al cargar clientes.');
     } finally {
@@ -63,6 +66,9 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
       setCustomers((prev) => [...prev, ...page.customers]);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
     }
   };

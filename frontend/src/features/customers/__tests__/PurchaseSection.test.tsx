@@ -111,4 +111,52 @@ describe('PurchaseSection', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/La fecha y hora de la compra es obligatoria/i);
     });
   });
+
+  it('retains the same idempotency key across submit retries of the same attempt, and rotates when edited', async () => {
+    const recordSpy = vi.spyOn(customerApi, 'recordPurchase')
+      .mockRejectedValueOnce(new Error('500 Internal Server Error'))
+      .mockResolvedValueOnce({
+        id: 'purch-retry',
+        customerId: 'cust-1',
+        purchasedAt: new Date().toISOString(),
+        description: 'Bandejas de horneado',
+        status: 'VALID',
+        version: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        voidedAt: null
+      });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Registrar compra/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+
+    const descInput = screen.getByLabelText(/Descripción de la compra/i);
+    fireEvent.change(descInput, { target: { value: 'Bandejas de horneado' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Guardar compra/i });
+    // First attempt -> fails
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('500 Internal Server Error');
+      expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+
+    const firstKey = recordSpy.mock.calls[0][1];
+
+    // Retry submit without editing payload -> must send exact same key
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(recordSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const secondKey = recordSpy.mock.calls[1][1];
+    expect(secondKey).toBe(firstKey);
+  });
 });

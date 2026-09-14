@@ -100,4 +100,41 @@ describe('customerApi and httpClient', () => {
     expect(capturedHeaders['Idempotency-Key']).toBe('idem-key-99');
     expect(capturedHeaders['X-Tenant-Id']).toBe('tenant-123');
   });
+
+  it('returns null on getLastPurchase when 204 No Content is returned', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 204 })
+    );
+
+    const result = await customerApi.getLastPurchase('cust-1');
+    expect(result).toBeNull();
+  });
+
+  it('throws ApiError on getLastPurchase when 403 Forbidden is returned', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: 'Forbidden' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow('Forbidden');
+  });
+
+  it('throws ApiError on getLastPurchase when 500 Internal Server Error is returned', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: 'Internal Server Error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow('Internal Server Error');
+  });
+
+  it('propagates network failure on getLastPurchase', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+
+    await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow('Network error');
+  });
 });

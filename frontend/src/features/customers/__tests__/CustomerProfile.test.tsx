@@ -93,4 +93,36 @@ describe('CustomerProfile', () => {
     expect(screen.getAllByText('Kit Harinas Especiales + Esencias').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Contacto habilitado/i)).toBeInTheDocument();
   });
+
+  it('renders "Sin compras registradas" when getLastPurchase returns null', async () => {
+    vi.spyOn(customerApi, 'getLastPurchase').mockResolvedValue(null);
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Resumen y última actividad')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Sin compras registradas')).toBeInTheDocument();
+  });
+
+  it('renders error alert and retry button when getLastPurchase fails, and allows retrying', async () => {
+    const getLastPurchaseSpy = vi.spyOn(customerApi, 'getLastPurchase')
+      .mockRejectedValueOnce(new Error('500 Error al consultar'))
+      .mockResolvedValueOnce(mockLastPurchase);
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('500 Error al consultar');
+      expect(screen.getByRole('button', { name: /Reintentar/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Reintentar/i }));
+
+    await waitFor(() => {
+      expect(getLastPurchaseSpy).toHaveBeenCalledTimes(2);
+      expect(screen.getAllByText('Kit Harinas Especiales + Esencias').length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

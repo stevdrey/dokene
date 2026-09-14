@@ -27,6 +27,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
   // Form states
   const [purchaseDate, setPurchaseDate] = useState('');
   const [purchaseDesc, setPurchaseDesc] = useState('');
+  const [recordIdempotencyKey, setRecordIdempotencyKey] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -38,6 +39,9 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
       setPurchases(page.purchases);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
       else setError('Error al cargar historial de compras.');
     } finally {
@@ -56,6 +60,9 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
       setPurchases((prev) => [...prev, ...page.purchases]);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
     }
   };
@@ -68,6 +75,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
       .slice(0, 16);
     setPurchaseDate(localIso);
     setPurchaseDesc('');
+    setRecordIdempotencyKey(crypto.randomUUID());
     setModalError(null);
     setIsRecordOpen(true);
   };
@@ -98,7 +106,10 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
 
     setIsSubmitting(true);
     try {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = recordIdempotencyKey || crypto.randomUUID();
+      if (!recordIdempotencyKey) {
+        setRecordIdempotencyKey(idempotencyKey);
+      }
       await customerApi.recordPurchase(customerId, idempotencyKey, {
         purchasedAt: selectedInstant,
         description: purchaseDesc.trim()
@@ -426,7 +437,10 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
               type="datetime-local"
               required
               value={purchaseDate}
-              onChange={(e) => setPurchaseDate(e.target.value)}
+              onChange={(e) => {
+                setPurchaseDate(e.target.value);
+                setRecordIdempotencyKey(crypto.randomUUID());
+              }}
               style={{
                 width: '100%',
                 minHeight: '44px',
@@ -452,7 +466,10 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
               required
               maxLength={500}
               value={purchaseDesc}
-              onChange={(e) => setPurchaseDesc(e.target.value)}
+              onChange={(e) => {
+                setPurchaseDesc(e.target.value);
+                setRecordIdempotencyKey(crypto.randomUUID());
+              }}
               placeholder="Ej. Kit Harinas Especiales + Esencias (Pedido telefónico para taller)"
               style={{
                 width: '100%',

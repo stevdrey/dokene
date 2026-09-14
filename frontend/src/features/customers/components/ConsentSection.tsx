@@ -31,6 +31,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
   const [error, setError] = useState<string | null>(null);
 
   // Modals state
+  const [targetPhone, setTargetPhone] = useState<PhoneResponse | null>(null);
   const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
   const [isDoNotContactModalOpen, setIsDoNotContactModalOpen] = useState(false);
   const [historyEvents, setHistoryEvents] = useState<PolicyEventResponse[] | null>(null);
@@ -41,8 +42,6 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
   const [doNotContactSource, setDoNotContactSource] = useState<ContactIntentSource>('CUSTOMER_VERBAL');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
-
-  const primaryPhone = phones.find((p) => p.primary) || phones[0];
 
   const loadPolicy = useCallback(async () => {
     setIsLoading(true);
@@ -63,15 +62,26 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
     loadPolicy();
   }, [loadPolicy]);
 
+  const openConsentModal = (phone: PhoneResponse) => {
+    setTargetPhone(phone);
+    const existingConsent = policy?.consents.find(
+      (c) => c.contactId === phone.id && c.channel === 'WHATSAPP'
+    );
+    setTargetStatus(existingConsent?.status === 'GRANTED' ? 'REVOKED' : 'GRANTED');
+    setTargetSource('CUSTOMER_VERBAL');
+    setModalError(null);
+    setIsConsentModalOpen(true);
+  };
+
   const handleConsentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!primaryPhone) return;
+    if (!targetPhone) return;
     setModalError(null);
     setIsSubmitting(true);
     try {
       const updated = await customerApi.changeConsent(
         customerId,
-        primaryPhone.id,
+        targetPhone.id,
         'WHATSAPP',
         policyVersion,
         targetStatus,
@@ -160,10 +170,6 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
     }
   };
 
-  const currentConsent = policy?.consents.find(
-    (c) => c.channel === 'WHATSAPP' && (!primaryPhone || c.contactId === primaryPhone.id)
-  );
-
   return (
     <section
       style={{
@@ -177,6 +183,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
         gap: 'var(--space-16)'
       }}
     >
+      {/* Section Header */}
       <div
         style={{
           display: 'flex',
@@ -198,18 +205,14 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
               color: 'var(--color-text-main)'
             }}
           >
-            Consentimiento
+            Consentimiento y políticas de contacto
           </h2>
         </div>
 
         {policy?.doNotContact ? (
           <Badge variant="error">No contactar activo</Badge>
-        ) : currentConsent?.status === 'GRANTED' ? (
-          <Badge variant="success">Activo</Badge>
-        ) : currentConsent?.status === 'REVOKED' ? (
-          <Badge variant="error">Revocado</Badge>
         ) : (
-          <Badge variant="warning">Desconocido</Badge>
+          <Badge variant="neutral">Gestión por teléfono</Badge>
         )}
       </div>
 
@@ -235,117 +238,181 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)', fontSize: 'var(--font-size-dense)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4) 0' }}>
-              <span style={{ color: 'var(--color-text-supporting)' }}>Canal principal:</span>
-              <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-                <WhatsAppIcon size={16} /> WhatsApp ({primaryPhone?.e164 || 'Sin número'})
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4) 0', borderTop: '1px solid var(--color-outline-subtle)' }}>
-              <span style={{ color: 'var(--color-text-supporting)' }}>Estado de autorización:</span>
-              <span style={{ fontWeight: 500 }}>
-                {formatStatus(currentConsent?.status)}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4) 0', borderTop: '1px solid var(--color-outline-subtle)' }}>
-              <span style={{ color: 'var(--color-text-supporting)' }}>Origen de registro:</span>
-              <span style={{ fontWeight: 500 }}>
-                {formatSource(currentConsent?.source || null)}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4) 0', borderTop: '1px solid var(--color-outline-subtle)' }}>
-              <span style={{ color: 'var(--color-text-supporting)' }}>Fecha de cambio:</span>
-              <span style={{ color: 'var(--color-text-supporting)' }}>
-                {formatDate(currentConsent?.changedAt)}
-              </span>
-            </div>
-          </div>
-
+          {/* Customer-wide Do Not Contact Restriction */}
           {policy?.doNotContact ? (
             <div
+              role="alert"
               style={{
                 backgroundColor: 'var(--color-error-bg)',
                 color: 'var(--color-error-text)',
                 border: '1px solid var(--color-error-border)',
                 borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-12)',
-                fontSize: 'var(--font-size-meta)'
+                padding: 'var(--space-16)'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', fontWeight: 600 }}>
-                <DoNotDisturbIcon size={16} /> Protocolo "No contactar" ACTIVADO
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-8)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', fontWeight: 600 }}>
+                  <DoNotDisturbIcon size={20} />
+                  <span>Protocolo "No contactar" ACTIVADO</span>
+                </div>
+                {!isArchived && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setDoNotContactSource('CUSTOMER_VERBAL');
+                      setModalError(null);
+                      setIsDoNotContactModalOpen(true);
+                    }}
+                  >
+                    Desactivar No contactar
+                  </Button>
+                )}
               </div>
-              <p style={{ marginTop: '4px' }}>
-                Este cliente tiene restringido cualquier contacto directo por todos los canales. El cambio fue registrado como {formatSource(policy.doNotContactSource)} el {formatDate(policy.doNotContactChangedAt)}.
+              <p style={{ marginTop: '8px', fontSize: 'var(--font-size-dense)', lineHeight: 1.5 }}>
+                Este cliente tiene restringido cualquier contacto directo por todos los canales. Esta restricción anula todos los consentimientos de WhatsApp de sus teléfonos individuales. El cambio fue registrado como <strong>{formatSource(policy.doNotContactSource)}</strong> el {formatDate(policy.doNotContactChangedAt)}.
               </p>
             </div>
           ) : (
             <div
               style={{
-                backgroundColor: 'var(--color-surface-low)',
+                backgroundColor: 'var(--color-surface-container-low)',
+                border: '1px solid var(--color-outline-subtle)',
                 borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-12)',
-                fontSize: 'var(--font-size-meta)',
-                color: 'var(--color-text-supporting)'
-              }}
-            >
-              Consentimiento válido únicamente para avisos de reorden, seguimiento y acuerdos directos solicitados por el cliente. Dokene no realiza envíos masivos.
-            </div>
-          )}
-
-          {!isArchived && (
-            <div
-              style={{
+                padding: 'var(--space-12) var(--space-16)',
                 display: 'flex',
-                flexWrap: 'wrap',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: 'var(--space-8)',
-                paddingTop: 'var(--space-12)',
-                borderTop: '1px solid var(--color-outline-subtle)'
+                flexWrap: 'wrap',
+                gap: 'var(--space-8)'
               }}
             >
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTargetStatus(currentConsent?.status === 'GRANTED' ? 'REVOKED' : 'GRANTED');
-                  setTargetSource('CUSTOMER_VERBAL');
-                  setModalError(null);
-                  setIsConsentModalOpen(true);
-                }}
-              >
-                <SettingsIcon size={16} />
-                Gestionar consentimiento
-              </Button>
-
-              <Button
-                variant={policy?.doNotContact ? 'secondary' : 'danger'}
-                size="sm"
-                onClick={() => {
-                  setDoNotContactSource('CUSTOMER_VERBAL');
-                  setModalError(null);
-                  setIsDoNotContactModalOpen(true);
-                }}
-              >
-                <DoNotDisturbIcon size={16} />
-                {policy?.doNotContact ? 'Desactivar No contactar' : 'Marcar No contactar'}
-              </Button>
-
-              <Button variant="ghost" size="sm" onClick={openHistoryModal}>
-                <HistoryIcon size={16} />
-                Historial
-              </Button>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: 'var(--font-size-dense)' }}>Restricción global: </span>
+                <span style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)' }}>
+                  Protocolo "No contactar" inactivo
+                </span>
+              </div>
+              {!isArchived && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    setDoNotContactSource('CUSTOMER_VERBAL');
+                    setModalError(null);
+                    setIsDoNotContactModalOpen(true);
+                  }}
+                >
+                  <DoNotDisturbIcon size={16} />
+                  Marcar No contactar
+                </Button>
+              )}
             </div>
           )}
+
+          {/* Per-Contact WhatsApp Consent Cards */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-component-heading)', fontWeight: 600, margin: 0, color: 'var(--color-text-main)' }}>
+              Consentimiento de WhatsApp por teléfono registrado
+            </h3>
+
+            {phones.length === 0 ? (
+              <p style={{ color: 'var(--color-text-supporting)', fontSize: 'var(--font-size-dense)' }}>
+                Este cliente no tiene teléfonos registrados. Agrega un teléfono para gestionar su consentimiento.
+              </p>
+            ) : (
+              phones.map((phone) => {
+                const phoneConsent = policy?.consents.find(
+                  (c) => c.contactId === phone.id && c.channel === 'WHATSAPP'
+                );
+                const consentStatus = phoneConsent?.status || 'UNKNOWN';
+
+                return (
+                  <div
+                    key={phone.id}
+                    data-testid={`contact-card-${phone.id}`}
+                    style={{
+                      backgroundColor: 'var(--color-surface-inset)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-outline-subtle)',
+                      padding: 'var(--space-16)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--space-8)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-8)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+                        <WhatsAppIcon size={18} />
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-body)' }}>{phone.e164}</span>
+                        <Badge variant="neutral">
+                          {phone.primary ? 'Principal' : 'Secundario'}
+                        </Badge>
+                      </div>
+
+                      <Badge
+                        variant={
+                          consentStatus === 'GRANTED'
+                            ? 'success'
+                            : consentStatus === 'REVOKED'
+                            ? 'error'
+                            : 'warning'
+                        }
+                      >
+                        {formatStatus(consentStatus)}
+                      </Badge>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-16)', fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)' }}>
+                      <span>
+                        Origen: <strong>{formatSource(phoneConsent?.source || null)}</strong>
+                      </span>
+                      <span>•</span>
+                      <span>
+                        Fecha de cambio: <strong>{formatDate(phoneConsent?.changedAt)}</strong>
+                      </span>
+                    </div>
+
+                    {!isArchived && (
+                      <div style={{ marginTop: 'var(--space-4)', display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          aria-label={`Gestionar consentimiento para ${phone.e164}`}
+                          onClick={() => openConsentModal(phone)}
+                        >
+                          <SettingsIcon size={16} />
+                          Gestionar consentimiento
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingTop: 'var(--space-12)',
+              borderTop: '1px solid var(--color-outline-subtle)'
+            }}
+          >
+            <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-supporting)' }}>
+              Consentimiento válido únicamente para avisos de reorden y acuerdos directos.
+            </span>
+            <Button variant="ghost" size="sm" onClick={openHistoryModal}>
+              <HistoryIcon size={16} />
+              Historial de políticas
+            </Button>
+          </div>
         </>
       )}
 
-      {/* Modal: Gestionar Consentimiento */}
+      {/* Modal: Gestionar Consentimiento de Contacto Específico */}
       <Modal
         isOpen={isConsentModalOpen}
         onClose={() => setIsConsentModalOpen(false)}
@@ -369,9 +436,27 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
             </div>
           )}
 
+          {targetPhone && (
+            <div
+              style={{
+                padding: 'var(--space-12)',
+                backgroundColor: 'var(--color-surface-container-low)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--font-size-dense)'
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+                Teléfono: {targetPhone.e164} ({targetPhone.primary ? 'Principal' : 'Secundario'})
+              </div>
+              <div style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                ID de contacto: {targetPhone.id}
+              </div>
+            </div>
+          )}
+
           <div>
             <label style={{ display: 'block', fontSize: 'var(--font-size-dense)', fontWeight: 500, marginBottom: 'var(--space-8)' }}>
-              Nuevo estado de autorización *
+              Nuevo estado de autorización para este teléfono *
             </label>
             <div style={{ display: 'flex', gap: 'var(--space-16)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', cursor: 'pointer' }}>
@@ -461,8 +546,8 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
 
           <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', lineHeight: 1.5 }}>
             {policy?.doNotContact
-              ? 'Al desactivar el protocolo, la ficha volverá a respetar los consentimientos individuales previamente concedidos.'
-              : 'Al activar "No contactar", se cancelarán todos los avisos futuros y no se permitirá ningún contacto directo por ningún canal.'}
+              ? 'Al desactivar el protocolo, la ficha volverá a respetar los consentimientos individuales previamente concedidos a cada teléfono.'
+              : 'Al activar "No contactar", se cancelarán todos los avisos futuros y no se permitirá ningún contacto directo por ningún canal en ninguno de los teléfonos.'}
           </p>
 
           <div>
@@ -568,3 +653,4 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
     </section>
   );
 }
+
