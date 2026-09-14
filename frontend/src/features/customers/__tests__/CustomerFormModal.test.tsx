@@ -152,4 +152,17 @@ describe('CustomerFormModal', () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+
+  it('renders phone controls with responsive flex wrapping and permitted shrinkage', async () => {
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    const phoneInput = screen.getByLabelText(/Número de teléfono 1/i);
+    expect(phoneInput).toHaveStyle({ minWidth: '0px' });
+  });
 });

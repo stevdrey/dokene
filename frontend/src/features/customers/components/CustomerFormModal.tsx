@@ -241,6 +241,7 @@ export function CustomerFormModal({
                 key={idx}
                 style={{
                   display: 'flex',
+                  flexWrap: 'wrap',
                   gap: 'var(--space-8)',
                   alignItems: 'center',
                   padding: 'var(--space-8)',
@@ -249,79 +250,100 @@ export function CustomerFormModal({
                   border: '1px solid var(--color-outline-subtle)'
                 }}
               >
-                <select
-                  value={phone.region}
-                  onChange={(e) => handlePhoneChange(idx, 'region', e.target.value)}
-                  aria-label={`Región para teléfono ${idx + 1}`}
-                  style={{
-                    minHeight: '44px',
-                    padding: 'var(--space-8)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-outline)',
-                    backgroundColor: 'var(--color-surface)',
-                    fontSize: 'var(--font-size-dense)'
-                  }}
-                >
-                  {SUPPORTED_REGIONS.map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 240px', minWidth: '0px' }}>
+                  <select
+                    value={phone.region}
+                    onChange={(e) => handlePhoneChange(idx, 'region', e.target.value)}
+                    aria-label={`Región para teléfono ${idx + 1}`}
+                    style={{
+                      minHeight: '44px',
+                      padding: 'var(--space-8)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-outline)',
+                      backgroundColor: 'var(--color-surface)',
+                      fontSize: 'var(--font-size-dense)',
+                      flexShrink: 0
+                    }}
+                  >
+                    {SUPPORTED_REGIONS.map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
 
-                <input
-                  type="tel"
-                  required
-                  value={phone.number}
-                  onChange={(e) => handlePhoneChange(idx, 'number', e.target.value)}
-                  placeholder="Ej. +56 9 8452 1190 o 984521190"
-                  aria-label={`Número de teléfono ${idx + 1}`}
-                  style={{
-                    flex: 1,
-                    minHeight: '44px',
-                    padding: 'var(--space-8) var(--space-12)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-outline)',
-                    backgroundColor: 'var(--color-surface)',
-                    fontSize: 'var(--font-size-dense)'
-                  }}
-                />
+                  <input
+                    type="tel"
+                    required
+                    value={phone.number}
+                    onChange={(e) => handlePhoneChange(idx, 'number', e.target.value)}
+                    placeholder="Ej. +56 9 8452 1190 o 984521190"
+                    aria-label={`Número de teléfono ${idx + 1}`}
+                    style={{
+                      flex: 1,
+                      minWidth: '0px',
+                      minHeight: '44px',
+                      padding: 'var(--space-8) var(--space-12)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-outline)',
+                      backgroundColor: 'var(--color-surface)',
+                      fontSize: 'var(--font-size-dense)'
+                    }}
+                  />
+                </div>
 
-                <label
+                <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 'var(--space-4)',
-                    fontSize: 'var(--font-size-meta)',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    padding: '0 var(--space-4)'
+                    justifyContent: 'space-between',
+                    gap: 'var(--space-8)',
+                    flexShrink: 0,
+                    marginLeft: 'auto'
                   }}
                 >
-                  <input
-                    type="radio"
-                    name="primaryPhone"
-                    checked={phone.primary}
-                    onChange={() => handlePhoneChange(idx, 'primary', true)}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  Principal
-                </label>
-
-                {phones.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removePhone(idx)}
-                    aria-label={`Eliminar teléfono ${idx + 1}`}
-                    className="interactive-target"
+                  <label
                     style={{
-                      color: 'var(--color-error-text)',
-                      borderRadius: 'var(--radius-md)'
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 'var(--space-4)',
+                      fontSize: 'var(--font-size-meta)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      minHeight: '44px',
+                      padding: '0 var(--space-4)'
                     }}
                   >
-                    <CloseIcon size={18} />
-                  </button>
-                )}
+                    <input
+                      type="radio"
+                      name="primaryPhone"
+                      checked={phone.primary}
+                      onChange={() => handlePhoneChange(idx, 'primary', true)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    Principal
+                  </label>
+
+                  {phones.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removePhone(idx)}
+                      aria-label={`Eliminar teléfono ${idx + 1}`}
+                      className="interactive-target"
+                      style={{
+                        color: 'var(--color-error-text)',
+                        borderRadius: 'var(--radius-md)',
+                        minWidth: '44px',
+                        minHeight: '44px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <CloseIcon size={18} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
