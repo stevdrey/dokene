@@ -405,8 +405,11 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             color: 'var(--color-text-muted)',
             cursor: 'pointer',
             padding: '8px',
+            minWidth: '44px',
+            minHeight: '44px',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>

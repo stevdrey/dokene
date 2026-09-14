@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTenant } from './TenantContext';
 import { useSession } from '../auth/SessionContext';
+import { ForbiddenError, ApiError } from '../../api/apiClient';
 
 export const NoMembershipsView: React.FC = () => {
   const { provisionWorkspace } = useTenant();
@@ -8,6 +9,7 @@ export const NoMembershipsView: React.FC = () => {
   const [workspaceName, setWorkspaceName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isProvisioningForbidden, setIsProvisioningForbidden] = useState(false);
   const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,7 +21,16 @@ export const NoMembershipsView: React.FC = () => {
       await provisionWorkspace(workspaceName.trim(), operationKey);
       setOperationKey(crypto.randomUUID());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear el espacio');
+      if (
+        err instanceof ForbiddenError ||
+        (err instanceof ApiError && err.status === 403) ||
+        (err instanceof Error && err.message.includes('403'))
+      ) {
+        setIsProvisioningForbidden(true);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : 'Error al crear el espacio');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -106,64 +117,105 @@ export const NoMembershipsView: React.FC = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ textAlign: 'left', marginBottom: '24px' }}>
-          <label
-            htmlFor="new-workspace-name"
+        {isProvisioningForbidden ? (
+          <div
+            role="alert"
             style={{
-              display: 'block',
-              fontSize: 'var(--font-size-secondary)',
-              fontWeight: 500,
-              color: 'var(--color-text-main)',
-              marginBottom: '6px',
-            }}
-          >
-            Nombre del negocio
-          </label>
-          <input
-            id="new-workspace-name"
-            type="text"
-            value={workspaceName}
-            onChange={(e) => setWorkspaceName(e.target.value)}
-            placeholder="Ej. Café & Taller Artesano"
-            disabled={isSubmitting}
-            required
-            style={{
-              width: '100%',
-              minHeight: '44px',
-              padding: '10px 12px',
-              fontSize: 'var(--font-size-body)',
+              marginBottom: '24px',
+              padding: '16px',
               borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-surface-container)',
               border: '1px solid var(--color-outline)',
-              marginBottom: '16px',
-            }}
-          />
-
-          <button
-            type="submit"
-            disabled={isSubmitting || !workspaceName.trim()}
-            style={{
-              width: '100%',
-              minHeight: '44px',
-              padding: '12px 16px',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              backgroundColor: 'var(--color-primary)',
-              color: 'var(--color-on-primary)',
-              fontSize: 'var(--font-size-component-heading)',
-              fontWeight: 600,
-              cursor: isSubmitting ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
+              textAlign: 'left',
             }}
           >
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
-              add_business
-            </span>
-            <span>{isSubmitting ? 'Creando espacio...' : 'Crear espacio de trabajo'}</span>
-          </button>
-        </form>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '8px',
+                color: 'var(--color-text-main)',
+                fontWeight: 600,
+                fontSize: 'var(--font-size-body)',
+              }}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
+                lock
+              </span>
+              <span>Creación de espacios restringida</span>
+            </div>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 'var(--font-size-secondary)',
+                color: 'var(--color-text-muted)',
+                lineHeight: 'var(--line-height-secondary)',
+              }}
+            >
+              La creación de nuevos espacios de trabajo no está habilitada para tu cuenta. Si necesitas acceder a un espacio existente para tu negocio, por favor solicita acceso o una invitación a un administrador.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ textAlign: 'left', marginBottom: '24px' }}>
+            <label
+              htmlFor="new-workspace-name"
+              style={{
+                display: 'block',
+                fontSize: 'var(--font-size-secondary)',
+                fontWeight: 500,
+                color: 'var(--color-text-main)',
+                marginBottom: '6px',
+              }}
+            >
+              Nombre del negocio
+            </label>
+            <input
+              id="new-workspace-name"
+              type="text"
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+              placeholder="Ej. Café & Taller Artesano"
+              disabled={isSubmitting}
+              required
+              style={{
+                width: '100%',
+                minHeight: '44px',
+                padding: '10px 12px',
+                fontSize: 'var(--font-size-body)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-outline)',
+                marginBottom: '16px',
+              }}
+            />
+
+            <button
+              type="submit"
+              disabled={isSubmitting || !workspaceName.trim()}
+              style={{
+                width: '100%',
+                minHeight: '44px',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-md)',
+                border: 'none',
+                backgroundColor: 'var(--color-primary)',
+                color: 'var(--color-on-primary)',
+                fontSize: 'var(--font-size-component-heading)',
+                fontWeight: 600,
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
+                add_business
+              </span>
+              <span>{isSubmitting ? 'Creando espacio...' : 'Crear espacio de trabajo'}</span>
+            </button>
+          </form>
+        )}
 
         <button
           type="button"

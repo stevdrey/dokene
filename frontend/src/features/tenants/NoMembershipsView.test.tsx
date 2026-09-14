@@ -84,4 +84,28 @@ describe('NoMembershipsView', () => {
     const secondKey = mockProvisionWorkspace.mock.calls[1][1];
     expect(secondKey).toBe(firstKey);
   });
+
+  it('displays restricted creation guidance and hides the form when provisioning is forbidden (403)', async () => {
+    const { ForbiddenError } = await import('../../api/apiClient');
+    mockProvisionWorkspace.mockRejectedValueOnce(new ForbiddenError());
+    render(<NoMembershipsView />);
+
+    const input = screen.getByLabelText(/Nombre del negocio/i);
+    fireEvent.change(input, { target: { value: 'Negocio No Permitido' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Crear espacio de trabajo/i });
+
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    expect(mockProvisionWorkspace).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Creación de espacios restringida')).toBeInTheDocument();
+    expect(
+      screen.getByText(/La creación de nuevos espacios de trabajo no está habilitada para tu cuenta/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Nombre del negocio/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Crear espacio de trabajo/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cerrar sesión/i })).toBeInTheDocument();
+  });
 });
