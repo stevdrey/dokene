@@ -174,6 +174,7 @@ export function CustomerFormModal({
       onClose={onClose}
       title={isEdit ? 'Editar cliente' : 'Nuevo cliente'}
       maxWidth="600px"
+      closeDisabled={isSubmitting}
     >
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
         {error && (

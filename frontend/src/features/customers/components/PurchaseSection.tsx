@@ -407,6 +407,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
         onClose={() => setIsRecordOpen(false)}
         title="Registrar nueva compra"
         maxWidth="500px"
+        closeDisabled={isSubmitting}
       >
         <form onSubmit={handleRecordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
           {modalError && (
@@ -502,6 +503,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
         onClose={() => setPurchaseToEdit(null)}
         title="Corregir compra"
         maxWidth="500px"
+        closeDisabled={isSubmitting}
       >
         <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
           {modalError && (
@@ -590,6 +592,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
         onClose={() => setPurchaseToVoid(null)}
         title="¿Anular esta compra?"
         maxWidth="480px"
+        closeDisabled={isSubmitting}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
           <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', lineHeight: 1.5 }}>

@@ -40,6 +40,7 @@ export function ArchiveModal({ customer, isOpen, onClose, onArchived }: ArchiveM
       onClose={onClose}
       title={`¿Archivar ficha de ${customer.displayName}?`}
       maxWidth="480px"
+      closeDisabled={isSubmitting}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
         <div style={{ display: 'flex', gap: 'var(--space-16)', alignItems: 'flex-start' }}>

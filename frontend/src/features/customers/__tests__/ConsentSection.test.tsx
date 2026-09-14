@@ -87,6 +87,42 @@ describe('ConsentSection', () => {
     });
   });
 
+  it('requires an explicit consent choice without preselecting the opposite state', async () => {
+    const changeConsentSpy = vi.spyOn(customerApi, 'changeConsent');
+
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gestionar consentimiento/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gestionar consentimiento/i }));
+
+    expect(screen.getByRole('dialog', { name: /Gestionar consentimiento/i })).toBeInTheDocument();
+    expect(screen.getByText(/Estado actual:/i).parentElement).toHaveTextContent('Activo / Concedido');
+
+    // Both radio buttons must be unselected initially
+    const grantedRadio = screen.getByLabelText(/Concedido \/ Activo/i) as HTMLInputElement;
+    const revokedRadio = screen.getByLabelText(/Revocado/i) as HTMLInputElement;
+    expect(grantedRadio.checked).toBe(false);
+    expect(revokedRadio.checked).toBe(false);
+
+    // The submit button must be disabled until a valid selection is made
+    const submitBtn = screen.getByRole('button', { name: /Guardar consentimiento/i });
+    expect(submitBtn).toBeDisabled();
+
+    // If operator attempts to submit form directly, it is blocked
+    const form = screen.getByRole('dialog', { name: /Gestionar consentimiento/i }).querySelector('form')!;
+    fireEvent.submit(form);
+    expect(changeConsentSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Debes seleccionar explícitamente el nuevo estado/i);
+
+    // Once explicit selection is made, submit button enables
+    fireEvent.click(revokedRadio);
+    expect(revokedRadio.checked).toBe(true);
+    expect(submitBtn).not.toBeDisabled();
+  });
+
   it('allows toggling protocol No contactar with source confirmation', async () => {
     vi.spyOn(customerApi, 'changeDoNotContact').mockResolvedValue({
       ...mockPolicy,

@@ -37,7 +37,8 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
   const [historyEvents, setHistoryEvents] = useState<PolicyEventResponse[] | null>(null);
 
   // Form states
-  const [targetStatus, setTargetStatus] = useState<'GRANTED' | 'REVOKED'>('GRANTED');
+  const [targetStatus, setTargetStatus] = useState<'GRANTED' | 'REVOKED' | null>(null);
+  const [currentConsentStatus, setCurrentConsentStatus] = useState<ConsentStatus | null>(null);
   const [targetSource, setTargetSource] = useState<ContactIntentSource>('CUSTOMER_VERBAL');
   const [doNotContactSource, setDoNotContactSource] = useState<ContactIntentSource>('CUSTOMER_VERBAL');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,7 +68,10 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
     const existingConsent = policy?.consents.find(
       (c) => c.contactId === phone.id && c.channel === 'WHATSAPP'
     );
-    setTargetStatus(existingConsent?.status === 'GRANTED' ? 'REVOKED' : 'GRANTED');
+    const current = existingConsent?.status ?? 'UNKNOWN';
+    setCurrentConsentStatus(current);
+    // Explicitly require operator to make a deliberate choice rather than auto-flipping
+    setTargetStatus(null);
     setTargetSource('CUSTOMER_VERBAL');
     setModalError(null);
     setIsConsentModalOpen(true);
@@ -77,6 +81,17 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
     e.preventDefault();
     if (!targetPhone) return;
     setModalError(null);
+
+    if (!targetStatus) {
+      setModalError('Debes seleccionar explícitamente el nuevo estado de autorización.');
+      return;
+    }
+
+    if (targetStatus === currentConsentStatus) {
+      setModalError('El estado seleccionado es igual al estado actual del contacto. Selecciona un cambio de estado.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const updated = await customerApi.changeConsent(
@@ -418,6 +433,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
         onClose={() => setIsConsentModalOpen(false)}
         title="Gestionar consentimiento de WhatsApp"
         maxWidth="480px"
+        closeDisabled={isSubmitting}
       >
         <form onSubmit={handleConsentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
           {modalError && (
@@ -442,14 +458,20 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
                 padding: 'var(--space-12)',
                 backgroundColor: 'var(--color-surface-container-low)',
                 borderRadius: 'var(--radius-md)',
-                fontSize: 'var(--font-size-dense)'
+                fontSize: 'var(--font-size-dense)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-4)'
               }}
             >
               <div style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
                 Teléfono: {targetPhone.e164} ({targetPhone.primary ? 'Principal' : 'Secundario'})
               </div>
-              <div style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
                 ID de contacto: {targetPhone.id}
+              </div>
+              <div style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-main)', marginTop: '2px' }}>
+                <strong>Estado actual:</strong> {formatStatus(currentConsentStatus ?? undefined)}
               </div>
             </div>
           )}
@@ -513,7 +535,12 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
             <Button type="button" variant="secondary" onClick={() => setIsConsentModalOpen(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
-            <Button type="submit" variant="primary" isLoading={isSubmitting}>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={isSubmitting}
+              disabled={isSubmitting || !targetStatus || targetStatus === currentConsentStatus}
+            >
               Guardar consentimiento
             </Button>
           </div>
@@ -526,6 +553,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
         onClose={() => setIsDoNotContactModalOpen(false)}
         title={policy?.doNotContact ? '¿Desactivar protocolo No contactar?' : '¿Marcar como No contactar?'}
         maxWidth="480px"
+        closeDisabled={isSubmitting}
       >
         <form onSubmit={handleDoNotContactSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
           {modalError && (

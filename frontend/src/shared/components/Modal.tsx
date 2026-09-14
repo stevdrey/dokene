@@ -7,21 +7,29 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   maxWidth?: string;
+  closeDisabled?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, children, maxWidth = '560px' }: ModalProps) {
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  maxWidth = '560px',
+  closeDisabled = false
+}: ModalProps) {
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !closeDisabled) {
         onClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, closeDisabled]);
 
   if (!isOpen) return null;
 
@@ -42,7 +50,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = '560px' }: 
         padding: 'var(--space-16)'
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !closeDisabled) onClose();
       }}
     >
       <div
@@ -82,11 +90,14 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = '560px' }: 
           <button
             type="button"
             className="interactive-target"
-            onClick={onClose}
+            onClick={closeDisabled ? undefined : onClose}
+            disabled={closeDisabled}
             aria-label="Cerrar modal"
             style={{
               color: 'var(--color-text-supporting)',
-              borderRadius: 'var(--radius-md)'
+              borderRadius: 'var(--radius-md)',
+              opacity: closeDisabled ? 0.4 : 1,
+              cursor: closeDisabled ? 'not-allowed' : 'pointer'
             }}
           >
             <CloseIcon size={20} />
