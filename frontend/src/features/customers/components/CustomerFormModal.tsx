@@ -142,9 +142,16 @@ export function CustomerFormModal({
 
     setIsSubmitting(true);
     try {
+      let resolvedNotes: string | null;
+      if (isEdit && customerToEdit && (customerToEdit.notes ?? '') === notes) {
+        resolvedNotes = customerToEdit.notes;
+      } else {
+        resolvedNotes = notes === '' ? null : notes;
+      }
+
       const payload: CustomerWriteRequest = {
         displayName: trimmedName,
-        notes: notes.trim() || null,
+        notes: resolvedNotes,
         phones: validPhones
       };
 

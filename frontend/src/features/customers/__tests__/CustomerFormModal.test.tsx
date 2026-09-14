@@ -165,4 +165,53 @@ describe('CustomerFormModal', () => {
     const phoneInput = screen.getByLabelText(/Número de teléfono 1/i);
     expect(phoneInput).toHaveStyle({ minWidth: '0px' });
   });
+
+  it('preserves notes verbatim with leading/trailing whitespace during profile edits', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    const customerWithSpacedNotes = {
+      id: 'cust-spaced-1',
+      displayName: 'Empresa Test',
+      notes: '  Notas con espacios al inicio y final  \n',
+      phones: [{ id: 'p-1', e164: '+56911112222', primary: true }],
+      status: 'ACTIVE' as const,
+      version: 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      archivedAt: null
+    };
+
+    const updateSpy = vi.spyOn(customerApi, 'updateCustomer').mockResolvedValueOnce({
+      ...customerWithSpacedNotes,
+      displayName: 'Empresa Test Actualizada',
+      version: 4
+    });
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+        customerToEdit={customerWithSpacedNotes}
+      />
+    );
+
+    // Edit only the display name, leaving notes untouched
+    const nameInput = screen.getByLabelText(/Nombre completo/i);
+    fireEvent.change(nameInput, { target: { value: 'Empresa Test Actualizada' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar cambios/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        'cust-spaced-1',
+        3,
+        expect.objectContaining({
+          displayName: 'Empresa Test Actualizada',
+          notes: '  Notas con espacios al inicio y final  \n'
+        })
+      );
+    });
+  });
 });
