@@ -1,101 +1,206 @@
-import { useState, useEffect } from 'react';
-import '@/styles/base.css';
-import { Workspace } from '@/shared/types';
-import { httpClient } from '@/shared/api/httpClient';
-import { AppShell } from '@/features/shell/AppShell';
-import { CustomerList } from '@/features/customers/components/CustomerList';
-import { CustomerProfile } from '@/features/customers/components/CustomerProfile';
+import React, { useState, useEffect } from 'react';
+import { SessionProvider, useSession } from './features/auth/SessionContext';
+import { TenantProvider, useTenant } from './features/tenants/TenantContext';
+import { LoginView } from './features/auth/LoginView';
+import { NoMembershipsView } from './features/tenants/NoMembershipsView';
+import { AppShell, ActiveTab } from './components/shell/AppShell';
+import { CustomerList } from './features/customers/components/CustomerList';
+import { CustomerProfile } from './features/customers/components/CustomerProfile';
 
-export function App() {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
-  const [activeNav, setActiveNav] = useState<'customers' | 'followups' | 'settings'>('customers');
+const MainAppContent: React.FC = () => {
+  const { status: sessionStatus, error: sessionError, checkSession } = useSession();
+  const { status: tenantStatus, error: tenantError, refreshWorkspaces, activeWorkspace } = useTenant();
+  const [activeTab, setActiveTab] = useState<ActiveTab>('seguimientos');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [isInitializing, setIsInitializing] = useState(true);
 
-  // Initialize session and workspaces
+  // Clear customer selection on workspace switch to enforce strict tenant isolation
   useEffect(() => {
-    async function init() {
-      try {
-        // Fetch session
-        const sessionRes = await fetch('/api/session', { credentials: 'same-origin' });
-        if (sessionRes.ok) {
-          const sessionData = await sessionRes.json();
-          if (sessionData.csrfToken) {
-            httpClient.setCsrfToken(sessionData.csrfToken);
-          }
-        }
-
-        // Fetch workspaces
-        const tenantsRes = await fetch('/api/tenants', { credentials: 'same-origin' });
-        if (tenantsRes.ok) {
-          const list: Workspace[] = await tenantsRes.json();
-          if (list && list.length > 0) {
-            setWorkspaces(list);
-            setActiveWorkspace(list[0]);
-            httpClient.setTenantId(list[0].tenantId);
-            setIsInitializing(false);
-            return;
-          }
-        }
-      } catch {
-        // Standalone or mock fallback
-      }
-
-      // Default fallback workspace for standalone dev / test
-      const defaultWorkspace: Workspace = {
-        tenantId: '00000000-0000-0000-0000-000000000001',
-        displayName: 'Café & Taller Artesano',
-        role: 'OPERATOR'
-      };
-      setWorkspaces([defaultWorkspace]);
-      setActiveWorkspace(defaultWorkspace);
-      httpClient.setTenantId(defaultWorkspace.tenantId);
-      setIsInitializing(false);
-    }
-
-    init();
-  }, []);
-
-  const handleSelectWorkspace = (workspace: Workspace) => {
-    // Clear tenant-scoped state on workspace change to prevent cross-tenant leakage
     setSelectedCustomerId(null);
-    setActiveWorkspace(workspace);
-    httpClient.setTenantId(workspace.tenantId);
-  };
+  }, [activeWorkspace?.tenantId]);
 
-  if (isInitializing) {
+  if (sessionStatus === 'loading') {
     return (
       <div
+        role="status"
+        aria-live="polite"
         style={{
+          minHeight: '100vh',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          minHeight: '100vh',
-          backgroundColor: 'var(--color-canvas-desktop)',
-          color: 'var(--color-text-supporting)',
-          fontSize: 'var(--font-size-dense)'
+          backgroundColor: 'var(--color-bg-inset)',
+          color: 'var(--color-brand)',
+          fontSize: 'var(--font-size-component-heading)',
+          gap: '12px',
         }}
       >
-        Iniciando Dokene...
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }}>
+          progress_activity
+        </span>
+        <span>Cargando Dokene...</span>
+        <style>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (sessionStatus === 'error') {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'var(--color-bg-inset)',
+          padding: '16px',
+        }}
+      >
+        <div
+          role="alert"
+          style={{
+            maxWidth: '400px',
+            width: '100%',
+            backgroundColor: 'var(--color-surface)',
+            padding: '24px',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--color-error-border)',
+            textAlign: 'center',
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: 'var(--color-error-text)', marginBottom: '8px' }}>
+            wifi_off
+          </span>
+          <h2 style={{ fontSize: 'var(--font-size-section-heading)', margin: '0 0 8px' }}>Error de conexión</h2>
+          <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-muted)', marginBottom: '16px' }}>
+            {sessionError || 'No se pudo comprobar el estado de la sesión. Revisa tu conexión.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => checkSession()}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'var(--color-primary)',
+              color: 'var(--color-on-primary)',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: 500,
+              cursor: 'pointer',
+              minHeight: '44px',
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionStatus === 'unauthenticated') {
+    return <LoginView />;
+  }
+
+  if (tenantStatus === 'loading') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'var(--color-bg-inset)',
+          color: 'var(--color-brand)',
+          fontSize: 'var(--font-size-component-heading)',
+          gap: '12px',
+        }}
+      >
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ animation: 'spin 1s linear infinite' }}>
+          progress_activity
+        </span>
+        <span>Cargando espacios de trabajo...</span>
+        <style>{`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (tenantStatus === 'no-memberships') {
+    return <NoMembershipsView />;
+  }
+
+  if (tenantStatus === 'error') {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'var(--color-bg-inset)',
+          padding: '16px',
+        }}
+      >
+        <div
+          role="alert"
+          style={{
+            maxWidth: '400px',
+            width: '100%',
+            backgroundColor: 'var(--color-surface)',
+            padding: '24px',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--color-error-border)',
+            textAlign: 'center',
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: 'var(--color-error-text)', marginBottom: '8px' }}>
+            error
+          </span>
+          <h2 style={{ fontSize: 'var(--font-size-section-heading)', margin: '0 0 8px' }}>Error de conexión</h2>
+          <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-muted)', marginBottom: '16px' }}>
+            {tenantError || 'No se pudieron obtener los espacios de trabajo.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => refreshWorkspaces()}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'var(--color-primary)',
+              color: 'var(--color-on-primary)',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: 500,
+              cursor: 'pointer',
+              minHeight: '44px',
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <AppShell
-      workspaces={workspaces}
-      activeWorkspace={activeWorkspace}
-      onSelectWorkspace={handleSelectWorkspace}
-      activeNav={activeNav}
-      onNavigate={(nav) => {
-        setActiveNav(nav);
-        if (nav !== 'customers') {
+      activeTab={activeTab}
+      onTabChange={(tab) => {
+        setActiveTab(tab);
+        if (tab !== 'clientes') {
           setSelectedCustomerId(null);
         }
       }}
     >
-      {activeNav === 'customers' && (
+      {activeTab === 'clientes' && (
         selectedCustomerId ? (
           <CustomerProfile
             customerId={selectedCustomerId}
@@ -108,33 +213,32 @@ export function App() {
         )
       )}
 
-      {activeNav === 'followups' && (
-        <section
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-32)',
-            border: '1px solid var(--color-outline-subtle)',
-            textAlign: 'center'
-          }}
-        >
-          <h2 style={{ fontSize: 'var(--font-size-page-heading)', fontWeight: 600, color: 'var(--color-text-main)' }}>
-            Cola de Seguimientos
-          </h2>
-          <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginTop: 'var(--space-8)' }}>
-            Este módulo se integrará en el Issue #39. Selecciona la pestaña "Clientes" para gestionar la cartera de clientes.
+      {activeTab === 'seguimientos' && (
+        <div>
+          <h1
+            style={{
+              fontSize: 'var(--font-size-page-heading)',
+              fontWeight: 600,
+              color: 'var(--color-text-main)',
+              margin: '0 0 8px',
+            }}
+          >
+            Seguimientos
+          </h1>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-secondary)' }}>
+            Espacio activo: <strong>{activeWorkspace?.displayName}</strong>
           </p>
-        </section>
+        </div>
       )}
 
-      {activeNav === 'settings' && (
+      {activeTab === 'configuracion' && (
         <section
           style={{
             backgroundColor: 'var(--color-surface)',
             borderRadius: 'var(--radius-lg)',
             padding: 'var(--space-32)',
             border: '1px solid var(--color-outline-subtle)',
-            textAlign: 'center'
+            textAlign: 'center',
           }}
         >
           <h2 style={{ fontSize: 'var(--font-size-page-heading)', fontWeight: 600, color: 'var(--color-text-main)' }}>
@@ -147,5 +251,16 @@ export function App() {
       )}
     </AppShell>
   );
+};
+
+export function App() {
+  return (
+    <SessionProvider>
+      <TenantProvider>
+        <MainAppContent />
+      </TenantProvider>
+    </SessionProvider>
+  );
 }
+
 export default App;

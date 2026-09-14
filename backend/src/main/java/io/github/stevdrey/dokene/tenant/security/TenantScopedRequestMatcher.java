@@ -15,6 +15,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 public class TenantScopedRequestMatcher implements RequestMatcher {
 
     private static final RequestMatcher DEFAULT_GLOBAL_ENDPOINTS = new OrRequestMatcher(
+            PathPatternRequestMatcher.pathPattern("/"),
             PathPatternRequestMatcher.pathPattern("/api/tenants"),
             PathPatternRequestMatcher.pathPattern("/api/tenants/**"),
             PathPatternRequestMatcher.pathPattern("/api/account/**"),

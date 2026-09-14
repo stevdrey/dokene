@@ -1,3 +1,4 @@
+import { apiClient } from '@/api/apiClient';
 import { ApiErrorPayload } from '@/shared/types';
 
 export class ApiError extends Error {
@@ -22,7 +23,7 @@ class HttpClient {
   }
 
   getTenantId(): string | null {
-    return this.activeTenantId;
+    return this.activeTenantId || apiClient.getCurrentTenantId();
   }
 
   setCsrfToken(token: string | null) {
@@ -30,7 +31,7 @@ class HttpClient {
   }
 
   getCsrfToken(): string | null {
-    return this.csrfToken;
+    return this.csrfToken || apiClient.getCsrfToken();
   }
 
   onUnauthorized(callback: () => void) {
@@ -66,13 +67,14 @@ class HttpClient {
       requestHeaders['Content-Type'] = 'application/json';
     }
 
-    if (tenantScoped && this.activeTenantId) {
-      requestHeaders['X-Tenant-Id'] = this.activeTenantId;
+    const effectiveTenantId = this.getTenantId();
+    if (tenantScoped && effectiveTenantId) {
+      requestHeaders['X-Tenant-Id'] = effectiveTenantId;
     }
 
-    // Include CSRF token for state-changing HTTP methods
-    if (['POST', 'PUT', 'DELETE'].includes(method) && this.csrfToken) {
-      requestHeaders['X-CSRF-TOKEN'] = this.csrfToken;
+    const effectiveCsrfToken = this.getCsrfToken();
+    if (['POST', 'PUT', 'DELETE'].includes(method) && effectiveCsrfToken) {
+      requestHeaders['X-CSRF-TOKEN'] = effectiveCsrfToken;
     }
 
     if (ifMatch !== undefined && ifMatch !== null) {
@@ -89,7 +91,7 @@ class HttpClient {
     const response = await fetch(endpoint, {
       method,
       headers: requestHeaders,
-      credentials: 'same-origin',
+      credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined
     });
 

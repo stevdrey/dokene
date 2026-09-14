@@ -16,6 +16,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
@@ -23,6 +26,7 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -87,13 +91,19 @@ class TenantSecurityConfiguration {
             HttpSecurity http,
             TenantContextRequestFilter tenantContextRequestFilter,
             OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService,
-            ObjectProvider<ClientRegistrationRepository> clientRegistrations
+            ObjectProvider<ClientRegistrationRepository> clientRegistrations,
+            @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl
     )
             throws Exception {
+        LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
+
         http.authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/oauth2/**", "/login/**", "/error").permitAll()
+                        .requestMatchers("/", "/oauth2/**", "/login/**", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/session").authenticated()
                         .anyRequest().authenticated())
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        .sessionFixation(fixation -> fixation.changeSessionId()))
                 .cors(Customizer.withDefaults())
                 .exceptionHandling(exceptions -> exceptions.defaultAuthenticationEntryPointFor(
                         new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
@@ -103,14 +113,38 @@ class TenantSecurityConfiguration {
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")
-                        .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT)))
+                        .logoutSuccessHandler(logoutSuccessHandler))
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
 
         if (clientRegistrations.getIfAvailable() != null) {
             http.oauth2Login(oauth -> oauth
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
-                    .defaultSuccessUrl("/api/session", true));
+                    .defaultSuccessUrl(postLoginRedirectUrl, true));
         }
         return http.build();
+    }
+
+    private LogoutSuccessHandler createLogoutSuccessHandler(
+            ObjectProvider<ClientRegistrationRepository> clientRegistrations
+    ) {
+        HttpStatusReturningLogoutSuccessHandler apiLogoutSuccessHandler =
+                new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT);
+        ClientRegistrationRepository repository = clientRegistrations.getIfAvailable();
+        if (repository == null) {
+            return apiLogoutSuccessHandler;
+        }
+
+        OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler =
+                new OidcClientInitiatedLogoutSuccessHandler(repository);
+        oidcLogoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}/");
+
+        return (request, response, authentication) -> {
+            boolean providerRequested = "true".equalsIgnoreCase(request.getParameter("provider"));
+            if (providerRequested && authentication instanceof OAuth2AuthenticationToken) {
+                oidcLogoutSuccessHandler.onLogoutSuccess(request, response, authentication);
+            } else {
+                apiLogoutSuccessHandler.onLogoutSuccess(request, response, authentication);
+            }
+        };
     }
 }
