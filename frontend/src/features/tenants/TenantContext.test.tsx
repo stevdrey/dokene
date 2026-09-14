@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { TenantProvider, useTenant } from './TenantContext';
+import { TenantProvider, useTenant, normalizeWorkspaceName } from './TenantContext';
 import { SessionContextValue, useSession } from '../auth/SessionContext';
 import { apiClient, AbortedTenantRequestError } from '../../api/apiClient';
 
@@ -479,5 +479,75 @@ describe('TenantContext', () => {
     // Tenant 2 must be selected because it was preserved in sessionStorage
     expect(screen.getByTestId('activeTenantId')).toHaveTextContent('tenant-2');
     expect(screen.getByTestId('activeWorkspace')).toHaveTextContent('Taller Mecánico');
+  });
+
+  it('normalizes workspace names matching backend whitespace stripping and explicitly preserves U+FEFF', () => {
+    // Normal whitespace and Unicode separators stripped
+    expect(normalizeWorkspaceName('  Café Artesano  ')).toBe('Café Artesano');
+    expect(normalizeWorkspaceName('\t\nCafé Artesano\r\f')).toBe('Café Artesano');
+
+    // Java-specific whitespace boundary characters (U+0085, U+001C..U+001F) stripped
+    expect(normalizeWorkspaceName('\u0085Mi Negocio\u001F')).toBe('Mi Negocio');
+    expect(normalizeWorkspaceName('\u001C\u001D\u001E\u001FTienda\u0085')).toBe('Tienda');
+
+    // U+FEFF (BOM / Zero Width No-Break Space) is NOT whitespace in Java; must be preserved
+    expect(normalizeWorkspaceName('\uFEFFMi Negocio\uFEFF')).toBe('\uFEFFMi Negocio\uFEFF');
+    expect(normalizeWorkspaceName('  \uFEFFMi Negocio\uFEFF  ')).toBe('\uFEFFMi Negocio\uFEFF');
+  });
+
+  it('removes the previous identity storage key from sessionStorage upon logout', async () => {
+    let sessionState = {
+      status: 'authenticated',
+      identityId: 'user-to-logout',
+      csrfToken: 'csrf-1',
+      wasExpired: false,
+      error: null,
+      loginUrl: '/login',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    } as SessionContextValue;
+
+    vi.mocked(useSession).mockImplementation(() => sessionState);
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/tenants') {
+        return new Response(
+          JSON.stringify([
+            { tenantId: 't-1', displayName: 'Workspace 1', role: 'ADMIN' },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const { rerender } = render(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status')).toHaveTextContent('ready');
+    });
+
+    const userKey = 'dokene_active_tenant_id_user-to-logout';
+    expect(sessionStorage.getItem(userKey)).toBe('t-1');
+
+    // Transition to unauthenticated (logout clears identityId to null)
+    sessionState = {
+      ...sessionState,
+      status: 'unauthenticated',
+      identityId: null,
+    };
+
+    rerender(
+      <TenantProvider>
+        <TestTenantConsumer />
+      </TenantProvider>
+    );
+
+    // The previous identity's storage key MUST be cleanly removed from sessionStorage
+    expect(sessionStorage.getItem(userKey)).toBeNull();
   });
 });

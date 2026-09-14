@@ -30,7 +30,7 @@ export function countCodePoints(str: string): number {
   return Array.from(str).length;
 }
 
-const BACKEND_DISPLAY_NAME_WHITESPACE_REGEX = /^[\s\u0085\u001c-\u001f\p{Z}]+|[\s\u0085\u001c-\u001f\p{Z}]+$/gu;
+const BACKEND_DISPLAY_NAME_WHITESPACE_REGEX = /^[\t\n\v\f\r\u0085\u001c-\u001f\p{Z}]+|[\t\n\v\f\r\u0085\u001c-\u001f\p{Z}]+$/gu;
 
 /**
  * Normalizes a workspace display name matching backend Tenant.normalizeDisplayName whitespace stripping.
@@ -73,6 +73,11 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refreshGenerationRef = useRef(0);
+  const lastAuthenticatedStorageKeyRef = useRef<string | null>(null);
+
+  if (identityId) {
+    lastAuthenticatedStorageKeyRef.current = getTenantStorageKey(identityId);
+  }
 
   const storageKey = getTenantStorageKey(identityId);
 
@@ -202,6 +207,10 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setActiveWorkspace(null);
       apiClient.setCurrentTenantId(null);
       try {
+        if (lastAuthenticatedStorageKeyRef.current) {
+          sessionStorage.removeItem(lastAuthenticatedStorageKeyRef.current);
+          lastAuthenticatedStorageKeyRef.current = null;
+        }
         sessionStorage.removeItem(storageKey);
         sessionStorage.removeItem(LEGACY_STORAGE_KEY);
       } catch {

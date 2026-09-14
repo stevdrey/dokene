@@ -307,7 +307,7 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting || !newWorkspaceName.trim()}
+                  disabled={isSubmitting || !normalizeWorkspaceName(newWorkspaceName)}
                   style={{
                     padding: '8px 16px',
                     fontSize: '13px',

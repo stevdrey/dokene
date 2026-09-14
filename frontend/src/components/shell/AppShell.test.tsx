@@ -408,4 +408,28 @@ describe('AppShell', () => {
       screen.getByText('El nombre del espacio de trabajo no puede exceder los 160 caracteres.')
     ).toBeInTheDocument();
   });
+
+  it('disables the Crear button when the workspace name consists only of backend-blank whitespace', () => {
+    render(<AppShell />);
+
+    const selectorButton = screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0];
+    fireEvent.click(selectorButton);
+
+    const newWsButton = screen.getByText('Nuevo espacio de trabajo');
+    fireEvent.click(newWsButton);
+
+    const input = screen.getByLabelText('Nombre del nuevo negocio');
+    const createButton = screen.getByRole('button', { name: 'Crear' });
+
+    // Initially empty -> disabled
+    expect(createButton).toBeDisabled();
+
+    // Only boundary whitespace stripped by backend (U+0085, U+001C..U+001F) -> must remain disabled
+    fireEvent.change(input, { target: { value: '\u0085\u001C\u001F' } });
+    expect(createButton).toBeDisabled();
+
+    // Valid non-blank name with U+FEFF -> enabled
+    fireEvent.change(input, { target: { value: '\uFEFFMi Negocio\uFEFF' } });
+    expect(createButton).toBeEnabled();
+  });
 });
