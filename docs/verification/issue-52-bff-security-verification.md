@@ -73,11 +73,11 @@ set -a; [ -f .env ] && . ./.env; set +a
 | Scenario | Request / Flow | Expected | Observed | Status |
 | --- | --- | --- | --- | --- |
 | Anonymous session status | `GET /api/session` | `401 Unauthorized` | HTTP 401 fail-closed, no session created | PASS |
-| Login initiation | `GET /oauth2/authorization/dokene` | `302 Found` with redirect to Keycloak auth endpoint and pre-auth `JSESSIONID` | HTTP 302 redirecting to Keycloak with PKCE S256 parameters (`code_challenge`) and state | PASS |
+| Login initiation | `GET /oauth2/authorization/dokene` | `302 Found` with redirect to Keycloak auth endpoint and pre-auth `JSESSIONID` | HTTP 302 redirecting to Keycloak with mandatory RFC 7636 PKCE S256 parameters (`code_challenge` and `code_challenge_method=S256`) | PASS |
 | Keycloak credentials submit | `POST /realms/dokene/login-actions/authenticate` with `testuser` credentials | `302 Found` redirect to `/login/oauth2/code/dokene` with single-use code | HTTP 302 redirecting to Dokene BFF callback with authorization code | PASS |
 | Code exchange & session creation | `GET /login/oauth2/code/dokene?code=...&state=...` | BFF performs confidential code exchange server-side, rotates session ID, redirects to `/` | HTTP 302 redirecting to `/`; session cookie rotated | PASS |
 | Session contract inspection | `GET /api/session` with rotated `JSESSIONID` | `200 OK` with `{ "authenticated": true, "identityId": "...", "csrfToken": "..." }` | HTTP 200 with minimal application session metadata | PASS |
-| Token isolation | Inspection of callback redirect, session response body, headers, and logs | Strictly ZERO occurrence of `access_token`, `id_token`, `refresh_token`, or client secret | No tokens or secrets present in any client-accessible artifact | PASS |
+| Token isolation | Inspection of callback redirect, session response body, response headers, error bodies, and logs | Strictly ZERO occurrence of `access_token`, `id_token`, `refresh_token`, `client_secret`, or synthetic token/secret values | No tokens or secrets present in any client-accessible artifact | PASS |
 | Cookie security attributes | Inspection of `Set-Cookie: JSESSIONID=...` | Must declare `HttpOnly` and `SameSite=Lax` (and `Secure` in TLS environments) | `HttpOnly; SameSite=Lax` present on session cookies | PASS |
 
 ### 2. Session Fixation & Session Lifecycle
@@ -88,7 +88,7 @@ set -a; [ -f .env ] && . ./.env; set +a
 | Tampered session cookie | `GET /api/session` with `Cookie: JSESSIONID=forged-cookie-12345` | `401 Unauthorized` | Fail-closed HTTP 401 without creating session or redirect loop | PASS |
 | Expired session fail-closed | Requesting `/api/session` after session expiration | `401 Unauthorized` | Inactive session returns HTTP 401 | PASS |
 | Expired session recovery | Navigating to `/oauth2/authorization/dokene` after expiration | Successful new login establishing fresh session | Authenticates cleanly and yields new authorized `JSESSIONID` | PASS |
-| Local logout with CSRF | `POST /logout` with `X-CSRF-TOKEN` | `204 No Content`, session invalidated, cookie deleted | HTTP 204 returned; session cleared server-side | PASS |
+| Local logout with CSRF | `POST /logout` with `X-CSRF-TOKEN` | `204 No Content`, session invalidated, cookie deleted via `Set-Cookie Max-Age=0` | HTTP 204 returned; session cleared server-side and browser instructed to delete cookie | PASS |
 | Post-logout session reuse | Replaying logged-out `JSESSIONID` to `/api/session` or `/api/customers` | `401 Unauthorized` | HTTP 401 fail-closed; session ID cannot be revived | PASS |
 | Provider SSO logout | `POST /logout?provider=true` with `X-CSRF-TOKEN` | `302 Found` redirect to Keycloak end_session endpoint with `id_token_hint` | HTTP 302 redirect to Keycloak logout; local session invalidated | PASS |
 
@@ -115,7 +115,7 @@ set -a; [ -f .env ] && . ./.env; set +a
 | Forged tenant selector | User B accesses User A's customer with forged `X-Tenant-Id: {tenantA}` | `403 Forbidden` | Membership verification rejects foreign tenant selector | PASS |
 | Forged tenant list query | User B calls `GET /api/customers` with forged `X-Tenant-Id: {tenantA}` | `403 Forbidden` | Membership verification rejects selector | PASS |
 | Forged tenant mutation | User B calls `POST /api/customers` with forged `X-Tenant-Id: {tenantA}` | `403 Forbidden` | Membership verification rejects mutation | PASS |
-| Session adoption prevention | User B attempts to attach User A's `JSESSIONID` to impersonate User A | Bound to User A | Session retains Identity A and cannot adopt User B | PASS |
+| Session identity binding | Replaying User A's bearer session cookie (`JSESSIONID`) | Bound to User A | Session remains strictly bound to User A's identity; possession of the cookie acts as User A and is not rebound to User B | PASS |
 | Workspace switching in same session | User with memberships in Tenant A and Tenant B sends sequential requests toggling `X-Tenant-Id` | Strict isolation per request | Request for Tenant A returns only Tenant A items; request for Tenant B returns only Tenant B items; no cached/stale data leaks | PASS |
 | Insufficient role permissions | User with `VIEWER` role calls `POST /api/customers` with valid CSRF | `403 Forbidden` | `CUSTOMER_WRITE` required; VIEWER rejected with HTTP 403 | PASS |
 | Frontend late-response cancellation | User switches workspace while request for previous tenant is in flight | Abort prior request | Client rejects old request with `AbortedTenantRequestError`; active workspace state is never contaminated | PASS |

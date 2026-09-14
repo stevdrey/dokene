@@ -211,13 +211,14 @@ class BffTenantBoundarySecurityIntegrationTest {
                 """);
         assertThat(bobForgedMutate.statusCode()).isEqualTo(403);
 
-        // 7. Bob cannot reuse Alice's session cookie with Bob's own requests
+        // 7. Replaying Alice's session cookie remains strictly bound to Alice's identity;
+        // possession of Alice's bearer cookie acts as Alice and does not adopt or rebind to Bob's identity
         String aliceSessionId = sessionId(alice);
-        HttpRequest forgedSessionRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/session"))
+        HttpRequest replaySessionRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/session"))
                 .header("Cookie", "JSESSIONID=" + aliceSessionId)
                 .GET()
                 .build();
-        HttpResponse<String> sessionEcho = HttpClient.newHttpClient().send(forgedSessionRequest, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> sessionEcho = HttpClient.newHttpClient().send(replaySessionRequest, HttpResponse.BodyHandlers.ofString());
         assertThat(sessionEcho.statusCode()).isEqualTo(200);
         // Echoed session remains Alice's identity, never Bob's
         assertThat(objectMapper.readTree(sessionEcho.body()).path("identityId").asText())
@@ -379,6 +380,16 @@ class BffTenantBoundarySecurityIntegrationTest {
         HttpResponse<String> logoutResponse = post(user, "/logout", csrf);
         assertThat(logoutResponse.statusCode()).isEqualTo(204);
 
+        // Verify that the browser is instructed to delete JSESSIONID cookie
+        List<String> setCookies = logoutResponse.headers().allValues("Set-Cookie");
+        assertThat(setCookies).anySatisfy(cookie -> {
+            assertThat(cookie).containsIgnoringCase("JSESSIONID=");
+            assertThat(cookie).satisfiesAnyOf(
+                    c -> assertThat(c).containsIgnoringCase("Max-Age=0"),
+                    c -> assertThat(c).containsIgnoringCase("Expires=")
+            );
+        });
+
         // Reusing the session immediately fails closed with 401
         assertThat(get(user, "/api/session").statusCode()).isEqualTo(401);
 
@@ -402,12 +413,24 @@ class BffTenantBoundarySecurityIntegrationTest {
         HttpResponse<String> authorization = beginAuthentication(browser);
         String providerLocation = authorization.headers().firstValue("Location").orElseThrow();
         HttpResponse<String> providerRedirect = getAbsolute(browser, providerLocation + "&sub=" + encode(subject));
-        return getAbsolute(browser, providerRedirect.headers().firstValue("Location").orElseThrow());
+        String callbackLocation = providerRedirect.headers().firstValue("Location").orElseThrow();
+        HttpResponse<String> callbackResponse = getAbsolute(browser, callbackLocation);
+
+        // Inspect callback redirect URL and response headers for token isolation
+        String redirectTarget = callbackResponse.headers().firstValue("Location").orElse("");
+        assertThat(redirectTarget).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET, "server-side-access-token");
+        assertThat(callbackResponse.headers().map().toString()).doesNotContain(CLIENT_SECRET, "server-side-access-token");
+
+        return callbackResponse;
     }
 
     private HttpResponse<String> beginAuthentication(Browser browser) throws Exception {
         HttpResponse<String> response = get(browser, "/oauth2/authorization/dokene");
         assertThat(response.statusCode()).isEqualTo(302);
+        String location = response.headers().firstValue("Location").orElseThrow();
+        assertThat(location)
+                .contains("code_challenge=")
+                .contains("code_challenge_method=S256");
         return response;
     }
 
@@ -556,10 +579,16 @@ class BffTenantBoundarySecurityIntegrationTest {
 
         private void authorize(HttpExchange exchange) throws IOException {
             Map<String, String> query = parameters(exchange.getRequestURI().getRawQuery());
+            String challenge = query.get("code_challenge");
+            String challengeMethod = query.get("code_challenge_method");
+            if (challenge == null || challenge.isBlank() || !"S256".equals(challengeMethod)) {
+                json(exchange, 400, "{\"error\":\"invalid_request\",\"error_description\":\"PKCE S256 code_challenge required\"}");
+                return;
+            }
             String code = UUID.randomUUID().toString();
             String subject = query.getOrDefault("sub", "default-user");
             codes.put(code, new AuthorizationCode(
-                    query.get("nonce"), query.get("code_challenge"), subject
+                    query.get("nonce"), challenge, subject
             ));
             String redirect = query.get("redirect_uri") + "?code=" + encode(code) + "&state=" + encode(query.get("state"));
             exchange.getResponseHeaders().add("Location", redirect);
@@ -570,7 +599,8 @@ class BffTenantBoundarySecurityIntegrationTest {
         private void token(HttpExchange exchange) throws IOException {
             Map<String, String> form = parameters(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             AuthorizationCode authorization = codes.remove(form.get("code"));
-            if (authorization == null || !validVerifier(authorization.codeChallenge(), form.get("code_verifier"))) {
+            String verifier = form.get("code_verifier");
+            if (authorization == null || verifier == null || verifier.isBlank() || !validVerifier(authorization.codeChallenge(), verifier)) {
                 json(exchange, 400, "{\"error\":\"invalid_grant\"}");
                 return;
             }
@@ -606,10 +636,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         }
 
         private static boolean validVerifier(String expectedChallenge, String verifier) {
-            if (expectedChallenge == null) {
-                return true;
-            }
-            if (verifier == null) {
+            if (expectedChallenge == null || expectedChallenge.isBlank() || verifier == null || verifier.isBlank()) {
                 return false;
             }
             try {

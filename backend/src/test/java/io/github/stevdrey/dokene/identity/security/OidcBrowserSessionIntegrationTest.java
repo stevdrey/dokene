@@ -103,7 +103,8 @@ class OidcBrowserSessionIntegrationTest {
         assertThat(countMappings()).isEqualTo(1);
         String callbackLocation = firstCallback.headers().firstValue("Location").orElseThrow();
         assertThat(callbackLocation).endsWith("/");
-        assertThat(callbackLocation).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET);
+        assertThat(callbackLocation).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET, "server-side-access-token");
+        assertThat(firstCallback.headers().map().toString()).doesNotContain(CLIENT_SECRET, "server-side-access-token");
 
         List<String> setCookies = firstCallback.headers().allValues("Set-Cookie");
         assertThat(setCookies).anySatisfy(cookie -> {
@@ -114,6 +115,7 @@ class OidcBrowserSessionIntegrationTest {
 
         HttpResponse<String> firstSession = get(firstBrowser, "/api/session");
         assertThat(firstSession.statusCode()).isEqualTo(200);
+        assertThat(firstSession.headers().map().toString()).doesNotContain(CLIENT_SECRET, "server-side-access-token");
         JsonNode firstBody = objectMapper.readTree(firstSession.body());
         assertThat(firstBody.propertyNames())
                 .containsExactlyInAnyOrder("authenticated", "identityId", "csrfToken");
@@ -126,7 +128,7 @@ class OidcBrowserSessionIntegrationTest {
 
         assertThat(secondBody.path("identityId").asText()).isEqualTo(firstBody.path("identityId").asText());
         assertThat(countMappings()).isEqualTo(1);
-        assertThat(firstSession.body()).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET);
+        assertThat(firstSession.body()).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET, "server-side-access-token");
     }
 
     @Test
@@ -201,6 +203,17 @@ class OidcBrowserSessionIntegrationTest {
         assertThat(post(authenticated, "/logout", "invalid-token").statusCode()).isEqualTo(403);
         HttpResponse<String> logoutResponse = post(authenticated, "/logout", session.path("csrfToken").asText());
         assertThat(logoutResponse.statusCode()).isEqualTo(204);
+
+        // Verify that browser is instructed to delete the JSESSIONID cookie
+        List<String> setCookies = logoutResponse.headers().allValues("Set-Cookie");
+        assertThat(setCookies).anySatisfy(cookie -> {
+            assertThat(cookie).containsIgnoringCase("JSESSIONID=");
+            assertThat(cookie).satisfiesAnyOf(
+                    c -> assertThat(c).containsIgnoringCase("Max-Age=0"),
+                    c -> assertThat(c).containsIgnoringCase("Expires=")
+            );
+        });
+
         assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
 
         // Reuse of logged-out session identifier must fail closed
@@ -345,8 +358,14 @@ class OidcBrowserSessionIntegrationTest {
 
     private void assertRejectedToken(TokenMode mode) throws Exception {
         Browser browser = browser();
-        authenticate(browser, mode);
-        assertThat(get(browser, "/api/session").statusCode()).isEqualTo(401);
+        HttpResponse<String> callback = authenticate(browser, mode);
+        String callbackLoc = callback.headers().firstValue("Location").orElse("");
+        assertThat(callbackLoc).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET, "server-side-access-token");
+        assertThat(callback.headers().map().toString()).doesNotContain(CLIENT_SECRET, "server-side-access-token");
+        HttpResponse<String> sessionResp = get(browser, "/api/session");
+        assertThat(sessionResp.statusCode()).isEqualTo(401);
+        assertThat(sessionResp.headers().map().toString()).doesNotContain(CLIENT_SECRET, "server-side-access-token");
+        assertThat(sessionResp.body()).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET, "server-side-access-token");
     }
 
     private HttpResponse<String> authenticate(Browser browser, TokenMode mode) throws Exception {
@@ -359,6 +378,10 @@ class OidcBrowserSessionIntegrationTest {
     private HttpResponse<String> beginAuthentication(Browser browser) throws Exception {
         HttpResponse<String> response = get(browser, "/oauth2/authorization/dokene");
         assertThat(response.statusCode()).isEqualTo(302);
+        String location = response.headers().firstValue("Location").orElseThrow();
+        assertThat(location)
+                .contains("code_challenge=")
+                .contains("code_challenge_method=S256");
         return response;
     }
 
@@ -514,10 +537,16 @@ class OidcBrowserSessionIntegrationTest {
 
         private void authorize(HttpExchange exchange) throws IOException {
             Map<String, String> query = parameters(exchange.getRequestURI().getRawQuery());
+            String challenge = query.get("code_challenge");
+            String challengeMethod = query.get("code_challenge_method");
+            if (challenge == null || challenge.isBlank() || !"S256".equals(challengeMethod)) {
+                json(exchange, 400, "{\"error\":\"invalid_request\",\"error_description\":\"PKCE S256 code_challenge required\"}");
+                return;
+            }
             String code = UUID.randomUUID().toString();
             TokenMode mode = TokenMode.valueOf(query.getOrDefault("mode", TokenMode.VALID.name()));
             codes.put(code, new AuthorizationCode(
-                    query.get("nonce"), query.get("code_challenge"), mode
+                    query.get("nonce"), challenge, mode
             ));
             String redirect = query.get("redirect_uri") + "?code=" + encode(code) + "&state=" + encode(query.get("state"));
             exchange.getResponseHeaders().add("Location", redirect);
@@ -528,7 +557,8 @@ class OidcBrowserSessionIntegrationTest {
         private void token(HttpExchange exchange) throws IOException {
             Map<String, String> form = parameters(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             AuthorizationCode authorization = codes.remove(form.get("code"));
-            if (authorization == null || !validVerifier(authorization.codeChallenge(), form.get("code_verifier"))) {
+            String verifier = form.get("code_verifier");
+            if (authorization == null || verifier == null || verifier.isBlank() || !validVerifier(authorization.codeChallenge(), verifier)) {
                 json(exchange, 400, "{\"error\":\"invalid_grant\"}");
                 return;
             }
@@ -568,10 +598,7 @@ class OidcBrowserSessionIntegrationTest {
         }
 
         private static boolean validVerifier(String expectedChallenge, String verifier) {
-            if (expectedChallenge == null) {
-                return true;
-            }
-            if (verifier == null) {
+            if (expectedChallenge == null || expectedChallenge.isBlank() || verifier == null || verifier.isBlank()) {
                 return false;
             }
             try {
