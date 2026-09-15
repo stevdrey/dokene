@@ -21,6 +21,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
   const [phoneSearch, setPhoneSearch] = useState('');
   const [regionSearch, setRegionSearch] = useState('CL');
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -88,8 +89,9 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
   }, [loadCustomers]);
 
   const loadMore = async () => {
-    if (!nextCursor || isLoading) return;
+    if (!nextCursor || isLoading || isLoadingMore) return;
     const generation = queryGenerationRef.current;
+    setIsLoadingMore(true);
     try {
       const page = await customerApi.listCustomers({
         status: statusFilter,
@@ -117,6 +119,10 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
         return;
       }
       if (err instanceof Error) setError(err.message);
+    } finally {
+      if (generation === queryGenerationRef.current) {
+        setIsLoadingMore(false);
+      }
     }
   };
 
@@ -412,7 +418,13 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
 
           {nextCursor && (
             <div style={{ padding: 'var(--space-16)', textAlign: 'center', borderTop: '1px solid var(--color-outline-subtle)' }}>
-              <Button variant="secondary" onClick={loadMore}>
+              <Button
+                variant="secondary"
+                onClick={loadMore}
+                isLoading={isLoadingMore}
+                disabled={isLoadingMore}
+                style={{ minHeight: '44px' }}
+              >
                 Cargar más clientes
               </Button>
             </div>

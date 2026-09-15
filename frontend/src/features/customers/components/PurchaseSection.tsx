@@ -40,10 +40,13 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
 
   const queryGenerationRef = useRef(0);
   const activeLoadAbortRef = useRef<AbortController | null>(null);
+  const activeHistoryPurchaseIdRef = useRef<string | null>(null);
+  const activeHistoryAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     return () => {
       activeLoadAbortRef.current?.abort();
+      activeHistoryAbortRef.current?.abort();
     };
   }, []);
 
@@ -239,31 +242,69 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
   };
 
   const openHistoryModal = async (purchase: PurchaseResponse) => {
+    activeHistoryAbortRef.current?.abort();
+    const abortController = new AbortController();
+    activeHistoryAbortRef.current = abortController;
+    activeHistoryPurchaseIdRef.current = purchase.id;
+
+    setHistoryPurchaseId(purchase.id);
+    setHistoryPurchaseDesc(purchase.description);
+    setHistoryError(null);
     try {
-      setHistoryPurchaseId(purchase.id);
-      setHistoryPurchaseDesc(purchase.description);
-      setHistoryError(null);
-      const res = await customerApi.getPurchaseHistory(customerId, purchase.id);
+      const res = await customerApi.getPurchaseHistory(
+        customerId,
+        purchase.id,
+        undefined,
+        50,
+        abortController.signal
+      );
+      if (activeHistoryPurchaseIdRef.current !== purchase.id) {
+        return;
+      }
       setHistoryEvents(res.events);
       setHistoryNextCursor(res.nextCursor);
     } catch (err: unknown) {
+      if (activeHistoryPurchaseIdRef.current !== purchase.id) {
+        return;
+      }
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
     }
   };
 
   const loadMoreHistory = async () => {
     if (!historyPurchaseId || !historyNextCursor || isHistoryLoadingMore) return;
+    const purchaseId = historyPurchaseId;
     setIsHistoryLoadingMore(true);
     setHistoryError(null);
     try {
-      const res = await customerApi.getPurchaseHistory(customerId, historyPurchaseId, historyNextCursor);
+      const res = await customerApi.getPurchaseHistory(
+        customerId,
+        purchaseId,
+        historyNextCursor,
+        50,
+        activeHistoryAbortRef.current?.signal
+      );
+      if (activeHistoryPurchaseIdRef.current !== purchaseId) {
+        return;
+      }
       setHistoryEvents((prev) => (prev ? [...prev, ...res.events] : res.events));
       setHistoryNextCursor(res.nextCursor);
     } catch (err: unknown) {
+      if (activeHistoryPurchaseIdRef.current !== purchaseId) {
+        return;
+      }
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setHistoryError(err.message);
       else setHistoryError('Error al cargar revisiones anteriores.');
     } finally {
-      setIsHistoryLoadingMore(false);
+      if (activeHistoryPurchaseIdRef.current === purchaseId) {
+        setIsHistoryLoadingMore(false);
+      }
     }
   };
 
@@ -718,6 +759,8 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
       <Modal
         isOpen={Boolean(historyEvents)}
         onClose={() => {
+          activeHistoryAbortRef.current?.abort();
+          activeHistoryPurchaseIdRef.current = null;
           setHistoryEvents(null);
           setHistoryPurchaseId(null);
           setHistoryNextCursor(null);

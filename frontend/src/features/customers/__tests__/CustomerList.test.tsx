@@ -278,4 +278,49 @@ describe('CustomerList', () => {
     expect(screen.queryByRole('button', { name: /Nuevo cliente/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Editar Valentina Morales Gómez/i })).not.toBeInTheDocument();
   });
+
+  it('prevents concurrent customer pagination requests when activated repeatedly', async () => {
+    let resolveLoadMore: (value: unknown) => void;
+    const loadMorePromise = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    const listSpy = vi.spyOn(customerApi, 'listCustomers')
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[0]],
+        nextCursor: 'cursor-2'
+      })
+      .mockImplementationOnce(() => loadMorePromise as any);
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Cargar más clientes/i })).toBeInTheDocument();
+    });
+
+    const loadMoreBtn = screen.getByRole('button', { name: /Cargar más clientes/i });
+    // First click: initiates loadMore
+    fireEvent.click(loadMoreBtn);
+
+    // Second and third click while in-flight
+    fireEvent.click(loadMoreBtn);
+    fireEvent.click(loadMoreBtn);
+
+    // Button should be disabled during in-flight request
+    expect(loadMoreBtn).toBeDisabled();
+
+    // listCustomers should only have been called once for initial load and once for loadMore (total 2)
+    expect(listSpy).toHaveBeenCalledTimes(2);
+
+    // Resolve in-flight request
+    resolveLoadMore!({
+      customers: [mockCustomers[1]],
+      nextCursor: null
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
+    });
+  });
 });

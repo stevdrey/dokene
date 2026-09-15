@@ -343,8 +343,8 @@ describe('PurchaseSection', () => {
       expect(screen.queryByRole('button', { name: /Cargar revisiones anteriores/i })).not.toBeInTheDocument();
     });
 
-    expect(historySpy).toHaveBeenCalledWith('cust-1', 'purch-1');
-    expect(historySpy).toHaveBeenCalledWith('cust-1', 'purch-1', 'cursor-hist-page-2');
+    expect(historySpy).toHaveBeenCalledWith('cust-1', 'purch-1', undefined, 50, expect.any(AbortSignal));
+    expect(historySpy).toHaveBeenCalledWith('cust-1', 'purch-1', 'cursor-hist-page-2', 50, expect.any(AbortSignal));
   });
 
   it('discards stale purchase pagination responses when a refresh supersedes it', async () => {
@@ -510,5 +510,74 @@ describe('PurchaseSection', () => {
     // Stale purchase must NOT overwrite the fresh list
     expect(screen.getByText('Fresh Newly Recorded Purchase')).toBeInTheDocument();
     expect(screen.queryByText('Stale Purchase From Slow Request')).not.toBeInTheDocument();
+  });
+
+  it('scopes history responses to the selected purchase and discards superseded history loads', async () => {
+    let resolvePurchaseA: (value: unknown) => void;
+    const purchaseAPromise = new Promise((resolve) => {
+      resolvePurchaseA = resolve;
+    });
+
+    const getHistorySpy = vi.spyOn(customerApi, 'getPurchaseHistory')
+      .mockImplementationOnce(() => purchaseAPromise as any)
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: 'evt-b-1',
+            type: 'RECORD',
+            purchasedAt: '2024-11-18T15:30:00Z',
+            description: 'Evento de Compra B (Molde Desmontable)',
+            occurredAt: '2024-11-18T15:35:00Z',
+            actorId: 'user-1',
+            membershipId: 'mem-1',
+            purchaseVersion: 0
+          }
+        ],
+        nextCursor: null
+      });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+      expect(screen.getByText('Molde Desmontable')).toBeInTheDocument();
+    });
+
+    const historyBtnA = screen.getByRole('button', { name: /^Ver historial de auditoría: Kit Harinas Especiales/i });
+    const historyBtnB = screen.getByRole('button', { name: /^Ver historial de auditoría: Molde Desmontable/i });
+
+    // Operator clicks history for Purchase A (slow request)
+    fireEvent.click(historyBtnA);
+
+    // Operator quickly clicks history for Purchase B before A finishes
+    fireEvent.click(historyBtnB);
+
+    // Purchase B resolves immediately
+    await waitFor(() => {
+      expect(screen.getByText('Evento de Compra B (Molde Desmontable)')).toBeInTheDocument();
+    });
+
+    // Older slow Purchase A response finally arrives
+    resolvePurchaseA!({
+      events: [
+        {
+          id: 'evt-a-1',
+          type: 'RECORD',
+          purchasedAt: '2025-01-14T10:00:00Z',
+          description: 'Evento Obsoleto de Compra A',
+          occurredAt: '2025-01-14T10:05:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          purchaseVersion: 0
+        }
+      ],
+      nextCursor: null
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Superseded response for Purchase A must NOT have overwritten Purchase B's events
+    expect(screen.getByText('Evento de Compra B (Molde Desmontable)')).toBeInTheDocument();
+    expect(screen.queryByText('Evento Obsoleto de Compra A')).not.toBeInTheDocument();
   });
 });

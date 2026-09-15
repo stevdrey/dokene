@@ -23,16 +23,115 @@ export const SUPPORTED_REGIONS = [
   { code: 'US', label: 'Estados Unidos (+1)' }
 ];
 
+const CANADIAN_AREA_CODES = new Set([
+  '204', '226', '236', '249', '250', '289', '306', '343', '365', '367', '368',
+  '403', '416', '418', '428', '431', '437', '438', '450', '506', '514', '519',
+  '548', '579', '581', '584', '587', '604', '613', '639', '647', '672', '683',
+  '705', '709', '742', '753', '778', '780', '782', '807', '819', '825', '867',
+  '873', '879', '902', '905'
+]);
+
+const NANPA_TERRITORIES: Record<string, string> = {
+  '242': 'BS',
+  '246': 'BB',
+  '264': 'AI',
+  '268': 'AG',
+  '284': 'VG',
+  '345': 'KY',
+  '441': 'BM',
+  '473': 'GD',
+  '649': 'TC',
+  '664': 'MS',
+  '721': 'SX',
+  '758': 'LC',
+  '767': 'DM',
+  '784': 'VC',
+  '787': 'PR',
+  '939': 'PR',
+  '809': 'DO',
+  '829': 'DO',
+  '849': 'DO',
+  '868': 'TT',
+  '869': 'KN',
+  '876': 'JM',
+  '658': 'JM'
+};
+
+const CALLING_CODE_MAP: [string, string][] = [
+  ['+591', 'BO'],
+  ['+592', 'GY'],
+  ['+593', 'EC'],
+  ['+594', 'GF'],
+  ['+595', 'PY'],
+  ['+596', 'MQ'],
+  ['+597', 'SR'],
+  ['+598', 'UY'],
+  ['+501', 'BZ'],
+  ['+502', 'GT'],
+  ['+503', 'SV'],
+  ['+504', 'HN'],
+  ['+505', 'NI'],
+  ['+506', 'CR'],
+  ['+507', 'PA'],
+  ['+351', 'PT'],
+  ['+352', 'LU'],
+  ['+353', 'IE'],
+  ['+354', 'IS'],
+  ['+358', 'FI'],
+  ['+420', 'CZ'],
+  ['+421', 'SK'],
+  ['+56', 'CL'],
+  ['+54', 'AR'],
+  ['+55', 'BR'],
+  ['+57', 'CO'],
+  ['+51', 'PE'],
+  ['+52', 'MX'],
+  ['+58', 'VE'],
+  ['+34', 'ES'],
+  ['+44', 'GB'],
+  ['+49', 'DE'],
+  ['+33', 'FR'],
+  ['+39', 'IT'],
+  ['+31', 'NL'],
+  ['+32', 'BE'],
+  ['+41', 'CH'],
+  ['+43', 'AT'],
+  ['+46', 'SE'],
+  ['+47', 'NO'],
+  ['+45', 'DK'],
+  ['+48', 'PL'],
+  ['+30', 'GR'],
+  ['+90', 'TR'],
+  ['+81', 'JP'],
+  ['+82', 'KR'],
+  ['+86', 'CN'],
+  ['+91', 'IN'],
+  ['+61', 'AU'],
+  ['+64', 'NZ'],
+  ['+27', 'ZA'],
+  ['+7', 'RU']
+];
+
 export function detectRegionFromE164(e164?: string | null): string {
   if (!e164) return 'CL';
   const clean = e164.trim();
-  if (clean.startsWith('+56')) return 'CL';
-  if (clean.startsWith('+54')) return 'AR';
-  if (clean.startsWith('+57')) return 'CO';
-  if (clean.startsWith('+51')) return 'PE';
-  if (clean.startsWith('+52')) return 'MX';
-  if (clean.startsWith('+34')) return 'ES';
-  if (clean.startsWith('+1')) return 'US';
+  if (!clean.startsWith('+')) return 'CL';
+
+  if (clean.startsWith('+1')) {
+    if (clean.length >= 5) {
+      const areaCode = clean.slice(2, 5);
+      if (CANADIAN_AREA_CODES.has(areaCode)) return 'CA';
+      if (NANPA_TERRITORIES[areaCode]) return NANPA_TERRITORIES[areaCode];
+    }
+    return 'US';
+  }
+
+  for (const [prefix, region] of CALLING_CODE_MAP) {
+    if (clean.startsWith(prefix)) {
+      return region;
+    }
+  }
+
   return 'CL';
 }
 
@@ -273,6 +372,11 @@ export function CustomerFormModal({
                       flexShrink: 0
                     }}
                   >
+                    {!SUPPORTED_REGIONS.some((r) => r.code === phone.region) && (
+                      <option value={phone.region}>
+                        {phone.region} (Detectado)
+                      </option>
+                    )}
                     {SUPPORTED_REGIONS.map((r) => (
                       <option key={r.code} value={r.code}>
                         {r.label}

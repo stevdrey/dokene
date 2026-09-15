@@ -478,4 +478,41 @@ describe('ConsentSection', () => {
     // Event 2 is an older/deleted contact ID fallback
     expect(screen.getByText('Contacto: ID phone-deleted-999')).toBeInTheDocument();
   });
+
+  it('renders exact time as well as date in consent policy audit cards', async () => {
+    vi.spyOn(customerApi, 'getContactPolicyHistory').mockResolvedValueOnce({
+      events: [
+        {
+          id: 'evt-time-1',
+          type: 'CONSENT_CHANGED',
+          channel: 'WHATSAPP',
+          consentStatus: 'GRANTED',
+          doNotContact: null,
+          source: 'CUSTOMER_VERBAL',
+          occurredAt: '2025-02-20T14:45:30Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          contactId: 'phone-1',
+          policyVersion: 2
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Historial de políticas/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Historial de políticas/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /Historial de consentimientos y políticas/i })).toBeInTheDocument();
+    });
+
+    // Check that timestamp contains hours and minutes (e.g. 14:45 or localized equivalent with colon)
+    const timeElements = screen.getAllByText(/\d{1,2}:\d{2}/);
+    expect(timeElements.length).toBeGreaterThan(0);
+  });
 });

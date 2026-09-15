@@ -228,14 +228,15 @@ export const customerApi = {
     customerId: string,
     purchaseId: string,
     cursor?: string,
-    limit = 50
+    limit = 50,
+    signal?: AbortSignal
   ): Promise<PurchaseHistoryResponse> {
     const searchParams = new URLSearchParams();
     if (cursor) searchParams.set('cursor', cursor);
     if (limit) searchParams.set('limit', String(limit));
     const qs = searchParams.toString();
     const endpoint = `/api/customers/${customerId}/purchases/${purchaseId}/history${qs ? `?${qs}` : ''}`;
-    const { data } = await httpClient.request<PurchaseHistoryResponse>(endpoint, { method: 'GET' });
+    const { data } = await httpClient.request<PurchaseHistoryResponse>(endpoint, { method: 'GET', signal });
     return data;
   }
 };

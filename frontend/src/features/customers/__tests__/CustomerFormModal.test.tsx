@@ -233,4 +233,68 @@ describe('CustomerFormModal', () => {
     expect(screen.getByText('9/160')).toBeInTheDocument();
     expect(nameInput).not.toHaveAttribute('maxLength');
   });
+
+  it('detects and preserves Brazilian (+55) and Canadian (+1) phone regions when editing', async () => {
+    const onSaved = vi.fn();
+    const updateSpy = vi.spyOn(customerApi, 'updateCustomer').mockResolvedValueOnce({
+      id: 'cust-intl-1',
+      displayName: 'Cliente Internacional',
+      notes: 'Notas',
+      phones: [
+        { id: 'p-br', e164: '+5511999998888', primary: true },
+        { id: 'p-ca', e164: '+14165551234', primary: false }
+      ],
+      status: 'ACTIVE',
+      version: 2,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      archivedAt: null
+    });
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+        customerToEdit={{
+          id: 'cust-intl-1',
+          displayName: 'Cliente Internacional',
+          notes: 'Notas',
+          phones: [
+            { id: 'p-br', e164: '+5511999998888', primary: true },
+            { id: 'p-ca', e164: '+14165551234', primary: false }
+          ],
+          status: 'ACTIVE',
+          version: 2,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          archivedAt: null
+        }}
+      />
+    );
+
+    // Verify detected region options are present in selects
+    expect(screen.getByText('BR (Detectado)')).toBeInTheDocument();
+    expect(screen.getByText('CA (Detectado)')).toBeInTheDocument();
+
+    // Edit only display name
+    const nameInput = screen.getByLabelText(/Nombre completo/i);
+    fireEvent.change(nameInput, { target: { value: 'Cliente Internacional Editado' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar cambios/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        'cust-intl-1',
+        2,
+        expect.objectContaining({
+          displayName: 'Cliente Internacional Editado',
+          phones: [
+            { number: '+5511999998888', region: 'BR', primary: true },
+            { number: '+14165551234', region: 'CA', primary: false }
+          ]
+        })
+      );
+    });
+  });
 });

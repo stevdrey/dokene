@@ -31,6 +31,8 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
   const [lastPurchaseError, setLastPurchaseError] = useState<string | null>(null);
   const [isRetryingLastPurchase, setIsRetryingLastPurchase] = useState(false);
   const [eligibility, setEligibility] = useState<EligibilityResponse | null>(null);
+  const [eligibilityError, setEligibilityError] = useState<string | null>(null);
+  const [isRetryingEligibility, setIsRetryingEligibility] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +43,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
     setIsLoading(true);
     setError(null);
     setLastPurchaseError(null);
+    setEligibilityError(null);
     try {
       const res = await customerApi.getCustomer(customerId);
       setCustomer(res.customer);
@@ -61,9 +64,17 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
         try {
           const elig = await customerApi.getContactEligibility(customerId, 'WHATSAPP', primaryPhone.id);
           setEligibility(elig);
-        } catch {
-          // eligibility failure shouldn't block customer profile
+          setEligibilityError(null);
+        } catch (eligErr: unknown) {
+          if (eligErr instanceof Error && (eligErr.name === 'AbortedTenantRequestError' || eligErr.name === 'StaleSessionError')) {
+            return;
+          }
+          setEligibility(null);
+          setEligibilityError(eligErr instanceof Error ? eligErr.message : 'Error al evaluar elegibilidad');
         }
+      } else {
+        setEligibility(null);
+        setEligibilityError(null);
       }
     } catch (err: unknown) {
       if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
@@ -90,6 +101,26 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
       setLastPurchaseError(err instanceof Error ? err.message : 'Error al cargar última compra');
     } finally {
       setIsRetryingLastPurchase(false);
+    }
+  };
+
+  const retryEligibility = async () => {
+    if (!customer) return;
+    const primaryPhone = customer.phones.find((p) => p.primary) || customer.phones[0];
+    if (!primaryPhone) return;
+    setIsRetryingEligibility(true);
+    setEligibilityError(null);
+    try {
+      const elig = await customerApi.getContactEligibility(customerId, 'WHATSAPP', primaryPhone.id);
+      setEligibility(elig);
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
+      setEligibility(null);
+      setEligibilityError(err instanceof Error ? err.message : 'Error al evaluar elegibilidad');
+    } finally {
+      setIsRetryingEligibility(false);
     }
   };
 
@@ -244,7 +275,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))',
           gap: 'var(--space-24)',
           alignItems: 'start'
         }}
@@ -347,7 +378,25 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
                   Estado de contacto
                 </div>
                 <div style={{ fontSize: 'var(--font-size-dense)', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                  {eligibility?.eligible ? (
+                  {eligibilityError ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+                      <span role="alert" style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-error-text)', fontWeight: 400 }}>
+                        {eligibilityError}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        onClick={retryEligibility}
+                        disabled={isRetryingEligibility}
+                        style={{ alignSelf: 'flex-start' }}
+                      >
+                        {isRetryingEligibility ? 'Reintentando...' : 'Reintentar'}
+                      </Button>
+                    </div>
+                  ) : !customer.phones || customer.phones.length === 0 ? (
+                    <span style={{ color: 'var(--color-text-muted)' }}>
+                      Sin teléfonos registrados
+                    </span>
+                  ) : eligibility?.eligible ? (
                     <span style={{ color: 'var(--color-brand)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                       <CheckCircleIcon size={16} /> Contacto habilitado
                     </span>

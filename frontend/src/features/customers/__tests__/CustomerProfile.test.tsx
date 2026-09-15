@@ -194,4 +194,37 @@ describe('CustomerProfile', () => {
     expect(screen.queryByRole('button', { name: /Editar cliente/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Archivar/i })).not.toBeInTheDocument();
   });
+
+  it('distinguishes eligibility dependency failures from negative restrictions and offers retry', async () => {
+    const eligSpy = vi.spyOn(customerApi, 'getContactEligibility')
+      .mockRejectedValueOnce(new Error('503 Service Unavailable'))
+      .mockResolvedValueOnce({
+        eligible: true,
+        reasons: []
+      });
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    // When eligibility failed, it must NOT say "No elegible (Restringido)"
+    expect(screen.queryByText(/No elegible/i)).not.toBeInTheDocument();
+
+    // Instead, it displays the specific dependency failure and a retry button
+    expect(screen.getByText('503 Service Unavailable')).toBeInTheDocument();
+    const retryBtn = screen.getByRole('button', { name: /Reintentar/i });
+    expect(retryBtn).toBeInTheDocument();
+
+    // Click retry
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Contacto habilitado')).toBeInTheDocument();
+      expect(screen.queryByText('503 Service Unavailable')).not.toBeInTheDocument();
+    });
+
+    expect(eligSpy).toHaveBeenCalledTimes(2);
+  });
 });

@@ -215,6 +215,23 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
     }
   };
 
+  const formatDateTime = (isoString?: string | null) => {
+    if (!isoString) return 'Sin fecha';
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleString('es-CL', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
   return (
     <section
       style={{
@@ -714,7 +731,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                         </Badge>
                       </div>
                       <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
-                        {formatDate(evt.occurredAt)}
+                        {formatDateTime(evt.occurredAt)}
                       </span>
                     </div>
                     <div style={{ marginTop: '4px', color: 'var(--color-text-supporting)' }}>
