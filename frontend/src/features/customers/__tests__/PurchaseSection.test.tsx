@@ -666,4 +666,89 @@ describe('PurchaseSection', () => {
     // Dialog remains open with error displayed
     expect(screen.getByRole('heading', { name: '¿Anular esta compra?' })).toBeInTheDocument();
   });
+
+  it('allows correcting and voiding purchases for archived customers but suppresses recording new ones', async () => {
+    render(<PurchaseSection customerId="cust-1" isArchived={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    // Recording new purchases is hidden for archived customers
+    expect(screen.queryByRole('button', { name: /Registrar compra/i })).not.toBeInTheDocument();
+
+    // Corrections and voids remain available for valid historical purchases
+    expect(screen.getByRole('button', { name: /^Corregir compra: Kit Harinas Especiales/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Anular compra: Kit Harinas Especiales/i })).toBeInTheDocument();
+  });
+
+  it('calls onPurchaseMutated callback when purchase is recorded, corrected, or voided', async () => {
+    const onMutatedSpy = vi.fn();
+    vi.spyOn(customerApi, 'recordPurchase').mockResolvedValueOnce({
+      id: 'purch-new',
+      customerId: 'cust-1',
+      purchasedAt: new Date().toISOString(),
+      description: 'Nueva harina',
+      status: 'VALID',
+      version: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      voidedAt: null
+    });
+    vi.spyOn(customerApi, 'correctPurchase').mockResolvedValueOnce({
+      id: 'purch-1',
+      customerId: 'cust-1',
+      purchasedAt: '2025-01-14T10:00:00Z',
+      description: 'Kit Harinas Editado',
+      status: 'VALID',
+      version: 1,
+      createdAt: '2025-01-14T10:00:00Z',
+      updatedAt: new Date().toISOString(),
+      voidedAt: null
+    });
+    vi.spyOn(customerApi, 'voidPurchase').mockResolvedValueOnce();
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} onPurchaseMutated={onMutatedSpy} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    // 1. Record purchase
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+    const dateInput = screen.getByLabelText(/Fecha y hora de la compra/i);
+    const descInput = screen.getByLabelText(/Descripción de la compra/i);
+    fireEvent.change(dateInput, { target: { value: '2025-01-10T12:00' } });
+    fireEvent.change(descInput, { target: { value: 'Nueva harina' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar compra' }));
+
+    await waitFor(() => {
+      expect(onMutatedSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // 2. Correct purchase
+    const editBtn = screen.getByRole('button', { name: /^Corregir compra: Kit Harinas Especiales/i });
+    fireEvent.click(editBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /Corregir compra/i })).toBeInTheDocument();
+    });
+
+    const editDescInput = screen.getByLabelText(/Descripción corregida/i);
+    fireEvent.change(editDescInput, { target: { value: 'Kit Harinas Editado' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección' }));
+
+    await waitFor(() => {
+      expect(onMutatedSpy).toHaveBeenCalledTimes(2);
+    });
+
+    // 3. Void purchase
+    const voidBtn = screen.getByRole('button', { name: /^Anular compra: Kit Harinas Especiales/i });
+    fireEvent.click(voidBtn);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
+
+    await waitFor(() => {
+      expect(onMutatedSpy).toHaveBeenCalledTimes(3);
+    });
+  });
 });

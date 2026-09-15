@@ -45,7 +45,7 @@ class HttpClient {
   async request<T>(
     endpoint: string,
     options: {
-      method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+      method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
       body?: unknown;
       headers?: Record<string, string>;
       ifMatch?: string | number;
@@ -79,7 +79,7 @@ class HttpClient {
     }
 
     const effectiveCsrfToken = this.getCsrfToken();
-    if (['POST', 'PUT', 'DELETE'].includes(method) && effectiveCsrfToken) {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && effectiveCsrfToken) {
       requestHeaders['X-CSRF-TOKEN'] = effectiveCsrfToken;
     }
 
@@ -148,7 +148,11 @@ class HttpClient {
         }
 
         if (response.status === 409) {
-          errorMessage = errorMessage || 'Conflicto: el registro o número de contacto ya existe o está en conflicto.';
+          const isMutation = method === 'PUT' || method === 'DELETE' || method === 'PATCH';
+          const defaultMsg = isMutation
+            ? 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.'
+            : 'Conflicto: el registro o número de contacto ya existe o está en conflicto.';
+          errorMessage = errorMessage || defaultMsg;
         } else if (response.status === 412) {
           errorMessage = errorMessage || 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';
         } else if (response.status === 403) {

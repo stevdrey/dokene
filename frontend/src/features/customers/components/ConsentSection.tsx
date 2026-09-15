@@ -37,6 +37,9 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
   const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
   const [isDoNotContactModalOpen, setIsDoNotContactModalOpen] = useState(false);
   const [historyEvents, setHistoryEvents] = useState<PolicyEventResponse[] | null>(null);
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const [isHistoryLoadingMore, setIsHistoryLoadingMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Form states
   const [targetStatus, setTargetStatus] = useState<'GRANTED' | 'REVOKED' | null>(null);
@@ -48,10 +51,12 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
 
   const queryGenerationRef = useRef(0);
   const activeLoadAbortRef = useRef<AbortController | null>(null);
+  const activeHistoryAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     return () => {
       activeLoadAbortRef.current?.abort();
+      activeHistoryAbortRef.current?.abort();
     };
   }, []);
 
@@ -171,11 +176,45 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
   };
 
   const openHistoryModal = async () => {
+    activeHistoryAbortRef.current?.abort();
+    const abortController = new AbortController();
+    activeHistoryAbortRef.current = abortController;
+
+    setHistoryError(null);
+    setHistoryNextCursor(null);
     try {
-      const res = await customerApi.getContactPolicyHistory(customerId);
+      const res = await customerApi.getContactPolicyHistory(customerId, undefined, 50, abortController.signal);
       setHistoryEvents(res.events);
+      setHistoryNextCursor(res.nextCursor);
     } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyNextCursor || isHistoryLoadingMore) return;
+    setIsHistoryLoadingMore(true);
+    setHistoryError(null);
+    try {
+      const res = await customerApi.getContactPolicyHistory(
+        customerId,
+        historyNextCursor,
+        50,
+        activeHistoryAbortRef.current?.signal
+      );
+      setHistoryEvents((prev) => (prev ? [...prev, ...res.events] : res.events));
+      setHistoryNextCursor(res.nextCursor);
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
+      if (err instanceof Error) setHistoryError(err.message);
+      else setHistoryError('Error al cargar historial anterior.');
+    } finally {
+      setIsHistoryLoadingMore(false);
     }
   };
 
@@ -695,11 +734,32 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
       {/* Modal: Historial de Consentimiento */}
       <Modal
         isOpen={Boolean(historyEvents)}
-        onClose={() => setHistoryEvents(null)}
+        onClose={() => {
+          setHistoryEvents(null);
+          setHistoryNextCursor(null);
+          setHistoryError(null);
+          activeHistoryAbortRef.current?.abort();
+        }}
         title="Historial de consentimientos y políticas"
         maxWidth="550px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
+          {historyError && (
+            <div
+              role="alert"
+              style={{
+                backgroundColor: 'var(--color-error-bg)',
+                color: 'var(--color-error-text)',
+                border: '1px solid var(--color-error-border)',
+                padding: 'var(--space-8) var(--space-12)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--font-size-dense)'
+              }}
+            >
+              {historyError}
+            </div>
+          )}
+
           {historyEvents && historyEvents.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
               {historyEvents.map((evt) => {
@@ -750,6 +810,19 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                   </div>
                 );
               })}
+
+              {historyNextCursor && (
+                <div style={{ textAlign: 'center', marginTop: 'var(--space-8)' }}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={loadMoreHistory}
+                    isLoading={isHistoryLoadingMore}
+                  >
+                    Cargar más historial
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <p style={{ color: 'var(--color-text-supporting)', fontSize: 'var(--font-size-dense)' }}>

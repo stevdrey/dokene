@@ -414,7 +414,12 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
           </section>
 
           {/* Purchases List Component */}
-          <PurchaseSection customerId={customer.id} isArchived={isArchived} canWrite={canWrite} />
+          <PurchaseSection
+            customerId={customer.id}
+            isArchived={isArchived}
+            canWrite={canWrite}
+            onPurchaseMutated={retryLastPurchase}
+          />
 
           {/* Follow-up Queue / History hook (Integrated via Issue #39) */}
           <section

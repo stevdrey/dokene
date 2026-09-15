@@ -11,12 +11,14 @@ const MainAppContent: React.FC = () => {
   const { status: sessionStatus, error: sessionError, checkSession } = useSession();
   const { status: tenantStatus, error: tenantError, refreshWorkspaces, activeWorkspace } = useTenant();
   const [activeTab, setActiveTab] = useState<ActiveTab>('seguimientos');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-
-  // Clear customer selection on workspace switch to enforce strict tenant isolation
-  useEffect(() => {
-    setSelectedCustomerId(null);
-  }, [activeWorkspace?.tenantId]);
+  const [selectedCustomer, setSelectedCustomer] = useState<{ tenantId: string; id: string } | null>(null);
+  const selectedCustomerId =
+    selectedCustomer && activeWorkspace && selectedCustomer.tenantId === activeWorkspace.tenantId
+      ? selectedCustomer.id
+      : null;
+  const setSelectedCustomerId = (id: string | null) => {
+    setSelectedCustomer(id && activeWorkspace?.tenantId ? { tenantId: activeWorkspace.tenantId, id } : null);
+  };
 
   if (sessionStatus === 'loading') {
     return (

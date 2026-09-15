@@ -10,9 +10,10 @@ interface PurchaseSectionProps {
   customerId: string;
   isArchived: boolean;
   canWrite?: boolean;
+  onPurchaseMutated?: () => void;
 }
 
-export function PurchaseSection({ customerId, isArchived, canWrite = true }: PurchaseSectionProps) {
+export function PurchaseSection({ customerId, isArchived, canWrite = true, onPurchaseMutated }: PurchaseSectionProps) {
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -163,6 +164,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
       });
       setIsRecordOpen(false);
       await loadPurchases();
+      onPurchaseMutated?.();
     } catch (err: unknown) {
       if (err instanceof Error) setModalError(err.message);
       else setModalError('Error al registrar compra.');
@@ -218,6 +220,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
       });
       setPurchaseToEdit(null);
       await loadPurchases();
+      onPurchaseMutated?.();
     } catch (err: unknown) {
       if (err instanceof Error) setModalError(err.message);
       else setModalError('Error al corregir compra.');
@@ -234,6 +237,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
       await customerApi.voidPurchase(customerId, purchaseToVoid.id, purchaseToVoid.version);
       setPurchaseToVoid(null);
       await loadPurchases();
+      onPurchaseMutated?.();
     } catch (err: unknown) {
       if (err instanceof Error) setModalError(err.message);
       else setModalError('Error al anular compra.');
@@ -493,7 +497,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                   >
                     <HistoryIcon size={16} />
                   </Button>
-                  {!isArchived && !isVoid && canWrite && (
+                  {!isVoid && canWrite && (
                     <>
                       <Button
                         variant="ghost"

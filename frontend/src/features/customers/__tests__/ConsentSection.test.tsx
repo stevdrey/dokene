@@ -557,4 +557,72 @@ describe('ConsentSection', () => {
       expect(onPolicyUpdatedSpy).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('paginates contact policy history using nextCursor when loading more events', async () => {
+    vi.spyOn(customerApi, 'getContactPolicyHistory')
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: 'evt-1',
+            type: 'CONSENT_CHANGED',
+            occurredAt: '2025-01-14T12:00:00Z',
+            contactId: 'phone-1',
+            channel: 'WHATSAPP',
+            consentStatus: 'GRANTED',
+            source: 'CUSTOMER_VERBAL',
+            doNotContact: null,
+            actorId: 'user-1',
+            membershipId: 'mem-1',
+            policyVersion: 1
+          }
+        ],
+        nextCursor: 'cursor-page-2'
+      })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: 'evt-2',
+            type: 'DO_NOT_CONTACT_CHANGED',
+            occurredAt: '2025-01-10T09:00:00Z',
+            contactId: 'phone-1',
+            channel: 'WHATSAPP',
+            consentStatus: 'GRANTED',
+            source: 'CUSTOMER_WRITTEN',
+            doNotContact: true,
+            actorId: 'user-1',
+            membershipId: 'mem-1',
+            policyVersion: 2
+          }
+        ],
+        nextCursor: null
+      });
+
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Historial de políticas/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Historial de políticas/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Consentimiento WhatsApp')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cargar más historial' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más historial' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Protocolo No contactar')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Cargar más historial' })).not.toBeInTheDocument();
+    });
+
+    expect(customerApi.getContactPolicyHistory).toHaveBeenNthCalledWith(
+      2,
+      'cust-1',
+      'cursor-page-2',
+      50,
+      expect.any(AbortSignal)
+    );
+  });
 });

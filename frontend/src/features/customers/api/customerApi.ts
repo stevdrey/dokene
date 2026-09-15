@@ -144,14 +144,15 @@ export const customerApi = {
   async getContactPolicyHistory(
     customerId: string,
     cursor?: string,
-    limit = 50
+    limit = 50,
+    signal?: AbortSignal
   ): Promise<PolicyHistoryResponse> {
     const searchParams = new URLSearchParams();
     if (cursor) searchParams.set('cursor', cursor);
     if (limit) searchParams.set('limit', String(limit));
     const qs = searchParams.toString();
     const endpoint = `/api/customers/${customerId}/contact-policy/history${qs ? `?${qs}` : ''}`;
-    const { data } = await httpClient.request<PolicyHistoryResponse>(endpoint, { method: 'GET' });
+    const { data } = await httpClient.request<PolicyHistoryResponse>(endpoint, { method: 'GET', signal });
     return data;
   },
 

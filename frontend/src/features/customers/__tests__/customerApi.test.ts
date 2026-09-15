@@ -179,6 +179,31 @@ describe('customerApi and httpClient', () => {
     );
   });
 
+  it('provides concurrency message for bodyless 409 responses on mutation methods (PUT, DELETE)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 409 })
+    );
+
+    await expect(
+      customerApi.correctPurchase('cust-1', 'purch-1', 1, {
+        purchasedAt: '2025-01-14T10:00:00Z',
+        description: 'Editada'
+      })
+    ).rejects.toThrow(
+      'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.'
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 409 })
+    );
+
+    await expect(
+      customerApi.voidPurchase('cust-1', 'purch-1', 1)
+    ).rejects.toThrow(
+      'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.'
+    );
+  });
+
   it('passes AbortSignal to fetch in listCustomers', async () => {
     const controller = new AbortController();
     let capturedSignal: AbortSignal | undefined;
