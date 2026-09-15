@@ -268,7 +268,170 @@ describe('PurchaseSection', () => {
     expect(screen.queryByRole('button', { name: /Corregir compra/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Anular compra/i })).not.toBeInTheDocument();
     // History buttons must still be available
-    expect(screen.getAllByRole('button', { name: /Ver historial de auditoría de la compra/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Ver historial de auditoría/i }).length).toBeGreaterThan(0);
+  });
+
+  it('provides descriptive accessible names on row action buttons', async () => {
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole('button', { name: /^Ver historial de auditoría: Kit Harinas Especiales/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /^Corregir compra: Kit Harinas Especiales/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /^Anular compra: Kit Harinas Especiales/i })
+    ).toBeInTheDocument();
+  });
+
+  it('paginates purchase revision history in audit modal when historyNextCursor is present', async () => {
+    const historySpy = vi.spyOn(customerApi, 'getPurchaseHistory')
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: 'evt-1',
+            type: 'RECORD',
+            purchasedAt: '2025-01-14T10:00:00Z',
+            description: 'Primera revisión',
+            occurredAt: '2025-01-14T10:05:00Z',
+            actorId: 'user-1',
+            membershipId: 'mem-1',
+            purchaseVersion: 0
+          }
+        ],
+        nextCursor: 'cursor-hist-page-2'
+      })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: 'evt-2',
+            type: 'CORRECT',
+            purchasedAt: '2025-01-14T10:30:00Z',
+            description: 'Segunda revisión histórica',
+            occurredAt: '2025-01-14T10:35:00Z',
+            actorId: 'user-1',
+            membershipId: 'mem-1',
+            purchaseVersion: 1
+          }
+        ],
+        nextCursor: null
+      });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    const historyBtns = screen.getAllByRole('button', { name: /Ver historial de auditoría/i });
+    fireEvent.click(historyBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Primera revisión')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Cargar revisiones anteriores/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Cargar revisiones anteriores/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Segunda revisión histórica')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Cargar revisiones anteriores/i })).not.toBeInTheDocument();
+    });
+
+    expect(historySpy).toHaveBeenCalledWith('cust-1', 'purch-1');
+    expect(historySpy).toHaveBeenCalledWith('cust-1', 'purch-1', 'cursor-hist-page-2');
+  });
+
+  it('discards stale purchase pagination responses when a refresh supersedes it', async () => {
+    let resolveLoadMore: ((val: any) => void) | null = null;
+    const loadMorePromise = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    vi.spyOn(customerApi, 'listPurchases')
+      .mockResolvedValueOnce({
+        purchases: [mockPurchases[0]],
+        nextCursor: 'cursor-purch-2'
+      })
+      .mockImplementationOnce(() => loadMorePromise as any)
+      .mockResolvedValueOnce({
+        purchases: [
+          {
+            id: 'purch-refreshed',
+            customerId: 'cust-1',
+            purchasedAt: '2025-01-20T10:00:00Z',
+            description: 'Fresh Refreshed Purchase',
+            status: 'VALID',
+            version: 0,
+            createdAt: '2025-01-20T10:00:00Z',
+            updatedAt: '2025-01-20T10:00:00Z',
+            voidedAt: null
+          }
+        ],
+        nextCursor: null
+      });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Cargar compras anteriores/i })).toBeInTheDocument();
+    });
+
+    // Start loading more purchases (in-flight)
+    fireEvent.click(screen.getByRole('button', { name: /Cargar compras anteriores/i }));
+
+    // User records/voids or a fresh reload happens in between
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+    fireEvent.change(screen.getByLabelText(/Fecha y hora de la compra/i), { target: { value: '2025-01-20T10:00' } });
+    fireEvent.change(screen.getByLabelText(/Descripción de la compra o pedido/i), { target: { value: 'Fresh Refreshed Purchase' } });
+
+    vi.spyOn(customerApi, 'recordPurchase').mockResolvedValue({
+      id: 'purch-refreshed',
+      customerId: 'cust-1',
+      purchasedAt: '2025-01-20T10:00:00Z',
+      description: 'Fresh Refreshed Purchase',
+      status: 'VALID',
+      version: 0,
+      createdAt: '2025-01-20T10:00:00Z',
+      updatedAt: '2025-01-20T10:00:00Z',
+      voidedAt: null
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar compra' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Fresh Refreshed Purchase')).toBeInTheDocument();
+    });
+
+    // Older loadMore resolves late with stale page
+    resolveLoadMore!({
+      purchases: [
+        {
+          id: 'purch-stale-page',
+          customerId: 'cust-1',
+          purchasedAt: '2024-10-01T10:00:00Z',
+          description: 'Stale Page Purchase',
+          status: 'VALID',
+          version: 0,
+          createdAt: '2024-10-01T10:00:00Z',
+          updatedAt: '2024-10-01T10:00:00Z',
+          voidedAt: null
+        }
+      ],
+      nextCursor: null
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Stale pagination page must NOT have been appended to the refreshed list
+    expect(screen.getByText('Fresh Refreshed Purchase')).toBeInTheDocument();
+    expect(screen.queryByText('Stale Page Purchase')).not.toBeInTheDocument();
   });
 
   it('discards stale purchase-list responses from superseded loads', async () => {

@@ -214,4 +214,23 @@ describe('CustomerFormModal', () => {
       );
     });
   });
+
+  it('counts display name in Unicode code points and allows supplementary characters', async () => {
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    const nameInput = screen.getByLabelText(/Nombre completo/i);
+    // Emojis consist of 2 UTF-16 code units each (surrogate pairs)
+    const emojiName = 'Taller 🚗🔧';
+    // 'Taller ' (7) + 🚗 (1 code point, 2 code units) + 🔧 (1 code point, 2 code units) = 9 code points, 11 code units
+    fireEvent.change(nameInput, { target: { value: emojiName } });
+
+    expect(screen.getByText('9/160')).toBeInTheDocument();
+    expect(nameInput).not.toHaveAttribute('maxLength');
+  });
 });

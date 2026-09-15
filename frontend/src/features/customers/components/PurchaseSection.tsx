@@ -16,6 +16,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Modals state
@@ -23,7 +24,11 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
   const [purchaseToEdit, setPurchaseToEdit] = useState<PurchaseResponse | null>(null);
   const [purchaseToVoid, setPurchaseToVoid] = useState<PurchaseResponse | null>(null);
   const [historyEvents, setHistoryEvents] = useState<PurchaseEventResponse[] | null>(null);
+  const [historyPurchaseId, setHistoryPurchaseId] = useState<string | null>(null);
   const [historyPurchaseDesc, setHistoryPurchaseDesc] = useState('');
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const [isHistoryLoadingMore, setIsHistoryLoadingMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Form states
   const [purchaseDate, setPurchaseDate] = useState('');
@@ -80,16 +85,29 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
   }, [loadPurchases]);
 
   const loadMore = async () => {
-    if (!nextCursor) return;
+    if (!nextCursor || isLoadingMore) return;
+    const generation = queryGenerationRef.current;
+    const signal = activeLoadAbortRef.current?.signal;
+    setIsLoadingMore(true);
     try {
-      const page = await customerApi.listPurchases(customerId, undefined, nextCursor);
+      const page = await customerApi.listPurchases(customerId, undefined, nextCursor, 50, signal);
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
       setPurchases((prev) => [...prev, ...page.purchases]);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
-      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
         return;
       }
       if (err instanceof Error) setError(err.message);
+    } finally {
+      if (generation === queryGenerationRef.current) {
+        setIsLoadingMore(false);
+      }
     }
   };
 
@@ -222,11 +240,30 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
 
   const openHistoryModal = async (purchase: PurchaseResponse) => {
     try {
+      setHistoryPurchaseId(purchase.id);
       setHistoryPurchaseDesc(purchase.description);
+      setHistoryError(null);
       const res = await customerApi.getPurchaseHistory(customerId, purchase.id);
       setHistoryEvents(res.events);
+      setHistoryNextCursor(res.nextCursor);
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyPurchaseId || !historyNextCursor || isHistoryLoadingMore) return;
+    setIsHistoryLoadingMore(true);
+    setHistoryError(null);
+    try {
+      const res = await customerApi.getPurchaseHistory(customerId, historyPurchaseId, historyNextCursor);
+      setHistoryEvents((prev) => (prev ? [...prev, ...res.events] : res.events));
+      setHistoryNextCursor(res.nextCursor);
+    } catch (err: unknown) {
+      if (err instanceof Error) setHistoryError(err.message);
+      else setHistoryError('Error al cargar revisiones anteriores.');
+    } finally {
+      setIsHistoryLoadingMore(false);
     }
   };
 
@@ -410,7 +447,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                     variant="ghost"
                     size="sm"
                     onClick={() => openHistoryModal(purchase)}
-                    aria-label="Ver historial de auditoría de la compra"
+                    aria-label={`Ver historial de auditoría: ${purchase.description} (${formatDate(purchase.purchasedAt)})`}
                   >
                     <HistoryIcon size={16} />
                   </Button>
@@ -420,7 +457,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                         variant="ghost"
                         size="sm"
                         onClick={() => openEditModal(purchase)}
-                        aria-label="Corregir compra"
+                        aria-label={`Corregir compra: ${purchase.description} (${formatDate(purchase.purchasedAt)})`}
                       >
                         <EditIcon size={16} />
                       </Button>
@@ -428,7 +465,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                         variant="ghost"
                         size="sm"
                         onClick={() => setPurchaseToVoid(purchase)}
-                        aria-label="Anular compra"
+                        aria-label={`Anular compra: ${purchase.description} (${formatDate(purchase.purchasedAt)})`}
                         style={{ color: 'var(--color-error-text)' }}
                       >
                         <CloseIcon size={16} />
@@ -442,7 +479,12 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
 
           {nextCursor && (
             <div style={{ textAlign: 'center', marginTop: 'var(--space-12)' }}>
-              <Button variant="secondary" onClick={loadMore}>
+              <Button
+                variant="secondary"
+                onClick={loadMore}
+                isLoading={isLoadingMore}
+                style={{ minHeight: '44px' }}
+              >
                 Cargar compras anteriores
               </Button>
             </div>
@@ -675,7 +717,12 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
       {/* Modal: Historial de Auditoría de Compra */}
       <Modal
         isOpen={Boolean(historyEvents)}
-        onClose={() => setHistoryEvents(null)}
+        onClose={() => {
+          setHistoryEvents(null);
+          setHistoryPurchaseId(null);
+          setHistoryNextCursor(null);
+          setHistoryError(null);
+        }}
         title="Historial de revisiones de compra"
         maxWidth="550px"
       >
@@ -683,6 +730,21 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
           <div style={{ fontSize: 'var(--font-size-dense)', fontWeight: 600, color: 'var(--color-text-main)' }}>
             {historyPurchaseDesc}
           </div>
+          {historyError && (
+            <div
+              role="alert"
+              style={{
+                backgroundColor: 'var(--color-error-bg)',
+                color: 'var(--color-error-text)',
+                border: '1px solid var(--color-error-border)',
+                padding: 'var(--space-8) var(--space-12)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--font-size-dense)'
+              }}
+            >
+              {historyError}
+            </div>
+          )}
           {historyEvents && historyEvents.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
               {historyEvents.map((evt) => (
@@ -715,6 +777,20 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                   </p>
                 </div>
               ))}
+
+              {historyNextCursor && (
+                <div style={{ textAlign: 'center', marginTop: 'var(--space-8)' }}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={loadMoreHistory}
+                    isLoading={isHistoryLoadingMore}
+                    style={{ minHeight: '44px' }}
+                  >
+                    Cargar revisiones anteriores
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <p style={{ color: 'var(--color-text-supporting)', fontSize: 'var(--font-size-dense)' }}>

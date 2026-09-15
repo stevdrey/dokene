@@ -406,4 +406,76 @@ describe('ConsentSection', () => {
       expect(getPolicySpy).toHaveBeenCalledTimes(2);
     });
   });
+
+  it('renders radio options with minimum 44px interactive target sizing', async () => {
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gestionar consentimiento/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gestionar consentimiento/i }));
+
+    const grantedLabel = screen.getByLabelText(/Concedido \/ Activo/i).closest('label');
+    const revokedLabel = screen.getByLabelText(/Revocado/i).closest('label');
+
+    expect(grantedLabel).toHaveStyle({ minHeight: '44px' });
+    expect(revokedLabel).toHaveStyle({ minHeight: '44px' });
+  });
+
+  it('identifies the contact in consent history: displays phone E.164 when matched and fallback ID when absent', async () => {
+    const phones = [
+      { id: 'phone-active-1', e164: '+56984521190', primary: true }
+    ];
+
+    vi.spyOn(customerApi, 'getContactPolicyHistory').mockResolvedValueOnce({
+      events: [
+        {
+          id: 'evt-1',
+          type: 'CONSENT_CHANGED',
+          channel: 'WHATSAPP',
+          consentStatus: 'GRANTED',
+          doNotContact: null,
+          source: 'CUSTOMER_WRITTEN',
+          occurredAt: '2025-01-10T10:00:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          contactId: 'phone-active-1',
+          policyVersion: 1
+        },
+        {
+          id: 'evt-2',
+          type: 'CONSENT_CHANGED',
+          channel: 'WHATSAPP',
+          consentStatus: 'REVOKED',
+          doNotContact: null,
+          source: 'CUSTOMER_VERBAL',
+          occurredAt: '2024-05-10T12:00:00Z',
+          actorId: 'user-2',
+          membershipId: 'mem-1',
+          contactId: 'phone-deleted-999',
+          policyVersion: 0
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<ConsentSection customerId="cust-1" phones={phones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Historial de políticas/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Historial de políticas/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /Historial de consentimientos y políticas/i })).toBeInTheDocument();
+    });
+
+    // Event 1 matches active phone
+    expect(screen.getByText('Teléfono: +56984521190 (Principal)')).toBeInTheDocument();
+
+    // Event 2 is an older/deleted contact ID fallback
+    expect(screen.getByText('Contacto: ID phone-deleted-999')).toBeInTheDocument();
+  });
 });

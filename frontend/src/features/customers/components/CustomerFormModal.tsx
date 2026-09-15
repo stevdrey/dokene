@@ -4,6 +4,7 @@ import { customerApi } from '@/features/customers/api/customerApi';
 import { Modal } from '@/shared/components/Modal';
 import { Button } from '@/shared/components/Button';
 import { AddIcon, CloseIcon } from '@/shared/components/Icons';
+import { countCodePoints } from '@/features/tenants/TenantContext';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -115,7 +116,7 @@ export function CustomerFormModal({
       setError('El nombre del cliente es obligatorio.');
       return;
     }
-    if (trimmedName.length > 160) {
+    if (countCodePoints(trimmedName) > 160) {
       setError('El nombre no puede superar los 160 caracteres.');
       return;
     }
@@ -211,7 +212,6 @@ export function CustomerFormModal({
             id="customer-display-name"
             type="text"
             required
-            maxLength={160}
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Ej. Valentina Morales Gómez"
@@ -226,7 +226,7 @@ export function CustomerFormModal({
             }}
           />
           <div style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-supporting)', textAlign: 'right', marginTop: '2px' }}>
-            {displayName.length}/160
+            {countCodePoints(displayName)}/160
           </div>
         </div>
 

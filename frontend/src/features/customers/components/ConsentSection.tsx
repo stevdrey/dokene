@@ -510,24 +510,46 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
             <label style={{ display: 'block', fontSize: 'var(--font-size-dense)', fontWeight: 500, marginBottom: 'var(--space-8)' }}>
               Nuevo estado de autorización para este teléfono *
             </label>
-            <div style={{ display: 'flex', gap: 'var(--space-16)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-16)', flexWrap: 'wrap' }}>
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-8)',
+                  cursor: 'pointer',
+                  minHeight: '44px',
+                  padding: '0 var(--space-8)',
+                  borderRadius: 'var(--radius-md)'
+                }}
+              >
                 <input
                   type="radio"
                   name="consentStatus"
                   value="GRANTED"
                   checked={targetStatus === 'GRANTED'}
                   onChange={() => setTargetStatus('GRANTED')}
+                  style={{ width: '18px', height: '18px', margin: 0 }}
                 />
                 Concedido / Activo
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', cursor: 'pointer' }}>
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-8)',
+                  cursor: 'pointer',
+                  minHeight: '44px',
+                  padding: '0 var(--space-8)',
+                  borderRadius: 'var(--radius-md)'
+                }}
+              >
                 <input
                   type="radio"
                   name="consentStatus"
                   value="REVOKED"
                   checked={targetStatus === 'REVOKED'}
                   onChange={() => setTargetStatus('REVOKED')}
+                  style={{ width: '18px', height: '18px', margin: 0 }}
                 />
                 Revocado
               </label>
@@ -669,6 +691,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                 const badgeVariant = isDncEvent
                   ? (evt.doNotContact ? 'error' : 'success')
                   : (evt.consentStatus === 'GRANTED' ? 'success' : evt.consentStatus === 'REVOKED' ? 'error' : 'warning');
+                const matchedPhone = evt.contactId ? phones.find((p) => p.id === evt.contactId) : undefined;
 
                 return (
                   <div
@@ -697,6 +720,13 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                     <div style={{ marginTop: '4px', color: 'var(--color-text-supporting)' }}>
                       Estado: {eventStatusText} • Fuente: {formatSource(evt.source)}
                     </div>
+                    {evt.contactId && (
+                      <div style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                        {matchedPhone
+                          ? `Teléfono: ${matchedPhone.e164} (${matchedPhone.primary ? 'Principal' : 'Secundario'})`
+                          : `Contacto: ID ${evt.contactId}`}
+                      </div>
+                    )}
                   </div>
                 );
               })}
