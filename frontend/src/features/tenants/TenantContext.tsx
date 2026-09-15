@@ -21,6 +21,16 @@ export function formatTenantRole(role?: string | null): string {
   }
 }
 
+export function canWriteCustomer(role?: string | null): boolean {
+  if (!role) return false;
+  return role === 'OWNER' || role === 'ADMIN' || role === 'TENANT_ADMIN' || role === 'OPERATOR' || role === 'TENANT_OPERATOR';
+}
+
+export function canArchiveCustomer(role?: string | null): boolean {
+  if (!role) return false;
+  return role === 'OWNER' || role === 'ADMIN' || role === 'TENANT_ADMIN';
+}
+
 export const MAX_WORKSPACE_NAME_CODE_POINTS = 160;
 
 /**

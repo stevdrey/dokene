@@ -354,4 +354,56 @@ describe('ConsentSection', () => {
     expect(screen.getByText(/Este cliente tiene restringido cualquier contacto directo/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Desactivar No contactar/i })).toBeInTheDocument();
   });
+
+  it('hides consent and Do Not Contact mutation controls when canWrite is false', async () => {
+    const phones = [{ id: 'phone-1', e164: '+56984521190', primary: true }];
+    render(<ConsentSection customerId="cust-1" phones={phones} isArchived={false} canWrite={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('+56984521190')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /Marcar No contactar/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Desactivar No contactar/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Gestionar consentimiento/i })).not.toBeInTheDocument();
+    // History button remains visible
+    expect(screen.getByRole('button', { name: /Historial de políticas/i })).toBeInTheDocument();
+  });
+
+  it('reloads contact policy when phones prop changes to prevent stale If-Match 409 conflicts', async () => {
+    const getPolicySpy = vi.spyOn(customerApi, 'getContactPolicy').mockResolvedValue({
+      policy: {
+        customerId: 'cust-1',
+        version: 1,
+        doNotContact: false,
+        doNotContactSource: null,
+        doNotContactChangedAt: null,
+        consents: []
+      },
+      version: 1
+    });
+
+    const initialPhones = [{ id: 'phone-1', e164: '+56984521190', primary: true }];
+    const { rerender } = render(
+      <ConsentSection customerId="cust-1" phones={initialPhones} isArchived={false} />
+    );
+
+    await waitFor(() => {
+      expect(getPolicySpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Profile updates phones (e.g. operator adds a second phone)
+    const updatedPhones = [
+      { id: 'phone-1', e164: '+56984521190', primary: true },
+      { id: 'phone-2', e164: '+56912345678', primary: false }
+    ];
+
+    rerender(
+      <ConsentSection customerId="cust-1" phones={updatedPhones} isArchived={false} />
+    );
+
+    await waitFor(() => {
+      expect(getPolicySpy).toHaveBeenCalledTimes(2);
+    });
+  });
 });

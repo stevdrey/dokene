@@ -173,4 +173,25 @@ describe('CustomerProfile', () => {
     expect(screen.queryByRole('button', { name: /Archivar cliente/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Archivar ficha de cliente/i })).not.toBeInTheDocument();
   });
+
+  it('hides edit and archive buttons for VIEWER role', async () => {
+    vi.mocked(useTenant).mockReturnValue({
+      status: 'ready',
+      workspaces: [{ tenantId: 't-1', displayName: 'Workspace Principal', role: 'VIEWER' }],
+      activeWorkspace: { tenantId: 't-1', displayName: 'Workspace Principal', role: 'VIEWER' },
+      error: null,
+      switchWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+      provisionWorkspace: vi.fn()
+    });
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /Editar cliente/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Archivar/i })).not.toBeInTheDocument();
+  });
 });

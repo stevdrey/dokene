@@ -16,7 +16,7 @@ import { CustomerFormModal } from '@/features/customers/components/CustomerFormM
 import { ArchiveModal } from '@/features/customers/components/ArchiveModal';
 import { PurchaseSection } from '@/features/customers/components/PurchaseSection';
 import { ConsentSection } from '@/features/customers/components/ConsentSection';
-import { useTenant } from '@/features/tenants/TenantContext';
+import { useTenant, canWriteCustomer, canArchiveCustomer } from '@/features/tenants/TenantContext';
 
 interface CustomerProfileProps {
   customerId: string;
@@ -24,6 +24,8 @@ interface CustomerProfileProps {
 }
 
 export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
+  const { activeWorkspace } = useTenant();
+  const canWrite = canWriteCustomer(activeWorkspace?.role);
   const [customer, setCustomer] = useState<CustomerResponse | null>(null);
   const [lastPurchase, setLastPurchase] = useState<PurchaseResponse | null>(null);
   const [lastPurchaseError, setLastPurchaseError] = useState<string | null>(null);
@@ -140,13 +142,8 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
     );
   }
 
-  const { activeWorkspace } = useTenant();
   const isArchived = customer.status === 'ARCHIVED';
-  const canArchive = !isArchived && (
-    activeWorkspace?.role === 'OWNER' ||
-    activeWorkspace?.role === 'ADMIN' ||
-    activeWorkspace?.role === 'TENANT_ADMIN'
-  );
+  const canArchive = !isArchived && canArchiveCustomer(activeWorkspace?.role);
   const primaryPhone = customer.phones.find((p) => p.primary) || customer.phones[0];
 
   return (
@@ -223,7 +220,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--space-8)' }}>
-          {!isArchived && (
+          {!isArchived && canWrite && (
             <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
               <EditIcon size={18} />
               Editar cliente
@@ -368,7 +365,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
           </section>
 
           {/* Purchases List Component */}
-          <PurchaseSection customerId={customer.id} isArchived={isArchived} />
+          <PurchaseSection customerId={customer.id} isArchived={isArchived} canWrite={canWrite} />
 
           {/* Follow-up Queue / History hook (Integrated via Issue #39) */}
           <section
@@ -400,7 +397,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
         {/* Right Column (Consent, Cadence, Status) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-24)' }}>
           {/* Consent Section Component */}
-          <ConsentSection customerId={customer.id} phones={customer.phones} isArchived={isArchived} />
+          <ConsentSection customerId={customer.id} phones={customer.phones} isArchived={isArchived} canWrite={canWrite} />
 
           {/* Business Status & Archive Zone */}
           <section

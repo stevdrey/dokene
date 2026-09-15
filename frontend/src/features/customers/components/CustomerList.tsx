@@ -5,12 +5,15 @@ import { Button } from '@/shared/components/Button';
 import { Badge } from '@/shared/components/Badge';
 import { AddIcon, GroupIcon, EditIcon, WhatsAppIcon } from '@/shared/components/Icons';
 import { CustomerFormModal } from '@/features/customers/components/CustomerFormModal';
+import { useTenant, canWriteCustomer } from '@/features/tenants/TenantContext';
 
 interface CustomerListProps {
   onSelectCustomer: (customerId: string) => void;
 }
 
 export function CustomerList({ onSelectCustomer }: CustomerListProps) {
+  const { activeWorkspace } = useTenant();
+  const canWrite = canWriteCustomer(activeWorkspace?.role);
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'ALL'>('ACTIVE');
@@ -158,10 +161,12 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
           </p>
         </div>
 
-        <Button variant="primary" onClick={() => setIsCreateOpen(true)}>
-          <AddIcon size={18} />
-          Nuevo cliente
-        </Button>
+        {canWrite && (
+          <Button variant="primary" onClick={() => setIsCreateOpen(true)}>
+            <AddIcon size={18} />
+            Nuevo cliente
+          </Button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -389,7 +394,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
                     <Button variant="secondary" size="sm" onClick={() => onSelectCustomer(c.id)}>
                       Ver ficha
                     </Button>
-                    {!isArchived && (
+                    {!isArchived && canWrite && (
                       <Button
                         variant="ghost"
                         size="sm"

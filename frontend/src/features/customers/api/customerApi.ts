@@ -82,10 +82,10 @@ export const customerApi = {
   },
 
   // Contact Policy & Consent
-  async getContactPolicy(customerId: string): Promise<{ policy: ContactPolicyResponse; version: number }> {
+  async getContactPolicy(customerId: string, signal?: AbortSignal): Promise<{ policy: ContactPolicyResponse; version: number }> {
     const { data, etag } = await httpClient.request<ContactPolicyResponse>(
       `/api/customers/${customerId}/contact-policy`,
-      { method: 'GET' }
+      { method: 'GET', signal }
     );
     const version = data.version ?? (etag ? parseVersionFromEtag(etag) : 0);
     return { policy: data, version };
@@ -160,7 +160,8 @@ export const customerApi = {
     customerId: string,
     status?: PurchaseStatus,
     cursor?: string,
-    limit = 50
+    limit = 50,
+    signal?: AbortSignal
   ): Promise<PurchasePageResponse> {
     const searchParams = new URLSearchParams();
     if (status) searchParams.set('status', status);
@@ -168,7 +169,7 @@ export const customerApi = {
     if (limit) searchParams.set('limit', String(limit));
     const qs = searchParams.toString();
     const endpoint = `/api/customers/${customerId}/purchases${qs ? `?${qs}` : ''}`;
-    const { data } = await httpClient.request<PurchasePageResponse>(endpoint, { method: 'GET' });
+    const { data } = await httpClient.request<PurchasePageResponse>(endpoint, { method: 'GET', signal });
     return data;
   },
 

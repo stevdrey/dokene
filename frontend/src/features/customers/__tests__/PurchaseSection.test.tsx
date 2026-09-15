@@ -256,4 +256,96 @@ describe('PurchaseSection', () => {
     expect(screen.getAllByText(/Fecha de compra registrada:/i).length).toBe(2);
     expect(screen.getAllByText(/Revisión:/i).length).toBe(2);
   });
+
+  it('hides create, edit, and void controls when canWrite is false', async () => {
+    render(<PurchaseSection customerId="cust-1" isArchived={false} canWrite={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /Registrar compra/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Corregir compra/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Anular compra/i })).not.toBeInTheDocument();
+    // History buttons must still be available
+    expect(screen.getAllByRole('button', { name: /Ver historial de auditoría de la compra/i }).length).toBeGreaterThan(0);
+  });
+
+  it('discards stale purchase-list responses from superseded loads', async () => {
+    let resolveInitialLoad: ((val: any) => void) | null = null;
+    const initialLoadPromise = new Promise((resolve) => {
+      resolveInitialLoad = resolve;
+    });
+
+    vi.spyOn(customerApi, 'listPurchases')
+      .mockImplementationOnce(() => initialLoadPromise as any)
+      .mockResolvedValueOnce({
+        purchases: [
+          {
+            id: 'purch-new',
+            customerId: 'cust-1',
+            purchasedAt: '2025-01-15T12:00:00Z',
+            description: 'Fresh Newly Recorded Purchase',
+            status: 'VALID',
+            version: 0,
+            createdAt: '2025-01-15T12:00:00Z',
+            updatedAt: '2025-01-15T12:00:00Z',
+            voidedAt: null
+          }
+        ],
+        nextCursor: null
+      });
+
+    vi.spyOn(customerApi, 'recordPurchase').mockResolvedValue({
+      id: 'purch-new',
+      customerId: 'cust-1',
+      purchasedAt: '2025-01-15T12:00:00Z',
+      description: 'Fresh Newly Recorded Purchase',
+      status: 'VALID',
+      version: 0,
+      createdAt: '2025-01-15T12:00:00Z',
+      updatedAt: '2025-01-15T12:00:00Z',
+      voidedAt: null
+    });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    // While initial load is in-flight, user opens record modal and creates purchase
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+
+    const dateInput = screen.getByLabelText(/Fecha y hora de la compra/i);
+    const descInput = screen.getByLabelText(/Descripción de la compra o pedido/i);
+    fireEvent.change(dateInput, { target: { value: '2025-01-15T12:00' } });
+    fireEvent.change(descInput, { target: { value: 'Fresh Newly Recorded Purchase' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar compra' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Fresh Newly Recorded Purchase')).toBeInTheDocument();
+    });
+
+    // Now older initial load finally resolves with stale purchase
+    resolveInitialLoad!({
+      purchases: [
+        {
+          id: 'purch-stale',
+          customerId: 'cust-1',
+          purchasedAt: '2025-01-01T10:00:00Z',
+          description: 'Stale Purchase From Slow Request',
+          status: 'VALID',
+          version: 0,
+          createdAt: '2025-01-01T10:00:00Z',
+          updatedAt: '2025-01-01T10:00:00Z',
+          voidedAt: null
+        }
+      ],
+      nextCursor: null
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Stale purchase must NOT overwrite the fresh list
+    expect(screen.getByText('Fresh Newly Recorded Purchase')).toBeInTheDocument();
+    expect(screen.queryByText('Stale Purchase From Slow Request')).not.toBeInTheDocument();
+  });
 });

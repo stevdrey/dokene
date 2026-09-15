@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PurchaseResponse, PurchaseEventResponse } from '@/features/customers/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { Button } from '@/shared/components/Button';
@@ -9,9 +9,10 @@ import { ShoppingBagIcon, AddIcon, EditIcon, HistoryIcon, CloseIcon } from '@/sh
 interface PurchaseSectionProps {
   customerId: string;
   isArchived: boolean;
+  canWrite?: boolean;
 }
 
-export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps) {
+export function PurchaseSection({ customerId, isArchived, canWrite = true }: PurchaseSectionProps) {
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,21 +33,45 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
+  const queryGenerationRef = useRef(0);
+  const activeLoadAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activeLoadAbortRef.current?.abort();
+    };
+  }, []);
+
   const loadPurchases = useCallback(async () => {
+    if (activeLoadAbortRef.current) {
+      activeLoadAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    activeLoadAbortRef.current = abortController;
+    const generation = ++queryGenerationRef.current;
+
     setIsLoading(true);
     setError(null);
     try {
-      const page = await customerApi.listPurchases(customerId);
+      const page = await customerApi.listPurchases(customerId, undefined, undefined, 50, abortController.signal);
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
       setPurchases(page.purchases);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
-      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
         return;
       }
       if (err instanceof Error) setError(err.message);
       else setError('Error al cargar historial de compras.');
     } finally {
-      setIsLoading(false);
+      if (generation === queryGenerationRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [customerId]);
 
@@ -277,7 +302,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
           </p>
         </div>
 
-        {!isArchived && (
+        {!isArchived && canWrite && (
           <Button variant="primary" onClick={openRecordModal}>
             <AddIcon size={18} />
             Registrar compra
@@ -389,7 +414,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
                   >
                     <HistoryIcon size={16} />
                   </Button>
-                  {!isArchived && !isVoid && (
+                  {!isArchived && !isVoid && canWrite && (
                     <>
                       <Button
                         variant="ghost"

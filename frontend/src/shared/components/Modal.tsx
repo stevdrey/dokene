@@ -20,6 +20,10 @@ export function Modal({
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const closeDisabledRef = useRef(closeDisabled);
+  closeDisabledRef.current = closeDisabled;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -39,8 +43,8 @@ export function Modal({
     });
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !closeDisabled) {
-        onClose();
+      if (e.key === 'Escape' && !closeDisabledRef.current) {
+        onCloseRef.current();
         return;
       }
 
@@ -79,7 +83,7 @@ export function Modal({
       window.removeEventListener('keydown', handleKeyDown);
       openerRef.current?.focus();
     };
-  }, [isOpen, onClose, closeDisabled]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

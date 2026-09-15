@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ContactPolicyResponse,
   PolicyEventResponse,
@@ -22,9 +22,10 @@ interface ConsentSectionProps {
   customerId: string;
   phones: PhoneResponse[];
   isArchived: boolean;
+  canWrite?: boolean;
 }
 
-export function ConsentSection({ customerId, phones, isArchived }: ConsentSectionProps) {
+export function ConsentSection({ customerId, phones, isArchived, canWrite = true }: ConsentSectionProps) {
   const [policy, setPolicy] = useState<ContactPolicyResponse | null>(null);
   const [policyVersion, setPolicyVersion] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,24 +45,53 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
+  const queryGenerationRef = useRef(0);
+  const activeLoadAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activeLoadAbortRef.current?.abort();
+    };
+  }, []);
+
   const loadPolicy = useCallback(async () => {
+    if (activeLoadAbortRef.current) {
+      activeLoadAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    activeLoadAbortRef.current = abortController;
+    const generation = ++queryGenerationRef.current;
+
     setIsLoading(true);
     setError(null);
     try {
-      const res = await customerApi.getContactPolicy(customerId);
+      const res = await customerApi.getContactPolicy(customerId, abortController.signal);
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
       setPolicy(res.policy);
       setPolicyVersion(res.version);
     } catch (err: unknown) {
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+        return;
+      }
       if (err instanceof Error) setError(err.message);
       else setError('Error al cargar la política de contacto.');
     } finally {
-      setIsLoading(false);
+      if (generation === queryGenerationRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [customerId]);
 
+  const phonesKey = phones.map((p) => `${p.id}:${p.e164}`).join('|');
+
   useEffect(() => {
     loadPolicy();
-  }, [loadPolicy]);
+  }, [loadPolicy, phonesKey]);
 
   const openConsentModal = (phone: PhoneResponse) => {
     setTargetPhone(phone);
@@ -270,7 +300,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
                   <DoNotDisturbIcon size={20} />
                   <span>Protocolo "No contactar" ACTIVADO</span>
                 </div>
-                {!isArchived && (
+                {!isArchived && canWrite && (
                   <Button
                     variant="secondary"
                     size="sm"
@@ -308,7 +338,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
                   Protocolo "No contactar" inactivo
                 </span>
               </div>
-              {!isArchived && (
+              {!isArchived && canWrite && (
                 <Button
                   variant="danger"
                   size="sm"
@@ -388,7 +418,7 @@ export function ConsentSection({ customerId, phones, isArchived }: ConsentSectio
                       </span>
                     </div>
 
-                    {!isArchived && (
+                    {!isArchived && canWrite && (
                       <div style={{ marginTop: 'var(--space-4)', display: 'flex', justifyContent: 'flex-end' }}>
                         <Button
                           variant="secondary"

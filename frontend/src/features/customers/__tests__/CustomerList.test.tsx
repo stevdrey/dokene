@@ -3,6 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CustomerList } from '@/features/customers/components/CustomerList';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { CustomerResponse } from '@/features/customers/types';
+import { useTenant } from '@/features/tenants/TenantContext';
+
+vi.mock('@/features/tenants/TenantContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/tenants/TenantContext')>();
+  return {
+    ...actual,
+    useTenant: vi.fn()
+  };
+});
 
 describe('CustomerList', () => {
   const mockCustomers: CustomerResponse[] = [
@@ -32,6 +41,17 @@ describe('CustomerList', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(useTenant).mockReturnValue({
+      status: 'ready',
+      workspaces: [
+        { tenantId: 'tenant-1', displayName: 'Pastelería Las Lilas', role: 'OWNER' }
+      ],
+      activeWorkspace: { tenantId: 'tenant-1', displayName: 'Pastelería Las Lilas', role: 'OWNER' },
+      error: null,
+      switchWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+      provisionWorkspace: vi.fn()
+    });
     vi.spyOn(customerApi, 'listCustomers').mockResolvedValue({
       customers: mockCustomers,
       nextCursor: null
@@ -234,5 +254,28 @@ describe('CustomerList', () => {
 
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText('Stale Paged Customer')).not.toBeInTheDocument();
+  });
+
+  it('hides create customer and edit buttons for VIEWER role', async () => {
+    vi.mocked(useTenant).mockReturnValue({
+      status: 'ready',
+      workspaces: [
+        { tenantId: 'tenant-1', displayName: 'Pastelería Las Lilas', role: 'VIEWER' }
+      ],
+      activeWorkspace: { tenantId: 'tenant-1', displayName: 'Pastelería Las Lilas', role: 'VIEWER' },
+      error: null,
+      switchWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+      provisionWorkspace: vi.fn()
+    });
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /Nuevo cliente/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Editar Valentina Morales Gómez/i })).not.toBeInTheDocument();
   });
 });

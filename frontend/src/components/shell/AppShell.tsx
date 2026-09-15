@@ -37,6 +37,8 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const initials = identityId ? identityId.substring(0, 2).toUpperCase() : 'OP';
   const roleLabel = formatTenantRole(activeWorkspace?.role);
+  const resolvedChildren = typeof children === 'function' ? children(activeTab) : children;
+  const hasRenderableChildren = React.Children.toArray(resolvedChildren).length > 0;
 
   return (
     <div className="dokene-app-layout">
@@ -489,8 +491,8 @@ export const AppShell: React.FC<AppShellProps> = ({
             </button>
           </div>
         )}
-        {children ? (
-          typeof children === 'function' ? children(activeTab) : children
+        {hasRenderableChildren ? (
+          resolvedChildren
         ) : (
           <div>
             <h1

@@ -104,4 +104,33 @@ describe('Modal', () => {
     expect(document.activeElement).toBe(opener);
     document.body.removeChild(opener);
   });
+
+  it('preserves focus on currently focused input when modal rerenders with new onClose callback', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { rerender } = render(
+      <Modal isOpen={true} onClose={() => {}} title="Rerender Modal">
+        <input data-testid="field-1" />
+        <input data-testid="field-2" />
+      </Modal>
+    );
+
+    const field2 = screen.getByTestId('field-2');
+    field2.focus();
+    expect(document.activeElement).toBe(field2);
+
+    // Parent re-renders with fresh inline callback
+    rerender(
+      <Modal isOpen={true} onClose={() => {}} title="Rerender Modal">
+        <input data-testid="field-1" />
+        <input data-testid="field-2" />
+      </Modal>
+    );
+
+    // Active element must remain on field2
+    expect(document.activeElement).toBe(field2);
+    document.body.removeChild(opener);
+  });
 });
