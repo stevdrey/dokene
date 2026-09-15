@@ -113,9 +113,11 @@ export interface PurchaseRequest {
   description: string;
 }
 
+export type PurchaseEventType = 'RECORDED' | 'CORRECTED' | 'VOIDED';
+
 export interface PurchaseEventResponse {
   id: string;
-  type: string;
+  type: PurchaseEventType;
   purchasedAt: string;
   description: string;
   occurredAt: string;

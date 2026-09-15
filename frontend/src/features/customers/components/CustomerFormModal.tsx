@@ -107,8 +107,28 @@ const CALLING_CODE_MAP: [string, string][] = [
   ['+86', 'CN'],
   ['+91', 'IN'],
   ['+61', 'AU'],
-  ['+64', 'NZ'],
-  ['+27', 'ZA'],
+  ['+380', 'UA'],
+  ['+381', 'RS'],
+  ['+385', 'HR'],
+  ['+386', 'SI'],
+  ['+387', 'BA'],
+  ['+389', 'MK'],
+  ['+355', 'AL'],
+  ['+359', 'BG'],
+  ['+40', 'RO'],
+  ['+36', 'HU'],
+  ['+370', 'LT'],
+  ['+371', 'LV'],
+  ['+372', 'EE'],
+  ['+373', 'MD'],
+  ['+374', 'AM'],
+  ['+375', 'BY'],
+  ['+995', 'GE'],
+  ['+994', 'AZ'],
+  ['+996', 'KG'],
+  ['+998', 'UZ'],
+  ['+76', 'KZ'],
+  ['+77', 'KZ'],
   ['+7', 'RU']
 ];
 
@@ -124,6 +144,13 @@ export function detectRegionFromE164(e164?: string | null): string {
       if (NANPA_TERRITORIES[areaCode]) return NANPA_TERRITORIES[areaCode];
     }
     return 'US';
+  }
+
+  if (clean.startsWith('+7')) {
+    if (clean.startsWith('+76') || clean.startsWith('+77')) {
+      return 'KZ';
+    }
+    return 'RU';
   }
 
   for (const [prefix, region] of CALLING_CODE_MAP) {

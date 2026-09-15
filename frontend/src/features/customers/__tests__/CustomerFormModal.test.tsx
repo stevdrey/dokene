@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { CustomerFormModal } from '@/features/customers/components/CustomerFormModal';
+import { CustomerFormModal, detectRegionFromE164 } from '@/features/customers/components/CustomerFormModal';
 import { customerApi } from '@/features/customers/api/customerApi';
 
 describe('CustomerFormModal', () => {
@@ -296,5 +296,13 @@ describe('CustomerFormModal', () => {
         })
       );
     });
+  });
+
+  it('accurately detects Ukraine (UA), Kazakhstan (KZ), and Russia (RU) phone regions', () => {
+    expect(detectRegionFromE164('+380501234567')).toBe('UA');
+    expect(detectRegionFromE164('+77011234567')).toBe('KZ');
+    expect(detectRegionFromE164('+76011234567')).toBe('KZ');
+    expect(detectRegionFromE164('+79011234567')).toBe('RU');
+    expect(detectRegionFromE164('+74951234567')).toBe('RU');
   });
 });

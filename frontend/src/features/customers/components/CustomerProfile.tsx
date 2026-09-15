@@ -446,7 +446,13 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
         {/* Right Column (Consent, Cadence, Status) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-24)' }}>
           {/* Consent Section Component */}
-          <ConsentSection customerId={customer.id} phones={customer.phones} isArchived={isArchived} canWrite={canWrite} />
+          <ConsentSection
+            customerId={customer.id}
+            phones={customer.phones}
+            isArchived={isArchived}
+            canWrite={canWrite}
+            onPolicyUpdated={retryEligibility}
+          />
 
           {/* Business Status & Archive Zone */}
           <section

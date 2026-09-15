@@ -218,7 +218,7 @@ describe('PurchaseSection', () => {
       events: [
         {
           id: 'evt-1',
-          type: 'RECORD',
+          type: 'RECORDED',
           purchasedAt: '2025-01-14T10:00:00Z',
           description: 'Kit Harinas Especiales',
           occurredAt: '2025-01-14T10:05:00Z',
@@ -228,7 +228,7 @@ describe('PurchaseSection', () => {
         },
         {
           id: 'evt-2',
-          type: 'CORRECT',
+          type: 'CORRECTED',
           purchasedAt: '2025-01-14T12:30:45Z',
           description: 'Kit Harinas Especiales - Corrección de hora',
           occurredAt: '2025-01-14T14:00:00Z',
@@ -295,7 +295,7 @@ describe('PurchaseSection', () => {
         events: [
           {
             id: 'evt-1',
-            type: 'RECORD',
+            type: 'RECORDED',
             purchasedAt: '2025-01-14T10:00:00Z',
             description: 'Primera revisión',
             occurredAt: '2025-01-14T10:05:00Z',
@@ -310,7 +310,7 @@ describe('PurchaseSection', () => {
         events: [
           {
             id: 'evt-2',
-            type: 'CORRECT',
+            type: 'CORRECTED',
             purchasedAt: '2025-01-14T10:30:00Z',
             description: 'Segunda revisión histórica',
             occurredAt: '2025-01-14T10:35:00Z',
@@ -524,7 +524,7 @@ describe('PurchaseSection', () => {
         events: [
           {
             id: 'evt-b-1',
-            type: 'RECORD',
+            type: 'RECORDED',
             purchasedAt: '2024-11-18T15:30:00Z',
             description: 'Evento de Compra B (Molde Desmontable)',
             occurredAt: '2024-11-18T15:35:00Z',
@@ -562,7 +562,7 @@ describe('PurchaseSection', () => {
       events: [
         {
           id: 'evt-a-1',
-          type: 'RECORD',
+          type: 'RECORDED',
           purchasedAt: '2025-01-14T10:00:00Z',
           description: 'Evento Obsoleto de Compra A',
           occurredAt: '2025-01-14T10:05:00Z',
@@ -579,5 +579,91 @@ describe('PurchaseSection', () => {
     // Superseded response for Purchase A must NOT have overwritten Purchase B's events
     expect(screen.getByText('Evento de Compra B (Molde Desmontable)')).toBeInTheDocument();
     expect(screen.queryByText('Evento Obsoleto de Compra A')).not.toBeInTheDocument();
+  });
+
+  it('renders correct labels and error badge for VOIDED revisions matching backend enum', async () => {
+    vi.spyOn(customerApi, 'getPurchaseHistory').mockResolvedValueOnce({
+      events: [
+        {
+          id: 'evt-rec',
+          type: 'RECORDED',
+          purchasedAt: '2025-01-14T10:00:00Z',
+          description: 'Compra original',
+          occurredAt: '2025-01-14T10:05:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          purchaseVersion: 0
+        },
+        {
+          id: 'evt-cor',
+          type: 'CORRECTED',
+          purchasedAt: '2025-01-14T10:30:00Z',
+          description: 'Compra corregida',
+          occurredAt: '2025-01-14T10:35:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          purchaseVersion: 1
+        },
+        {
+          id: 'evt-void',
+          type: 'VOIDED',
+          purchasedAt: '2025-01-14T10:30:00Z',
+          description: 'Compra anulada',
+          occurredAt: '2025-01-14T11:00:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          purchaseVersion: 2
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    const historyBtn = screen.getByRole('button', { name: /^Ver historial de auditoría: Kit Harinas Especiales/i });
+    fireEvent.click(historyBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Registro inicial')).toBeInTheDocument();
+      expect(screen.getByText('Corrección')).toBeInTheDocument();
+      expect(screen.getByText('Anulación')).toBeInTheDocument();
+    });
+
+    const voidBadge = screen.getByText('Anulación');
+    expect(voidBadge.closest('span')).toHaveStyle({ color: 'var(--color-error-text)' });
+  });
+
+  it('displays modal error inside the void confirmation dialog when voidPurchase fails', async () => {
+    vi.spyOn(customerApi, 'voidPurchase').mockRejectedValueOnce(
+      new Error('Conflicto de concurrencia: los datos fueron modificados por otro usuario.')
+    );
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    const voidBtn = screen.getByRole('button', { name: /^Anular compra: Kit Harinas Especiales/i });
+    fireEvent.click(voidBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: '¿Anular esta compra?' })).toBeInTheDocument();
+    });
+
+    const confirmBtn = screen.getByRole('button', { name: 'Confirmar anulación' });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent('Conflicto de concurrencia: los datos fueron modificados por otro usuario.');
+    });
+
+    // Dialog remains open with error displayed
+    expect(screen.getByRole('heading', { name: '¿Anular esta compra?' })).toBeInTheDocument();
   });
 });

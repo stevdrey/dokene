@@ -23,9 +23,10 @@ interface ConsentSectionProps {
   phones: PhoneResponse[];
   isArchived: boolean;
   canWrite?: boolean;
+  onPolicyUpdated?: () => void;
 }
 
-export function ConsentSection({ customerId, phones, isArchived, canWrite = true }: ConsentSectionProps) {
+export function ConsentSection({ customerId, phones, isArchived, canWrite = true, onPolicyUpdated }: ConsentSectionProps) {
   const [policy, setPolicy] = useState<ContactPolicyResponse | null>(null);
   const [policyVersion, setPolicyVersion] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -135,6 +136,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
       setPolicy(updated);
       setPolicyVersion(updated.version);
       setIsConsentModalOpen(false);
+      onPolicyUpdated?.();
     } catch (err: unknown) {
       if (err instanceof Error) setModalError(err.message);
       else setModalError('Error al actualizar consentimiento.');
@@ -159,6 +161,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
       setPolicy(updated);
       setPolicyVersion(updated.version);
       setIsDoNotContactModalOpen(false);
+      onPolicyUpdated?.();
     } catch (err: unknown) {
       if (err instanceof Error) setModalError(err.message);
       else setModalError('Error al actualizar protocolo No contactar.');

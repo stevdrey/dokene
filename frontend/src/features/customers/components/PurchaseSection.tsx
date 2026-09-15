@@ -228,6 +228,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
 
   const handleVoidSubmit = async () => {
     if (!purchaseToVoid) return;
+    setModalError(null);
     setIsSubmitting(true);
     try {
       await customerApi.voidPurchase(customerId, purchaseToVoid.id, purchaseToVoid.version);
@@ -505,7 +506,10 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setPurchaseToVoid(purchase)}
+                        onClick={() => {
+                          setModalError(null);
+                          setPurchaseToVoid(purchase);
+                        }}
                         aria-label={`Anular compra: ${purchase.description} (${formatDate(purchase.purchasedAt)})`}
                         style={{ color: 'var(--color-error-text)' }}
                       >
@@ -728,6 +732,22 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
         closeDisabled={isSubmitting}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
+          {modalError && (
+            <div
+              role="alert"
+              style={{
+                backgroundColor: 'var(--color-error-bg)',
+                color: 'var(--color-error-text)',
+                border: '1px solid var(--color-error-border)',
+                padding: 'var(--space-8) var(--space-12)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--font-size-dense)'
+              }}
+            >
+              {modalError}
+            </div>
+          )}
+
           <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', lineHeight: 1.5 }}>
             La compra "<strong>{purchaseToVoid?.description}</strong>" quedará marcada como anulada. Esta acción es irreversible y queda auditada.
           </p>
@@ -805,8 +825,8 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true }: Pur
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-8)' }}>
-                    <Badge variant={evt.type === 'VOID' ? 'error' : 'neutral'}>
-                      {evt.type === 'RECORD' ? 'Registro inicial' : evt.type === 'CORRECT' ? 'Corrección' : 'Anulación'}
+                    <Badge variant={evt.type === 'VOIDED' ? 'error' : 'neutral'}>
+                      {evt.type === 'RECORDED' ? 'Registro inicial' : evt.type === 'CORRECTED' ? 'Corrección' : 'Anulación'}
                     </Badge>
                     <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
                       Revisión: {formatDateTime(evt.occurredAt)}

@@ -515,4 +515,46 @@ describe('ConsentSection', () => {
     const timeElements = screen.getAllByText(/\d{1,2}:\d{2}/);
     expect(timeElements.length).toBeGreaterThan(0);
   });
+
+  it('notifies parent via onPolicyUpdated when consent or DNC status changes', async () => {
+    const onPolicyUpdatedSpy = vi.fn();
+    vi.spyOn(customerApi, 'changeConsent').mockResolvedValueOnce({
+      ...mockPolicy,
+      version: 2,
+      consents: [
+        {
+          contactId: 'phone-1',
+          channel: 'WHATSAPP',
+          status: 'REVOKED',
+          source: 'CUSTOMER_VERBAL',
+          changedAt: '2025-01-14T10:00:00Z'
+        }
+      ]
+    });
+
+    render(
+      <ConsentSection
+        customerId="cust-1"
+        phones={mockPhones}
+        isArchived={false}
+        onPolicyUpdated={onPolicyUpdatedSpy}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Activo / Concedido')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gestionar consentimiento/i }));
+
+    expect(screen.getByRole('dialog', { name: /Gestionar consentimiento/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Revocado/i));
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar consentimiento/i }));
+
+    await waitFor(() => {
+      expect(onPolicyUpdatedSpy).toHaveBeenCalledTimes(1);
+    });
+  });
 });

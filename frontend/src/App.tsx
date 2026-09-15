@@ -208,6 +208,7 @@ const MainAppContent: React.FC = () => {
           />
         ) : (
           <CustomerList
+            key={activeWorkspace?.tenantId}
             onSelectCustomer={(customerId) => setSelectedCustomerId(customerId)}
           />
         )

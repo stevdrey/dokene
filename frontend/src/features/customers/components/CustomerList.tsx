@@ -4,7 +4,7 @@ import { customerApi } from '@/features/customers/api/customerApi';
 import { Button } from '@/shared/components/Button';
 import { Badge } from '@/shared/components/Badge';
 import { AddIcon, GroupIcon, EditIcon, WhatsAppIcon } from '@/shared/components/Icons';
-import { CustomerFormModal } from '@/features/customers/components/CustomerFormModal';
+import { CustomerFormModal, SUPPORTED_REGIONS } from '@/features/customers/components/CustomerFormModal';
 import { useTenant, canWriteCustomer } from '@/features/tenants/TenantContext';
 
 interface CustomerListProps {
@@ -35,6 +35,14 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
       activeSearchAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    activeSearchAbortRef.current?.abort();
+    queryGenerationRef.current++;
+    setCustomers([]);
+    setNextCursor(null);
+    setError(null);
+  }, [activeWorkspace?.tenantId]);
 
   const loadCustomers = useCallback(async () => {
     if (activeSearchAbortRef.current) {
@@ -79,7 +87,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
         setIsLoading(false);
       }
     }
-  }, [statusFilter, nameSearch, phoneSearch, regionSearch]);
+  }, [statusFilter, nameSearch, phoneSearch, regionSearch, activeWorkspace?.tenantId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -227,11 +235,15 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
               fontSize: 'var(--font-size-dense)'
             }}
           >
-            <option value="CL">CL (+56)</option>
-            <option value="AR">AR (+54)</option>
-            <option value="CO">CO (+57)</option>
-            <option value="MX">MX (+52)</option>
-            <option value="US">US (+1)</option>
+            {SUPPORTED_REGIONS.map((r) => {
+              const prefixMatch = r.label.match(/\(\+\d+\)/);
+              const prefix = prefixMatch ? ` ${prefixMatch[0]}` : '';
+              return (
+                <option key={r.code} value={r.code}>
+                  {r.code}{prefix}
+                </option>
+              );
+            })}
           </select>
 
           <label htmlFor="search-phone" className="sr-only">

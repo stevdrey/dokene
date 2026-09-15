@@ -323,4 +323,56 @@ describe('CustomerList', () => {
       expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
     });
   });
+
+  it('exposes all creatable regions including PE and ES in phone search selector', async () => {
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    const regionSelect = screen.getByLabelText(/Región telefónica/i);
+    expect(regionSelect).toBeInTheDocument();
+
+    // Must include PE (+51) and ES (+34) alongside CL, AR, CO, MX, US
+    expect(screen.getByRole('option', { name: /PE/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /ES/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /CL/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /US/i })).toBeInTheDocument();
+  });
+
+  it('clears customers and reloads when the active workspace changes', async () => {
+    const listSpy = vi.spyOn(customerApi, 'listCustomers')
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[0]],
+        nextCursor: null
+      })
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[1]],
+        nextCursor: null
+      });
+
+    const { rerender } = render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    // Simulate workspace switch to tenant-2
+    vi.mocked(useTenant).mockReturnValue({
+      status: 'ready',
+      workspaces: [
+        { tenantId: 'tenant-2', displayName: 'Workspace 2', role: 'ADMIN' }
+      ],
+      activeWorkspace: { tenantId: 'tenant-2', displayName: 'Workspace 2', role: 'ADMIN' },
+      error: null,
+      switchWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+      provisionWorkspace: vi.fn()
+    });
+
+    rerender(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
+    });
+
+    expect(listSpy).toHaveBeenCalledTimes(2);
+  });
 });
