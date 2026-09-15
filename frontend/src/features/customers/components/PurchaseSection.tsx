@@ -26,6 +26,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
 
   // Form states
   const [purchaseDate, setPurchaseDate] = useState('');
+  const [initialEditDate, setInitialEditDate] = useState('');
   const [purchaseDesc, setPurchaseDesc] = useState('');
   const [recordIdempotencyKey, setRecordIdempotencyKey] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -128,8 +129,9 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
     const dateObj = new Date(purchase.purchasedAt);
     const localIso = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000)
       .toISOString()
-      .slice(0, 16);
+      .slice(0, 19);
     setPurchaseDate(localIso);
+    setInitialEditDate(localIso);
     setPurchaseDesc(purchase.description);
     setPurchaseToEdit(purchase);
     setModalError(null);
@@ -145,16 +147,22 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
       return;
     }
 
-    if (!purchaseDate || isNaN(new Date(purchaseDate).getTime())) {
-      setModalError('La fecha y hora de la compra es obligatoria y debe ser válida.');
-      return;
+    let selectedInstant: string;
+    if (purchaseDate === initialEditDate) {
+      // Date field was not edited; preserve original purchase timestamp verbatim (including seconds and milliseconds)
+      selectedInstant = purchaseToEdit.purchasedAt;
+    } else {
+      if (!purchaseDate || isNaN(new Date(purchaseDate).getTime())) {
+        setModalError('La fecha y hora de la compra es obligatoria y debe ser válida.');
+        return;
+      }
+      const parsedEditDate = new Date(purchaseDate);
+      if (parsedEditDate.getTime() > Date.now()) {
+        setModalError('La fecha de la compra no puede estar en el futuro.');
+        return;
+      }
+      selectedInstant = parsedEditDate.toISOString();
     }
-    const parsedEditDate = new Date(purchaseDate);
-    if (parsedEditDate.getTime() > Date.now()) {
-      setModalError('La fecha de la compra no puede estar en el futuro.');
-      return;
-    }
-    const selectedInstant = parsedEditDate.toISOString();
 
     setIsSubmitting(true);
     try {
@@ -532,6 +540,7 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
             <input
               id="edit-purchase-date"
               type="datetime-local"
+              step="1"
               required
               value={purchaseDate}
               onChange={(e) => setPurchaseDate(e.target.value)}

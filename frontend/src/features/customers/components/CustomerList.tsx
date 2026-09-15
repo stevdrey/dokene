@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CustomerResponse, CustomerStatus } from '@/features/customers/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { Button } from '@/shared/components/Button';
@@ -23,26 +23,57 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<CustomerResponse | null>(null);
 
+  const queryGenerationRef = useRef(0);
+  const activeSearchAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activeSearchAbortRef.current?.abort();
+    };
+  }, []);
+
   const loadCustomers = useCallback(async () => {
+    if (activeSearchAbortRef.current) {
+      activeSearchAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    activeSearchAbortRef.current = abortController;
+
+    const generation = ++queryGenerationRef.current;
     setIsLoading(true);
     setError(null);
+
     try {
       const page = await customerApi.listCustomers({
         status: statusFilter,
         name: nameSearch.trim() || undefined,
         phone: phoneSearch.trim() || undefined,
         region: phoneSearch.trim() ? regionSearch : undefined
-      });
+      }, abortController.signal);
+
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+
       setCustomers(page.customers);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
-      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+      if (err instanceof Error && (
+        err.name === 'AbortError' ||
+        err.name === 'AbortedTenantRequestError' ||
+        err.name === 'StaleSessionError'
+      )) {
         return;
       }
       if (err instanceof Error) setError(err.message);
       else setError('Error al cargar clientes.');
     } finally {
-      setIsLoading(false);
+      if (generation === queryGenerationRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [statusFilter, nameSearch, phoneSearch, regionSearch]);
 
@@ -54,7 +85,8 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
   }, [loadCustomers]);
 
   const loadMore = async () => {
-    if (!nextCursor) return;
+    if (!nextCursor || isLoading) return;
+    const generation = queryGenerationRef.current;
     try {
       const page = await customerApi.listCustomers({
         status: statusFilter,
@@ -63,10 +95,22 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
         region: phoneSearch.trim() ? regionSearch : undefined,
         cursor: nextCursor
       });
+
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+
       setCustomers((prev) => [...prev, ...page.customers]);
       setNextCursor(page.nextCursor);
     } catch (err: unknown) {
-      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+      if (generation !== queryGenerationRef.current) {
+        return;
+      }
+      if (err instanceof Error && (
+        err.name === 'AbortError' ||
+        err.name === 'AbortedTenantRequestError' ||
+        err.name === 'StaleSessionError'
+      )) {
         return;
       }
       if (err instanceof Error) setError(err.message);

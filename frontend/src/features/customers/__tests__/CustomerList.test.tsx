@@ -78,7 +78,8 @@ describe('CustomerList', () => {
 
     await waitFor(() => {
       expect(customerApi.listCustomers).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'ACTIVE' })
+        expect.objectContaining({ status: 'ACTIVE' }),
+        expect.any(AbortSignal)
       );
       expect(screen.getByRole('button', { name: 'Activos' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('button', { name: 'Archivados' })).toHaveAttribute('aria-pressed', 'false');
@@ -90,7 +91,8 @@ describe('CustomerList', () => {
 
     await waitFor(() => {
       expect(customerApi.listCustomers).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'ARCHIVED' })
+        expect.objectContaining({ status: 'ARCHIVED' }),
+        expect.any(AbortSignal)
       );
       expect(screen.getByRole('button', { name: 'Activos' })).toHaveAttribute('aria-pressed', 'false');
       expect(screen.getByRole('button', { name: 'Archivados' })).toHaveAttribute('aria-pressed', 'true');
@@ -102,7 +104,8 @@ describe('CustomerList', () => {
 
     await waitFor(() => {
       expect(customerApi.listCustomers).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'ALL' })
+        expect.objectContaining({ status: 'ALL' }),
+        expect.any(AbortSignal)
       );
       expect(screen.getByRole('button', { name: 'Activos' })).toHaveAttribute('aria-pressed', 'false');
       expect(screen.getByRole('button', { name: 'Archivados' })).toHaveAttribute('aria-pressed', 'false');
@@ -151,5 +154,85 @@ describe('CustomerList', () => {
     });
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('discards responses from superseded searches when filters change', async () => {
+    let resolveFirstQuery: (value: unknown) => void;
+    const firstPromise = new Promise((resolve) => {
+      resolveFirstQuery = resolve;
+    });
+
+    const secondPromise = Promise.resolve({
+      customers: [mockCustomers[1]],
+      nextCursor: null
+    });
+
+    const listSpy = vi.spyOn(customerApi, 'listCustomers')
+      .mockImplementationOnce(() => firstPromise as any)
+      .mockImplementationOnce(() => secondPromise as any);
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(listSpy).toHaveBeenCalledTimes(1);
+    });
+
+    const archivedTab = screen.getByRole('button', { name: 'Archivados' });
+    fireEvent.click(archivedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
+    });
+
+    resolveFirstQuery!({
+      customers: [mockCustomers[0]],
+      nextCursor: null
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
+    expect(screen.queryByText('Valentina Morales Gómez')).not.toBeInTheDocument();
+  });
+
+  it('discards in-flight loadMore if filters have changed', async () => {
+    let resolveLoadMore: (value: unknown) => void;
+    const loadMorePromise = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    vi.spyOn(customerApi, 'listCustomers')
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[0]],
+        nextCursor: 'cursor-2'
+      })
+      .mockImplementationOnce(() => loadMorePromise as any)
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[1]],
+        nextCursor: null
+      });
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Cargar más clientes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Cargar más clientes/i }));
+
+    const archivedTab = screen.getByRole('button', { name: 'Archivados' });
+    fireEvent.click(archivedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
+    });
+
+    resolveLoadMore!({
+      customers: [{ ...mockCustomers[0], id: 'cust-stale-page', displayName: 'Stale Paged Customer' }],
+      nextCursor: null
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Stale Paged Customer')).not.toBeInTheDocument();
   });
 });

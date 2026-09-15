@@ -137,4 +137,63 @@ describe('customerApi and httpClient', () => {
 
     await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow('Network error');
   });
+
+  it('provides descriptive conflict message for bodyless 409 responses', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 409 })
+    );
+
+    await expect(
+      customerApi.createCustomer({
+        displayName: 'Conflicto',
+        notes: null,
+        phones: [{ number: '984521190', region: 'CL', primary: true }]
+      })
+    ).rejects.toThrow('Conflicto: el registro o número de contacto ya existe o está en conflicto.');
+  });
+
+  it('retains JSON payload message when 409 response includes body', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: 'El teléfono ya está asignado a otro cliente' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    await expect(
+      customerApi.createCustomer({
+        displayName: 'Conflicto',
+        notes: null,
+        phones: [{ number: '984521190', region: 'CL', primary: true }]
+      })
+    ).rejects.toThrow('El teléfono ya está asignado a otro cliente');
+  });
+
+  it('provides descriptive concurrency message for bodyless 412 responses', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 412 })
+    );
+
+    await expect(customerApi.archiveCustomer('cust-1', 1)).rejects.toThrow(
+      'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.'
+    );
+  });
+
+  it('passes AbortSignal to fetch in listCustomers', async () => {
+    const controller = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      capturedSignal = init?.signal ?? undefined;
+      return new Response(JSON.stringify({ customers: [], nextCursor: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    await customerApi.listCustomers({ name: 'Maria' }, controller.signal);
+
+    expect(capturedSignal).toBeDefined();
+  });
 });
+

@@ -28,7 +28,7 @@ export interface ListCustomersParams {
 
 export const customerApi = {
   // Customer CRUD & Search
-  async listCustomers(params: ListCustomersParams = {}): Promise<CustomerPageResponse> {
+  async listCustomers(params: ListCustomersParams = {}, signal?: AbortSignal): Promise<CustomerPageResponse> {
     const searchParams = new URLSearchParams();
     if (params.status) searchParams.set('status', params.status);
     if (params.name && params.name.trim()) searchParams.set('name', params.name.trim());
@@ -41,7 +41,7 @@ export const customerApi = {
 
     const qs = searchParams.toString();
     const endpoint = `/api/customers${qs ? `?${qs}` : ''}`;
-    const { data } = await httpClient.request<CustomerPageResponse>(endpoint, { method: 'GET' });
+    const { data } = await httpClient.request<CustomerPageResponse>(endpoint, { method: 'GET', signal });
     return data;
   },
 

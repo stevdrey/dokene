@@ -159,4 +159,57 @@ describe('PurchaseSection', () => {
     const secondKey = recordSpy.mock.calls[1][1];
     expect(secondKey).toBe(firstKey);
   });
+
+  it('preserves purchase seconds and fractional instant when only description is corrected', async () => {
+    const originalPurchasedAt = '2025-01-14T10:15:42.123Z';
+    const purchaseWithSeconds = {
+      id: 'purch-seconds',
+      customerId: 'cust-1',
+      purchasedAt: originalPurchasedAt,
+      description: 'Molde Silicona Original',
+      status: 'VALID' as const,
+      version: 0,
+      createdAt: originalPurchasedAt,
+      updatedAt: originalPurchasedAt,
+      voidedAt: null
+    };
+
+    vi.spyOn(customerApi, 'listPurchases').mockResolvedValue({
+      purchases: [purchaseWithSeconds],
+      nextCursor: null
+    });
+
+    const correctSpy = vi.spyOn(customerApi, 'correctPurchase').mockResolvedValue({
+      ...purchaseWithSeconds,
+      description: 'Molde Silicona Corregido',
+      version: 1
+    });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Molde Silicona Original')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Corregir compra/i }));
+
+    expect(screen.getByRole('dialog', { name: /Corregir compra/i })).toBeInTheDocument();
+
+    const descInput = screen.getByLabelText(/Descripción corregida/i);
+    fireEvent.change(descInput, { target: { value: 'Molde Silicona Corregido' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar corrección/i }));
+
+    await waitFor(() => {
+      expect(correctSpy).toHaveBeenCalledWith(
+        'cust-1',
+        'purch-seconds',
+        0,
+        {
+          purchasedAt: originalPurchasedAt,
+          description: 'Molde Silicona Corregido'
+        }
+      );
+    });
+  });
 });
