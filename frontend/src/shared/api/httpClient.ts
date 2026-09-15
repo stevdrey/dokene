@@ -128,6 +128,7 @@ class HttpClient {
       }
 
       if (response.status === 401) {
+        apiClient.notifyUnauthorized();
         if (this.onUnauthorizedCallback) {
           this.onUnauthorizedCallback();
         }

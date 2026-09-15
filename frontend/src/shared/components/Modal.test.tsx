@@ -61,4 +61,47 @@ describe('Modal', () => {
     fireEvent.click(dialog);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('traps focus inside the modal and wraps around on Tab navigation', () => {
+    render(
+      <div>
+        <button data-testid="outside-btn">Outside</button>
+        <Modal isOpen={true} onClose={vi.fn()} title="Focus Trap Modal">
+          <input data-testid="modal-input" placeholder="Input" />
+          <button data-testid="modal-submit">Submit</button>
+        </Modal>
+      </div>
+    );
+
+    const closeBtn = screen.getByRole('button', { name: /Cerrar modal/i });
+    const submitBtn = screen.getByTestId('modal-submit');
+
+    // Tab from last element (submitBtn) wraps to first (closeBtn)
+    submitBtn.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeBtn);
+
+    // Shift+Tab from first element (closeBtn) wraps to last (submitBtn)
+    closeBtn.focus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(submitBtn);
+  });
+
+  it('restores focus to opener element upon close', () => {
+    const onClose = vi.fn();
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    expect(document.activeElement).toBe(opener);
+
+    const { unmount } = render(
+      <Modal isOpen={true} onClose={onClose} title="Restore Focus Modal">
+        <button>Inside</button>
+      </Modal>
+    );
+
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    document.body.removeChild(opener);
+  });
 });

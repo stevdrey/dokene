@@ -218,6 +218,22 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
     }
   };
 
+  const formatDateTime = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleString('es-CL', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
   return (
     <section
       style={{
@@ -652,18 +668,24 @@ export function PurchaseSection({ customerId, isArchived }: PurchaseSectionProps
                     backgroundColor: 'var(--color-surface-inset)',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--color-outline-subtle)',
-                    fontSize: 'var(--font-size-dense)'
+                    fontSize: 'var(--font-size-dense)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--space-6)'
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-8)' }}>
                     <Badge variant={evt.type === 'VOID' ? 'error' : 'neutral'}>
                       {evt.type === 'RECORD' ? 'Registro inicial' : evt.type === 'CORRECT' ? 'Corrección' : 'Anulación'}
                     </Badge>
                     <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
-                      {formatDate(evt.occurredAt)}
+                      Revisión: {formatDateTime(evt.occurredAt)}
                     </span>
                   </div>
-                  <p style={{ marginTop: 'var(--space-8)', color: 'var(--color-text-main)' }}>
+                  <div style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-main)', fontWeight: 500 }}>
+                    Fecha de compra registrada: {formatDateTime(evt.purchasedAt)}
+                  </div>
+                  <p style={{ margin: 0, color: 'var(--color-text-supporting)' }}>
                     {evt.description}
                   </p>
                 </div>

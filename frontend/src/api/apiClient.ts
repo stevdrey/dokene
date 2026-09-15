@@ -81,7 +81,7 @@ class ApiClient {
     };
   }
 
-  private notifyUnauthorized(): void {
+  notifyUnauthorized(): void {
     this.unauthorizedHandlers.forEach((handler) => {
       try {
         handler();

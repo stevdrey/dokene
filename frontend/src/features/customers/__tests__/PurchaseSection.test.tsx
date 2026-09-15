@@ -212,4 +212,48 @@ describe('PurchaseSection', () => {
       );
     });
   });
+
+  it('renders both historical purchase timestamp and revision timestamp in audit history modal', async () => {
+    vi.spyOn(customerApi, 'getPurchaseHistory').mockResolvedValueOnce({
+      events: [
+        {
+          id: 'evt-1',
+          type: 'RECORD',
+          purchasedAt: '2025-01-14T10:00:00Z',
+          description: 'Kit Harinas Especiales',
+          occurredAt: '2025-01-14T10:05:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          purchaseVersion: 0
+        },
+        {
+          id: 'evt-2',
+          type: 'CORRECT',
+          purchasedAt: '2025-01-14T12:30:45Z',
+          description: 'Kit Harinas Especiales - Corrección de hora',
+          occurredAt: '2025-01-14T14:00:00Z',
+          actorId: 'user-1',
+          membershipId: 'mem-1',
+          purchaseVersion: 1
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Kit Harinas Especiales')).toBeInTheDocument();
+    });
+
+    const historyBtns = screen.getAllByRole('button', { name: /Ver historial de auditoría/i });
+    fireEvent.click(historyBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /Historial de revisiones de compra/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText(/Fecha de compra registrada:/i).length).toBe(2);
+    expect(screen.getAllByText(/Revisión:/i).length).toBe(2);
+  });
 });

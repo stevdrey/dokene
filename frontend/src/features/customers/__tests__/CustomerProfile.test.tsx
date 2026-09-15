@@ -2,6 +2,15 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CustomerProfile } from '@/features/customers/components/CustomerProfile';
 import { customerApi } from '@/features/customers/api/customerApi';
+import { useTenant } from '@/features/tenants/TenantContext';
+
+vi.mock('@/features/tenants/TenantContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/tenants/TenantContext')>();
+  return {
+    ...actual,
+    useTenant: vi.fn()
+  };
+});
 
 describe('CustomerProfile', () => {
   const mockCustomer = {
@@ -47,6 +56,15 @@ describe('CustomerProfile', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(useTenant).mockReturnValue({
+      status: 'ready',
+      workspaces: [{ tenantId: 't-1', displayName: 'Workspace Principal', role: 'OWNER' }],
+      activeWorkspace: { tenantId: 't-1', displayName: 'Workspace Principal', role: 'OWNER' },
+      error: null,
+      switchWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+      provisionWorkspace: vi.fn()
+    });
     vi.spyOn(customerApi, 'getCustomer').mockResolvedValue({
       customer: mockCustomer,
       version: 2
@@ -124,5 +142,35 @@ describe('CustomerProfile', () => {
       expect(getLastPurchaseSpy).toHaveBeenCalledTimes(2);
       expect(screen.getAllByText('Kit Harinas Especiales + Esencias').length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it('renders archive button for OWNER and ADMIN roles', async () => {
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Archivar cliente/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Archivar ficha de cliente/i })).toBeInTheDocument();
+    });
+  });
+
+  it('hides archive buttons from operators without delete permission', async () => {
+    vi.mocked(useTenant).mockReturnValue({
+      status: 'ready',
+      workspaces: [{ tenantId: 't-1', displayName: 'Workspace Principal', role: 'OPERATOR' }],
+      activeWorkspace: { tenantId: 't-1', displayName: 'Workspace Principal', role: 'OPERATOR' },
+      error: null,
+      switchWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+      provisionWorkspace: vi.fn()
+    });
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /Archivar cliente/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Archivar ficha de cliente/i })).not.toBeInTheDocument();
   });
 });

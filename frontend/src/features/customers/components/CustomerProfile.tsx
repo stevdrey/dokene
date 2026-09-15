@@ -16,6 +16,7 @@ import { CustomerFormModal } from '@/features/customers/components/CustomerFormM
 import { ArchiveModal } from '@/features/customers/components/ArchiveModal';
 import { PurchaseSection } from '@/features/customers/components/PurchaseSection';
 import { ConsentSection } from '@/features/customers/components/ConsentSection';
+import { useTenant } from '@/features/tenants/TenantContext';
 
 interface CustomerProfileProps {
   customerId: string;
@@ -139,7 +140,13 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
     );
   }
 
+  const { activeWorkspace } = useTenant();
   const isArchived = customer.status === 'ARCHIVED';
+  const canArchive = !isArchived && (
+    activeWorkspace?.role === 'OWNER' ||
+    activeWorkspace?.role === 'ADMIN' ||
+    activeWorkspace?.role === 'TENANT_ADMIN'
+  );
   const primaryPhone = customer.phones.find((p) => p.primary) || customer.phones[0];
 
   return (
@@ -217,21 +224,21 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
 
         <div style={{ display: 'flex', gap: 'var(--space-8)' }}>
           {!isArchived && (
-            <>
-              <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
-                <EditIcon size={18} />
-                Editar cliente
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setIsArchiveModalOpen(true)}
-                aria-label="Archivar cliente"
-                style={{ color: 'var(--color-error-text)' }}
-              >
-                <ArchiveIcon size={18} />
-                Archivar
-              </Button>
-            </>
+            <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
+              <EditIcon size={18} />
+              Editar cliente
+            </Button>
+          )}
+          {canArchive && (
+            <Button
+              variant="ghost"
+              onClick={() => setIsArchiveModalOpen(true)}
+              aria-label="Archivar cliente"
+              style={{ color: 'var(--color-error-text)' }}
+            >
+              <ArchiveIcon size={18} />
+              Archivar
+            </Button>
           )}
         </div>
       </section>
@@ -422,7 +429,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
                 : `${customer.displayName} forma parte de la cartera activa de clientes.`}
             </p>
 
-            {!isArchived && (
+            {canArchive && (
               <Button
                 variant="danger"
                 onClick={() => setIsArchiveModalOpen(true)}
@@ -449,7 +456,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
         />
       )}
 
-      {isArchiveModalOpen && (
+      {canArchive && isArchiveModalOpen && (
         <ArchiveModal
           customer={customer}
           isOpen={isArchiveModalOpen}
