@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AppShell } from './AppShell';
+import { AppShell, ActiveTab } from './AppShell';
 import { useSession } from '../../features/auth/SessionContext';
 import { useTenant } from '../../features/tenants/TenantContext';
 import { ApiError } from '../../api/apiClient';
@@ -431,5 +431,26 @@ describe('AppShell', () => {
     // Valid non-blank name with U+FEFF -> enabled
     fireEvent.change(input, { target: { value: '\uFEFFMi Negocio\uFEFF' } });
     expect(createButton).toBeEnabled();
+  });
+
+  it('renders fallback with "Más opciones" and Configuración button when activeTab is "mas" and children array is falsy', () => {
+    const onTabChange = vi.fn();
+    const getTab = (): ActiveTab => 'mas';
+    const activeTab = getTab();
+
+    render(
+      <AppShell activeTab={activeTab} onTabChange={onTabChange}>
+        {activeTab === 'clientes' && <div>Clientes</div>}
+        {activeTab === 'seguimientos' && <div>Seguimientos</div>}
+        {activeTab === 'configuracion' && <div>Configuracion</div>}
+      </AppShell>
+    );
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Más opciones' })).toBeInTheDocument();
+    const configBtn = screen.getByRole('button', { name: /Abrir Configuración/i });
+    expect(configBtn).toBeInTheDocument();
+
+    fireEvent.click(configBtn);
+    expect(onTabChange).toHaveBeenCalledWith('configuracion');
   });
 });

@@ -51,6 +51,10 @@ class ApiClient {
     this.csrfToken = token;
   }
 
+  getCsrfToken(): string | null {
+    return this.csrfToken;
+  }
+
   setCurrentTenantId(tenantId: string | null): void {
     if (this.currentTenantId && this.currentTenantId !== tenantId) {
       this.cancelTenantRequests(this.currentTenantId);
@@ -77,7 +81,7 @@ class ApiClient {
     };
   }
 
-  private notifyUnauthorized(): void {
+  notifyUnauthorized(): void {
     this.unauthorizedHandlers.forEach((handler) => {
       try {
         handler();
@@ -85,6 +89,30 @@ class ApiClient {
         console.error('Error in unauthorized handler:', err);
       }
     });
+  }
+
+  registerRequest(controller: AbortController, tenantId?: string | null): () => void {
+    this.activeControllers.add(controller);
+    if (tenantId) {
+      let set = this.activeTenantControllers.get(tenantId);
+      if (!set) {
+        set = new Set();
+        this.activeTenantControllers.set(tenantId, set);
+      }
+      set.add(controller);
+    }
+    return () => {
+      this.activeControllers.delete(controller);
+      if (tenantId) {
+        const set = this.activeTenantControllers.get(tenantId);
+        if (set) {
+          set.delete(controller);
+          if (set.size === 0) {
+            this.activeTenantControllers.delete(tenantId);
+          }
+        }
+      }
+    };
   }
 
   cancelTenantRequests(tenantId: string): void {

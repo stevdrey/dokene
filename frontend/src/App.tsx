@@ -1,13 +1,24 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { SessionProvider, useSession } from './features/auth/SessionContext';
 import { TenantProvider, useTenant } from './features/tenants/TenantContext';
 import { LoginView } from './features/auth/LoginView';
 import { NoMembershipsView } from './features/tenants/NoMembershipsView';
-import { AppShell } from './components/shell/AppShell';
+import { AppShell, ActiveTab } from './components/shell/AppShell';
+import { CustomerList } from './features/customers/components/CustomerList';
+import { CustomerProfile } from './features/customers/components/CustomerProfile';
 
 const MainAppContent: React.FC = () => {
   const { status: sessionStatus, error: sessionError, checkSession } = useSession();
-  const { status: tenantStatus, error: tenantError, refreshWorkspaces } = useTenant();
+  const { status: tenantStatus, error: tenantError, refreshWorkspaces, activeWorkspace } = useTenant();
+  const [activeTab, setActiveTab] = useState<ActiveTab>('seguimientos');
+  const [selectedCustomer, setSelectedCustomer] = useState<{ tenantId: string; id: string } | null>(null);
+  const selectedCustomerId =
+    selectedCustomer && activeWorkspace && selectedCustomer.tenantId === activeWorkspace.tenantId
+      ? selectedCustomer.id
+      : null;
+  const setSelectedCustomerId = (id: string | null) => {
+    setSelectedCustomer(id && activeWorkspace?.tenantId ? { tenantId: activeWorkspace.tenantId, id } : null);
+  };
 
   if (sessionStatus === 'loading') {
     return (
@@ -181,7 +192,68 @@ const MainAppContent: React.FC = () => {
     );
   }
 
-  return <AppShell />;
+  return (
+    <AppShell
+      activeTab={activeTab}
+      onTabChange={(tab) => {
+        setActiveTab(tab);
+        if (tab !== 'clientes') {
+          setSelectedCustomerId(null);
+        }
+      }}
+    >
+      {activeTab === 'clientes' && (
+        selectedCustomerId ? (
+          <CustomerProfile
+            customerId={selectedCustomerId}
+            onBack={() => setSelectedCustomerId(null)}
+          />
+        ) : (
+          <CustomerList
+            key={activeWorkspace?.tenantId}
+            onSelectCustomer={(customerId) => setSelectedCustomerId(customerId)}
+          />
+        )
+      )}
+
+      {activeTab === 'seguimientos' && (
+        <div>
+          <h1
+            style={{
+              fontSize: 'var(--font-size-page-heading)',
+              fontWeight: 600,
+              color: 'var(--color-text-main)',
+              margin: '0 0 8px',
+            }}
+          >
+            Seguimientos
+          </h1>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-secondary)' }}>
+            Espacio activo: <strong>{activeWorkspace?.displayName}</strong>
+          </p>
+        </div>
+      )}
+
+      {activeTab === 'configuracion' && (
+        <section
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-32)',
+            border: '1px solid var(--color-outline-subtle)',
+            textAlign: 'center',
+          }}
+        >
+          <h2 style={{ fontSize: 'var(--font-size-page-heading)', fontWeight: 600, color: 'var(--color-text-main)' }}>
+            Configuración del Espacio de Trabajo
+          </h2>
+          <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginTop: 'var(--space-8)' }}>
+            Ajustes generales del negocio y cadencias de contacto.
+          </p>
+        </section>
+      )}
+    </AppShell>
+  );
 };
 
 export function App() {
@@ -193,3 +265,5 @@ export function App() {
     </SessionProvider>
   );
 }
+
+export default App;

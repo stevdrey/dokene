@@ -106,7 +106,13 @@ public class CustomerService {
                 existingPhones.stream().collect(Collectors.toMap(CustomerPhone::e164, CustomerPhone::id, (a, b) -> a));
         return phones.stream()
                 .map(phone -> {
-                    String normalized = phoneNormalizer.normalize(phone.number(), phone.region());
+                    String rawNumber = phone.number() == null ? "" : phone.number().strip();
+                    String normalized;
+                    if (existingIdsByPhone.containsKey(rawNumber)) {
+                        normalized = rawNumber;
+                    } else {
+                        normalized = phoneNormalizer.normalize(phone.number(), phone.region());
+                    }
                     UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());
                     return new CustomerPhone(phoneId, normalized, phone.primary());
                 })

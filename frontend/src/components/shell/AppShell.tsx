@@ -6,13 +6,24 @@ import { WorkspaceSelector } from './WorkspaceSelector';
 export type ActiveTab = 'seguimientos' | 'clientes' | 'configuracion' | 'mas';
 
 export interface AppShellProps {
-  children?: React.ReactNode;
+  children?: React.ReactNode | ((activeTab: ActiveTab) => React.ReactNode);
+  activeTab?: ActiveTab;
+  onTabChange?: (tab: ActiveTab) => void;
 }
 
-export const AppShell: React.FC<AppShellProps> = ({ children }) => {
+export const AppShell: React.FC<AppShellProps> = ({
+  children,
+  activeTab: controlledActiveTab,
+  onTabChange,
+}) => {
   const { logout, identityId } = useSession();
   const { activeWorkspace } = useTenant();
-  const [activeTab, setActiveTab] = useState<ActiveTab>('seguimientos');
+  const [internalActiveTab, setInternalActiveTab] = useState<ActiveTab>('seguimientos');
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+  const setActiveTab = (tab: ActiveTab) => {
+    setInternalActiveTab(tab);
+    onTabChange?.(tab);
+  };
   const [logoutError, setLogoutError] = useState<string | null>(null);
 
   const handleLogout = async () => {
@@ -26,6 +37,8 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
   const initials = identityId ? identityId.substring(0, 2).toUpperCase() : 'OP';
   const roleLabel = formatTenantRole(activeWorkspace?.role);
+  const resolvedChildren = typeof children === 'function' ? children(activeTab) : children;
+  const hasRenderableChildren = React.Children.toArray(resolvedChildren).length > 0;
 
   return (
     <div className="dokene-app-layout">
@@ -478,8 +491,8 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             </button>
           </div>
         )}
-        {children ? (
-          children
+        {hasRenderableChildren ? (
+          resolvedChildren
         ) : (
           <div>
             <h1

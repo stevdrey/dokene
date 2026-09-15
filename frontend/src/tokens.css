@@ -61,6 +61,22 @@
   --font-size-meta: 12px;
   --line-height-meta: 16px;
 
+  /* Compatibility aliases */
+  --color-primary-fg: #ffffff;
+  --color-primary-container: #0f766e;
+  --color-surface-inset: #f7f8fa;
+  --color-surface-low: #e1f9f1;
+  --color-surface-high: #d6ede5;
+  --color-text-supporting: #3e4947;
+  --color-text-inverse: #ffffff;
+  --color-success-bg: #e6f4f1;
+  --color-success-text: #005c55;
+  --color-success-border: #0f766e;
+  --max-content-width: 1440px;
+  --font-family-sans: var(--font-family);
+  --font-size-dense: 14px;
+  --line-height-dense: 20px;
+
   /* Layout */
   --sidebar-width: 232px;
   --header-height: 56px;
@@ -88,8 +104,9 @@ body {
 }
 
 /* Base Accessible Interactive Target (min 44x44) */
-button, a.nav-link, select, input[type="button"], input[type="submit"] {
+button, a.nav-link, select, input[type="button"], input[type="submit"], .interactive-target {
   min-height: 44px;
+  min-width: 44px;
 }
 
 /* Material Symbols Outlined (Self-hosted) */
