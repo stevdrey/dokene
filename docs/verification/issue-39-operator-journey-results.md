@@ -1,0 +1,118 @@
+# Issue 39 Operator Journey & Workbench Verification
+
+Date: 2026-09-15
+
+## Environment
+
+- Backend:
+  - Java: Temurin 26.0.2.1
+  - Docker Engine: 29.7.2
+  - Testcontainers: 2.0.5 with automatic Ryuk cleanup
+  - Database: temporary `postgres:17-alpine` container
+  - Application: Spring Boot 4.1.1 on a random local Tomcat port
+  - Client: host `curl` executable invoked by `ProcessBuilder` via `FollowUpOperatorJourneySystemTest`
+  - Schema: Flyway migrations V1 through V11 applied successfully
+- Frontend:
+  - Node.js: v22+
+  - Vitest: 4.0.8
+  - Testing Library: React 16.3.2, user-event 14.6.1
+
+All tenants, identities, customers, phone numbers, and UUIDs used during verification are synthetic and ephemeral.
+
+## Reproduction
+
+### Backend Automated Operator Journey System Test
+
+```shell
+cd backend
+./gradlew test --tests '*FollowUpOperatorJourneySystemTest' --no-daemon --console=plain
+./gradlew test --tests '*FollowUpCurlSystemTest' --no-daemon --console=plain
+```
+
+### Frontend Test Suite
+
+```shell
+cd frontend
+npm test -- --run
+```
+
+## Verified Backend Operator Journey Scenarios
+
+Tenants and memberships are seeded in the test fixture setup, and all subsequent lifecycle operations are exercised through authenticated HTTP requests.
+
+| Step / Scenario | HTTP Status & Response Verification |
+| --- | --- |
+| 1. Configure tenant follow-up policy (`GET` / `PUT /api/follow-up-policy`) with 14 days cadence and `America/Santiago` | `200 OK`, version ETag returned |
+| 2. Create customer `Valentina Morales Gómez` (`POST /api/customers`) with primary phone `+56984521190` | `201 Created`, version ETag `"0"` |
+| 3. Grant WhatsApp consent (`PUT /api/customers/{id}/contacts/{id}/consents/WHATSAPP`) with source `CUSTOMER_WRITTEN` | `200 OK`, version ETag `"1"` |
+| 4. Record initial purchase (`POST /api/customers/{id}/purchases`) with historical timestamp | `201 Created` |
+| 5. Configure follow-up policy (`PUT /api/customers/{id}/follow-up-policy`) with cadence 14 days and `explicitNextDate = today` | `200 OK` |
+| 6. Query operator due queue (`GET /api/follow-up-queue`) | `200 OK`, customer returned with status `DUE`, reason `DUE_TODAY`, primary phone `+56984521190` |
+| 7. Execute dismissal disposition with notes & `Idempotency-Key` (`POST /api/customers/{id}/follow-up-dismissals`) | `201 Created`, customer drops from queue, cadence advanced |
+| 8. Replay dismissal with same idempotency key | `200 OK`, returns original dismissal record (idempotency safety) |
+| 9. Attempt dismissal on `NOT_YET_DUE` customer | `409 Conflict` |
+| 10. Attempt snooze on `NOT_YET_DUE` customer | `409 Conflict` |
+| 11. Reset customer policy to `explicitNextDate = today` | `200 OK`, customer reappears in due queue |
+| 12. Execute snooze disposition until tomorrow (`PUT /api/customers/{id}/follow-up-snooze`) | `200 OK`, customer immediately drops from due queue |
+| 13. Execute manual follow-up completion with notes & `Idempotency-Key` (`POST /api/customers/{id}/manual-follow-ups`) | `201 Created`, clears snooze, records `completedOn = today` |
+| 14. Replay manual follow-up with same idempotency key | `200 OK`, returns original follow-up record |
+| 15. Stale safeguard: Revoke WhatsApp consent (`PUT .../consents/WHATSAPP` -> `REVOKED`) | `200 OK` |
+| 16. Attempt snooze on revoked consent customer | `409 Conflict` |
+| 17. Attempt dismissal on revoked consent customer | `409 Conflict` |
+| 18. Attempt manual follow-up on revoked consent customer | `409 Conflict` |
+| 19. Stale safeguard: Soft-delete/archive customer (`DELETE /api/customers/{id}`) | `204 No Content` |
+| 20. Attempt dispositions on archived customer | `409 Conflict` |
+| 21. Cross-tenant isolation (`GET /api/follow-up-queue` from foreign tenant `Café Bellavista`) | `200 OK`, 0 items visible (RLS boundary enforced) |
+| 22. Role gating: `VIEWER` reads queue (`GET /api/follow-up-queue`) | `200 OK` (has `FOLLOWUP_READ`) |
+| 23. Role gating: `VIEWER` writes disposition (`PUT /api/customers/{id}/follow-up-snooze`) | `403 Forbidden` (lacks `FOLLOWUP_WRITE`) |
+
+## Verified Frontend Workbench Scenarios
+
+All 16 frontend test suites (176 tests) passed cleanly:
+
+- `src/features/followups/__tests__/followUpApi.test.ts` (7/7 tests):
+  - Fetches queue with status filtering.
+  - Queries follow-up policies and eligibility.
+  - Submits snooze with `If-Match`.
+  - Submits dismiss with `If-Match` and `Idempotency-Key`.
+  - Submits manual follow-up with `If-Match` and `Idempotency-Key`.
+- `src/features/followups/__tests__/FollowUpCard.test.tsx` (4/4 tests):
+  - Prioritizes timingSource over DUE_TODAY in reason explanation.
+  - Derives card dates and overdue status correctly under tenant timezone without false isDueToday.
+  - Does not suppress focus ring with outline none.
+  - Handles undefined timeZone safely without rendering malformed overdue text.
+- `src/features/followups/__tests__/FollowUpWorkbench.test.tsx` (29/29 tests):
+  - Renders workbench title, stats counters, and queue items.
+  - Selects first item on desktop and displays customer detail context.
+  - Changes selected customer when clicking another card.
+  - Filters by status tabs (Vencidos vs Pendientes).
+  - Filters queue items with search bar.
+  - Handles manual follow-up completion with modal notes and idempotency key.
+  - Handles snooze disposition.
+  - Handles dismissal disposition.
+  - Handles 409 conflict and displays stale candidate alert.
+  - Restricts mutations for VIEWER role.
+  - Renders empty state when queue returns 0 items.
+  - Renders error state and allows retry.
+  - Displays the chronologically latest interaction when both manual follow-up and dismissal exist.
+  - Surfaces purchase-history request failures and allows retry.
+  - Distinguishes voided purchases as Anulada in history.
+  - Excludes overdue items from contacts scheduled for today count.
+  - Explains due items from their actual timing source (e.g. EXPLICIT_DATE).
+  - Allows loading more pages when active search yields no local results and nextCursor exists.
+  - Calculates snooze dates in tenant time zone without shifting days due to UTC offset.
+  - Discards stale load-more responses when filter changes before response arrives.
+  - Provides an accessible name for the search input.
+  - Keeps selected card synchronized with filtered detail when search excludes previous customer.
+  - Resets loadingMore state when replacing queue while load-more was pending.
+  - Surfaces tenant policy error banner and disables snooze until resolved.
+  - Protects tenant time-zone loading across workspace switches against delayed policy responses.
+  - Invalidates in-flight pagination when queue is replaced by a successful disposition.
+  - Invalidates in-flight pagination when queue is replaced by tenant-local date rollover.
+  - Refetches immediately when queue fetch spans tenant midnight.
+  - Preserves current customer selection when queue is replaced and customer is still present.
+- `src/App.test.tsx` (6/6 tests):
+  - Renders top navigation with "Clientes", "Membresías", "Configuración", and "Seguimientos".
+  - Displays `<FollowUpWorkbench>` when navigating to "Seguimientos" tab.
+  - Seamlessly switches to "Clientes" tab and loads customer profile when requested from workbench.
+- Additional feature suites (130 tests across customer forms, lists, consent, purchase history, memberships, tenant context, and shared components).

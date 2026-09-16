@@ -200,4 +200,120 @@ describe('App routing transitions', () => {
       expect(screen.queryByRole('button', { name: /Volver a Clientes/i })).not.toBeInTheDocument();
     });
   });
+
+  it('navigates from FollowUpWorkbench to CustomerProfile when clicking Ver cliente', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr === '/api/session') {
+        return new Response(
+          JSON.stringify({
+            authenticated: true,
+            identityId: 'id-123',
+            csrfToken: 'csrf-123',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr === '/api/tenants') {
+        return new Response(
+          JSON.stringify([
+            { tenantId: 't-1', displayName: 'Café Artesano', role: 'TENANT_ADMIN' },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.startsWith('/api/follow-up-queue')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                customerId: 'cust-wf-1',
+                displayName: 'Valentina Morales',
+                primaryPhone: '+56984521190',
+                status: 'DUE',
+                reasons: ['DUE_TODAY'],
+                dueDate: '2026-09-15',
+                timingSource: 'LAST_PURCHASE',
+                policyVersion: 1,
+                effectiveCadenceDays: 30,
+                lastPurchaseAt: null,
+                lastManualFollowUpDate: null,
+                lastDismissedDate: null,
+                evaluatedAt: '2026-09-15T12:00:00Z',
+              },
+            ],
+            nextCursor: null,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr.startsWith('/api/customers/cust-wf-1/purchases')) {
+        return new Response(
+          JSON.stringify({ purchases: [], nextCursor: null }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (urlStr === '/api/customers/cust-wf-1') {
+        return new Response(
+          JSON.stringify({
+            id: 'cust-wf-1',
+            displayName: 'Valentina Morales',
+            notes: null,
+            phones: [{ id: 'p-1', e164: '+56984521190', primary: true }],
+            status: 'ACTIVE',
+            version: 1,
+            createdAt: '2026-09-01T00:00:00Z',
+            updatedAt: '2026-09-01T00:00:00Z',
+            archivedAt: null,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json', ETag: '"1"' } }
+        );
+      }
+      if (urlStr === '/api/customers/cust-wf-1/contact-policy') {
+        return new Response(
+          JSON.stringify({
+            customerId: 'cust-wf-1',
+            version: 1,
+            doNotContact: false,
+            doNotContactSource: null,
+            doNotContactChangedAt: null,
+            consents: [
+              {
+                contactId: 'p-1',
+                channel: 'WHATSAPP',
+                status: 'GRANTED',
+                source: 'CUSTOMER_VERBAL',
+                changedAt: '2026-09-01T00:00:00Z',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json', ETag: '"1"' } }
+        );
+      }
+      if (urlStr === '/api/customers/cust-wf-1/contact-eligibility') {
+        return new Response(
+          JSON.stringify({ eligible: true, reasons: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(<App />);
+
+    // Workbench loads first on seguimientos tab
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Seguimientos');
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    });
+
+    // Click "Ver cliente" in the detail panel
+    const verClienteBtn = await screen.findByRole('button', { name: /Ver cliente/i });
+    fireEvent.click(verClienteBtn);
+
+    // Profile view is now rendered with "Volver a Clientes"
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Volver a Clientes/i })).toBeInTheDocument();
+    });
+  });
 });

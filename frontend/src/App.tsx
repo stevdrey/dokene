@@ -6,6 +6,7 @@ import { NoMembershipsView } from './features/tenants/NoMembershipsView';
 import { AppShell, ActiveTab } from './components/shell/AppShell';
 import { CustomerList } from './features/customers/components/CustomerList';
 import { CustomerProfile } from './features/customers/components/CustomerProfile';
+import { FollowUpWorkbench } from './features/followups/components/FollowUpWorkbench';
 
 const MainAppContent: React.FC = () => {
   const { status: sessionStatus, error: sessionError, checkSession } = useSession();
@@ -217,21 +218,13 @@ const MainAppContent: React.FC = () => {
       )}
 
       {activeTab === 'seguimientos' && (
-        <div>
-          <h1
-            style={{
-              fontSize: 'var(--font-size-page-heading)',
-              fontWeight: 600,
-              color: 'var(--color-text-main)',
-              margin: '0 0 8px',
-            }}
-          >
-            Seguimientos
-          </h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-secondary)' }}>
-            Espacio activo: <strong>{activeWorkspace?.displayName}</strong>
-          </p>
-        </div>
+        <FollowUpWorkbench
+          key={activeWorkspace?.tenantId}
+          onNavigateToCustomer={(customerId) => {
+            setActiveTab('clientes');
+            setSelectedCustomerId(customerId);
+          }}
+        />
       )}
 
       {activeTab === 'configuracion' && (
