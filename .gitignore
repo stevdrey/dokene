@@ -16,6 +16,7 @@
 **/.vite/
 *.tsbuildinfo
 
+
 # Environment and secrets
 .env
 .env.*
