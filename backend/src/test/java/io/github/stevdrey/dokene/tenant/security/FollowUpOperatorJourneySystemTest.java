@@ -380,11 +380,51 @@ class FollowUpOperatorJourneySystemTest {
         ), 409);
 
         // Step 14: Cross-tenant Isolation - foreign workspace cannot see customer or queue item
+        // Seed an active, consented, due-today customer in tenantId so the queue query is non-empty
+        // and actively verifies that the tenant isolation predicate filters foreign results.
+        CurlResult cust2Result = curl("POST", "/api/customers", """
+                {
+                  "displayName": "Ignacio Silva Rojas",
+                  "phones": [{"number": "977654321", "region": "CL", "primary": true}]
+                }
+                """);
+        assertStatus(cust2Result, 201);
+        UUID cust2Id = UUID.fromString(json.readTree(cust2Result.body()).get("id").asText());
+        UUID cust2PhoneId = UUID.fromString(json.readTree(cust2Result.body()).get("phones").get(0).get("id").asText());
+        String cust2Base = "/api/customers/" + cust2Id;
+
+        CurlResult cust2ContactPolicy = curl("GET", cust2Base + "/contact-policy", null);
+        assertStatus(cust2ContactPolicy, 200);
+        assertStatus(curlWithHeader(
+                "PUT",
+                cust2Base + "/contacts/" + cust2PhoneId + "/consents/WHATSAPP",
+                "If-Match",
+                cust2ContactPolicy.header("etag"),
+                "{\"status\":\"GRANTED\",\"source\":\"CUSTOMER_WRITTEN\"}"
+        ), 200);
+
+        CurlResult cust2FollowUpPolicy = curl("GET", cust2Base + "/follow-up-policy", null);
+        assertStatus(cust2FollowUpPolicy, 200);
+        assertStatus(curlWithHeader(
+                "PUT",
+                cust2Base + "/follow-up-policy",
+                "If-Match",
+                cust2FollowUpPolicy.header("etag"),
+                "{\"cadenceDays\":14,\"explicitNextDate\":\"" + today + "\"}"
+        ), 200);
+
+        // Verify primary tenant sees the customer in the queue
+        CurlResult primaryQueue = curl("GET", "/api/follow-up-queue", null);
+        assertStatus(primaryQueue, 200);
+        assertThat(json.readTree(primaryQueue.body()).get("items")).hasSize(1);
+        assertThat(json.readTree(primaryQueue.body()).get("items").get(0).get("customerId").asText())
+                .isEqualTo(cust2Id.toString());
+
         CurlResult foreignQueue = curlAs("GET", "/api/follow-up-queue", foreignOperatorId, foreignTenantId, null);
         assertStatus(foreignQueue, 200);
         assertThat(json.readTree(foreignQueue.body()).get("items")).isEmpty();
 
-        CurlResult foreignCustomerAccess = curlAs("GET", customerBase, foreignOperatorId, foreignTenantId, null);
+        CurlResult foreignCustomerAccess = curlAs("GET", cust2Base, foreignOperatorId, foreignTenantId, null);
         assertStatus(foreignCustomerAccess, 404);
 
         // Step 15: Role-based Boundaries - VIEWER can query queue (200 OK) but is forbidden from dispositions (403)

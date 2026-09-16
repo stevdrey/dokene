@@ -5,6 +5,7 @@ import { followUpApi } from '@/features/followups/api/followUpApi';
 import { FollowUpCard } from './FollowUpCard';
 import { FollowUpDetail } from './FollowUpDetail';
 import { Button } from '@/shared/components/Button';
+import { getCalendarDateInTimeZone } from '../utils/dateUtils';
 import { ApiError } from '@/shared/api/httpClient';
 
 interface FollowUpWorkbenchProps {
@@ -26,8 +27,12 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'OVERDUE'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [isPolicyLoading, setIsPolicyLoading] = useState(false);
+
   const requestGenerationRef = useRef(0);
   const loadMoreAbortControllerRef = useRef<AbortController | null>(null);
+  const lastFetchedTenantDateRef = useRef<string>('');
 
   // Detect mobile width (< 1024px) for responsive split vs stacked view
   const [isMobile, setIsMobile] = useState(() =>
@@ -42,28 +47,35 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const tenantTimeZoneRef = useRef<string | undefined>(undefined);
+
   // Fetch tenant policy time zone
-  useEffect(() => {
-    let active = true;
-    const fetchPolicy = async () => {
-      try {
-        const { policy } = await followUpApi.getTenantFollowUpPolicy();
-        if (active && policy?.timeZone) {
-          setTenantTimeZone(policy.timeZone);
-        }
-      } catch {
-        // Fallback gracefully to browser/default
+  const fetchPolicy = useCallback(async () => {
+    setIsPolicyLoading(true);
+    setPolicyError(null);
+    try {
+      const { policy } = await followUpApi.getTenantFollowUpPolicy();
+      if (policy?.timeZone) {
+        tenantTimeZoneRef.current = policy.timeZone;
+        setTenantTimeZone(policy.timeZone);
       }
-    };
+    } catch (err) {
+      setPolicyError(
+        err instanceof Error ? err.message : 'Error al cargar la política del espacio comercial.'
+      );
+    } finally {
+      setIsPolicyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
     fetchPolicy();
-    return () => {
-      active = false;
-    };
-  }, [activeWorkspace?.tenantId]);
+  }, [activeWorkspace?.tenantId, fetchPolicy]);
 
   const fetchQueue = useCallback(
     async (statusFilter?: FollowUpStatus, signal?: AbortSignal) => {
       setLoading(true);
+      setLoadingMore(false);
       setError(null);
       try {
         const page = await followUpApi.getFollowUpQueue(
@@ -72,6 +84,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         );
         setItems(page.items || []);
         setNextCursor(page.nextCursor || null);
+        lastFetchedTenantDateRef.current = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
 
         // Auto-select first item on desktop if nothing selected
         if (!isMobile && page.items && page.items.length > 0) {
@@ -96,6 +109,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       loadMoreAbortControllerRef.current.abort();
       loadMoreAbortControllerRef.current = null;
     }
+    setLoadingMore(false);
     const controller = new AbortController();
     fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, controller.signal);
     return () => {
@@ -106,6 +120,37 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       }
     };
   }, [activeWorkspace?.tenantId, activeFilter, fetchQueue]);
+
+  // Refresh queue when tenant-local date changes (across midnight or on tab refocus)
+  useEffect(() => {
+    const checkTenantDateChange = () => {
+      const currentDate = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
+      if (lastFetchedTenantDateRef.current && currentDate !== lastFetchedTenantDateRef.current) {
+        lastFetchedTenantDateRef.current = currentDate;
+        fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+      }
+    };
+
+    const handleFocus = () => {
+      checkTenantDateChange();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkTenantDateChange();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const interval = setInterval(checkTenantDateChange, 30000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(interval);
+    };
+  }, [activeFilter, fetchQueue]);
 
   const handleLoadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -151,15 +196,23 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     );
   }, [items, searchQuery, isSearchActive]);
 
+  // Synchronize card selection with filtered items on desktop
+  useEffect(() => {
+    if (isMobile) return;
+    if (filteredItems.length > 0) {
+      if (!selectedCustomerId || !filteredItems.some((i) => i.customerId === selectedCustomerId)) {
+        setSelectedCustomerId(filteredItems[0].customerId);
+      }
+    } else {
+      setSelectedCustomerId(null);
+    }
+  }, [filteredItems, selectedCustomerId, isMobile]);
+
   // Selected item reference scoped to filteredItems
   const selectedItem = useMemo(() => {
-    if (filteredItems.length === 0) return null;
-    if (selectedCustomerId) {
-      const match = filteredItems.find((i) => i.customerId === selectedCustomerId);
-      if (match) return match;
-    }
-    return isMobile ? null : filteredItems[0];
-  }, [filteredItems, selectedCustomerId, isMobile]);
+    if (!selectedCustomerId) return null;
+    return filteredItems.find((i) => i.customerId === selectedCustomerId) || null;
+  }, [filteredItems, selectedCustomerId]);
 
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
@@ -300,10 +353,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               </span>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
-                  Contactos para hoy
+                  Contactos cargados para hoy
                 </span>
                 <span style={{ fontSize: 'var(--font-size-secondary)', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                  {dueTodayCount} {dueTodayCount === 1 ? 'programado' : 'programados'}
+                  {dueTodayCount} {dueTodayCount === 1 ? 'programado' : 'programados'}{nextCursor ? ' (en lista)' : ''}
                 </span>
               </div>
             </div>
@@ -336,7 +389,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                     color: overdueCount > 0 ? 'var(--color-warning-text)' : 'var(--color-text-muted)'
                   }}
                 >
-                  Prioridad alta
+                  Cargados con retraso
                 </span>
                 <span
                   style={{
@@ -345,11 +398,43 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                     color: overdueCount > 0 ? 'var(--color-warning-text)' : 'var(--color-text-main)'
                   }}
                 >
-                  {overdueCount} con retraso
+                  {overdueCount} con retraso{nextCursor ? ' (en lista)' : ''}
                 </span>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Policy Error Notification */}
+      {policyError && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-12) var(--space-16)',
+            backgroundColor: 'var(--color-warning-bg)',
+            color: 'var(--color-warning-text)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--color-warning-border)',
+            fontSize: 'var(--font-size-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--space-12)'
+          }}
+        >
+          <span>
+            No se pudo obtener la zona horaria del espacio comercial. Algunas acciones como postergar requieren conocer la zona horaria.
+          </span>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={fetchPolicy}
+            isLoading={isPolicyLoading}
+            aria-label="Reintentar cargar política"
+          >
+            Reintentar
+          </Button>
         </div>
       )}
 
@@ -474,6 +559,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
 
           {/* Search Input Bar */}
           <div style={{ position: 'relative', width: isMobile ? '100%' : '360px' }}>
+            <label htmlFor="followup-search-input" className="sr-only">
+              Buscar seguimientos por nombre o teléfono
+            </label>
             <span
               className="material-symbols-outlined"
               aria-hidden="true"
@@ -490,7 +578,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               search
             </span>
             <input
+              id="followup-search-input"
               type="search"
+              aria-label="Buscar seguimientos por nombre o teléfono"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar por nombre o teléfono..."
@@ -701,6 +791,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   item={item}
                   isSelected={selectedCustomerId === item.customerId}
                   onSelect={() => setSelectedCustomerId(item.customerId)}
+                  timeZone={tenantTimeZone}
                 />
               ))}
             </div>

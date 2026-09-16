@@ -65,6 +65,14 @@ describe('FollowUpWorkbench', () => {
       nextCursor: null
     });
 
+    vi.spyOn(followUpApi, 'getTenantFollowUpPolicy').mockResolvedValue({
+      policy: {
+        cadenceDays: 14,
+        timeZone: 'America/Santiago'
+      },
+      version: 1
+    });
+
     vi.spyOn(followUpApi, 'getCustomerFollowUpPolicy').mockResolvedValue({
       policy: {
         customerId: 'cust-1',
@@ -594,5 +602,114 @@ describe('FollowUpWorkbench', () => {
 
     expect(screen.queryByText('Stale Customer From All')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cargar más seguimientos' })).not.toBeInTheDocument();
+  });
+
+  it('provides an accessible name for the search input', async () => {
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('searchbox', { name: /buscar seguimientos por nombre o teléfono/i })
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('keeps selected card synchronized with filtered detail when search excludes previous customer', async () => {
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    // Initially Valentina (cust-1) is selected
+    await waitFor(() => {
+      const valentinaCard = screen.getByRole('button', { name: /Valentina Morales/i });
+      expect(valentinaCard).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    });
+
+    // Search for Marcela (cust-2), filtering out Valentina
+    const searchInput = screen.getByRole('searchbox', { name: /buscar seguimientos/i });
+    fireEvent.change(searchInput, { target: { value: 'Marcela' } });
+
+    await waitFor(() => {
+      const marcelaCard = screen.getByRole('button', { name: /Marcela Domínguez Peña/i });
+      expect(marcelaCard).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    // Clear search: Marcela remains selected instead of jumping back to Valentina
+    fireEvent.change(searchInput, { target: { value: ' ' } });
+
+    await waitFor(() => {
+      const marcelaCard = screen.getByRole('button', { name: /Marcela Domínguez Peña/i });
+      expect(marcelaCard).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  it('resets loadingMore state when replacing queue while load-more was pending', async () => {
+    let resolveLoadMore!: (val: any) => void;
+    const pendingLoadMore = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    vi.spyOn(followUpApi, 'getFollowUpQueue')
+      .mockResolvedValueOnce({
+        items: [mockItems[0]],
+        nextCursor: 'cursor-p1'
+      })
+      .mockImplementationOnce(() => pendingLoadMore as any)
+      .mockResolvedValueOnce({
+        items: [mockItems[1]],
+        nextCursor: 'cursor-vencidos-p2'
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toBeInTheDocument();
+    });
+
+    // Click load more
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+
+    // Switch to Vencidos before load more resolves
+    fireEvent.click(screen.getByRole('button', { name: /Vencidos/i }));
+
+    await waitFor(() => {
+      // Button for new page with cursor should be enabled, not stuck in loadingMore
+      const loadMoreBtn = screen.getByRole('button', { name: 'Cargar más seguimientos' });
+      expect(loadMoreBtn).toBeInTheDocument();
+      expect(loadMoreBtn).not.toBeDisabled();
+    });
+
+    resolveLoadMore({ items: [], nextCursor: null });
+  });
+
+  it('surfaces tenant policy error banner and disables snooze until resolved', async () => {
+    vi.spyOn(followUpApi, 'getTenantFollowUpPolicy')
+      .mockRejectedValueOnce(new Error('Network error loading policy'))
+      .mockResolvedValueOnce({
+        policy: { cadenceDays: 14, timeZone: 'America/Santiago' },
+        version: 1
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No se pudo obtener la zona horaria del espacio comercial/i)
+      ).toBeInTheDocument();
+    });
+
+    // Snooze button should be disabled because timeZone is missing
+    const snoozeBtn = screen.getByRole('button', { name: /Posponer/i });
+    expect(snoozeBtn).toBeDisabled();
+
+    // Click retry on policy error banner
+    const retryPolicyBtn = screen.getByRole('button', { name: /Reintentar cargar política/i });
+    fireEvent.click(retryPolicyBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/No se pudo obtener la zona horaria del espacio comercial/i)
+      ).not.toBeInTheDocument();
+      expect(snoozeBtn).not.toBeDisabled();
+    });
   });
 });

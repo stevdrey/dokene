@@ -6,6 +6,7 @@ import { ManualFollowUpModal } from './ManualFollowUpModal';
 import { SnoozeModal } from './SnoozeModal';
 import { DismissModal } from './DismissModal';
 import { Button } from '@/shared/components/Button';
+import { computeDaysOverdueInTimeZone } from '../utils/dateUtils';
 
 interface FollowUpDetailProps {
   item: QueueItemResponse;
@@ -95,20 +96,6 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
     }
   };
 
-  const computeDaysOverdue = (dateStr: string) => {
-    try {
-      const parts = dateStr.split('-');
-      const due = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const diffTime = today.getTime() - due.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays > 0 ? diffDays : null;
-    } catch {
-      return null;
-    }
-  };
-
   const getLatestInteractionText = () => {
     const manualDate = item.lastManualFollowUpDate;
     const dismissedDate = item.lastDismissedDate;
@@ -130,7 +117,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
 
   const getReasonExplanation = () => {
     const isOverdue = item.status === 'OVERDUE' || item.reasons.includes('OVERDUE');
-    const daysOverdue = isOverdue ? computeDaysOverdue(item.dueDate) : null;
+    const daysOverdue = isOverdue ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
     const overduePrefix = isOverdue
       ? `El seguimiento tiene ${daysOverdue || ''} ${daysOverdue === 1 ? 'día' : 'días'} de retraso. `
       : '';
@@ -647,7 +634,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
             type="button"
             variant="secondary"
             onClick={() => setIsSnoozeModalOpen(true)}
-            disabled={!canWrite}
+            disabled={!canWrite || !timeZone}
+            title={!canWrite ? undefined : !timeZone ? 'Esperando zona horaria del espacio comercial...' : undefined}
             style={{
               flex: isMobileView ? 1 : 'initial',
               display: 'inline-flex',

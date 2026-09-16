@@ -1,16 +1,18 @@
 import React from 'react';
 import { QueueItemResponse } from '@/features/followups/types';
+import { getCalendarDateInTimeZone, computeDaysOverdueInTimeZone } from '../utils/dateUtils';
 
 interface FollowUpCardProps {
   item: QueueItemResponse;
   isSelected: boolean;
   onSelect: () => void;
+  timeZone?: string;
 }
 
-export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, onSelect }) => {
+export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, onSelect, timeZone }) => {
   const isOverdue = item.status === 'OVERDUE';
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const isDueToday = item.dueDate === todayStr || item.reasons.includes('DUE_TODAY');
+  const todayStr = getCalendarDateInTimeZone(0, timeZone);
+  const isDueToday = item.status === 'DUE' || (!isOverdue && item.dueDate === todayStr);
 
   const formatDueDate = (dateStr: string) => {
     try {
@@ -38,44 +40,36 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
     }
   };
 
-  const computeDaysOverdue = (dateStr: string) => {
-    try {
-      const parts = dateStr.split('-');
-      const due = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const diffTime = today.getTime() - due.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays > 0 ? diffDays : null;
-    } catch {
-      return null;
-    }
-  };
+  const daysOverdue = isOverdue ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
 
   const getReasonText = () => {
-    if (item.reasons.includes('OVERDUE')) {
-      const days = computeDaysOverdue(item.dueDate);
-      if (days && days > 0) {
-        return `El seguimiento tiene ${days} ${days === 1 ? 'día' : 'días'} de retraso respecto a la cadencia de atención.`;
-      }
-      return 'El seguimiento ha superado la fecha sugerida de contacto.';
+    const overduePrefix = isOverdue
+      ? `El seguimiento tiene ${daysOverdue || ''} ${daysOverdue === 1 ? 'día' : 'días'} de retraso respecto a la cadencia de atención. `
+      : '';
+
+    switch (item.timingSource) {
+      case 'EXPLICIT_DATE':
+        return `${overduePrefix}Se ha alcanzado la fecha programada específicamente (${formatDueDate(item.dueDate)}).`;
+      case 'LAST_PURCHASE':
+        return `${overduePrefix}Ciclo de seguimiento tras la última compra registrada (cadencia de ${item.effectiveCadenceDays} días).`;
+      case 'LAST_MANUAL_FOLLOW_UP':
+        return `${overduePrefix}Nuevo ciclo tras el último seguimiento registrado (cadencia de ${item.effectiveCadenceDays} días).`;
+      case 'LAST_DISMISSAL':
+        return `${overduePrefix}Nuevo ciclo tras el descarte anterior (cadencia de ${item.effectiveCadenceDays} días).`;
+      case 'SNOOZE':
+        return `${overduePrefix}Fecha de postergación acordada cumplida.`;
+      default:
+        if (item.reasons.includes('DUE_TODAY') || isDueToday) {
+          return `Corresponde contacto hoy según la cadencia establecida (${item.effectiveCadenceDays} días).`;
+        }
+        if (isOverdue) {
+          if (daysOverdue && daysOverdue > 0) {
+            return `El seguimiento tiene ${daysOverdue} ${daysOverdue === 1 ? 'día' : 'días'} de retraso respecto a la cadencia de atención.`;
+          }
+          return 'El seguimiento ha superado la fecha sugerida de contacto.';
+        }
+        return `Seguimiento programado según la cadencia del negocio (${item.effectiveCadenceDays} días).`;
     }
-    if (item.reasons.includes('DUE_TODAY')) {
-      return `Corresponde contacto hoy según la cadencia establecida (${item.effectiveCadenceDays} días).`;
-    }
-    if (item.timingSource === 'LAST_PURCHASE') {
-      return `Ciclo de seguimiento tras la última compra registrada (cadencia de ${item.effectiveCadenceDays} días).`;
-    }
-    if (item.timingSource === 'LAST_MANUAL_FOLLOW_UP') {
-      return `Nuevo ciclo tras el último seguimiento registrado (cadencia de ${item.effectiveCadenceDays} días).`;
-    }
-    if (item.timingSource === 'LAST_DISMISSAL') {
-      return `Nuevo ciclo tras el descarte anterior (cadencia de ${item.effectiveCadenceDays} días).`;
-    }
-    if (item.timingSource === 'SNOOZE') {
-      return 'Fecha de postergación acordada cumplida.';
-    }
-    return `Seguimiento programado según la cadencia del negocio (${item.effectiveCadenceDays} días).`;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -85,7 +79,6 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
     }
   };
 
-  const daysOverdue = isOverdue ? computeDaysOverdue(item.dueDate) : null;
   const lastPurchaseFormatted = formatPurchaseDate(item.lastPurchaseAt);
 
   return (

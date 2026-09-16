@@ -12,22 +12,8 @@ interface SnoozeModalProps {
   timeZone?: string;
 }
 
-export function getCalendarDateInTimeZone(daysAhead = 0, timeZone?: string): string {
-  const tz = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-  const todayDateStr = formatter.format(new Date());
-  if (daysAhead === 0) {
-    return todayDateStr;
-  }
-  const [year, month, day] = todayDateStr.split('-').map(Number);
-  const target = new Date(Date.UTC(year, month - 1, day + daysAhead));
-  return target.toISOString().slice(0, 10);
-}
+import { getCalendarDateInTimeZone } from '../utils/dateUtils';
+export { getCalendarDateInTimeZone };
 
 export const SnoozeModal: React.FC<SnoozeModalProps> = ({
   isOpen,
@@ -53,6 +39,10 @@ export const SnoozeModal: React.FC<SnoozeModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!timeZone) {
+      setError('No se ha podido determinar la zona horaria del espacio comercial.');
+      return;
+    }
     if (!selectedDate) {
       setError('Selecciona una fecha válida.');
       return;
