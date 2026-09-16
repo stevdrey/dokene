@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
+import { getCalendarDateInTimeZone } from '../components/SnoozeModal';
 import { useTenant } from '@/features/tenants/TenantContext';
 import { followUpApi } from '../api/followUpApi';
 import { customerApi } from '@/features/customers/api/customerApi';
@@ -511,5 +512,87 @@ describe('FollowUpWorkbench', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0);
     });
+  });
+
+  it('calculates snooze dates in tenant time zone without shifting days due to UTC offset', () => {
+    // 23:30 in Santiago (UTC-3) on 2026-09-15 is 02:30 UTC on 2026-09-16
+    const fixedInstant = new Date('2026-09-16T02:30:00Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedInstant);
+
+    try {
+      // In America/Santiago, it is still September 15
+      const santiagoToday = getCalendarDateInTimeZone(0, 'America/Santiago');
+      const santiagoTomorrow = getCalendarDateInTimeZone(1, 'America/Santiago');
+      const santiagoNextWeek = getCalendarDateInTimeZone(7, 'America/Santiago');
+
+      expect(santiagoToday).toBe('2026-09-15');
+      expect(santiagoTomorrow).toBe('2026-09-16');
+      expect(santiagoNextWeek).toBe('2026-09-22');
+
+      // Contrast with UTC where it is already September 16
+      const utcToday = getCalendarDateInTimeZone(0, 'UTC');
+      expect(utcToday).toBe('2026-09-16');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('discards stale load-more responses when filter changes before response arrives', async () => {
+    let resolveLoadMorePromise!: (value: any) => void;
+    const delayedLoadMorePromise = new Promise((resolve) => {
+      resolveLoadMorePromise = resolve;
+    });
+
+    vi.spyOn(followUpApi, 'getFollowUpQueue')
+      // 1. Initial fetch under ALL
+      .mockResolvedValueOnce({
+        items: [mockItems[0]], // Valentina Morales
+        nextCursor: 'cursor-all-page-2'
+      })
+      // 2. Load more call under ALL (delayed)
+      .mockImplementationOnce(() => delayedLoadMorePromise as any)
+      // 3. Switch filter to OVERDUE
+      .mockResolvedValueOnce({
+        items: [mockItems[1]], // Marcela Domínguez
+        nextCursor: null
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toBeInTheDocument();
+    });
+
+    // Operator starts loading more under ALL
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+
+    // While request is pending, operator switches filter to "Vencidos" (OVERDUE)
+    const vencidosFilterBtn = screen.getByRole('button', { name: /Vencidos/i });
+    fireEvent.click(vencidosFilterBtn);
+
+    // Overdue list loads
+    await waitFor(() => {
+      expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0);
+    });
+
+    // Now resolve the delayed load-more response from ALL
+    resolveLoadMorePromise({
+      items: [
+        {
+          ...mockItems[0],
+          customerId: 'stale-customer',
+          displayName: 'Stale Customer From All'
+        }
+      ],
+      nextCursor: 'stale-cursor'
+    });
+
+    // Wait a tick and verify stale items/cursor were discarded
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(screen.queryByText('Stale Customer From All')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cargar más seguimientos' })).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTenant } from '@/features/tenants/TenantContext';
 import { QueueItemResponse, FollowUpStatus } from '@/features/followups/types';
 import { followUpApi } from '@/features/followups/api/followUpApi';
@@ -14,17 +14,20 @@ interface FollowUpWorkbenchProps {
 export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigateToCustomer }) => {
   const { activeWorkspace } = useTenant();
   const canWrite = activeWorkspace?.role ? activeWorkspace.role !== 'VIEWER' : true;
-
   const [items, setItems] = useState<QueueItemResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflictNotice, setConflictNotice] = useState<string | null>(null);
+  const [tenantTimeZone, setTenantTimeZone] = useState<string | undefined>(undefined);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'OVERDUE'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const requestGenerationRef = useRef(0);
+  const loadMoreAbortControllerRef = useRef<AbortController | null>(null);
 
   // Detect mobile width (< 1024px) for responsive split vs stacked view
   const [isMobile, setIsMobile] = useState(() =>
@@ -38,6 +41,25 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Fetch tenant policy time zone
+  useEffect(() => {
+    let active = true;
+    const fetchPolicy = async () => {
+      try {
+        const { policy } = await followUpApi.getTenantFollowUpPolicy();
+        if (active && policy?.timeZone) {
+          setTenantTimeZone(policy.timeZone);
+        }
+      } catch {
+        // Fallback gracefully to browser/default
+      }
+    };
+    fetchPolicy();
+    return () => {
+      active = false;
+    };
+  }, [activeWorkspace?.tenantId]);
 
   const fetchQueue = useCallback(
     async (statusFilter?: FollowUpStatus, signal?: AbortSignal) => {
@@ -69,26 +91,51 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
 
   // Reload queue when workspace or filter changes
   useEffect(() => {
+    requestGenerationRef.current += 1;
+    if (loadMoreAbortControllerRef.current) {
+      loadMoreAbortControllerRef.current.abort();
+      loadMoreAbortControllerRef.current = null;
+    }
     const controller = new AbortController();
     fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, controller.signal);
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (loadMoreAbortControllerRef.current) {
+        loadMoreAbortControllerRef.current.abort();
+        loadMoreAbortControllerRef.current = null;
+      }
+    };
   }, [activeWorkspace?.tenantId, activeFilter, fetchQueue]);
 
   const handleLoadMore = async () => {
     if (!nextCursor || loadingMore) return;
+    const currentGeneration = requestGenerationRef.current;
+    const currentFilter = activeFilter;
+    const controller = new AbortController();
+    loadMoreAbortControllerRef.current = controller;
     setLoadingMore(true);
     try {
-      const page = await followUpApi.getFollowUpQueue({
-        status: activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined,
-        cursor: nextCursor,
-        limit: 50
-      });
-      setItems((prev) => [...prev, ...(page.items || [])]);
-      setNextCursor(page.nextCursor || null);
+      const page = await followUpApi.getFollowUpQueue(
+        {
+          status: currentFilter === 'OVERDUE' ? 'OVERDUE' : undefined,
+          cursor: nextCursor,
+          limit: 50
+        },
+        controller.signal
+      );
+      if (requestGenerationRef.current === currentGeneration && activeFilter === currentFilter) {
+        setItems((prev) => [...prev, ...(page.items || [])]);
+        setNextCursor(page.nextCursor || null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar más seguimientos.');
+      if (err instanceof Error && err.name === 'AbortError') return;
+      if (requestGenerationRef.current === currentGeneration) {
+        setError(err instanceof Error ? err.message : 'Error al cargar más seguimientos.');
+      }
     } finally {
-      setLoadingMore(false);
+      if (requestGenerationRef.current === currentGeneration) {
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -579,6 +626,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         <FollowUpDetail
           item={selectedItem}
           isMobileView={true}
+          timeZone={tenantTimeZone}
           onBack={() => setSelectedCustomerId(null)}
           onNavigateToCustomer={onNavigateToCustomer}
           onRecordManualFollowUp={handleRecordManualFollowUp}
@@ -648,6 +696,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                 <FollowUpDetail
                   item={selectedItem}
                   isMobileView={false}
+                  timeZone={tenantTimeZone}
                   onNavigateToCustomer={onNavigateToCustomer}
                   onRecordManualFollowUp={handleRecordManualFollowUp}
                   onSnooze={handleSnooze}

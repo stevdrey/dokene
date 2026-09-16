@@ -16,6 +16,7 @@ interface FollowUpDetailProps {
   onSnooze: (until: string) => Promise<void>;
   onDismiss: (notes: string | undefined, idempotencyKey: string) => Promise<void>;
   canWrite: boolean;
+  timeZone?: string;
 }
 
 export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
@@ -26,7 +27,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   onRecordManualFollowUp,
   onSnooze,
   onDismiss,
-  canWrite
+  canWrite,
+  timeZone
 }) => {
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [loadingPurchases, setLoadingPurchases] = useState(false);
@@ -695,6 +697,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
       <SnoozeModal
         isOpen={isSnoozeModalOpen}
         customerName={item.displayName}
+        timeZone={timeZone}
         onClose={() => setIsSnoozeModalOpen(false)}
         onSubmit={async (until) => {
           await onSnooze(until);

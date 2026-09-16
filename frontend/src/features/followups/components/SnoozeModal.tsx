@@ -9,26 +9,39 @@ interface SnoozeModalProps {
   customerName: string;
   onClose: () => void;
   onSubmit: (until: string) => Promise<void>;
+  timeZone?: string;
+}
+
+export function getCalendarDateInTimeZone(daysAhead = 0, timeZone?: string): string {
+  const tz = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const todayDateStr = formatter.format(new Date());
+  if (daysAhead === 0) {
+    return todayDateStr;
+  }
+  const [year, month, day] = todayDateStr.split('-').map(Number);
+  const target = new Date(Date.UTC(year, month - 1, day + daysAhead));
+  return target.toISOString().slice(0, 10);
 }
 
 export const SnoozeModal: React.FC<SnoozeModalProps> = ({
   isOpen,
   customerName,
   onClose,
-  onSubmit
+  onSubmit,
+  timeZone
 }) => {
   const [selectedDate, setSelectedDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getLocalDateString = (daysAhead: number = 0) => {
-    const d = new Date();
-    d.setDate(d.getDate() + daysAhead);
-    return d.toISOString().slice(0, 10);
-  };
-
-  const todayStr = getLocalDateString(0);
-  const tomorrowStr = getLocalDateString(1);
+  const todayStr = getCalendarDateInTimeZone(0, timeZone);
+  const tomorrowStr = getCalendarDateInTimeZone(1, timeZone);
 
   useEffect(() => {
     if (isOpen) {
@@ -104,7 +117,7 @@ export const SnoozeModal: React.FC<SnoozeModalProps> = ({
           </span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-8)' }}>
             {presets.map((p) => {
-              const pDate = getLocalDateString(p.days);
+              const pDate = getCalendarDateInTimeZone(p.days, timeZone);
               const isSelected = selectedDate === pDate;
               return (
                 <button
