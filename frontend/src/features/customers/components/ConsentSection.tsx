@@ -585,6 +585,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                   type="radio"
                   name="consentStatus"
                   value="GRANTED"
+                  disabled={isSubmitting}
                   checked={targetStatus === 'GRANTED'}
                   onChange={() => setTargetStatus('GRANTED')}
                   style={{ width: '18px', height: '18px', margin: 0 }}
@@ -596,7 +597,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 'var(--space-8)',
-                  cursor: 'pointer',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
                   minHeight: '44px',
                   padding: '0 var(--space-8)',
                   borderRadius: 'var(--radius-md)'
@@ -606,6 +607,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
                   type="radio"
                   name="consentStatus"
                   value="REVOKED"
+                  disabled={isSubmitting}
                   checked={targetStatus === 'REVOKED'}
                   onChange={() => setTargetStatus('REVOKED')}
                   style={{ width: '18px', height: '18px', margin: 0 }}
@@ -624,6 +626,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
             </label>
             <select
               id="consent-source-select"
+              disabled={isSubmitting}
               value={targetSource}
               onChange={(e) => setTargetSource(e.target.value as ContactIntentSource)}
               style={{
@@ -698,6 +701,7 @@ export function ConsentSection({ customerId, phones, isArchived, canWrite = true
             </label>
             <select
               id="dnc-source-select"
+              disabled={isSubmitting}
               value={doNotContactSource}
               onChange={(e) => setDoNotContactSource(e.target.value as ContactIntentSource)}
               style={{

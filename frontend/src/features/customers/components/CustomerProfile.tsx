@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CustomerResponse, PurchaseResponse, EligibilityResponse } from '@/features/customers/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { Button } from '@/shared/components/Button';
@@ -17,6 +17,17 @@ import { ArchiveModal } from '@/features/customers/components/ArchiveModal';
 import { PurchaseSection } from '@/features/customers/components/PurchaseSection';
 import { ConsentSection } from '@/features/customers/components/ConsentSection';
 import { useTenant, canWriteCustomer, canArchiveCustomer } from '@/features/tenants/TenantContext';
+
+export function formatEligibilityReason(reason: string): string {
+  const map: Record<string, string> = {
+    DO_NOT_CONTACT: 'Restricción No contactar activa',
+    CONSENT_UNKNOWN: 'Sin registro de consentimiento',
+    CONSENT_REVOKED: 'Consentimiento revocado',
+    CONTACT_NOT_ACTIVE: 'Contacto inactivo',
+    CUSTOMER_ARCHIVED: 'Cliente archivado'
+  };
+  return map[reason] || reason;
+}
 
 interface CustomerProfileProps {
   customerId: string;
@@ -38,6 +49,17 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+
+  const eligibilityGenerationRef = useRef(0);
+  const activeEligibilityAbortRef = useRef<AbortController | null>(null);
+  const customerRef = useRef<CustomerResponse | null>(null);
+  customerRef.current = customer;
+
+  useEffect(() => {
+    return () => {
+      activeEligibilityAbortRef.current?.abort();
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -61,12 +83,34 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
 
       const primaryPhone = res.customer.phones.find((p) => p.primary) || res.customer.phones[0];
       if (primaryPhone) {
+        if (activeEligibilityAbortRef.current) {
+          activeEligibilityAbortRef.current.abort();
+        }
+        const abortController = new AbortController();
+        activeEligibilityAbortRef.current = abortController;
+        const generation = ++eligibilityGenerationRef.current;
+
         try {
-          const elig = await customerApi.getContactEligibility(customerId, 'WHATSAPP', primaryPhone.id);
+          const elig = await customerApi.getContactEligibility(
+            customerId,
+            'WHATSAPP',
+            primaryPhone.id,
+            abortController.signal
+          );
+          if (generation !== eligibilityGenerationRef.current) {
+            return;
+          }
           setEligibility(elig);
           setEligibilityError(null);
         } catch (eligErr: unknown) {
-          if (eligErr instanceof Error && (eligErr.name === 'AbortedTenantRequestError' || eligErr.name === 'StaleSessionError')) {
+          if (generation !== eligibilityGenerationRef.current) {
+            return;
+          }
+          if (eligErr instanceof Error && (
+            eligErr.name === 'AbortError' ||
+            eligErr.name === 'AbortedTenantRequestError' ||
+            eligErr.name === 'StaleSessionError'
+          )) {
             return;
           }
           setEligibility(null);
@@ -105,22 +149,48 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
   };
 
   const retryEligibility = async () => {
-    if (!customer) return;
-    const primaryPhone = customer.phones.find((p) => p.primary) || customer.phones[0];
+    const currentCust = customerRef.current;
+    if (!currentCust) return;
+    const primaryPhone = currentCust.phones.find((p) => p.primary) || currentCust.phones[0];
     if (!primaryPhone) return;
+
+    if (activeEligibilityAbortRef.current) {
+      activeEligibilityAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    activeEligibilityAbortRef.current = abortController;
+    const generation = ++eligibilityGenerationRef.current;
+
     setIsRetryingEligibility(true);
     setEligibilityError(null);
     try {
-      const elig = await customerApi.getContactEligibility(customerId, 'WHATSAPP', primaryPhone.id);
+      const elig = await customerApi.getContactEligibility(
+        customerId,
+        'WHATSAPP',
+        primaryPhone.id,
+        abortController.signal
+      );
+      if (generation !== eligibilityGenerationRef.current) {
+        return;
+      }
       setEligibility(elig);
     } catch (err: unknown) {
-      if (err instanceof Error && (err.name === 'AbortedTenantRequestError' || err.name === 'StaleSessionError')) {
+      if (generation !== eligibilityGenerationRef.current) {
+        return;
+      }
+      if (err instanceof Error && (
+        err.name === 'AbortError' ||
+        err.name === 'AbortedTenantRequestError' ||
+        err.name === 'StaleSessionError'
+      )) {
         return;
       }
       setEligibility(null);
       setEligibilityError(err instanceof Error ? err.message : 'Error al evaluar elegibilidad');
     } finally {
-      setIsRetryingEligibility(false);
+      if (generation === eligibilityGenerationRef.current) {
+        setIsRetryingEligibility(false);
+      }
     }
   };
 
@@ -402,7 +472,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
                     </span>
                   ) : (
                     <span style={{ color: 'var(--color-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <DoNotDisturbIcon size={16} /> No elegible ({eligibility?.reasons?.join(', ') || 'Restringido'})
+                      <DoNotDisturbIcon size={16} /> No elegible ({eligibility?.reasons && eligibility.reasons.length > 0 ? eligibility.reasons.map(formatEligibilityReason).join(', ') : 'Restringido'})
                     </span>
                   )}
                 </div>

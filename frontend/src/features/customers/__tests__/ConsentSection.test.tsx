@@ -625,4 +625,82 @@ describe('ConsentSection', () => {
       expect.any(AbortSignal)
     );
   });
+
+  it('disables consent status radio options and source select while mutation is submitting', async () => {
+    let resolveUpdate: (value: unknown) => void;
+    const updatePromise = new Promise((resolve) => {
+      resolveUpdate = resolve;
+    });
+
+    vi.spyOn(customerApi, 'changeConsent').mockImplementationOnce(() => updatePromise as any);
+
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gestionar consentimiento/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gestionar consentimiento/i }));
+
+    const grantedRadio = screen.getByRole('radio', { name: /Concedido/i });
+    const revokedRadio = screen.getByRole('radio', { name: /Revocado/i });
+    const sourceSelect = screen.getByLabelText(/Origen de la solicitud/i);
+
+    fireEvent.click(revokedRadio);
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar consentimiento' }));
+
+    // While in-flight, radios and source select must be disabled
+    expect(grantedRadio).toBeDisabled();
+    expect(revokedRadio).toBeDisabled();
+    expect(sourceSelect).toBeDisabled();
+
+    resolveUpdate!({
+      customerId: 'cust-1',
+      version: 2,
+      doNotContact: false,
+      doNotContactSource: null,
+      doNotContactChangedAt: null,
+      consents: [
+        {
+          contactId: 'phone-1',
+          channel: 'WHATSAPP',
+          status: 'REVOKED',
+          source: 'CUSTOMER_VERBAL',
+          changedAt: new Date().toISOString()
+        }
+      ]
+    });
+  });
+
+  it('disables DNC source select while DNC mutation is submitting', async () => {
+    let resolveDnc: (value: unknown) => void;
+    const dncPromise = new Promise((resolve) => {
+      resolveDnc = resolve;
+    });
+
+    vi.spyOn(customerApi, 'changeDoNotContact').mockImplementationOnce(() => dncPromise as any);
+
+    render(<ConsentSection customerId="cust-1" phones={mockPhones} isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Marcar No contactar/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Marcar No contactar/i }));
+
+    const dncSelect = screen.getByLabelText(/Origen de la solicitud/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar restricción' }));
+
+    // While in-flight, select must be disabled
+    expect(dncSelect).toBeDisabled();
+
+    resolveDnc!({
+      customerId: 'cust-1',
+      version: 2,
+      doNotContact: true,
+      doNotContactSource: 'CUSTOMER_VERBAL',
+      doNotContactChangedAt: new Date().toISOString(),
+      consents: []
+    });
+  });
 });

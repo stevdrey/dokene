@@ -60,6 +60,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
     const generation = ++queryGenerationRef.current;
 
     setIsLoading(true);
+    setIsLoadingMore(false);
     setError(null);
     try {
       const page = await customerApi.listPurchases(customerId, undefined, undefined, 50, abortController.signal);
@@ -577,6 +578,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
               id="record-purchase-date"
               type="datetime-local"
               required
+              disabled={isSubmitting}
               value={purchaseDate}
               onChange={(e) => {
                 setPurchaseDate(e.target.value);
@@ -605,6 +607,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
               id="record-purchase-desc"
               rows={3}
               required
+              disabled={isSubmitting}
               maxLength={500}
               value={purchaseDesc}
               onChange={(e) => {
@@ -674,6 +677,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
               type="datetime-local"
               step="1"
               required
+              disabled={isSubmitting}
               value={purchaseDate}
               onChange={(e) => setPurchaseDate(e.target.value)}
               style={{
@@ -699,6 +703,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
               id="edit-purchase-desc"
               rows={3}
               required
+              disabled={isSubmitting}
               maxLength={500}
               value={purchaseDesc}
               onChange={(e) => setPurchaseDesc(e.target.value)}

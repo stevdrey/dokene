@@ -100,7 +100,7 @@ export function Modal({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 50,
+        zIndex: 100,
         padding: 'var(--space-16)'
       }}
       onClick={(e) => {

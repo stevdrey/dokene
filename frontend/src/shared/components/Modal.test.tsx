@@ -133,4 +133,15 @@ describe('Modal', () => {
     expect(document.activeElement).toBe(field2);
     document.body.removeChild(opener);
   });
+
+  it('renders overlay with z-index 100 to stack above mobile navigation', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Z-Index Test Modal">
+        <p>Content</p>
+      </Modal>
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveStyle({ zIndex: '100' });
+  });
 });

@@ -130,13 +130,14 @@ export const customerApi = {
   async getContactEligibility(
     customerId: string,
     channel: ContactChannel,
-    contactId: string
+    contactId: string,
+    signal?: AbortSignal
   ): Promise<EligibilityResponse> {
     const { data } = await httpClient.request<EligibilityResponse>(
       `/api/customers/${customerId}/contact-eligibility?channel=${encodeURIComponent(
         channel
       )}&contactId=${encodeURIComponent(contactId)}`,
-      { method: 'GET' }
+      { method: 'GET', signal }
     );
     return data;
   },
@@ -174,10 +175,10 @@ export const customerApi = {
     return data;
   },
 
-  async getLastPurchase(customerId: string): Promise<PurchaseResponse | null> {
+  async getLastPurchase(customerId: string, signal?: AbortSignal): Promise<PurchaseResponse | null> {
     const { data } = await httpClient.request<PurchaseResponse>(
       `/api/customers/${customerId}/purchases/last`,
-      { method: 'GET' }
+      { method: 'GET', signal }
     );
     return data ?? null;
   },

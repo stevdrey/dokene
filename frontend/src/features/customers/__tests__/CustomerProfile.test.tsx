@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CustomerProfile } from '@/features/customers/components/CustomerProfile';
+import { CustomerProfile, formatEligibilityReason } from '@/features/customers/components/CustomerProfile';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { useTenant } from '@/features/tenants/TenantContext';
 
@@ -226,5 +226,110 @@ describe('CustomerProfile', () => {
     });
 
     expect(eligSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('translates eligibility reason codes into Spanish before rendering', async () => {
+    vi.spyOn(customerApi, 'getContactEligibility').mockResolvedValueOnce({
+      eligible: false,
+      reasons: ['CONSENT_REVOKED', 'DO_NOT_CONTACT']
+    });
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    // Should render translated Spanish labels instead of raw ENUM codes
+    expect(
+      screen.getByText(/No elegible \(Consentimiento revocado, Restricción No contactar activa\)/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/CONSENT_REVOKED/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/DO_NOT_CONTACT/)).not.toBeInTheDocument();
+  });
+
+  it('formats each eligibility reason code correctly and falls back to original value for unknown codes', () => {
+    expect(formatEligibilityReason('DO_NOT_CONTACT')).toBe('Restricción No contactar activa');
+    expect(formatEligibilityReason('CONSENT_UNKNOWN')).toBe('Sin registro de consentimiento');
+    expect(formatEligibilityReason('CONSENT_REVOKED')).toBe('Consentimiento revocado');
+    expect(formatEligibilityReason('CONTACT_NOT_ACTIVE')).toBe('Contacto inactivo');
+    expect(formatEligibilityReason('CUSTOMER_ARCHIVED')).toBe('Cliente archivado');
+    expect(formatEligibilityReason('CUSTOM_REASON_CODE')).toBe('CUSTOM_REASON_CODE');
+  });
+
+  it('discards superseded eligibility requests if a newer request completes first', async () => {
+    let resolveFirstElig: (value: unknown) => void;
+    const firstEligPromise = new Promise((resolve) => {
+      resolveFirstElig = resolve;
+    });
+
+    vi.spyOn(customerApi, 'getContactEligibility')
+      .mockResolvedValueOnce({
+        eligible: true,
+        reasons: []
+      })
+      .mockImplementationOnce(() => firstEligPromise as any)
+      .mockResolvedValueOnce({
+        eligible: false,
+        reasons: ['DO_NOT_CONTACT']
+      });
+
+    render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+      expect(screen.getByText('Contacto habilitado')).toBeInTheDocument();
+    });
+
+    // 1. First mutation triggering first retry (which hangs on firstEligPromise)
+    vi.spyOn(customerApi, 'changeConsent').mockResolvedValueOnce({
+      customerId: 'cust-abc-123',
+      version: 2,
+      doNotContact: false,
+      doNotContactSource: null,
+      doNotContactChangedAt: null,
+      consents: []
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gestionar consentimiento/i })).toBeInTheDocument();
+    });
+    const consentBtn = screen.getByRole('button', { name: /Gestionar consentimiento/i });
+    fireEvent.click(consentBtn);
+    const revokeRadio = screen.getByRole('radio', { name: /Revocado/i });
+    fireEvent.click(revokeRadio);
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar consentimiento' }));
+
+    // 2. Second mutation triggering second retry (which resolves with DO_NOT_CONTACT)
+    vi.spyOn(customerApi, 'changeDoNotContact').mockResolvedValueOnce({
+      customerId: 'cust-abc-123',
+      version: 3,
+      doNotContact: true,
+      doNotContactSource: 'CUSTOMER_VERBAL',
+      doNotContactChangedAt: new Date().toISOString(),
+      consents: []
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Marcar No contactar/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Marcar No contactar/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar restricción' }));
+
+    // Second eligibility call finishes with DO_NOT_CONTACT
+    await waitFor(() => {
+      expect(screen.getByText(/Restricción No contactar activa/i)).toBeInTheDocument();
+    });
+
+    // Now resolve the older first call with "eligible: true"
+    resolveFirstElig!({
+      eligible: true,
+      reasons: []
+    });
+
+    // Older response must NOT overwrite the newer state
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText(/Restricción No contactar activa/i)).toBeInTheDocument();
+    expect(screen.queryByText('Contacto habilitado')).not.toBeInTheDocument();
   });
 });

@@ -53,6 +53,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
 
     const generation = ++queryGenerationRef.current;
     setIsLoading(true);
+    setIsLoadingMore(false);
     setError(null);
 
     try {
@@ -310,6 +311,24 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
       {isLoading ? (
         <div style={{ padding: 'var(--space-32)', textAlign: 'center', color: 'var(--color-text-supporting)' }}>
           Cargando clientes...
+        </div>
+      ) : error ? (
+        <div
+          style={{
+            padding: 'var(--space-32)',
+            textAlign: 'center',
+            backgroundColor: 'var(--color-surface)',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--color-outline-subtle)',
+            color: 'var(--color-text-supporting)'
+          }}
+        >
+          <p style={{ fontSize: 'var(--font-size-dense)', marginBottom: 'var(--space-16)' }}>
+            No se pudo cargar la lista de clientes debido a un error.
+          </p>
+          <Button variant="secondary" onClick={() => loadCustomers()}>
+            Reintentar
+          </Button>
         </div>
       ) : customers.length === 0 ? (
         <div

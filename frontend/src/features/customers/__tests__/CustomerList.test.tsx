@@ -375,4 +375,67 @@ describe('CustomerList', () => {
 
     expect(listSpy).toHaveBeenCalledTimes(2);
   });
+
+  it('renders error retry block instead of empty state when customer load fails', async () => {
+    vi.spyOn(customerApi, 'listCustomers').mockRejectedValueOnce(new Error('Falla de conexión'));
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Falla de conexión');
+    });
+
+    // Should NOT claim "No se encontraron clientes"
+    expect(screen.queryByText('No se encontraron clientes')).not.toBeInTheDocument();
+
+    // Should provide retry button
+    const retryBtn = screen.getByRole('button', { name: 'Reintentar' });
+    expect(retryBtn).toBeInTheDocument();
+  });
+
+  it('resets pagination loading state if a superseding search starts during loadMore', async () => {
+    let resolveLoadMore: (value: unknown) => void;
+    const loadMorePromise = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    vi.spyOn(customerApi, 'listCustomers')
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[0]],
+        nextCursor: 'cursor-2'
+      })
+      .mockImplementationOnce(() => loadMorePromise as any)
+      .mockResolvedValueOnce({
+        customers: [mockCustomers[1]],
+        nextCursor: 'cursor-3'
+      });
+
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Cargar más clientes/i })).toBeInTheDocument();
+    });
+
+    // Start loadMore
+    fireEvent.click(screen.getByRole('button', { name: /Cargar más clientes/i }));
+    expect(screen.getByRole('button', { name: /Cargando\.\.\./i })).toBeDisabled();
+
+    // Change tab (supersedes loadMore)
+    fireEvent.click(screen.getByRole('button', { name: 'Archivados' }));
+
+    // Replacement search completes with a cursor-3
+    await waitFor(() => {
+      expect(screen.getByText('Carlos Soto Arancibia')).toBeInTheDocument();
+    });
+
+    // Load-more button on the new page must NOT be stuck in loading/disabled
+    const newLoadMoreBtn = screen.getByRole('button', { name: /Cargar más clientes/i });
+    expect(newLoadMoreBtn).not.toBeDisabled();
+
+    // Even when the old loadMore resolves now, it should not break the state
+    resolveLoadMore!({
+      customers: [mockCustomers[0]],
+      nextCursor: null
+    });
+  });
 });

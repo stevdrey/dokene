@@ -751,4 +751,87 @@ describe('PurchaseSection', () => {
       expect(onMutatedSpy).toHaveBeenCalledTimes(3);
     });
   });
+
+  it('resets pagination loading state when a purchase mutation triggers loadPurchases', async () => {
+    let resolveLoadMore: (value: unknown) => void;
+    const loadMorePromise = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    vi.spyOn(customerApi, 'listPurchases')
+      .mockResolvedValueOnce({
+        purchases: [mockPurchases[0]],
+        nextCursor: 'cursor-p2'
+      })
+      .mockImplementationOnce(() => loadMorePromise as any)
+      .mockResolvedValueOnce({
+        purchases: [mockPurchases[0]],
+        nextCursor: 'cursor-p3'
+      });
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Cargar compras anteriores/i })).toBeInTheDocument();
+    });
+
+    // Start loadMore
+    fireEvent.click(screen.getByRole('button', { name: /Cargar compras anteriores/i }));
+    expect(screen.getByRole('button', { name: /Cargando\.\.\./i })).toBeDisabled();
+
+    // Now record a purchase (mutation triggers loadPurchases)
+    vi.spyOn(customerApi, 'recordPurchase').mockResolvedValueOnce(mockPurchases[1]);
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+
+    const dateInput = screen.getByLabelText(/Fecha y hora de la compra/i);
+    const descInput = screen.getByLabelText(/Descripción de la compra/i);
+    fireEvent.change(dateInput, { target: { value: '2025-01-10T12:00' } });
+    fireEvent.change(descInput, { target: { value: 'Nueva harina' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar compra' }));
+
+    // When loadPurchases finishes, pagination button must not remain disabled
+    await waitFor(() => {
+      const loadMoreBtn = screen.getByRole('button', { name: /Cargar compras anteriores/i });
+      expect(loadMoreBtn).not.toBeDisabled();
+    });
+
+    resolveLoadMore!({
+      purchases: [mockPurchases[1]],
+      nextCursor: null
+    });
+  });
+
+  it('disables form inputs while submitting in record purchase modal', async () => {
+    let resolveRecord: (value: unknown) => void;
+    const recordPromise = new Promise((resolve) => {
+      resolveRecord = resolve;
+    });
+
+    vi.spyOn(customerApi, 'listPurchases').mockResolvedValue({
+      purchases: [mockPurchases[0]],
+      nextCursor: null
+    });
+    vi.spyOn(customerApi, 'recordPurchase').mockImplementationOnce(() => recordPromise as any);
+
+    render(<PurchaseSection customerId="cust-1" isArchived={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Registrar compra/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Registrar compra/i }));
+
+    const dateInput = screen.getByLabelText(/Fecha y hora de la compra/i);
+    const descInput = screen.getByLabelText(/Descripción de la compra/i);
+    fireEvent.change(dateInput, { target: { value: '2025-01-10T12:00' } });
+    fireEvent.change(descInput, { target: { value: 'Nueva compra en progreso' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar compra' }));
+
+    // During in-flight submit, both fields must be disabled
+    expect(dateInput).toBeDisabled();
+    expect(descInput).toBeDisabled();
+
+    resolveRecord!(mockPurchases[1]);
+  });
 });
