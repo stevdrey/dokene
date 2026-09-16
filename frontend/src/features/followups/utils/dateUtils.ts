@@ -7,10 +7,12 @@
  * Returns a calendar date (YYYY-MM-DD) evaluated in the given time zone,
  * optionally offset by a number of days ahead.
  */
-export function getCalendarDateInTimeZone(daysAhead = 0, timeZone?: string): string {
-  const tz = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+export function getCalendarDateInTimeZone(daysAhead = 0, timeZone?: string): string | null {
+  if (!timeZone) {
+    return null;
+  }
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
@@ -27,12 +29,15 @@ export function getCalendarDateInTimeZone(daysAhead = 0, timeZone?: string): str
 /**
  * Calculates calendar days of difference between a due date (YYYY-MM-DD)
  * and the current date in the specified time zone.
- * Returns null if the date is not in the past or invalid.
+ * Returns null if the date is not in the past, invalid, or timeZone is not provided.
  */
 export function computeDaysOverdueInTimeZone(dueDateStr: string, timeZone?: string): number | null {
+  if (!timeZone) {
+    return null;
+  }
   try {
     const todayStr = getCalendarDateInTimeZone(0, timeZone);
-    if (dueDateStr >= todayStr) {
+    if (!todayStr || dueDateStr >= todayStr) {
       return null;
     }
     const [dueYear, dueMonth, dueDay] = dueDateStr.split('-').map(Number);

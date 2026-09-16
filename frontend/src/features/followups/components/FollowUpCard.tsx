@@ -11,8 +11,8 @@ interface FollowUpCardProps {
 
 export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, onSelect, timeZone }) => {
   const isOverdue = item.status === 'OVERDUE';
-  const todayStr = getCalendarDateInTimeZone(0, timeZone);
-  const isDueToday = item.status === 'DUE' || (!isOverdue && item.dueDate === todayStr);
+  const todayStr = timeZone ? getCalendarDateInTimeZone(0, timeZone) : null;
+  const isDueToday = item.status === 'DUE' || (!isOverdue && todayStr !== null && item.dueDate === todayStr);
 
   const formatDueDate = (dateStr: string) => {
     try {
@@ -40,11 +40,13 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
     }
   };
 
-  const daysOverdue = isOverdue ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
+  const daysOverdue = isOverdue && timeZone ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
 
   const getReasonText = () => {
     const overduePrefix = isOverdue
-      ? `El seguimiento tiene ${daysOverdue || ''} ${daysOverdue === 1 ? 'día' : 'días'} de retraso respecto a la cadencia de atención. `
+      ? daysOverdue != null && daysOverdue > 0
+        ? `El seguimiento tiene ${daysOverdue} ${daysOverdue === 1 ? 'día' : 'días'} de retraso respecto a la cadencia de atención. `
+        : 'El seguimiento ha superado la fecha sugerida de contacto. '
       : '';
 
     switch (item.timingSource) {
@@ -63,7 +65,7 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
           return `Corresponde contacto hoy según la cadencia establecida (${item.effectiveCadenceDays} días).`;
         }
         if (isOverdue) {
-          if (daysOverdue && daysOverdue > 0) {
+          if (daysOverdue != null && daysOverdue > 0) {
             return `El seguimiento tiene ${daysOverdue} ${daysOverdue === 1 ? 'día' : 'días'} de retraso respecto a la cadencia de atención.`;
           }
           return 'El seguimiento ha superado la fecha sugerida de contacto.';
@@ -101,7 +103,6 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
         cursor: 'pointer',
         transition: 'all 0.15s ease-in-out',
         boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-        outline: 'none',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--space-8)'

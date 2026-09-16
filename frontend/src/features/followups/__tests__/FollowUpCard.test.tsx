@@ -132,4 +132,43 @@ describe('FollowUpCard', () => {
       vi.useRealTimers();
     }
   });
+
+  it('does not suppress focus ring with outline none', () => {
+    render(
+      <FollowUpCard
+        item={baseItem}
+        isSelected={false}
+        onSelect={onSelect}
+        timeZone="America/Santiago"
+      />
+    );
+
+    const card = screen.getByRole('button', { name: /Valentina Morales/i });
+    expect(card).toBeInTheDocument();
+    expect(card.style.outline).not.toBe('none');
+  });
+
+  it('handles undefined timeZone safely without rendering malformed overdue text', () => {
+    render(
+      <FollowUpCard
+        item={{
+          ...baseItem,
+          status: 'OVERDUE',
+          dueDate: '2026-09-10',
+          reasons: ['OVERDUE'],
+          timingSource: undefined as any
+        }}
+        isSelected={false}
+        onSelect={onSelect}
+        timeZone={undefined}
+      />
+    );
+
+    // Overdue pill is present
+    expect(screen.getByText(/Vencido/i)).toBeInTheDocument();
+    // Must NOT contain malformed "tiene  días" with empty gap
+    expect(screen.queryByText(/tiene\s+días/i)).not.toBeInTheDocument();
+    // Must contain fallback message
+    expect(screen.getByText(/El seguimiento ha superado la fecha sugerida de contacto/i)).toBeInTheDocument();
+  });
 });

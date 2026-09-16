@@ -899,4 +899,87 @@ describe('FollowUpWorkbench', () => {
     expect(screen.queryByRole('button', { name: 'Cargar más seguimientos' })).not.toBeInTheDocument();
     dateSpy.mockRestore();
   });
+
+  it('refetches immediately when queue fetch spans tenant midnight', async () => {
+    let currentDate = '2026-09-15';
+    const dateSpy = vi.spyOn(dateUtils, 'getCalendarDateInTimeZone').mockImplementation(() => currentDate);
+
+    const queueSpy = vi.spyOn(followUpApi, 'getFollowUpQueue')
+      // 1. Initial queue fetch at mount
+      .mockResolvedValueOnce({
+        items: [mockItems[0]],
+        nextCursor: null
+      })
+      // 2. Fetch spanning midnight
+      .mockImplementationOnce(async () => {
+        // While request is in-flight, tenant crosses midnight
+        currentDate = '2026-09-16';
+        return {
+          items: [mockItems[0]],
+          nextCursor: null
+        };
+      })
+      // 3. Immediate refetch for the new date
+      .mockImplementationOnce(async () => {
+        return {
+          items: [mockItems[1]],
+          nextCursor: null
+        };
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    });
+
+    // Switch filter to trigger a fetch that spans midnight
+    fireEvent.click(screen.getByRole('button', { name: /Vencidos/i }));
+
+    await waitFor(() => {
+      expect(queueSpy).toHaveBeenCalledTimes(3);
+      expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0);
+    });
+
+    dateSpy.mockRestore();
+  });
+
+  it('preserves current customer selection when queue is replaced and customer is still present', async () => {
+    let currentDate = '2026-09-15';
+    const dateSpy = vi.spyOn(dateUtils, 'getCalendarDateInTimeZone').mockImplementation(() => currentDate);
+
+    const queueSpy = vi.spyOn(followUpApi, 'getFollowUpQueue')
+      .mockResolvedValueOnce({
+        items: [mockItems[0], mockItems[1]],
+        nextCursor: null
+      })
+      .mockResolvedValueOnce({
+        items: [mockItems[0], mockItems[1]],
+        nextCursor: null
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    });
+
+    // Select Marcela
+    const marcelaCard = screen.getByRole('button', { name: /Marcela Domínguez Peña/i });
+    fireEvent.click(marcelaCard);
+    expect(marcelaCard).toHaveAttribute('aria-pressed', 'true');
+
+    // Midnight strikes and window refocus triggers tenant date check
+    currentDate = '2026-09-16';
+    window.dispatchEvent(new Event('focus'));
+
+    await waitFor(() => {
+      expect(queueSpy).toHaveBeenCalledTimes(2);
+    });
+
+    // Marcela must remain selected
+    const marcelaCardAfter = screen.getByRole('button', { name: /Marcela Domínguez Peña/i });
+    expect(marcelaCardAfter).toHaveAttribute('aria-pressed', 'true');
+    dateSpy.mockRestore();
+  });
 });

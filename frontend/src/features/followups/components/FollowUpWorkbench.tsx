@@ -144,6 +144,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       requestGenerationRef.current += 1;
       const currentGeneration = requestGenerationRef.current;
 
+      const requestStartDate = tenantTimeZoneRef.current
+        ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
+        : null;
+
       if (loadMoreAbortControllerRef.current) {
         loadMoreAbortControllerRef.current.abort();
         loadMoreAbortControllerRef.current = null;
@@ -165,16 +169,29 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           controller.signal
         );
         if (requestGenerationRef.current === currentGeneration && !controller.signal.aborted) {
+          const completionDate = tenantTimeZoneRef.current
+            ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
+            : null;
+          if (requestStartDate && completionDate && requestStartDate !== completionDate) {
+            // Crossed tenant midnight during in-flight fetch; immediately refresh to get updated day's queue
+            replaceQueue(statusFilter);
+            return;
+          }
+
           setItems(page.items || []);
           setNextCursor(page.nextCursor || null);
-          lastFetchedTenantDateRef.current = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
+          lastFetchedTenantDateRef.current = completionDate || requestStartDate || '';
 
-          // Auto-select first item on desktop if nothing selected
-          if (!isMobile && page.items && page.items.length > 0) {
-            setSelectedCustomerId(page.items[0].customerId);
-          } else {
-            setSelectedCustomerId(null);
-          }
+          // Preserve existing selection if still present in returned items
+          setSelectedCustomerId((prevId) => {
+            if (prevId && page.items?.some((it) => it.customerId === prevId)) {
+              return prevId;
+            }
+            if (!isMobile && page.items && page.items.length > 0) {
+              return page.items[0].customerId;
+            }
+            return null;
+          });
         }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
@@ -208,8 +225,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   // Refresh queue when tenant-local date changes (across midnight or on tab refocus)
   useEffect(() => {
     const checkTenantDateChange = () => {
-      const currentDate = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
-      if (lastFetchedTenantDateRef.current && currentDate !== lastFetchedTenantDateRef.current) {
+      const currentDate = tenantTimeZoneRef.current
+        ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
+        : null;
+      if (currentDate && lastFetchedTenantDateRef.current && currentDate !== lastFetchedTenantDateRef.current) {
         lastFetchedTenantDateRef.current = currentDate;
         replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
       }
@@ -829,6 +848,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       ) : isMobile && selectedItem ? (
         /* Mobile Stacked View: Detail Screen */
         <FollowUpDetail
+          key={selectedItem.customerId}
           item={selectedItem}
           isMobileView={true}
           timeZone={tenantTimeZone}
@@ -900,6 +920,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             <div>
               {selectedItem ? (
                 <FollowUpDetail
+                  key={selectedItem.customerId}
                   item={selectedItem}
                   isMobileView={false}
                   timeZone={tenantTimeZone}

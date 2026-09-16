@@ -68,7 +68,7 @@ Tenants and memberships are seeded in the test fixture setup, and all subsequent
 
 ## Verified Frontend Workbench Scenarios
 
-All 15 frontend test suites (155 tests) passed cleanly:
+All 16 frontend test suites (176 tests) passed cleanly:
 
 - `src/features/followups/__tests__/followUpApi.test.ts` (7/7 tests):
   - Fetches queue with status filtering.
@@ -76,20 +76,43 @@ All 15 frontend test suites (155 tests) passed cleanly:
   - Submits snooze with `If-Match`.
   - Submits dismiss with `If-Match` and `Idempotency-Key`.
   - Submits manual follow-up with `If-Match` and `Idempotency-Key`.
-- `src/features/followups/__tests__/FollowUpWorkbench.test.tsx` (12/12 tests):
-  - Renders workbench layout with header, filter pills, search input, and split panels.
-  - Loads and displays queue items (`FollowUpCard`) with phone, status badge, and reason summary.
-  - Filters cards in-memory by status (`TODOS`, `DUE`, `OVERDUE`) and search text.
-  - Displays customer context detail including purchase history, consented channel, and reason breakdown.
-  - Copies phone to clipboard with temporary feedback ("Copiado").
-  - Navigates to customer profile when clicking customer link/button.
-  - Opens and submits Manual Follow-Up modal with character counter, `If-Match`, and idempotency key.
-  - Opens and submits Snooze modal with preset quick buttons and date picker.
-  - Opens and submits Dismiss modal with notes.
-  - Handles HTTP 409 Conflict with clear banner warning and queue refresh.
-  - Enforces role gating: hides action buttons when user is `VIEWER`.
-  - Responsive mobile drawer/view for small viewports.
+- `src/features/followups/__tests__/FollowUpCard.test.tsx` (4/4 tests):
+  - Prioritizes timingSource over DUE_TODAY in reason explanation.
+  - Derives card dates and overdue status correctly under tenant timezone without false isDueToday.
+  - Does not suppress focus ring with outline none.
+  - Handles undefined timeZone safely without rendering malformed overdue text.
+- `src/features/followups/__tests__/FollowUpWorkbench.test.tsx` (29/29 tests):
+  - Renders workbench title, stats counters, and queue items.
+  - Selects first item on desktop and displays customer detail context.
+  - Changes selected customer when clicking another card.
+  - Filters by status tabs (Vencidos vs Pendientes).
+  - Filters queue items with search bar.
+  - Handles manual follow-up completion with modal notes and idempotency key.
+  - Handles snooze disposition.
+  - Handles dismissal disposition.
+  - Handles 409 conflict and displays stale candidate alert.
+  - Restricts mutations for VIEWER role.
+  - Renders empty state when queue returns 0 items.
+  - Renders error state and allows retry.
+  - Displays the chronologically latest interaction when both manual follow-up and dismissal exist.
+  - Surfaces purchase-history request failures and allows retry.
+  - Distinguishes voided purchases as Anulada in history.
+  - Excludes overdue items from contacts scheduled for today count.
+  - Explains due items from their actual timing source (e.g. EXPLICIT_DATE).
+  - Allows loading more pages when active search yields no local results and nextCursor exists.
+  - Calculates snooze dates in tenant time zone without shifting days due to UTC offset.
+  - Discards stale load-more responses when filter changes before response arrives.
+  - Provides an accessible name for the search input.
+  - Keeps selected card synchronized with filtered detail when search excludes previous customer.
+  - Resets loadingMore state when replacing queue while load-more was pending.
+  - Surfaces tenant policy error banner and disables snooze until resolved.
+  - Protects tenant time-zone loading across workspace switches against delayed policy responses.
+  - Invalidates in-flight pagination when queue is replaced by a successful disposition.
+  - Invalidates in-flight pagination when queue is replaced by tenant-local date rollover.
+  - Refetches immediately when queue fetch spans tenant midnight.
+  - Preserves current customer selection when queue is replaced and customer is still present.
 - `src/App.test.tsx` (6/6 tests):
   - Renders top navigation with "Clientes", "Membresías", "Configuración", and "Seguimientos".
   - Displays `<FollowUpWorkbench>` when navigating to "Seguimientos" tab.
   - Seamlessly switches to "Clientes" tab and loads customer profile when requested from workbench.
+- Additional feature suites (130 tests across customer forms, lists, consent, purchase history, memberships, tenant context, and shared components).

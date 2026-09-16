@@ -117,9 +117,11 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
 
   const getReasonExplanation = () => {
     const isOverdue = item.status === 'OVERDUE' || item.reasons.includes('OVERDUE');
-    const daysOverdue = isOverdue ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
+    const daysOverdue = isOverdue && timeZone ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
     const overduePrefix = isOverdue
-      ? `El seguimiento tiene ${daysOverdue || ''} ${daysOverdue === 1 ? 'día' : 'días'} de retraso. `
+      ? daysOverdue != null && daysOverdue > 0
+        ? `El seguimiento tiene ${daysOverdue} ${daysOverdue === 1 ? 'día' : 'días'} de retraso. `
+        : 'El seguimiento ha superado la fecha sugerida de contacto. '
       : '';
 
     switch (item.timingSource) {

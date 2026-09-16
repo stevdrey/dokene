@@ -26,8 +26,8 @@ export const SnoozeModal: React.FC<SnoozeModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const todayStr = getCalendarDateInTimeZone(0, timeZone);
-  const tomorrowStr = getCalendarDateInTimeZone(1, timeZone);
+  const todayStr = timeZone ? getCalendarDateInTimeZone(0, timeZone) || '' : '';
+  const tomorrowStr = timeZone ? getCalendarDateInTimeZone(1, timeZone) || '' : '';
 
   useEffect(() => {
     if (isOpen) {
@@ -107,13 +107,13 @@ export const SnoozeModal: React.FC<SnoozeModalProps> = ({
           </span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-8)' }}>
             {presets.map((p) => {
-              const pDate = getCalendarDateInTimeZone(p.days, timeZone);
+              const pDate = timeZone ? getCalendarDateInTimeZone(p.days, timeZone) || '' : '';
               const isSelected = selectedDate === pDate;
               return (
                 <button
                   key={p.days}
                   type="button"
-                  onClick={() => setSelectedDate(pDate)}
+                  onClick={() => pDate && setSelectedDate(pDate)}
                   disabled={submitting}
                   style={{
                     padding: 'var(--space-8) var(--space-12)',
