@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
 import { getCalendarDateInTimeZone } from '../components/SnoozeModal';
+import * as dateUtils from '../utils/dateUtils';
 import { useTenant } from '@/features/tenants/TenantContext';
 import { followUpApi } from '../api/followUpApi';
 import { customerApi } from '@/features/customers/api/customerApi';
@@ -711,5 +712,191 @@ describe('FollowUpWorkbench', () => {
       ).not.toBeInTheDocument();
       expect(snoozeBtn).not.toBeDisabled();
     });
+  });
+
+  it('protects tenant time-zone loading across workspace switches against delayed policy responses', async () => {
+    let resolvePolicyA!: (val: any) => void;
+    const delayedPolicyA = new Promise((resolve) => {
+      resolvePolicyA = resolve;
+    });
+
+    const tenantMock = useTenant as unknown as ReturnType<typeof vi.fn>;
+    tenantMock.mockReturnValue({
+      activeWorkspace: { tenantId: 'tenant-A', displayName: 'Workspace A', role: 'TENANT_ADMIN' }
+    });
+
+    vi.spyOn(followUpApi, 'getTenantFollowUpPolicy')
+      // 1. Tenant A policy request (delayed)
+      .mockImplementationOnce(() => delayedPolicyA as any)
+      // 2. Tenant B policy request (fast)
+      .mockResolvedValueOnce({
+        policy: { cadenceDays: 14, timeZone: 'America/Costa_Rica' },
+        version: 1
+      });
+
+    const { rerender } = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    // While Tenant A's policy is unresolved, Snooze action is disabled
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Posponer/i })).toBeDisabled();
+    });
+
+    // Switch workspace to Tenant B
+    tenantMock.mockReturnValue({
+      activeWorkspace: { tenantId: 'tenant-B', displayName: 'Workspace B', role: 'TENANT_ADMIN' }
+    });
+    rerender(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    // Snooze remains disabled while Tenant B's zone is being fetched, then enables once B resolves
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Posponer/i })).not.toBeDisabled();
+    });
+
+    // Now delayed Tenant A response completes with a different time zone
+    resolvePolicyA({
+      policy: { cadenceDays: 14, timeZone: 'America/Santiago' },
+      version: 1
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Open snooze modal and verify that Tenant B's zone remains authoritative
+    fireEvent.click(screen.getByRole('button', { name: /Posponer/i }));
+    expect(screen.getByRole('dialog', { name: /Posponer seguimiento/i })).toBeInTheDocument();
+    // SnoozeModal should not produce an error and should be active
+    expect(screen.getByRole('button', { name: /Confirmar fecha/i })).toBeInTheDocument();
+  });
+
+  it('invalidates in-flight pagination when queue is replaced by a successful disposition', async () => {
+    let resolveLoadMore!: (val: any) => void;
+    const delayedLoadMore = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    vi.spyOn(followUpApi, 'getFollowUpQueue')
+      // 1. Initial page 1 with nextCursor
+      .mockResolvedValueOnce({
+        items: [mockItems[0]],
+        nextCursor: 'cursor-page-2'
+      })
+      // 2. Delayed load-more for page 2
+      .mockImplementationOnce(() => delayedLoadMore as any)
+      // 3. Replacement queue fetch after disposition
+      .mockResolvedValueOnce({
+        items: [],
+        nextCursor: null
+      });
+
+    vi.spyOn(followUpApi, 'recordManualFollowUp').mockResolvedValueOnce({
+      completion: {
+        id: 'comp-1',
+        customerId: 'cust-1',
+        completedOn: '2026-09-15',
+        notes: 'Llamada realizada',
+        policyVersion: 3
+      },
+      version: 3
+    });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toBeInTheDocument();
+    });
+
+    // Operator starts loading more
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+
+    // Before loadMore resolves, operator completes a manual follow-up
+    fireEvent.click(screen.getByRole('button', { name: /Registrar seguimiento/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Registrar seguimiento manual')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Conversamos por WhatsApp/i), {
+      target: { value: 'Cliente atendido con éxito' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar seguimiento' }));
+
+    // Fresh replacement queue completes (empty queue)
+    await waitFor(() => {
+      expect(screen.getByText('¡Todo al día! No hay clientes que requieran atención en este momento.')).toBeInTheDocument();
+    });
+
+    // Delayed page 2 resolves with stale item and cursor
+    resolveLoadMore({
+      items: [
+        {
+          ...mockItems[1],
+          customerId: 'stale-customer',
+          displayName: 'Stale Customer After Disposition'
+        }
+      ],
+      nextCursor: 'stale-cursor'
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Stale item must NOT be appended and stale cursor must NOT be restored
+    expect(screen.queryByText('Stale Customer After Disposition')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cargar más seguimientos' })).not.toBeInTheDocument();
+  });
+
+  it('invalidates in-flight pagination when queue is replaced by tenant-local date rollover', async () => {
+    let resolveLoadMore!: (val: any) => void;
+    const delayedLoadMore = new Promise((resolve) => {
+      resolveLoadMore = resolve;
+    });
+
+    const dateSpy = vi.spyOn(dateUtils, 'getCalendarDateInTimeZone').mockReturnValue('2026-09-15');
+
+    vi.spyOn(followUpApi, 'getFollowUpQueue')
+      // 1. Initial page 1 with nextCursor
+      .mockResolvedValueOnce({
+        items: [mockItems[0]],
+        nextCursor: 'cursor-rollover-p2'
+      })
+      // 2. In-flight pagination
+      .mockImplementationOnce(() => delayedLoadMore as any)
+      // 3. Queue reload triggered by date rollover
+      .mockResolvedValueOnce({
+        items: [mockItems[1]],
+        nextCursor: null
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toBeInTheDocument();
+    });
+
+    // Start loading more
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+
+    // Simulate tenant calendar date crossing midnight
+    dateSpy.mockReturnValue('2026-09-16');
+    window.dispatchEvent(new Event('focus'));
+
+    // Rollover reload completes
+    await waitFor(() => {
+      expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0);
+    });
+
+    // Now delayed old pagination completes
+    resolveLoadMore({
+      items: [
+        {
+          ...mockItems[0],
+          customerId: 'stale-rollover-customer',
+          displayName: 'Stale Rollover Customer'
+        }
+      ],
+      nextCursor: 'stale-rollover-cursor'
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(screen.queryByText('Stale Rollover Customer')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cargar más seguimientos' })).not.toBeInTheDocument();
+    dateSpy.mockRestore();
   });
 });

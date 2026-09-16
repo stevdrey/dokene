@@ -32,7 +32,11 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
 
   const requestGenerationRef = useRef(0);
   const loadMoreAbortControllerRef = useRef<AbortController | null>(null);
+  const queueAbortControllerRef = useRef<AbortController | null>(null);
   const lastFetchedTenantDateRef = useRef<string>('');
+  const tenantTimeZoneRef = useRef<string | undefined>(undefined);
+  const policyGenerationRef = useRef(0);
+  const policyAbortControllerRef = useRef<AbortController | null>(null);
 
   // Detect mobile width (< 1024px) for responsive split vs stacked view
   const [isMobile, setIsMobile] = useState(() =>
@@ -47,56 +51,140 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const tenantTimeZoneRef = useRef<string | undefined>(undefined);
+  // Fetch tenant policy time zone with generation and abort protection
+  useEffect(() => {
+    // Synchronously clear previous tenant time zone
+    setTenantTimeZone(undefined);
+    tenantTimeZoneRef.current = undefined;
+    setPolicyError(null);
 
-  // Fetch tenant policy time zone
-  const fetchPolicy = useCallback(async () => {
+    policyGenerationRef.current += 1;
+    const currentGeneration = policyGenerationRef.current;
+
+    if (policyAbortControllerRef.current) {
+      policyAbortControllerRef.current.abort();
+      policyAbortControllerRef.current = null;
+    }
+    const controller = new AbortController();
+    policyAbortControllerRef.current = controller;
+    setIsPolicyLoading(true);
+
+    followUpApi
+      .getTenantFollowUpPolicy(controller.signal)
+      .then(({ policy }) => {
+        if (policyGenerationRef.current === currentGeneration && !controller.signal.aborted) {
+          if (policy?.timeZone) {
+            tenantTimeZoneRef.current = policy.timeZone;
+            setTenantTimeZone(policy.timeZone);
+          }
+        }
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if (policyGenerationRef.current === currentGeneration) {
+          setPolicyError(
+            err instanceof Error ? err.message : 'Error al cargar la política del espacio comercial.'
+          );
+        }
+      })
+      .finally(() => {
+        if (policyGenerationRef.current === currentGeneration) {
+          setIsPolicyLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+      if (policyAbortControllerRef.current === controller) {
+        policyAbortControllerRef.current = null;
+      }
+    };
+  }, [activeWorkspace?.tenantId]);
+
+  const retryPolicy = useCallback(async () => {
+    policyGenerationRef.current += 1;
+    const currentGeneration = policyGenerationRef.current;
+
+    if (policyAbortControllerRef.current) {
+      policyAbortControllerRef.current.abort();
+      policyAbortControllerRef.current = null;
+    }
+    const controller = new AbortController();
+    policyAbortControllerRef.current = controller;
+
     setIsPolicyLoading(true);
     setPolicyError(null);
+
     try {
-      const { policy } = await followUpApi.getTenantFollowUpPolicy();
-      if (policy?.timeZone) {
-        tenantTimeZoneRef.current = policy.timeZone;
-        setTenantTimeZone(policy.timeZone);
+      const { policy } = await followUpApi.getTenantFollowUpPolicy(controller.signal);
+      if (policyGenerationRef.current === currentGeneration && !controller.signal.aborted) {
+        if (policy?.timeZone) {
+          tenantTimeZoneRef.current = policy.timeZone;
+          setTenantTimeZone(policy.timeZone);
+        }
       }
     } catch (err) {
-      setPolicyError(
-        err instanceof Error ? err.message : 'Error al cargar la política del espacio comercial.'
-      );
+      if (controller.signal.aborted) return;
+      if (policyGenerationRef.current === currentGeneration) {
+        setPolicyError(
+          err instanceof Error ? err.message : 'Error al cargar la política del espacio comercial.'
+        );
+      }
     } finally {
-      setIsPolicyLoading(false);
+      if (policyGenerationRef.current === currentGeneration) {
+        setIsPolicyLoading(false);
+      }
     }
   }, []);
 
-  useEffect(() => {
-    fetchPolicy();
-  }, [activeWorkspace?.tenantId, fetchPolicy]);
+  // Centralized queue replacement: invalidates and aborts in-flight pagination, clears loadingMore,
+  // and fetches replacement first page under a new generation
+  const replaceQueue = useCallback(
+    async (statusFilter?: FollowUpStatus) => {
+      requestGenerationRef.current += 1;
+      const currentGeneration = requestGenerationRef.current;
 
-  const fetchQueue = useCallback(
-    async (statusFilter?: FollowUpStatus, signal?: AbortSignal) => {
-      setLoading(true);
+      if (loadMoreAbortControllerRef.current) {
+        loadMoreAbortControllerRef.current.abort();
+        loadMoreAbortControllerRef.current = null;
+      }
       setLoadingMore(false);
+
+      if (queueAbortControllerRef.current) {
+        queueAbortControllerRef.current.abort();
+        queueAbortControllerRef.current = null;
+      }
+      const controller = new AbortController();
+      queueAbortControllerRef.current = controller;
+
+      setLoading(true);
       setError(null);
       try {
         const page = await followUpApi.getFollowUpQueue(
           { status: statusFilter, limit: 50 },
-          signal
+          controller.signal
         );
-        setItems(page.items || []);
-        setNextCursor(page.nextCursor || null);
-        lastFetchedTenantDateRef.current = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
+        if (requestGenerationRef.current === currentGeneration && !controller.signal.aborted) {
+          setItems(page.items || []);
+          setNextCursor(page.nextCursor || null);
+          lastFetchedTenantDateRef.current = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
 
-        // Auto-select first item on desktop if nothing selected
-        if (!isMobile && page.items && page.items.length > 0) {
-          setSelectedCustomerId(page.items[0].customerId);
-        } else {
-          setSelectedCustomerId(null);
+          // Auto-select first item on desktop if nothing selected
+          if (!isMobile && page.items && page.items.length > 0) {
+            setSelectedCustomerId(page.items[0].customerId);
+          } else {
+            setSelectedCustomerId(null);
+          }
         }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Error al cargar la lista de seguimientos.');
+        if (requestGenerationRef.current === currentGeneration) {
+          setError(err instanceof Error ? err.message : 'Error al cargar la lista de seguimientos.');
+        }
       } finally {
-        setLoading(false);
+        if (requestGenerationRef.current === currentGeneration) {
+          setLoading(false);
+        }
       }
     },
     [isMobile]
@@ -104,22 +192,18 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
 
   // Reload queue when workspace or filter changes
   useEffect(() => {
-    requestGenerationRef.current += 1;
-    if (loadMoreAbortControllerRef.current) {
-      loadMoreAbortControllerRef.current.abort();
-      loadMoreAbortControllerRef.current = null;
-    }
-    setLoadingMore(false);
-    const controller = new AbortController();
-    fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, controller.signal);
+    replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
     return () => {
-      controller.abort();
+      if (queueAbortControllerRef.current) {
+        queueAbortControllerRef.current.abort();
+        queueAbortControllerRef.current = null;
+      }
       if (loadMoreAbortControllerRef.current) {
         loadMoreAbortControllerRef.current.abort();
         loadMoreAbortControllerRef.current = null;
       }
     };
-  }, [activeWorkspace?.tenantId, activeFilter, fetchQueue]);
+  }, [activeWorkspace?.tenantId, activeFilter, replaceQueue]);
 
   // Refresh queue when tenant-local date changes (across midnight or on tab refocus)
   useEffect(() => {
@@ -127,7 +211,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       const currentDate = getCalendarDateInTimeZone(0, tenantTimeZoneRef.current);
       if (lastFetchedTenantDateRef.current && currentDate !== lastFetchedTenantDateRef.current) {
         lastFetchedTenantDateRef.current = currentDate;
-        fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+        replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
       }
     };
 
@@ -150,7 +234,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(interval);
     };
-  }, [activeFilter, fetchQueue]);
+  }, [activeFilter, replaceQueue]);
 
   const handleLoadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -228,10 +312,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       await followUpApi.recordManualFollowUp(selectedItem.customerId, version, idempotencyKey, notes);
 
       // Refresh queue after success
-      await fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+      await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        await fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+        await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
         setConflictNotice(
           'El estado del cliente cambió o ya no es elegible para seguimiento. La lista se ha actualizado.'
         );
@@ -248,10 +332,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       await followUpApi.snoozeFollowUp(selectedItem.customerId, until, version);
 
       // Refresh queue after success
-      await fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+      await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        await fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+        await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
         setConflictNotice(
           'El estado del cliente cambió o no puede posponerse en este momento. La lista se ha actualizado.'
         );
@@ -268,10 +352,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       await followUpApi.dismissFollowUp(selectedItem.customerId, version, idempotencyKey, notes);
 
       // Refresh queue after success
-      await fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+      await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        await fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+        await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
         setConflictNotice(
           'El estado del cliente cambió o ya no puede descartarse. La lista se ha actualizado.'
         );
@@ -429,7 +513,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           <Button
             type="button"
             variant="secondary"
-            onClick={fetchPolicy}
+            onClick={retryPolicy}
             isLoading={isPolicyLoading}
             aria-label="Reintentar cargar política"
           >
@@ -683,7 +767,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           <Button
             type="button"
             variant="primary"
-            onClick={() => fetchQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined)}
+            onClick={() => replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined)}
           >
             Reintentar
           </Button>
