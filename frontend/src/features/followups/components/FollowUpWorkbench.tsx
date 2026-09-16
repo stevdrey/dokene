@@ -114,10 +114,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   }, [filteredItems, selectedCustomerId, isMobile]);
 
   // Stats calculation
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const dueTodayCount = items.filter(
-    (i) => i.dueDate <= todayStr || i.reasons.includes('DUE_TODAY')
-  ).length;
+  const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
 
   // Disposition handlers
@@ -547,13 +544,34 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           </span>
           <div>
             <h2 style={{ fontSize: 'var(--font-size-section-heading)', margin: '0 0 4px', color: 'var(--color-text-main)' }}>
-              No hay seguimientos pendientes
+              {searchQuery.trim() ? 'Sin resultados en los seguimientos cargados' : 'No hay seguimientos pendientes'}
             </h2>
             <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-muted)', margin: 0 }}>
               {searchQuery.trim()
-                ? `No se encontraron resultados para "${searchQuery}".`
+                ? nextCursor
+                  ? `No se encontraron coincidencias para "${searchQuery}" en los ${items.length} seguimientos cargados actualmente.`
+                  : `No se encontraron resultados para "${searchQuery}".`
                 : '¡Todo al día! No hay clientes que requieran atención en este momento.'}
             </p>
+            {searchQuery.trim() && nextCursor && (
+              <div style={{ marginTop: 'var(--space-16)', display: 'flex', gap: 'var(--space-12)', justifyContent: 'center' }}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleLoadMore}
+                  isLoading={loadingMore}
+                >
+                  Cargar más seguimientos
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSearchQuery('')}
+                >
+                  Limpiar búsqueda
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       ) : isMobile && selectedItem ? (

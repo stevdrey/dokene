@@ -30,6 +30,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
 }) => {
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [loadingPurchases, setLoadingPurchases] = useState(false);
+  const [purchasesError, setPurchasesError] = useState<string | null>(null);
+  const [purchasesRetryCount, setPurchasesRetryCount] = useState(0);
   const [copiedPhone, setCopiedPhone] = useState(false);
 
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -40,14 +42,18 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
     let active = true;
     const loadPurchases = async () => {
       setLoadingPurchases(true);
+      setPurchasesError(null);
       try {
         const data = await customerApi.listPurchases(item.customerId, undefined, undefined, 3);
         if (active) {
           setPurchases(data.purchases || []);
         }
-      } catch {
+      } catch (err) {
         if (active) {
           setPurchases([]);
+          setPurchasesError(
+            err instanceof Error ? err.message : 'Error al cargar el historial de compras.'
+          );
         }
       } finally {
         if (active) {
@@ -60,7 +66,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
     return () => {
       active = false;
     };
-  }, [item.customerId]);
+  }, [item.customerId, purchasesRetryCount]);
 
   const handleCopyPhone = async () => {
     if (!item.primaryPhone) return;
@@ -121,26 +127,29 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   };
 
   const getReasonExplanation = () => {
-    if (item.reasons.includes('OVERDUE')) {
-      const days = computeDaysOverdue(item.dueDate);
-      return `El seguimiento tiene ${days || ''} ${days === 1 ? 'día' : 'días'} de retraso respecto a la cadencia habitual de atención (${item.effectiveCadenceDays} días). Es momento oportuno para restablecer el contacto y verificar sus necesidades.`;
+    const isOverdue = item.status === 'OVERDUE' || item.reasons.includes('OVERDUE');
+    const daysOverdue = isOverdue ? computeDaysOverdue(item.dueDate) : null;
+    const overduePrefix = isOverdue
+      ? `El seguimiento tiene ${daysOverdue || ''} ${daysOverdue === 1 ? 'día' : 'días'} de retraso. `
+      : '';
+
+    switch (item.timingSource) {
+      case 'EXPLICIT_DATE':
+        return `${overduePrefix}Se ha alcanzado la fecha específica de seguimiento programada manualmente (${formatDate(item.dueDate)}).`;
+      case 'LAST_PURCHASE':
+        return `${overduePrefix}Han transcurrido ${item.effectiveCadenceDays} días desde su última compra registrada. Buen momento para consultar cómo estuvo su último pedido y si requiere nuevo abastecimiento.`;
+      case 'LAST_MANUAL_FOLLOW_UP':
+        return `${overduePrefix}Se ha alcanzado la cadencia de ${item.effectiveCadenceDays} días desde el último contacto manual registrado.`;
+      case 'LAST_DISMISSAL':
+        return `${overduePrefix}Se ha cumplido el ciclo de ${item.effectiveCadenceDays} días tras el descarte del período anterior.`;
+      case 'SNOOZE':
+        return `${overduePrefix}Ha vencido el período de postergación acordado para este seguimiento.`;
+      default:
+        if (isOverdue) {
+          return `${overduePrefix}Respecto a la cadencia habitual de atención (${item.effectiveCadenceDays} días), es momento oportuno para restablecer el contacto y verificar sus necesidades.`;
+        }
+        return `Se ha cumplido el plazo de ${item.effectiveCadenceDays} días previsto por la cadencia de atención. Se sugiere verificar satisfacción con la última compra o coordinar un nuevo pedido.`;
     }
-    if (item.reasons.includes('DUE_TODAY')) {
-      return `Se ha cumplido el plazo de ${item.effectiveCadenceDays} días previsto por la cadencia de atención. Se sugiere verificar satisfacción con la última compra o coordinar un nuevo pedido.`;
-    }
-    if (item.timingSource === 'LAST_PURCHASE') {
-      return `Han transcurrido ${item.effectiveCadenceDays} días desde su última compra registrada. Buen momento para consultar cómo estuvo su último lote y si requiere nuevo abastecimiento.`;
-    }
-    if (item.timingSource === 'LAST_MANUAL_FOLLOW_UP') {
-      return `Se ha alcanzado la cadencia de ${item.effectiveCadenceDays} días desde el último contacto manual registrado.`;
-    }
-    if (item.timingSource === 'LAST_DISMISSAL') {
-      return `Se ha cumplido el ciclo de ${item.effectiveCadenceDays} días tras el descarte del período anterior.`;
-    }
-    if (item.timingSource === 'SNOOZE') {
-      return 'Ha vencido el período de postergación acordado para este seguimiento.';
-    }
-    return `Seguimiento programado según la cadencia activa del negocio (${item.effectiveCadenceDays} días).`;
   };
 
   return (
@@ -444,6 +453,32 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
           <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-muted)', margin: '4px 0' }}>
             Cargando historial de compras...
           </p>
+        ) : purchasesError ? (
+          <div
+            role="alert"
+            style={{
+              padding: 'var(--space-12)',
+              backgroundColor: 'var(--color-warning-bg)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-warning-border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 'var(--space-8)'
+            }}
+          >
+            <span style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-warning-text)' }}>
+              No se pudo cargar el historial de compras.
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setPurchasesRetryCount((c) => c + 1)}
+              style={{ minHeight: '32px', padding: '4px 10px', fontSize: 'var(--font-size-meta)' }}
+            >
+              Reintentar
+            </Button>
+          </div>
         ) : purchases.length > 0 ? (
           <div
             style={{
@@ -478,11 +513,12 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
                     fontSize: 'var(--font-size-meta)',
                     padding: '2px 6px',
                     borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--color-bg-inset)',
-                    color: 'var(--color-text-muted)'
+                    backgroundColor: p.status === 'VOID' ? 'var(--color-warning-bg)' : 'var(--color-bg-inset)',
+                    color: p.status === 'VOID' ? 'var(--color-warning-text)' : 'var(--color-text-muted)',
+                    border: p.status === 'VOID' ? '1px solid var(--color-warning-border)' : 'none'
                   }}
                 >
-                  Registrada
+                  {p.status === 'VOID' ? 'Anulada' : 'Registrada'}
                 </span>
               </div>
             ))}

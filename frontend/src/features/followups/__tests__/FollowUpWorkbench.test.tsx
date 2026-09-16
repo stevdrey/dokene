@@ -382,4 +382,134 @@ describe('FollowUpWorkbench', () => {
       expect(screen.getByText(/Último ciclo descartado el 15.*2026/i)).toBeInTheDocument();
     });
   });
+
+  it('surfaces purchase-history request failures and allows retry', async () => {
+    vi.spyOn(customerApi, 'listPurchases')
+      .mockRejectedValueOnce(new Error('Network error loading purchases'))
+      .mockResolvedValueOnce({
+        purchases: [
+          {
+            id: 'p-retry',
+            customerId: 'cust-1',
+            description: 'Café Grano Especial',
+            purchasedAt: '2026-09-01T10:00:00Z',
+            status: 'VALID',
+            version: 1,
+            createdAt: '2026-09-01T10:00:00Z',
+            updatedAt: '2026-09-01T10:00:00Z',
+            voidedAt: null
+          }
+        ],
+        nextCursor: null
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No se pudo cargar el historial de compras.')).toBeInTheDocument();
+    });
+
+    const retryPurchasesBtn = screen.getByRole('button', { name: 'Reintentar' });
+    fireEvent.click(retryPurchasesBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Café Grano Especial')).toBeInTheDocument();
+    });
+  });
+
+  it('distinguishes voided purchases as Anulada in history', async () => {
+    vi.spyOn(customerApi, 'listPurchases').mockResolvedValue({
+      purchases: [
+        {
+          id: 'p-voided',
+          customerId: 'cust-1',
+          description: 'Compra Cancelada',
+          purchasedAt: '2026-09-01T10:00:00Z',
+          status: 'VOID',
+          version: 2,
+          createdAt: '2026-09-01T10:00:00Z',
+          updatedAt: '2026-09-02T10:00:00Z',
+          voidedAt: '2026-09-02T10:00:00Z'
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Compra Cancelada')).toBeInTheDocument();
+      expect(screen.getByText('Anulada')).toBeInTheDocument();
+    });
+  });
+
+  it('excludes overdue items from contacts scheduled for today count', async () => {
+    // mockItems has 1 DUE item and 1 OVERDUE item
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      // Due today count should be 1, not 2
+      expect(screen.getByText('1 programado')).toBeInTheDocument();
+      expect(screen.getByText('1 con retraso')).toBeInTheDocument();
+    });
+  });
+
+  it('explains due items from their actual timing source (e.g. EXPLICIT_DATE)', async () => {
+    vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({
+      items: [
+        {
+          ...mockItems[0],
+          status: 'DUE',
+          reasons: ['DUE_TODAY'],
+          timingSource: 'EXPLICIT_DATE',
+          dueDate: '2026-09-15'
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Se ha alcanzado la fecha específica de seguimiento programada manualmente/i)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('allows loading more pages when active search yields no local results and nextCursor exists', async () => {
+    vi.spyOn(followUpApi, 'getFollowUpQueue')
+      .mockResolvedValueOnce({
+        items: [mockItems[0]], // Valentina Morales
+        nextCursor: 'cursor-page-2'
+      })
+      .mockResolvedValueOnce({
+        items: [mockItems[1]], // Marcela Domínguez
+        nextCursor: null
+      });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    });
+
+    // Search for Marcela who is on page 2
+    const searchInput = screen.getByPlaceholderText('Buscar por nombre o teléfono...');
+    fireEvent.change(searchInput, { target: { value: 'Marcela' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Sin resultados en los seguimientos cargados')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Cargar más seguimientos' })
+      ).toBeInTheDocument();
+    });
+
+    // Click load more button from empty search state
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0);
+    });
+  });
 });
