@@ -363,4 +363,23 @@ describe('FollowUpWorkbench', () => {
       expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
     });
   });
+
+  it('displays the chronologically latest interaction when both manual follow-up and dismissal exist', async () => {
+    vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({
+      items: [
+        {
+          ...mockItems[0],
+          lastManualFollowUpDate: '2026-08-01',
+          lastDismissedDate: '2026-08-15'
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Último ciclo descartado el 15.*2026/i)).toBeInTheDocument();
+    });
+  });
 });

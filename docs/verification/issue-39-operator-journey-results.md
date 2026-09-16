@@ -38,9 +38,11 @@ npm test -- --run
 
 ## Verified Backend Operator Journey Scenarios
 
+Tenants and memberships are seeded in the test fixture setup, and all subsequent lifecycle operations are exercised through authenticated HTTP requests.
+
 | Step / Scenario | HTTP Status & Response Verification |
 | --- | --- |
-| 1. Create primary tenant `Panadería El Trigal` (`POST /api/tenants`) | `201 Created`, tenant initialized with RLS policies |
+| 1. Configure tenant follow-up policy (`GET` / `PUT /api/follow-up-policy`) with 14 days cadence and `America/Santiago` | `200 OK`, version ETag returned |
 | 2. Create customer `Valentina Morales Gómez` (`POST /api/customers`) with primary phone `+56984521190` | `201 Created`, version ETag `"0"` |
 | 3. Grant WhatsApp consent (`PUT /api/customers/{id}/contacts/{id}/consents/WHATSAPP`) with source `CUSTOMER_WRITTEN` | `200 OK`, version ETag `"1"` |
 | 4. Record initial purchase (`POST /api/customers/{id}/purchases`) with historical timestamp | `201 Created` |

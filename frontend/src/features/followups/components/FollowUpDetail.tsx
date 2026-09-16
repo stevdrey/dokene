@@ -101,6 +101,25 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
     }
   };
 
+  const getLatestInteractionText = () => {
+    const manualDate = item.lastManualFollowUpDate;
+    const dismissedDate = item.lastDismissedDate;
+
+    if (manualDate && dismissedDate) {
+      if (dismissedDate > manualDate) {
+        return `Último ciclo descartado el ${formatDate(dismissedDate)}.`;
+      }
+      return `Último seguimiento completado el ${formatDate(manualDate)}.`;
+    }
+    if (manualDate) {
+      return `Último seguimiento completado el ${formatDate(manualDate)}.`;
+    }
+    if (dismissedDate) {
+      return `Último ciclo descartado el ${formatDate(dismissedDate)}.`;
+    }
+    return 'No se registran interacciones previas en este ciclo.';
+  };
+
   const getReasonExplanation = () => {
     if (item.reasons.includes('OVERDUE')) {
       const days = computeDaysOverdue(item.dueDate);
@@ -506,11 +525,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
           Última interacción registrada
         </span>
         <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-main)', margin: 0, fontStyle: 'italic' }}>
-          {item.lastManualFollowUpDate
-            ? `Último seguimiento completado el ${formatDate(item.lastManualFollowUpDate)}.`
-            : item.lastDismissedDate
-            ? `Último ciclo descartado el ${formatDate(item.lastDismissedDate)}.`
-            : 'No se registran interacciones previas en este ciclo.'}
+          {getLatestInteractionText()}
         </p>
       </div>
 
