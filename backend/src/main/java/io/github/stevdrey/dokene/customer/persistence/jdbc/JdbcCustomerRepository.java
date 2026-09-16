@@ -41,6 +41,14 @@ public class JdbcCustomerRepository implements CustomerRepository {
     }
 
     @Override
+    public Optional<Customer> findByIdForUpdate(TenantId tenantId, CustomerId customerId) {
+        List<CustomerRow> rows = jdbc.query("""
+                SELECT * FROM dokene.customers WHERE tenant_id = ? AND id = ? FOR UPDATE
+                """, this::mapCustomerRow, tenantId.value(), customerId.value());
+        return rows.stream().findFirst().map(this::toDomain);
+    }
+
+    @Override
     public List<Customer> search(TenantId tenantId, CustomerSearch search, int fetchLimit) {
         StringBuilder sql = new StringBuilder("""
                 SELECT DISTINCT c.* FROM dokene.customers c

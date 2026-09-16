@@ -56,20 +56,44 @@ public final class FollowUpPolicyEvaluator {
         } else if (customerPolicy.explicitNextDate() != null) {
             dueDate = customerPolicy.explicitNextDate();
             source = FollowUpTimingSource.EXPLICIT_DATE;
-        } else if (customerPolicy.lastManualFollowUpDate() != null) {
-            dueDate = customerPolicy.lastManualFollowUpDate().plusDays(cadence);
-            source = FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP;
-        } else if (lastPurchaseAt != null) {
-            dueDate = lastPurchaseAt.atZone(tenantPolicy.zoneId()).toLocalDate().plusDays(cadence);
-            source = FollowUpTimingSource.LAST_PURCHASE;
         } else {
-            return result(customer, FollowUpStatus.INELIGIBLE, java.util.List.of(FollowUpReason.NO_PURCHASE_HISTORY),
-                    now, today, tenantPolicy, null, FollowUpTimingSource.NONE, cadence, null);
+            LocalDate lastPurchaseDate = lastPurchaseAt == null ? null
+                    : lastPurchaseAt.atZone(tenantPolicy.zoneId()).toLocalDate();
+            LocalDate lastActionDate = null;
+            FollowUpTimingSource actionSource = null;
+
+            LocalDate manualDate = customerPolicy.lastManualFollowUpDate();
+            LocalDate dismissedDate = customerPolicy.lastDismissedDate();
+
+            if (manualDate != null && (dismissedDate == null || !manualDate.isBefore(dismissedDate))) {
+                lastActionDate = manualDate;
+                actionSource = FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP;
+            } else if (dismissedDate != null) {
+                lastActionDate = dismissedDate;
+                actionSource = FollowUpTimingSource.LAST_DISMISSAL;
+            }
+
+            LocalDate anchorDate;
+            if (lastActionDate != null && (lastPurchaseDate == null || !lastActionDate.isBefore(lastPurchaseDate))) {
+                anchorDate = lastActionDate;
+                source = actionSource;
+            } else if (lastPurchaseDate != null) {
+                anchorDate = lastPurchaseDate;
+                source = FollowUpTimingSource.LAST_PURCHASE;
+            } else {
+                return result(customer, FollowUpStatus.INELIGIBLE, java.util.List.of(FollowUpReason.NO_PURCHASE_HISTORY),
+                        now, today, tenantPolicy, null, FollowUpTimingSource.NONE, cadence, null);
+            }
+            dueDate = anchorDate.plusDays(cadence);
         }
 
+        if (source == FollowUpTimingSource.SNOOZE) {
+            return result(customer, FollowUpStatus.NOT_YET_DUE, java.util.List.of(FollowUpReason.SNOOZED), now, today,
+                    tenantPolicy, dueDate, source, cadence, lastPurchaseAt);
+        }
         if (today.isBefore(dueDate)) {
-            FollowUpReason reason = source == FollowUpTimingSource.SNOOZE ? FollowUpReason.SNOOZED
-                    : source == FollowUpTimingSource.EXPLICIT_DATE ? FollowUpReason.EXPLICIT_DATE_NOT_DUE
+            FollowUpReason reason = source == FollowUpTimingSource.EXPLICIT_DATE
+                    ? FollowUpReason.EXPLICIT_DATE_NOT_DUE
                     : FollowUpReason.CADENCE_NOT_DUE;
             return result(customer, FollowUpStatus.NOT_YET_DUE, java.util.List.of(reason), now, today,
                     tenantPolicy, dueDate, source, cadence, lastPurchaseAt);

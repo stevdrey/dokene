@@ -130,26 +130,92 @@ class FollowUpCurlSystemTest {
         assertThat(due.get("status").asText()).isEqualTo("DUE");
         assertThat(due.get("eligible").asBoolean()).isTrue();
 
+        // Follow-up Queue tests
+        CurlResult queueDue = curl("GET", "/api/follow-up-queue", null);
+        assertStatus(queueDue, 200);
+        JsonNode queueBody = json.readTree(queueDue.body());
+        assertThat(queueBody.get("items")).isNotEmpty();
+        assertThat(queueBody.get("items").get(0).get("customerId").asText()).isEqualTo(customerId.toString());
+        assertThat(queueBody.get("items").get(0).get("status").asText()).isEqualTo("DUE");
+
+        CurlResult queueOverdue = curl("GET", "/api/follow-up-queue?status=OVERDUE", null);
+        assertStatus(queueOverdue, 200);
+        assertThat(json.readTree(queueOverdue.body()).get("items")).isEmpty();
+
+        CurlResult queueSpecificDue = curl("GET", "/api/follow-up-queue?status=DUE", null);
+        assertStatus(queueSpecificDue, 200);
+        assertThat(json.readTree(queueSpecificDue.body()).get("items")).isNotEmpty();
+
+        // Follow-up Dismissal validations
+        assertStatus(curl("POST", base + "/follow-up-dismissals", null), 400);
+        assertStatus(curlRaw("POST", base + "/follow-up-dismissals", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"02\"", "Idempotency-Key: curl-dismiss-invalid-etag"), null), 400);
+        assertStatus(curlRaw("POST", base + "/follow-up-dismissals", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: " + customerUpdated.header("etag"), "Idempotency-Key: invalid key"), null), 400);
+
+        // Execute valid dismissal with notes
+        CurlResult dismissResult = curlRaw("POST", base + "/follow-up-dismissals", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: " + customerUpdated.header("etag"), "Idempotency-Key: curl-dismiss-1"),
+                "{\"notes\":\"Customer reached out via alternative channel\"}");
+        assertStatus(dismissResult, 201);
+        JsonNode dismissal = json.readTree(dismissResult.body());
+        assertThat(dismissal.get("dismissedOn").asText()).isEqualTo(today.toString());
+        assertThat(dismissal.get("notes").asText()).isEqualTo("Customer reached out via alternative channel");
+
+        // Idempotent dismissal replay
+        CurlResult dismissReplay = curlRaw("POST", base + "/follow-up-dismissals", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"0\"", "Idempotency-Key: curl-dismiss-1"),
+                "{\"notes\":\"Different note ignored on replay\"}");
+        assertStatus(dismissReplay, 200);
+        assertThat(json.readTree(dismissReplay.body()).get("id")).isEqualTo(dismissal.get("id"));
+
+        // After dismissal, customer cadence advanced (next follow-up is today + 7), queue is empty
+        assertThat(json.readTree(curl("GET", "/api/follow-up-queue", null).body()).get("items")).isEmpty();
+
+        // Dismissal and snooze while NOT_YET_DUE must be rejected with 409 Conflict
+        CurlResult customerPolicyAfterDismissal = curl("GET", base + "/follow-up-policy", null);
+        assertStatus(curlRaw("POST", base + "/follow-up-dismissals", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: " + customerPolicyAfterDismissal.header("etag"), "Idempotency-Key: curl-dismiss-premature"), null), 409);
         LocalDate tomorrow = today.plusDays(1);
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match",
+                customerPolicyAfterDismissal.header("etag"), "{\"until\":\"" + tomorrow + "\"}"), 409);
+
+        // Reset customer to DUE today for snooze and manual follow-up testing
+        CurlResult customerResetForSnooze = curlWithHeader("PUT", base + "/follow-up-policy", "If-Match",
+                customerPolicyAfterDismissal.header("etag"), "{\"cadenceDays\":7,\"explicitNextDate\":\"" + today + "\"}");
+        assertStatus(customerResetForSnooze, 200);
+
+        // Snooze validations and successful snooze
         assertStatus(curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match", "\"01\"",
                 "{\"until\":\"" + tomorrow + "\"}"), 400);
         CurlResult snooze = curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match",
-                customerUpdated.header("etag"), "{\"until\":\"" + tomorrow + "\"}");
+                customerResetForSnooze.header("etag"), "{\"until\":\"" + tomorrow + "\"}");
         assertStatus(snooze, 200);
         JsonNode snoozed = json.readTree(curl("GET", base + "/follow-up-eligibility", null).body());
         assertThat(snoozed.get("status").asText()).isEqualTo("NOT_YET_DUE");
         assertThat(snoozed.get("reasons").toString()).contains("SNOOZED");
 
+        // When snoozed, customer drops from the due queue
+        assertThat(json.readTree(curl("GET", "/api/follow-up-queue", null).body()).get("items")).isEmpty();
+
+        // Manual follow-up validations
         assertStatus(curl("POST", base + "/manual-follow-ups", null), 400);
         assertStatus(curlRaw("POST", base + "/manual-follow-ups", List.of(
                 "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
                 "If-Match: \"02\"", "Idempotency-Key: curl-manual-invalid-etag"), null), 400);
         CurlResult manualResult = curlRaw("POST", base + "/manual-follow-ups", List.of(
                 "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
-                "If-Match: " + snooze.header("etag"), "Idempotency-Key: curl-manual-1"), null);
+                "If-Match: " + snooze.header("etag"), "Idempotency-Key: curl-manual-1"),
+                "{\"notes\":\"Spoke via phone call\"}");
         assertStatus(manualResult, 201);
         JsonNode manual = json.readTree(manualResult.body());
         assertThat(manual.get("completedOn").asText()).isEqualTo(today.toString());
+        assertThat(manual.get("notes").asText()).isEqualTo("Spoke via phone call");
         CurlResult replay = curlRaw("POST", base + "/manual-follow-ups", List.of(
                 "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
                 "If-Match: \"0\"", "Idempotency-Key: curl-manual-1"), null);
@@ -158,6 +224,21 @@ class FollowUpCurlSystemTest {
         assertStatus(curlRaw("POST", base + "/manual-follow-ups", List.of(
                 "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
                 "If-Match: \"3\"", "Idempotency-Key: invalid key"), null), 400);
+
+        // Revoke consent and verify dispositions reject with 409 Conflict
+        CurlResult currentContactPolicy = curl("GET", base + "/contact-policy", null);
+        assertStatus(curlWithHeader("PUT", base + "/contacts/" + contactId + "/consents/WHATSAPP",
+                "If-Match", currentContactPolicy.header("etag"),
+                "{\"status\":\"REVOKED\",\"source\":\"CUSTOMER_VERBAL\"}"), 200);
+
+        assertStatus(curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match", "\"10\"",
+                "{\"until\":\"" + tomorrow + "\"}"), 409);
+        assertStatus(curlRaw("POST", base + "/follow-up-dismissals", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"10\"", "Idempotency-Key: curl-dismiss-revoked"), null), 409);
+        assertStatus(curlRaw("POST", base + "/manual-follow-ups", List.of(
+                "X-Test-Identity: " + identityId, "X-Tenant-Id: " + tenantId,
+                "If-Match: \"10\"", "Idempotency-Key: curl-manual-revoked"), null), 409);
 
         assertStatus(curlWithHeader("PUT", base + "/follow-up-snooze", "If-Match", "\"3\"",
                 "{\"until\":\"" + today.minusDays(1) + "\"}"), 400);
@@ -171,6 +252,12 @@ class FollowUpCurlSystemTest {
                 "X-Tenant-Id: " + tenantId, "If-Match: \"1\""),
                 "{\"cadenceDays\":20,\"timeZone\":\"UTC\"}"), 403);
         assertStatus(curlAs("GET", base + "/follow-up-eligibility", foreignIdentityId, foreignTenantId, null), 404);
+
+        // Queue permissions and foreign tenant isolation
+        assertStatus(curlAs("GET", "/api/follow-up-queue", viewerIdentityId, tenantId, null), 200);
+        assertStatus(curlAs("GET", "/api/follow-up-queue", foreignIdentityId, foreignTenantId, null), 200);
+        assertThat(json.readTree(curlAs("GET", "/api/follow-up-queue", foreignIdentityId, foreignTenantId, null).body())
+                .get("items")).isEmpty();
 
         assertStatus(curlRaw("GET", base + "/follow-up-eligibility",
                 List.of("X-Tenant-Id: " + tenantId), null), 403);

@@ -61,7 +61,8 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid tenant follow-up mutation event");
                 }
             }
-            case CUSTOMER_FOLLOW_UP_POLICY_CHANGED, FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED -> {
+            case CUSTOMER_FOLLOW_UP_POLICY_CHANGED, FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED,
+                    FOLLOW_UP_DISMISSED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
                         || target.type() != AuditTarget.Type.CUSTOMER
                         || !(metadata instanceof AuditMetadata.FollowUpMutation)) {

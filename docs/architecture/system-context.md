@@ -92,6 +92,9 @@ Both use versioned current projections plus privacy-safe append-only evidence hi
 [ADR 0010](../adr/0010-contact-consent-and-do-not-contact.md) defines restoration and deterministic eligibility.
 
 The `followup` module combines current customer/contact state, latest valid purchase, tenant-local calendar policy,
-customer overrides, and manual follow-up state into a typed deterministic decision. It reads all tenant scope from
-trusted context and produces no external side effect. [ADR 0012](../adr/0012-deterministic-follow-up-eligibility.md)
-defines precedence, no-purchase behavior, time-zone semantics, and the future queue contract.
+customer overrides, manual follow-up state, and dismissals into a typed deterministic decision and an operator-facing
+due follow-up queue (`GET /api/follow-up-queue`). It exposes explicit operator dispositions (snooze, dismiss, manual follow-up)
+with optimistic concurrency (`If-Match`), idempotency (`Idempotency-Key`), and cadence cycle advancement. It reads all
+tenant scope from trusted context and produces no external messaging side effects.
+[ADR 0012](../adr/0012-deterministic-follow-up-eligibility.md) and [ADR 0013](../adr/0013-due-follow-up-queue-and-operator-dispositions.md)
+define precedence, no-purchase behavior, time-zone semantics, queue pagination, and disposition contracts.

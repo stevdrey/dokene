@@ -32,3 +32,61 @@ set -a; . ./.env; set +a
 ```
 
 Flyway must report applying `V1__create_tenant_foundation.sql`; Hibernate then validates the resulting schema. Stop `bootRun` after startup. Future migrations use `V<version>__<snake_case_description>.sql`, are immutable once shared, and must include deliberate ownership, grant, and RLS-policy review.
+
+## Local Keycloak OIDC provider
+
+A reproducible local Keycloak service is provided for OIDC BFF authorization-code authentication without requiring manual administration console configuration.
+
+### Startup and realm import
+
+Keycloak is defined in `compose.yaml` with an explicit image version (`quay.io/keycloak/keycloak:26.7.3`) and runs in development mode (`start-dev --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080. Local bootstrap administrator credentials are configured via `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` in `.env`.
+
+To start both PostgreSQL and Keycloak together:
+
+```bash
+docker compose up --wait
+```
+
+Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/import/dokene-realm.json`.
+
+### BFF confidential client
+
+The `dokene-bff` client is configured strictly as a confidential OpenID Connect client:
+- Authorization Code flow enabled (`standardFlowEnabled: true`).
+- Direct Access Grants (resource owner password flow) and Implicit flow are disabled.
+- Client secret is never committed; Keycloak's container entrypoint safely escapes and interpolates `${env.DOKENE_OIDC_CLIENT_SECRET}` from `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET` in `.env` into the realm definition, safely supporting characters such as `/` (from `openssl rand -base64 32`), `&`, `\`, and quotes without shell or JSON corruption.
+- Redirect URIs are restricted to the local Spring Security callback endpoints:
+  - `http://localhost:8080/login/oauth2/code/dokene`
+  - `http://127.0.0.1:8080/login/oauth2/code/dokene`
+- Post-logout redirect URIs are restricted to local application roots (`http://localhost:8080/`, `http://localhost:5173/`).
+- The discovery endpoint `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_DOKENE_ISSUER_URI` dynamically tracks `KEYCLOAK_PORT` (`http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene`) so changing `KEYCLOAK_PORT` in `.env` automatically keeps Spring's discovery target synchronized.
+
+In accordance with Security Invariant #14, Keycloak authenticates external identity only; Keycloak roles are not authoritative for Dokene tenant membership, internal identities, or application permissions.
+
+### Verification of discovery endpoint
+
+Verify the imported realm and OIDC configuration:
+
+```bash
+set -a; [ -f .env ] && . ./.env; set +a
+curl -fsS "http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene/.well-known/openid-configuration" | jq .
+```
+
+### Development test user
+
+For exercising local browser login against the Spring Boot BFF, the imported realm defines a development test user:
+- Username: `testuser`
+- Password: `testpassword` (or custom via `DOKENE_TEST_USER_PASSWORD`)
+- Email: `testuser@dokene.local`
+
+### Clean reset
+
+To reset the local environment (database and Keycloak):
+
+```bash
+docker compose down --volumes --remove-orphans
+```
+
+### Production differences
+
+The local Keycloak setup runs in Quarkus development mode (`start-dev`) using embedded storage and plain HTTP on loopback. Production deployments must use production mode (`start`), strict HTTPS/TLS, an external high-availability database cluster, managed secret distribution, and enterprise identity federation.

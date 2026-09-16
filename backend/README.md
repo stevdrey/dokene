@@ -29,29 +29,47 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 - `DOKENE_TENANT_CONTEXT_SIGNING_KEY`, a 64-character hexadecimal encoding of 32 random bytes. Generate it with `openssl rand -hex 32`; keep the value out of source control.
 - `DOKENE_TENANT_CONTEXT_KEY_ID`, an identifier for the active signing key (defaults to `default`).
 
-## OIDC browser authentication
+## Backend for Frontend (BFF) OIDC authentication
 
-Dokene uses Spring Security's OIDC authorization-code flow and a server-side HTTP session. Configure one
-provider with standard Spring Boot properties; the `.env.example` uses the registration ID `dokene`.
+Dokene implements the Backend for Frontend (BFF) security pattern for browser authentication, using Spring Security's
+confidential OIDC authorization-code flow and server-side HTTP sessions. Provider tokens (access, refresh, ID) and the
+client secret remain strictly server-side and are never exposed to browser storage, JavaScript memory, error responses,
+or logs.
+
+Configure one provider with standard Spring Boot properties; the `.env.example` uses the registration ID `dokene`.
 At minimum set the client ID, client secret, scopes including `openid`, redirect URI, and provider issuer URI.
 Register `{baseUrl}/login/oauth2/code/dokene` as the provider callback and initiate login at
-`/oauth2/authorization/dokene`. A successful callback redirects to `GET /api/session`.
+`/oauth2/authorization/dokene`. A successful callback redirects to the frontend application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain authenticated session state.
 
 The callback validates authorization state and the provider's OIDC response through Spring Security. A valid
 issuer and subject are atomically mapped to a stable internal `IdentityId`; email and provider role claims are
-never used for account linking or tenant authorization. Tokens remain in server-side authentication/session
-state and must not be logged or copied to browser storage.
+never used for account linking or tenant authorization.
 
-`GET /api/session` returns `authenticated`, the internal `identityId`, and the session CSRF token. Unauthenticated
-or expired sessions receive `401`. Send that token as `X-CSRF-TOKEN` for state-changing requests. `POST /logout`
-requires CSRF, invalidates the application session, deletes `JSESSIONID`, and returns `204`. The session defaults
-to 30 minutes. Cookies are `HttpOnly`, `Secure`, and `SameSite=Lax`; set `DOKENE_SESSION_COOKIE_SECURE=false` only
-for local HTTP development.
+Session lifecycle, cookie attributes, and security controls:
 
-CORS rejects cross-origin credentialed traffic by default. `DOKENE_CORS_ALLOWED_ORIGINS` may contain a
-comma-separated exact allowlist (for example `http://localhost:5173` locally); wildcard origins are not used.
-The frontend should send cookies with `credentials: include` and must keep OIDC/session values out of
-`localStorage` and other browser-persistent storage.
+- `SessionCreationPolicy.IF_REQUIRED` creates sessions only when needed.
+- Session fixation protection rotates the session identifier immediately upon authentication (`changeSessionId`),
+  rendering pre-authentication session identifiers invalid.
+- `server.servlet.session.timeout` defaults to 30 minutes. Expired and invalid sessions fail closed, returning `401 Unauthorized`
+  for `/api/**` endpoints without redirect loops.
+- Cookies are `HttpOnly`, `Secure` (with `DOKENE_SESSION_COOKIE_SECURE=false` permitted only for local plain HTTP),
+- `server.forward-headers-strategy` defaults to `none` (`SERVER_FORWARD_HEADERS_STRATEGY=none`) to avoid trusting
+  unverified client proxy headers. When deployed behind a trusted reverse proxy or load balancer with TLS offloading,
+  set `SERVER_FORWARD_HEADERS_STRATEGY=framework`. The edge proxy must sanitize/overwrite incoming `X-Forwarded-*` headers.
+
+Frontend contract:
+
+- `GET /api/session` returns `{ "authenticated": true, "identityId": "...", "csrfToken": "..." }`. Unauthenticated or
+  expired requests return `401 Unauthorized`.
+- Send the `csrfToken` as `X-CSRF-TOKEN` on all state-changing requests (POST, PUT, DELETE, PATCH).
+- `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server session, clears security context, deletes `JSESSIONID`,
+  and returns `204 No Content` for local session logout.
+- `POST /logout?provider=true` requires `X-CSRF-TOKEN`, invalidates the local session, deletes `JSESSIONID`, and
+  redirects (`302 Found`) to the provider's `end_session_endpoint` with `id_token_hint` (held server-side) and
+  `post_logout_redirect_uri={baseUrl}/` for Single Sign-Out (SSO).
+- CORS rejects cross-origin credentialed traffic by default. `DOKENE_CORS_ALLOWED_ORIGINS` may contain a
+  comma-separated exact allowlist (for example `http://localhost:5173` locally); wildcard origins are rejected.
+  Same-origin deployment is the preferred production topology.
 
 ## Workspace provisioning and tenant selection
 
@@ -128,23 +146,28 @@ characters. Future instants are rejected and stored timestamps use microsecond p
 Last purchase is derived from valid history, including backdated inserts, corrected timestamps, and voids. Tenant
 and customer identity cannot be reassigned. See [ADR 0011](../docs/adr/0011-purchase-history-and-last-purchase.md).
 
-## Follow-up policy
+## Follow-up queue and dispositions
 
-The `followup` module evaluates the current customer, WhatsApp consent, latest valid purchase, tenant policy and
-customer policy with an injected clock. Tenant policies have a 30-day/UTC initial value and may define an IANA time
-zone; customer cadence overrides tenant cadence. Timing precedence is active snooze, explicit next date, last manual
-follow-up plus cadence, then last purchase plus cadence. A customer without a timing anchor is not eligible.
+The `followup` module evaluates the current customer, WhatsApp consent, latest valid purchase, tenant policy,
+customer policy, manual follow-up, and dismissal state with an injected clock. Tenant policies have a 30-day/UTC
+initial value and may define an IANA time zone; customer cadence overrides tenant cadence. Timing precedence is
+active snooze, explicit next date, latest anchor (last manual follow-up, last dismissal, or last purchase) plus
+cadence. A customer without a timing anchor is not eligible.
 
 Results are provider-neutral and report `INELIGIBLE`, `NOT_YET_DUE`, `DUE`, or `OVERDUE`, closed reason codes, the
 timing source and relevant calendar context. Archive, do-not-contact and missing granted consent always win.
-`FollowUpService.recordManualFollowUp` and `FollowUpService.snooze` are the contract for the future manual queue;
-this module adds no scheduler, AI decision or outbound action. See
-[ADR 0012](../docs/adr/0012-deterministic-follow-up-eligibility.md).
+The due follow-up queue is derived dynamically from current state, supporting cursor pagination and status filtering.
+Dispositions (snooze, dismiss, manual follow-up) provide the state-transition contract for operator workflows;
+this module adds no scheduler, messaging dispatch, or AI drafting. See
+[ADR 0012](../docs/adr/0012-deterministic-follow-up-eligibility.md) and
+[ADR 0013](../docs/adr/0013-due-follow-up-queue-and-operator-dispositions.md).
 
 - `GET` and `PUT /api/follow-up-policy` read or configure the tenant cadence and IANA time zone.
 - `GET` and `PUT /api/customers/{customerId}/follow-up-policy` read or configure a customer cadence/date override.
 - `GET /api/customers/{customerId}/follow-up-eligibility` returns the typed current decision.
-- `POST /api/customers/{customerId}/manual-follow-ups` records completion and starts a new cadence.
+- `GET /api/follow-up-queue` returns a cursor-paginated list of due and overdue follow-ups with customer context.
+- `POST /api/customers/{customerId}/manual-follow-ups` records manual completion (with optional notes) and advances cadence.
+- `POST /api/customers/{customerId}/follow-up-dismissals` dismisses current cycle (with optional notes) and advances cadence.
 - `PUT /api/customers/{customerId}/follow-up-snooze` postpones eligibility to the supplied local date.
 
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

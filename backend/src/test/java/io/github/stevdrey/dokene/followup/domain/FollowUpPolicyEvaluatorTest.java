@@ -71,6 +71,20 @@ class FollowUpPolicyEvaluatorTest {
     }
 
     @Test
+    void sameDaySnoozeRemainsNotYetDue() {
+        LocalDate tenantToday = NOW.atZone(tenantPolicy.zoneId()).toLocalDate();
+        var policy = new CustomerFollowUpPolicy(tenantId, customerId, 7,
+                tenantToday.minusDays(1), tenantToday, null);
+
+        var result = evaluator.evaluate(customer, contactPolicy, tenantPolicy, policy, null);
+
+        assertThat(result.status()).isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(result.reasons()).containsExactly(FollowUpReason.SNOOZED);
+        assertThat(result.nextFollowUpDate()).isEqualTo(tenantToday);
+        assertThat(result.timingSource()).isEqualTo(FollowUpTimingSource.SNOOZE);
+    }
+
+    @Test
     void noPurchaseWithoutAnotherAnchorIsIneligible() {
         var result = evaluator.evaluate(customer, contactPolicy, tenantPolicy,
                 CustomerFollowUpPolicy.empty(tenantId, customerId), null);
@@ -122,5 +136,58 @@ class FollowUpPolicyEvaluatorTest {
         var result = evaluator.evaluate(customer, unknown, tenantPolicy, policy, null);
         assertThat(result.status()).isEqualTo(FollowUpStatus.INELIGIBLE);
         assertThat(result.reasons()).containsExactly(FollowUpReason.NO_ELIGIBLE_CONTACT);
+    }
+
+    @Test
+    void dismissalAdvancesCadenceAndSetsDismissalTimingSource() {
+        // Today is 2026-03-08 in America/New_York (NOW is 2026-03-08T07:30:00Z)
+        // Dismissed on 2026-03-01 with 14-day customer cadence: due on 2026-03-15 (NOT_YET_DUE)
+        var notYetDuePolicy = new CustomerFollowUpPolicy(tenantId, customerId, 14,
+                null, null, null, LocalDate.of(2026, 3, 1));
+        var notYetDue = evaluator.evaluate(customer, contactPolicy, tenantPolicy, notYetDuePolicy, null);
+        assertThat(notYetDue.status()).isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(notYetDue.reasons()).containsExactly(FollowUpReason.CADENCE_NOT_DUE);
+        assertThat(notYetDue.timingSource()).isEqualTo(FollowUpTimingSource.LAST_DISMISSAL);
+        assertThat(notYetDue.nextFollowUpDate()).isEqualTo(LocalDate.of(2026, 3, 15));
+
+        // Dismissed on 2026-02-22 with 14-day cadence: due on 2026-03-08 (DUE today)
+        var dueTodayPolicy = new CustomerFollowUpPolicy(tenantId, customerId, 14,
+                null, null, null, LocalDate.of(2026, 2, 22));
+        var dueToday = evaluator.evaluate(customer, contactPolicy, tenantPolicy, dueTodayPolicy, null);
+        assertThat(dueToday.status()).isEqualTo(FollowUpStatus.DUE);
+        assertThat(dueToday.reasons()).containsExactly(FollowUpReason.DUE_TODAY);
+        assertThat(dueToday.timingSource()).isEqualTo(FollowUpTimingSource.LAST_DISMISSAL);
+
+        // Dismissed on 2026-02-20 with 14-day cadence: due on 2026-03-06 (OVERDUE)
+        var overduePolicy = new CustomerFollowUpPolicy(tenantId, customerId, 14,
+                null, null, null, LocalDate.of(2026, 2, 20));
+        var overdue = evaluator.evaluate(customer, contactPolicy, tenantPolicy, overduePolicy, null);
+        assertThat(overdue.status()).isEqualTo(FollowUpStatus.OVERDUE);
+        assertThat(overdue.reasons()).containsExactly(FollowUpReason.OVERDUE);
+        assertThat(overdue.timingSource()).isEqualTo(FollowUpTimingSource.LAST_DISMISSAL);
+    }
+
+    @Test
+    void latestAnchorWinsBetweenManualFollowUpDismissalAndPurchase() {
+        // Dismissal (2026-02-25) is newer than manual follow-up (2026-02-01) and purchase (2026-01-15)
+        var dismissalNewer = new CustomerFollowUpPolicy(tenantId, customerId, 30,
+                null, null, LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 25));
+        var resultDismissal = evaluator.evaluate(customer, contactPolicy, tenantPolicy, dismissalNewer,
+                Instant.parse("2026-01-15T00:00:00Z"));
+        assertThat(resultDismissal.timingSource()).isEqualTo(FollowUpTimingSource.LAST_DISMISSAL);
+
+        // New purchase (2026-03-01) is newer than dismissal (2026-02-15)
+        var purchaseNewer = new CustomerFollowUpPolicy(tenantId, customerId, 30,
+                null, null, null, LocalDate.of(2026, 2, 15));
+        var resultPurchase = evaluator.evaluate(customer, contactPolicy, tenantPolicy, purchaseNewer,
+                Instant.parse("2026-03-01T00:00:00Z"));
+        assertThat(resultPurchase.timingSource()).isEqualTo(FollowUpTimingSource.LAST_PURCHASE);
+
+        // Manual follow-up (2026-03-02) is newer than dismissal (2026-02-15) and purchase (2026-02-01)
+        var manualNewer = new CustomerFollowUpPolicy(tenantId, customerId, 30,
+                null, null, LocalDate.of(2026, 3, 2), LocalDate.of(2026, 2, 15));
+        var resultManual = evaluator.evaluate(customer, contactPolicy, tenantPolicy, manualNewer,
+                Instant.parse("2026-02-01T00:00:00Z"));
+        assertThat(resultManual.timingSource()).isEqualTo(FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP);
     }
 }
