@@ -139,16 +139,17 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     }
   };
 
-  // Filter items by search query
+  // Filter items by search query across currently loaded pages
+  const isSearchActive = searchQuery.trim().length > 0;
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
+    if (!isSearchActive) return items;
     const q = searchQuery.toLowerCase().trim();
     return items.filter(
       (item) =>
         item.displayName.toLowerCase().includes(q) ||
         (item.primaryPhone && item.primaryPhone.includes(q))
     );
-  }, [items, searchQuery]);
+  }, [items, searchQuery, isSearchActive]);
 
   // Selected item reference scoped to filteredItems
   const selectedItem = useMemo(() => {
@@ -507,6 +508,36 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                 fontFamily: 'inherit'
               }}
             />
+            {isSearchActive && nextCursor && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 'var(--font-size-meta)',
+                  color: 'var(--color-text-muted)',
+                  marginTop: '4px'
+                }}
+              >
+                <span>Buscando en {items.length} cargados</span>
+                <button
+                  type="button"
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-brand)',
+                    cursor: 'pointer',
+                    padding: 0,
+                    textDecoration: 'underline',
+                    fontSize: 'var(--font-size-meta)'
+                  }}
+                >
+                  {loadingMore ? 'Cargando...' : 'Cargar más páginas'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -683,7 +714,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   onClick={handleLoadMore}
                   isLoading={loadingMore}
                 >
-                  Cargar más seguimientos
+                  {isSearchActive ? 'Cargar más páginas y seguir buscando' : 'Cargar más seguimientos'}
                 </Button>
               </div>
             )}
