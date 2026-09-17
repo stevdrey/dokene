@@ -6,7 +6,6 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 /**
  * Port for receiving notifications of tenant membership role transitions.
  */
-@FunctionalInterface
 public interface MembershipAuditPort {
 
     void roleChanged(
@@ -15,7 +14,25 @@ public interface MembershipAuditPort {
             TenantRole newRole
     );
 
+    void membershipCreated(
+            TenantMembershipId membershipId,
+            TenantRole role
+    );
+
+    void membershipRevoked(
+            TenantMembershipId membershipId
+    );
+
     static MembershipAuditPort noop() {
-        return (membershipId, previousRole, newRole) -> { };
+        return new MembershipAuditPort() {
+            @Override
+            public void roleChanged(TenantMembershipId membershipId, TenantRole previousRole, TenantRole newRole) { }
+
+            @Override
+            public void membershipCreated(TenantMembershipId membershipId, TenantRole role) { }
+
+            @Override
+            public void membershipRevoked(TenantMembershipId membershipId) { }
+        };
     }
 }

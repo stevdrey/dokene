@@ -82,7 +82,7 @@ For exercising local browser login and multi-tenant RBAC validation against the 
 | `testoperator` | `testoperator@dokene.local` | `OPERATOR` | Operational permissions (customer and purchase read/write, follow-up evaluations and dispositions), without membership or workspace administration. |
 | `testviewer` | `testviewer@dokene.local` | `VIEWER` | Read-only access across all domain resources (customers, purchases, follow-ups). State-changing actions and controls are forbidden. |
 
-To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture:
+To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture. Note that workspace provisioning is disabled by default in Dokene; make sure your local backend is started with `DOKENE_PROVISIONING_ENABLED=true` (in your `.env` file):
 
 ```bash
 ./scripts/seed-local-qa.sh

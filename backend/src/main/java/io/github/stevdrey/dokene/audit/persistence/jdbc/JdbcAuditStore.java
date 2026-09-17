@@ -35,6 +35,10 @@ class JdbcAuditStore {
                 ? value : null;
         AuditMetadata.MembershipRoleChanged change = event.metadata() instanceof AuditMetadata.MembershipRoleChanged value
                 ? value : null;
+        AuditMetadata.MembershipCreated created = event.metadata() instanceof AuditMetadata.MembershipCreated value
+                ? value : null;
+        String previousRole = change == null ? null : change.previousRole().name();
+        String newRole = change != null ? change.newRole().name() : (created != null ? created.role().name() : null);
         jdbc.queryForObject("""
                 SELECT dokene.append_audit_event(
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -46,7 +50,7 @@ class JdbcAuditStore {
                 event.target() == null ? null : event.target().id(), event.outcome().name(), event.correlationId(),
                 denial == null || denial.permission() == null ? null : denial.permission().name(),
                 denial == null ? null : denial.reason().name(),
-                change == null ? null : change.previousRole().name(), change == null ? null : change.newRole().name(),
+                previousRole, newRole,
                 capability == null ? null : capability.payload(),
                 capability == null ? null : capability.signature());
     }
@@ -73,6 +77,9 @@ class JdbcAuditStore {
                     AuditDenialReason.valueOf(row.getString("denial_reason")));
             case MEMBERSHIP_ROLE_CHANGED -> new AuditMetadata.MembershipRoleChanged(
                     TenantRole.valueOf(row.getString("previous_role")), TenantRole.valueOf(row.getString("new_role")));
+            case MEMBERSHIP_CREATED -> new AuditMetadata.MembershipCreated(
+                    TenantRole.valueOf(row.getString("new_role")));
+            case MEMBERSHIP_REVOKED -> new AuditMetadata.MembershipRevoked();
             case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED,
                     CUSTOMER_CONSENT_CHANGED, CUSTOMER_DO_NOT_CONTACT_CHANGED -> new AuditMetadata.CustomerMutation();
             case PURCHASE_RECORDED, PURCHASE_CORRECTED, PURCHASE_VOIDED -> new AuditMetadata.PurchaseMutation();

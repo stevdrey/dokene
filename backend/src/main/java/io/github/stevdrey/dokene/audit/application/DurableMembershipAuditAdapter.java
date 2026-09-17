@@ -19,4 +19,14 @@ public class DurableMembershipAuditAdapter implements MembershipAuditPort {
     public void roleChanged(TenantMembershipId membershipId, TenantRole previousRole, TenantRole newRole) {
         recorder.membershipRoleChanged(membershipId, previousRole, newRole);
     }
+
+    @Override
+    public void membershipCreated(TenantMembershipId membershipId, TenantRole role) {
+        recorder.membershipCreated(membershipId, role);
+    }
+
+    @Override
+    public void membershipRevoked(TenantMembershipId membershipId) {
+        recorder.membershipRevoked(membershipId);
+    }
 }

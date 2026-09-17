@@ -16,6 +16,14 @@ public interface AuditRecorder {
     void membershipRoleChanged(TenantMembershipId target, TenantRole previousRole, TenantRole newRole);
 
     /** Requires an existing business transaction; failure must roll back the state transition. */
+    default void membershipCreated(TenantMembershipId target, TenantRole role) {
+    }
+
+    /** Requires an existing business transaction; failure must roll back the state transition. */
+    default void membershipRevoked(TenantMembershipId target) {
+    }
+
+    /** Requires an existing business transaction; failure must roll back the state transition. */
     void customerMutated(UUID target, AuditEventType eventType);
 
     /** Requires an existing business transaction; failure must roll back the state transition. */

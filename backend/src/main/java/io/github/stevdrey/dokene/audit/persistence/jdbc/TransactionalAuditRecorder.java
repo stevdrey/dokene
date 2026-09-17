@@ -68,6 +68,22 @@ class TransactionalAuditRecorder implements AuditRecorder {
     }
 
     @Override
+    public void membershipCreated(TenantMembershipId target, TenantRole role) {
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.MEMBERSHIP_CREATED,
+                new AuditTarget(AuditTarget.Type.MEMBERSHIP, target.value()), AuditOutcome.SUCCESS,
+                new AuditMetadata.MembershipCreated(role)), mandatory);
+    }
+
+    @Override
+    public void membershipRevoked(TenantMembershipId target) {
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.MEMBERSHIP_REVOKED,
+                new AuditTarget(AuditTarget.Type.MEMBERSHIP, target.value()), AuditOutcome.SUCCESS,
+                new AuditMetadata.MembershipRevoked()), mandatory);
+    }
+
+    @Override
     public void customerMutated(UUID target, AuditEventType eventType) {
         if (eventType != AuditEventType.CUSTOMER_CREATED && eventType != AuditEventType.CUSTOMER_UPDATED
                 && eventType != AuditEventType.CUSTOMER_ARCHIVED

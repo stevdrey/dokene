@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -11,6 +12,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -21,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 
 class MembershipServiceTest {
 
@@ -55,7 +58,7 @@ class MembershipServiceTest {
         }
     };
 
-    private final MembershipAuditPort auditPort = (membershipId, prevRole, newRole) -> { };
+    private final MembershipAuditPort auditPort = mock(MembershipAuditPort.class);
     private MembershipService service;
     private TenantContext ownerContext;
 
@@ -68,7 +71,7 @@ class MembershipServiceTest {
         ownerContext = new TenantContext(tenantId, ownerIdentity, ownerMembership.id(), TenantRole.OWNER, TenantMembershipStatus.ACTIVE);
 
         MembershipRoleService roleService = new MembershipRoleService(authorization, contexts, repository, auditPort, clock);
-        service = new MembershipService(authorization, contexts, repository, roleService, clock);
+        service = new MembershipService(authorization, contexts, repository, roleService, auditPort, clock);
     }
 
     @Test
@@ -127,6 +130,56 @@ class MembershipServiceTest {
             assertThatThrownBy(() -> service.revokeMembership(ownerIdentity))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Owner membership cannot be revoked");
+        });
+    }
+
+    @Test
+    void addMembershipInvokesAuditPort() {
+        contexts.runWithContext(ownerContext, () -> {
+            TenantMembership created = service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            verify(auditPort).membershipCreated(created.id(), TenantRole.OPERATOR);
+        });
+    }
+
+    @Test
+    void revokeMembershipInvokesAuditPort() {
+        contexts.runWithContext(ownerContext, () -> {
+            TenantMembership created = service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            service.revokeMembership(operatorIdentity);
+            verify(auditPort).membershipRevoked(created.id());
+        });
+    }
+
+    @Test
+    void unauthorizedCallerInvitingOwnerFailsWithForbiddenNotBadRequest() {
+        TenantMembership opMembership = repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity).orElseGet(() -> {
+            TenantMembership m = TenantMembership.createActive(TenantMembershipId.random(), tenantId, operatorIdentity, TenantRole.OPERATOR, now);
+            return repository.save(m);
+        });
+        TenantContext opContext = new TenantContext(tenantId, operatorIdentity, opMembership.id(), TenantRole.OPERATOR, TenantMembershipStatus.ACTIVE);
+        contexts.runWithContext(opContext, () -> {
+            assertThatThrownBy(() -> service.addMembership(new IdentityId(UUID.randomUUID()), TenantRole.OWNER))
+                    .isInstanceOf(TenantAccessDeniedException.class);
+        });
+    }
+
+    @Test
+    void addMembershipHandlesConcurrentDuplicateException() {
+        TenantMembershipRepository throwingRepo = mock(TenantMembershipRepository.class);
+        org.mockito.Mockito.when(throwingRepo.findByTenantIdAndIdentityId(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Optional.empty());
+        org.mockito.Mockito.when(throwingRepo.save(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        MembershipService concurrentService = new MembershipService(
+                authorization, contexts, throwingRepo,
+                new MembershipRoleService(authorization, contexts, throwingRepo, auditPort, clock),
+                auditPort, clock);
+
+        contexts.runWithContext(ownerContext, () -> {
+            assertThatThrownBy(() -> concurrentService.addMembership(new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Membership already exists");
         });
     }
 }

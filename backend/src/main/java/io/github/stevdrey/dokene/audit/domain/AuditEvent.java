@@ -39,6 +39,20 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid membership role event");
                 }
             }
+            case MEMBERSHIP_CREATED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.MEMBERSHIP
+                        || !(metadata instanceof AuditMetadata.MembershipCreated)) {
+                    throw new IllegalArgumentException("Invalid membership created event");
+                }
+            }
+            case MEMBERSHIP_REVOKED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.MEMBERSHIP
+                        || !(metadata instanceof AuditMetadata.MembershipRevoked)) {
+                    throw new IllegalArgumentException("Invalid membership revoked event");
+                }
+            }
             case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED,
                     CUSTOMER_CONSENT_CHANGED, CUSTOMER_DO_NOT_CONTACT_CHANGED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null

@@ -157,28 +157,35 @@ echo "OK (Identity ID: $VIEWER_IDENTITY_ID)"
 # 4. Provision or Find Canonical QA Workspace
 # ------------------------------------------------------------------------------
 WORKSPACE_NAME="QA Café Norte"
+IDEMPOTENCY_KEY="qa-seed-cafe-norte"
 echo ""
 echo "Establishing canonical workspace: '$WORKSPACE_NAME'..."
 
-WORKSPACES_JSON="$(curl -s -b "$OWNER_COOKIE_JAR" "$BFF_URL/api/tenants")"
-EXISTING_TENANT_ID="$(echo "$WORKSPACES_JSON" | jq -r ".[] | select(.displayName == \"$WORKSPACE_NAME\") | .tenantId" | head -n 1)"
+PROVISION_HEADER_LOG="$TEMP_DIR/provision-headers.txt"
+PROVISION_BODY_LOG="$TEMP_DIR/provision-body.txt"
+PROVISION_HTTP_CODE="$(curl -s -b "$OWNER_COOKIE_JAR" -D "$PROVISION_HEADER_LOG" -o "$PROVISION_BODY_LOG" -w "%{http_code}" \
+    -X POST "$BFF_URL/api/tenants" \
+    -H "Content-Type: application/json" \
+    -H "X-CSRF-TOKEN: $OWNER_CSRF" \
+    -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
+    -d "{\"displayName\": \"$WORKSPACE_NAME\", \"idempotencyKey\": \"$IDEMPOTENCY_KEY\"}")"
 
-if [ -n "$EXISTING_TENANT_ID" ]; then
-    TENANT_ID="$EXISTING_TENANT_ID"
-    echo "• Found existing workspace with ID: $TENANT_ID"
-else
-    IDEMPOTENCY_KEY="qa-seed-cafe-norte"
-    PROVISION_RES="$(curl -s -b "$OWNER_COOKIE_JAR" -X POST "$BFF_URL/api/tenants" \
-        -H "Content-Type: application/json" \
-        -H "X-CSRF-TOKEN: $OWNER_CSRF" \
-        -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
-        -d "{\"displayName\": \"$WORKSPACE_NAME\", \"idempotencyKey\": \"$IDEMPOTENCY_KEY\"}")"
-    TENANT_ID="$(echo "$PROVISION_RES" | jq -r '.tenantId')"
-    if [ -z "$TENANT_ID" ] || [ "$TENANT_ID" = "null" ]; then
-        echo "Error: Failed to provision workspace: $PROVISION_RES" >&2
-        exit 1
-    fi
+if [ "$PROVISION_HTTP_CODE" = "403" ]; then
+    echo "FAILED (HTTP 403)"
+    echo "Error: Workspace provisioning is disabled by default in Dokene." >&2
+    echo "Please set DOKENE_PROVISIONING_ENABLED=true (or dokene.provisioning.enabled=true) in your backend environment." >&2
+    exit 1
+elif [ "$PROVISION_HTTP_CODE" != "200" ] && [ "$PROVISION_HTTP_CODE" != "201" ]; then
+    echo "FAILED (HTTP $PROVISION_HTTP_CODE)"
+    echo "Error: Failed to provision workspace: $(cat "$PROVISION_BODY_LOG")" >&2
+    exit 1
+fi
+
+TENANT_ID="$(jq -r '.tenantId' "$PROVISION_BODY_LOG")"
+if [ "$PROVISION_HTTP_CODE" = "201" ]; then
     echo "• Successfully provisioned new workspace with ID: $TENANT_ID"
+else
+    echo "• Resolved canonical workspace with ID: $TENANT_ID"
 fi
 
 # ------------------------------------------------------------------------------
@@ -191,6 +198,12 @@ MEMBERSHIPS_JSON="$(curl -s -b "$OWNER_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" 
 
 # Assign testoperator as OPERATOR
 if echo "$MEMBERSHIPS_JSON" | jq -e ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\")" >/dev/null 2>&1; then
+    CURRENT_OP_STATUS="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\") | .status")"
+    if [ "$CURRENT_OP_STATUS" = "REVOKED" ]; then
+        echo "Error: Membership for 'testoperator' in workspace '$WORKSPACE_NAME' is in REVOKED status." >&2
+        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. 'docker compose down -v && docker compose up -d') to run QA seeding afresh." >&2
+        exit 1
+    fi
     CURRENT_OP_ROLE="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\") | .role")"
     if [ "$CURRENT_OP_ROLE" != "OPERATOR" ]; then
         echo -n "• Updating 'testoperator' role to OPERATOR... "
@@ -215,6 +228,12 @@ fi
 
 # Assign testviewer as VIEWER
 if echo "$MEMBERSHIPS_JSON" | jq -e ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\")" >/dev/null 2>&1; then
+    CURRENT_VI_STATUS="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\") | .status")"
+    if [ "$CURRENT_VI_STATUS" = "REVOKED" ]; then
+        echo "Error: Membership for 'testviewer' in workspace '$WORKSPACE_NAME' is in REVOKED status." >&2
+        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. 'docker compose down -v && docker compose up -d') to run QA seeding afresh." >&2
+        exit 1
+    fi
     CURRENT_VI_ROLE="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\") | .role")"
     if [ "$CURRENT_VI_ROLE" != "VIEWER" ]; then
         echo -n "• Updating 'testviewer' role to VIEWER... "
@@ -266,6 +285,9 @@ if [ "$VERIFY_MODE" = true ]; then
     echo "AUTOMATED RBAC CONSTRAINT VERIFICATION"
     echo "======================================================================"
 
+    RANDOM_SUFFIX="$((RANDOM % 90000000 + 10000000))"
+    RANDOM_PHONE="+569${RANDOM_SUFFIX}"
+
     # Verify OPERATOR constraints
     echo -n "• [OPERATOR] Listing memberships (MEMBERSHIP_READ)... "
     OP_MEMBERSHIPS_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" -o /dev/null -w "%{http_code}" "$BFF_URL/api/memberships")"
@@ -275,7 +297,7 @@ if [ "$VERIFY_MODE" = true ]; then
     OP_CUST_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X POST "$BFF_URL/api/customers" \
         -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" \
         -H "Content-Type: application/json" \
-        -d '{"displayName":"Cliente creado por Operator","phones":[{"number":"+56911223344","primary":true}]}' \
+        -d "{\"displayName\":\"Cliente creado por Operator\",\"phones\":[{\"number\":\"$RANDOM_PHONE\",\"region\":\"CL\",\"primary\":true}]}" \
         -o /dev/null -w "%{http_code}")"
     if [ "$OP_CUST_STATUS" = "201" ]; then echo "PASS (201 Created)"; else echo "FAIL ($OP_CUST_STATUS)"; exit 1; fi
 
@@ -296,7 +318,7 @@ if [ "$VERIFY_MODE" = true ]; then
     VI_CUST_CREATE_STATUS="$(curl -s -b "$VIEWER_COOKIE_JAR" -X POST "$BFF_URL/api/customers" \
         -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $VIEWER_CSRF" \
         -H "Content-Type: application/json" \
-        -d '{"displayName":"Cliente intento por Viewer","phones":[{"number":"+56999887766","primary":true}]}' \
+        -d '{"displayName":"Cliente intento por Viewer","phones":[{"number":"+56999887766","region":"CL","primary":true}]}' \
         -o /dev/null -w "%{http_code}")"
     if [ "$VI_CUST_CREATE_STATUS" = "403" ]; then echo "PASS (403 Forbidden fail-closed)"; else echo "FAIL ($VI_CUST_CREATE_STATUS)"; exit 1; fi
 

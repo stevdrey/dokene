@@ -125,6 +125,35 @@ class MembershipManagementIntegrationTest {
                 .andExpect(jsonPath("$.identityId").value(newIdentity.value().toString()))
                 .andExpect(jsonPath("$.role").value("OPERATOR"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        try (var connection = TenantSecurityIntegrationFixture.migrationConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT event_type, new_role, outcome FROM dokene.audit_events WHERE tenant_id = ? AND event_type = 'MEMBERSHIP_CREATED'")) {
+            statement.setObject(1, tenant.id().value());
+            try (var rs = statement.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("new_role")).isEqualTo("OPERATOR");
+                assertThat(rs.getString("outcome")).isEqualTo("SUCCESS");
+            }
+        }
+    }
+
+    @Test
+    void operatorInvitingOwnerGetsForbiddenNotBadRequest() throws Exception {
+        IdentityId newIdentity = new IdentityId(UUID.randomUUID());
+
+        mvc.perform(post("/api/memberships")
+                        .with(user(operator))
+                        .with(csrf())
+                        .header("X-Tenant-Id", tenant.id().value())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "identityId": "%s",
+                                  "role": "OWNER"
+                                }
+                                """.formatted(newIdentity.value())))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -257,6 +286,16 @@ class MembershipManagementIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.identityId == '%s')].status".formatted(viewer.value()))
                         .value("REVOKED"));
+
+        try (var connection = TenantSecurityIntegrationFixture.migrationConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT event_type, outcome FROM dokene.audit_events WHERE tenant_id = ? AND event_type = 'MEMBERSHIP_REVOKED'")) {
+            statement.setObject(1, tenant.id().value());
+            try (var rs = statement.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("outcome")).isEqualTo("SUCCESS");
+            }
+        }
     }
 
     @Test
