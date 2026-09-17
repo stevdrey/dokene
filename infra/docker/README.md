@@ -39,7 +39,7 @@ A reproducible local Keycloak service is provided for OIDC BFF authorization-cod
 
 ### Startup and realm import
 
-Keycloak is defined in `compose.yaml` with an explicit image version (`quay.io/keycloak/keycloak:26.7.3`) and runs in development mode (`start-dev --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080. Local bootstrap administrator credentials are configured via `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` in `.env`.
+Keycloak is built from `infra/docker/keycloak/Dockerfile` on top of `quay.io/keycloak/keycloak:26.7.3` with Quarkus ahead-of-time augmentation (`kc.sh build`) and runs in optimized mode (`start --optimized --http-enabled=true --hostname-strict=false --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080. Local bootstrap administrator credentials are configured via `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` in `.env`.
 
 To start both PostgreSQL and Keycloak together:
 
@@ -89,4 +89,4 @@ docker compose down --volumes --remove-orphans
 
 ### Production differences
 
-The local Keycloak setup runs in Quarkus development mode (`start-dev`) using embedded storage and plain HTTP on loopback. Production deployments must use production mode (`start`), strict HTTPS/TLS, an external high-availability database cluster, managed secret distribution, and enterprise identity federation.
+The local Keycloak setup runs in optimized mode (`start --optimized`) using embedded storage (`dev-file`) and plain HTTP on loopback. Production deployments must use production mode (`start`), strict HTTPS/TLS, an external high-availability database cluster, managed secret distribution, and enterprise identity federation.
