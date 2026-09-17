@@ -19,7 +19,10 @@ services:
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.3
+    build:
+      context: ./infra/docker/keycloak
+      dockerfile: Dockerfile
+    image: dokene-keycloak:local
     entrypoint:
       - /bin/bash
       - -c
@@ -62,7 +65,7 @@ services:
         content="$${content//"\$${env.DOKENE_OIDC_CLIENT_SECRET}"/"$$escaped_secret"}"
         content="$${content//"\$${env.DOKENE_TEST_USER_PASSWORD}"/"$$escaped_password"}"
         printf "%s\n" "$$content" > /opt/keycloak/data/import/dokene-realm.json
-        exec /opt/keycloak/bin/kc.sh start-dev --import-realm
+        exec /opt/keycloak/bin/kc.sh start --optimized --http-enabled=true --hostname-strict=false --import-realm
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-}
@@ -80,8 +83,9 @@ services:
         - "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /realms/dokene/.well-known/openid-configuration HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"
       interval: 5s
       timeout: 5s
-      retries: 25
-      start_period: 40s
+      retries: 15
+      start_period: 45s
+      start_interval: 2s
 
 volumes:
   dokene-postgres:
