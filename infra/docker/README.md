@@ -89,4 +89,10 @@ docker compose down --volumes --remove-orphans
 
 ### Production differences
 
-The local Keycloak setup runs in optimized mode (`start --optimized`) using embedded storage (`dev-file`) and plain HTTP on loopback. Production deployments must use production mode (`start`), strict HTTPS/TLS, an external high-availability database cluster, managed secret distribution, and enterprise identity federation.
+While the local environment uses `start --optimized` with embedded storage (`dev-file`), plain HTTP on loopback (`--http-enabled=true`), and relaxed hostname verification (`--hostname-strict=false`), production deployments must enforce:
+
+- strict HTTPS/TLS with trusted CA certificates;
+- strict hostname validation and edge reverse-proxy header handling;
+- an external high-availability database cluster (such as managed PostgreSQL);
+- managed secret distribution and rotation rather than local environment interpolation;
+- production-grade enterprise identity federation and audit logging rather than synthetic local realms and development users.
