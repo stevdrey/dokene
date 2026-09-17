@@ -55,10 +55,43 @@
   ],
   "users": [
     {
+      "id": "00000000-0000-0000-0000-000000000001",
       "username": "testuser",
       "email": "testuser@dokene.local",
       "firstName": "Test",
       "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.DOKENE_TEST_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "username": "testoperator",
+      "email": "testoperator@dokene.local",
+      "firstName": "Test",
+      "lastName": "Operator",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${env.DOKENE_TEST_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "username": "testviewer",
+      "email": "testviewer@dokene.local",
+      "firstName": "Test",
+      "lastName": "Viewer",
       "enabled": true,
       "emailVerified": true,
       "credentials": [
