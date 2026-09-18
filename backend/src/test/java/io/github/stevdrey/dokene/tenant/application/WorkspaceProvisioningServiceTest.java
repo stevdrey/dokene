@@ -65,6 +65,13 @@ class WorkspaceProvisioningServiceTest {
         }
 
         @Override
+        public List<TenantMembership> findAllByTenantId(TenantId tenantId) {
+            return memberships.values().stream()
+                    .filter(m -> m.tenantId().equals(tenantId))
+                    .toList();
+        }
+
+        @Override
         public TenantMembership save(TenantMembership membership) {
             memberships.put(membership.tenantId().value() + ":" + membership.identityId().value(), membership);
             return membership;

@@ -4,6 +4,7 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import org.springframework.stereotype.Repository;
@@ -21,6 +22,13 @@ public class JpaTenantMembershipRepositoryAdapter implements TenantMembershipRep
     public Optional<TenantMembership> findByTenantIdAndIdentityId(TenantId tenantId, IdentityId identityId) {
         return repository.findByTenantIdAndIdentityId(tenantId.value(), identityId.value())
                 .map(TenantMembershipEntity::toDomain);
+    }
+
+    @Override
+    public List<TenantMembership> findAllByTenantId(TenantId tenantId) {
+        return repository.findByTenantIdOrderByCreatedAtAsc(tenantId.value()).stream()
+                .map(TenantMembershipEntity::toDomain)
+                .toList();
     }
 
     @Override

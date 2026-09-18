@@ -22,6 +22,18 @@ public sealed interface AuditMetadata {
         }
     }
 
+    record MembershipCreated(TenantRole role) implements AuditMetadata {
+        public MembershipCreated {
+            Objects.requireNonNull(role, "Role is required");
+            if (role == TenantRole.OWNER) {
+                throw new IllegalArgumentException("Ownership cannot be assigned via invitation");
+            }
+        }
+    }
+
+    record MembershipRevoked() implements AuditMetadata {
+    }
+
     record MembershipRoleChanged(TenantRole previousRole, TenantRole newRole) implements AuditMetadata {
         public MembershipRoleChanged {
             Objects.requireNonNull(previousRole, "Previous role is required");

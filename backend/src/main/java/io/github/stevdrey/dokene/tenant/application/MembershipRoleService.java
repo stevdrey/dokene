@@ -35,7 +35,7 @@ public class MembershipRoleService {
         Objects.requireNonNull(newRole, "New role is required");
         TenantMembership membership = memberships.findByTenantIdAndIdentityId(
                 contexts.requireCurrent().tenantId(), targetIdentity)
-                .orElseThrow(() -> new IllegalArgumentException("Membership is unavailable"));
+                .orElseThrow(MembershipNotFoundException::new);
         authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_ROLE_UPDATE, membership.tenantId());
         TenantRole previousRole = membership.role();
         if (previousRole == TenantRole.OWNER || newRole == TenantRole.OWNER) {

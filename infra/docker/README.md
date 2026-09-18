@@ -72,12 +72,27 @@ set -a; [ -f .env ] && . ./.env; set +a
 curl -fsS "http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene/.well-known/openid-configuration" | jq .
 ```
 
-### Development test user
+### Development synthetic test identities & QA seeding
 
-For exercising local browser login against the Spring Boot BFF, the imported realm defines a development test user:
-- Username: `testuser`
-- Password: `testpassword` (or custom via `DOKENE_TEST_USER_PASSWORD`)
-- Email: `testuser@dokene.local`
+For exercising local browser login and multi-tenant RBAC validation against the Spring Boot BFF, the imported realm defines three synthetic test users (sharing `DOKENE_TEST_USER_PASSWORD`, default: `testpassword`):
+
+| Username | Email | Intended Role | Capabilities |
+| :--- | :--- | :--- | :--- |
+| `testuser` | `testuser@dokene.local` | `OWNER` | Full workspace provisioning, configuration, and membership administration (`MEMBERSHIP_INVITE`, `MEMBERSHIP_ROLE_UPDATE`, `MEMBERSHIP_REVOKE`). |
+| `testoperator` | `testoperator@dokene.local` | `OPERATOR` | Operational permissions (customer and purchase read/write, follow-up evaluations and dispositions), without membership or workspace administration. |
+| `testviewer` | `testviewer@dokene.local` | `VIEWER` | Read-only access across all domain resources (customers, purchases, follow-ups). State-changing actions and controls are forbidden. |
+
+To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture. Note that workspace provisioning is disabled by default in Dokene; make sure your local backend is started with `DOKENE_PROVISIONING_ENABLED=true` (in your `.env` file):
+
+```bash
+./scripts/seed-local-qa.sh
+```
+
+To run the fixture and immediately verify all RBAC boundaries across all identities:
+
+```bash
+./scripts/seed-local-qa.sh --verify
+```
 
 ### Clean reset
 

@@ -47,6 +47,8 @@ Metadata is a sealed set of typed records persisted as constrained scalar column
 
 - Authorization denial: optional enumerated permission and enumerated denial reason.
 - Membership role change: previous and new role, excluding `OWNER` and no-op changes.
+- Membership creation: target `MEMBERSHIP` UUID, assigned role (`ADMIN`, `OPERATOR`, or `VIEWER`), and null previous role.
+- Membership revocation: target `MEMBERSHIP` UUID, with null previous and new role.
 - Customer and purchase mutations: no metadata beyond the privacy-reviewed target UUID.
 
 The listener translates only known reasons; unknown text becomes `UNSPECIFIED`.
@@ -61,7 +63,7 @@ type permits it and no general failure-payload entry point exists.
 ## Transactions and failure policy
 Successful security-sensitive database transitions and their audit INSERT share the
 business transaction. The recorder uses `MANDATORY` propagation for successful role
-changes; calling it outside a transaction fails. There is no after-commit best-effort
+changes, membership creations, and membership revocations; calling it outside a transaction fails. There is no after-commit best-effort
 listener. A failed INSERT rolls back the membership update and audit event together;
 an optimistic locking conflict produces no successful event.
 
@@ -94,8 +96,12 @@ inside the active tenant, requires `MEMBERSHIP_ROLE_UPDATE`, checks resource own
 applies existing domain validation, and saves with optimistic concurrency control. Only
 transitions among `ADMIN`, `OPERATOR`, and `VIEWER` are supported. Both source and target
 `OWNER` roles are rejected; ownership transfer and last-owner rules need a separate use case.
-`MembershipRoleService` depends on a tenant-owned `MembershipAuditPort`, preserving one-way
-`audit -> tenant` module coupling; the `audit` module implements this port via an adapter.
+`MembershipService.addMembership(targetIdentity, role)` requires `MEMBERSHIP_INVITE`, enforces
+tenant boundaries, rejects `OWNER` invitations, saves the active membership, and records
+`MEMBERSHIP_CREATED`. `MembershipService.revokeMembership(targetIdentity)` requires
+`MEMBERSHIP_REVOKE`, rejects owner revocation, marks the membership revoked, and records
+`MEMBERSHIP_REVOKED`. Both services depend on a tenant-owned `MembershipAuditPort`, preserving
+one-way `audit -> tenant` module coupling; the `audit` module implements this port via an adapter.
 Validation/not-found/conflict errors are not successful transitions and do not create
 success events. Repository adapters remain persistence primitives, not authorized use cases;
 future production membership mutation entry points must use an authorized, audited service.
