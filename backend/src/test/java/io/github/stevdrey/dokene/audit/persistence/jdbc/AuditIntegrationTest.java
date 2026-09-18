@@ -19,6 +19,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
 import io.github.stevdrey.dokene.tenant.application.MembershipRoleService;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
@@ -357,7 +358,7 @@ class AuditIntegrationTest {
         scoped(context, () -> {
             assertThatThrownBy(() -> roles.changeRole(owner, TenantRole.VIEWER)).isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> roles.changeRole(viewer, TenantRole.OWNER)).isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> roles.changeRole(foreign, TenantRole.ADMIN)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> roles.changeRole(foreign, TenantRole.ADMIN)).isInstanceOf(MembershipNotFoundException.class);
             assertThatThrownBy(() -> roles.changeRole(viewer, TenantRole.VIEWER)).isInstanceOf(IllegalStateException.class);
             transaction(() -> {
                 TenantMembership member = memberships.findByTenantIdAndIdentityId(context.tenantId(), viewer).orElseThrow();

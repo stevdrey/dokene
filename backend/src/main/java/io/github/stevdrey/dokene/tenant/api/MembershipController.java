@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.tenant.api;
 
+import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
 import io.github.stevdrey.dokene.tenant.application.MembershipService;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -9,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -72,6 +74,11 @@ public class MembershipController {
         return ResponseEntity.noContent().build();
     }
 
+    @ExceptionHandler(MembershipNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    void handleMembershipNotFound() {
+    }
+
     @ExceptionHandler(TenantAccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     void handleTenantAccessDenied() {
@@ -82,9 +89,9 @@ public class MembershipController {
     void handleIllegalArgument() {
     }
 
-    @ExceptionHandler(IllegalStateException.class)
+    @ExceptionHandler({IllegalStateException.class, OptimisticLockingFailureException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
-    void handleIllegalState() {
+    void handleConflict() {
     }
 
     private MembershipResponse toResponse(TenantMembership membership) {

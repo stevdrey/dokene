@@ -102,7 +102,7 @@ public class MembershipService {
         authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_REVOKE, tenantId);
 
         TenantMembership membership = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity)
-                .orElseThrow(() -> new IllegalArgumentException("Membership is unavailable"));
+                .orElseThrow(MembershipNotFoundException::new);
         authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_REVOKE, membership.tenantId());
 
         if (membership.role() == TenantRole.OWNER) {

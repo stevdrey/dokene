@@ -322,6 +322,29 @@ class MembershipManagementIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void absentMembershipReturnsNotFoundOnUpdateOrRevoke() throws Exception {
+        UUID absentIdentity = UUID.randomUUID();
+
+        mvc.perform(put("/api/memberships/{identityId}/role", absentIdentity)
+                        .with(user(owner))
+                        .with(csrf())
+                        .header("X-Tenant-Id", tenant.id().value())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "role": "OPERATOR"
+                                }
+                                """))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(delete("/api/memberships/{identityId}", absentIdentity)
+                        .with(user(owner))
+                        .with(csrf())
+                        .header("X-Tenant-Id", tenant.id().value()))
+                .andExpect(status().isNotFound());
+    }
+
     private RequestPostProcessor user(IdentityId identityId) {
         var principal = new TestPrincipal(identityId);
         return authentication(new UsernamePasswordAuthenticationToken(principal, "test", List.of()));

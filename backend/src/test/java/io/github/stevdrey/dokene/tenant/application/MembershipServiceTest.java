@@ -134,6 +134,15 @@ class MembershipServiceTest {
     }
 
     @Test
+    void cannotRevokeAbsentMember() {
+        contexts.runWithContext(ownerContext, () -> {
+            assertThatThrownBy(() -> service.revokeMembership(new IdentityId(UUID.randomUUID())))
+                    .isInstanceOf(MembershipNotFoundException.class)
+                    .hasMessage("Membership is unavailable");
+        });
+    }
+
+    @Test
     void addMembershipInvokesAuditPort() {
         contexts.runWithContext(ownerContext, () -> {
             TenantMembership created = service.addMembership(operatorIdentity, TenantRole.OPERATOR);
