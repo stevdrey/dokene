@@ -4,12 +4,12 @@ import { useSession } from './SessionContext';
 export const LoginView: React.FC = () => {
   const { wasExpired, loginUrl } = useSession();
 
-  const [authError] = React.useState<string | null>(() => {
+  const [authError] = React.useState<boolean>(() => {
     if (typeof window === 'undefined' || !window.location.search) {
-      return null;
+      return false;
     }
     const params = new URLSearchParams(window.location.search);
-    return params.get('error');
+    return params.get('error') === 'login_failed';
   });
 
   const handleLogin = () => {

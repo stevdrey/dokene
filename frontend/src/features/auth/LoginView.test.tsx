@@ -115,4 +115,23 @@ describe('LoginView', () => {
     );
     expect(screen.getByRole('button', { name: /Iniciar sesión con OIDC/i })).toBeInTheDocument();
   });
+
+  it('does not display authentication error alert for unrelated error query parameter', () => {
+    window.history.pushState({}, '', '/?error=something_unrelated');
+
+    vi.spyOn(SessionContextModule, 'useSession').mockReturnValue({
+      status: 'unauthenticated',
+      identityId: null,
+      csrfToken: null,
+      wasExpired: false,
+      error: null,
+      loginUrl: '/oauth2/authorization/dokene',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    });
+
+    render(<LoginView />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
