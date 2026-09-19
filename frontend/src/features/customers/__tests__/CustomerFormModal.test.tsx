@@ -305,4 +305,36 @@ describe('CustomerFormModal', () => {
     expect(detectRegionFromE164('+79011234567')).toBe('RU');
     expect(detectRegionFromE164('+74951234567')).toBe('RU');
   });
+
+  it('displays session expired error rather than workspace permission error when mutation fails with 401', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    vi.spyOn(customerApi, 'createCustomer').mockRejectedValueOnce(
+      new Error('Sesión no autorizada o expirada')
+    );
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
+
+    const nameInput = screen.getByLabelText(/Nombre completo \/ Razón social/i);
+    fireEvent.change(nameInput, { target: { value: 'Test Customer' } });
+
+    const phoneInput = screen.getByLabelText(/Número de teléfono 1/i);
+    fireEvent.change(phoneInput, { target: { value: '984521190' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Crear cliente/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Sesión no autorizada o expirada');
+      expect(screen.queryByText('Acceso denegado en este espacio de trabajo.')).not.toBeInTheDocument();
+    });
+  });
 });
+

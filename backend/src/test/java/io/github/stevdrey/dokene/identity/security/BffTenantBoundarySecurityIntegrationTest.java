@@ -329,6 +329,40 @@ class BffTenantBoundarySecurityIntegrationTest {
     }
 
     @Test
+    void stateChangingMutationOnExpiredSessionReturns401Unauthorized() throws Exception {
+        Instant now = Instant.now();
+
+        // 1. Authenticate user and obtain session cookie + CSRF token
+        Browser user = browser();
+        authenticate(user, "user-expired-session-probe");
+        JsonNode sessionNode = objectMapper.readTree(get(user, "/api/session").body());
+        IdentityId userIdentity = new IdentityId(UUID.fromString(sessionNode.path("identityId").asText()));
+        String userCsrf = sessionNode.path("csrfToken").asText();
+
+        Tenant tenant = seedTenant(tenants, "Expired Session Test " + UUID.randomUUID(), now);
+        seedMembership(memberships, contexts, tenant.id(), userIdentity, TenantRole.OWNER, now);
+
+        String customerPayload = """
+                {"displayName":"Customer Before Expiration","phones":[{"number":"88887777","region":"CR","primary":true}]}
+                """;
+
+        // Verify valid mutation works while authenticated
+        HttpResponse<String> validCreate = postWithTenant(user, "/api/customers", tenant.id().value(), userCsrf, customerPayload);
+        assertThat(validCreate.statusCode()).isEqualTo(201);
+
+        // 2. Invalidate session (logout)
+        HttpResponse<String> logoutResponse = post(user, "/logout", userCsrf);
+        assertThat(logoutResponse.statusCode()).isEqualTo(204);
+
+        // 3. Attempt state-changing mutation with the expired/invalidated session and old CSRF token -> 401 Unauthorized (not 403 Forbidden)
+        String expiredPayload = """
+                {"displayName":"Customer After Expiration","phones":[{"number":"88887778","region":"CR","primary":true}]}
+                """;
+        HttpResponse<String> expiredMutate = postWithTenant(user, "/api/customers", tenant.id().value(), userCsrf, expiredPayload);
+        assertThat(expiredMutate.statusCode()).isEqualTo(401);
+    }
+
+    @Test
     void failClosed401Vs403BehaviorAcrossEndpoints() throws Exception {
         Instant now = Instant.now();
 
@@ -337,6 +371,13 @@ class BffTenantBoundarySecurityIntegrationTest {
         assertThat(get(anon, "/api/session").statusCode()).isEqualTo(401);
         assertThat(get(anon, "/api/tenants").statusCode()).isEqualTo(401);
         assertThat(getWithTenant(anon, "/api/customers", UUID.randomUUID()).statusCode()).isEqualTo(401);
+        String anonCustomerPayload = """
+                {"displayName":"Anonymous Customer","phones":[{"number":"88889999","region":"CR","primary":true}]}
+                """;
+        assertThat(postWithTenant(anon, "/api/customers", UUID.randomUUID(), null, anonCustomerPayload).statusCode())
+                .isEqualTo(401);
+        assertThat(postWithTenant(anon, "/api/customers", UUID.randomUUID(), "forged-csrf-token", anonCustomerPayload).statusCode())
+                .isEqualTo(401);
 
         // 2. Tampered session cookie fails closed with 401
         HttpRequest tamperedRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/session"))
@@ -344,6 +385,15 @@ class BffTenantBoundarySecurityIntegrationTest {
                 .GET()
                 .build();
         assertThat(HttpClient.newHttpClient().send(tamperedRequest, HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(401);
+        HttpRequest tamperedMutateRequest = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/customers"))
+                .header("Cookie", "JSESSIONID=tampered-session-cookie-xyz")
+                .header("X-Tenant-Id", UUID.randomUUID().toString())
+                .header("X-CSRF-TOKEN", "tampered-csrf-token")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(anonCustomerPayload))
+                .build();
+        assertThat(HttpClient.newHttpClient().send(tamperedMutateRequest, HttpResponse.BodyHandlers.ofString()).statusCode())
                 .isEqualTo(401);
 
         // 3. Authenticated Dave with VIEWER role in Tenant 1

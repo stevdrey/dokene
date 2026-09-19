@@ -23,7 +23,12 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
@@ -109,10 +114,12 @@ class TenantSecurityConfiguration {
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .sessionFixation(fixation -> fixation.changeSessionId()))
                 .cors(Customizer.withDefaults())
-                .exceptionHandling(exceptions -> exceptions.defaultAuthenticationEntryPointFor(
-                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                        PathPatternRequestMatcher.pathPattern("/api/**")
-                ))
+                .exceptionHandling(exceptions -> exceptions
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                PathPatternRequestMatcher.pathPattern("/api/**")
+                        )
+                        .accessDeniedHandler(createAccessDeniedHandler()))
                 .logout(logout -> logout
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
@@ -178,4 +185,21 @@ class TenantSecurityConfiguration {
             }
         };
     }
+
+    private AccessDeniedHandler createAccessDeniedHandler() {
+        RequestMatcher apiMatcher = PathPatternRequestMatcher.pathPattern("/api/**");
+        AccessDeniedHandler defaultHandler = new AccessDeniedHandlerImpl();
+
+        return (request, response, accessDeniedException) -> {
+            if (apiMatcher.matches(request)) {
+                Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+                if (authentication == null || !authentication.isAuthenticated() || (authentication instanceof AnonymousAuthenticationToken)) {
+                    response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                    return;
+                }
+            }
+            defaultHandler.handle(request, response, accessDeniedException);
+        };
+    }
 }
+
