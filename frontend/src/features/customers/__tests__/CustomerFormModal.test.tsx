@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { CustomerFormModal, detectRegionFromE164 } from '@/features/customers/components/CustomerFormModal';
 import { customerApi } from '@/features/customers/api/customerApi';
+import { ApiError } from '@/shared/api/httpClient';
 
 describe('CustomerFormModal', () => {
   it('renders correctly and validates required name', async () => {
@@ -334,6 +335,99 @@ describe('CustomerFormModal', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Sesión no autorizada o expirada');
       expect(screen.queryByText('Acceso denegado en este espacio de trabajo.')).not.toBeInTheDocument();
+    });
+  });
+
+  it('validates Chilean phone length (rejecting 123 with actionable error and preserving input without API call) [Issue #72]', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    const createSpy = vi.spyOn(customerApi, 'createCustomer');
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
+
+    // Step 1 & 2: Enter valid customer display name
+    const nameInput = screen.getByLabelText(/Nombre completo \/ Razón social/i) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Valentina Morales' } });
+
+    // Step 3: Select region Chile (+56) and enter 123
+    const regionSelect = screen.getByLabelText(/Región para teléfono 1/i) as HTMLSelectElement;
+    expect(regionSelect.value).toBe('CL');
+
+    const phoneInput = screen.getByLabelText(/Número de teléfono 1/i) as HTMLInputElement;
+    fireEvent.change(phoneInput, { target: { value: '123' } });
+
+    // Step 4: Click Crear cliente
+    const submitBtn = screen.getByRole('button', { name: /Crear cliente/i });
+    fireEvent.click(submitBtn);
+
+    // Assert actionable error message in both banner and inline field error
+    const expectedMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
+    await waitFor(() => {
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts.length).toBeGreaterThanOrEqual(2);
+      expect(alerts[0]).toHaveTextContent(expectedMsg);
+      expect(alerts[1]).toHaveTextContent(expectedMsg);
+    });
+
+    // Assert field-level error association
+    expect(phoneInput).toHaveAttribute('aria-invalid', 'true');
+    expect(phoneInput).toHaveAttribute('aria-describedby', 'phone-error-0');
+    expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+
+    // Assert work preservation: valid user inputs remain intact
+    expect(nameInput.value).toBe('Valentina Morales');
+    expect(phoneInput.value).toBe('123');
+
+    // Assert no network call was made
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('associates backend validation error to specific phone input when API returns field-level error [Issue #72]', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    const apiError = new ApiError(400, 'El formato del teléfono es inválido para la región seleccionada.', {
+      status: 400,
+      message: 'El formato del teléfono es inválido para la región seleccionada.',
+      field: 'phones[0].number'
+    });
+
+    vi.spyOn(customerApi, 'createCustomer').mockRejectedValueOnce(apiError);
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/Nombre completo/i), {
+      target: { value: 'Valentina Morales' }
+    });
+    // Enter a 9-digit number that passes client validation but triggers backend rejection
+    const phoneInput = screen.getByLabelText(/Número de teléfono 1/i);
+    fireEvent.change(phoneInput, {
+      target: { value: '984521190' }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+    const expectedApiMsg = 'El formato del teléfono es inválido para la región seleccionada.';
+    await waitFor(() => {
+      expect(phoneInput).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(screen.getAllByText(expectedApiMsg)).toHaveLength(2);
+      // Verify generic "Error HTTP 400" is NOT displayed
+      expect(screen.queryByText('Error HTTP 400')).not.toBeInTheDocument();
     });
   });
 });

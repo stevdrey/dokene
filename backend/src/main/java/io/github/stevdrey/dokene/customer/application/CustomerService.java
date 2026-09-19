@@ -104,19 +104,24 @@ public class CustomerService {
         Objects.requireNonNull(phones, "Phones are required");
         Map<String, UUID> existingIdsByPhone = (existingPhones == null) ? Map.of() :
                 existingPhones.stream().collect(Collectors.toMap(CustomerPhone::e164, CustomerPhone::id, (a, b) -> a));
-        return phones.stream()
-                .map(phone -> {
-                    String rawNumber = phone.number() == null ? "" : phone.number().strip();
-                    String normalized;
-                    if (existingIdsByPhone.containsKey(rawNumber)) {
-                        normalized = rawNumber;
-                    } else {
-                        normalized = phoneNormalizer.normalize(phone.number(), phone.region());
-                    }
-                    UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());
-                    return new CustomerPhone(phoneId, normalized, phone.primary());
-                })
-                .toList();
+        List<CustomerPhone> result = new java.util.ArrayList<>(phones.size());
+        for (int i = 0; i < phones.size(); i++) {
+            PhoneInput phone = phones.get(i);
+            String rawNumber = phone.number() == null ? "" : phone.number().strip();
+            String normalized;
+            if (existingIdsByPhone.containsKey(rawNumber)) {
+                normalized = rawNumber;
+            } else {
+                try {
+                    normalized = phoneNormalizer.normalize(phone.number(), phone.region());
+                } catch (IllegalArgumentException ex) {
+                    throw new CustomerValidationException("phones[" + i + "].number", ex.getMessage());
+                }
+            }
+            UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());
+            result.add(new CustomerPhone(phoneId, normalized, phone.primary()));
+        }
+        return result;
     }
 
     public record PhoneInput(String number, String region, boolean primary) {

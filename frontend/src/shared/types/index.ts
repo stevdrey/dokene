@@ -16,4 +16,5 @@ export interface ApiErrorPayload {
   timestamp?: string;
   path?: string;
   error?: string;
+  field?: string;
 }
