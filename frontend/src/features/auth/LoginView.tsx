@@ -4,6 +4,14 @@ import { useSession } from './SessionContext';
 export const LoginView: React.FC = () => {
   const { wasExpired, loginUrl } = useSession();
 
+  const [authError] = React.useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.location.search) {
+      return false;
+    }
+    const params = new URLSearchParams(window.location.search);
+    return params.get('error') === 'login_failed';
+  });
+
   const handleLogin = () => {
     window.location.href = loginUrl;
   };
@@ -94,6 +102,32 @@ export const LoginView: React.FC = () => {
               warning
             </span>
             <span>Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente.</span>
+          </div>
+        )}
+
+        {authError && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: '20px',
+              padding: '12px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-error-bg)',
+              color: 'var(--color-error-text)',
+              border: '1px solid var(--color-error-border)',
+              fontSize: 'var(--font-size-secondary)',
+              textAlign: 'left',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
+              error
+            </span>
+            <span>
+              No se pudo completar el inicio de sesión o el enlace de autenticación ha expirado. Por favor intenta iniciar sesión nuevamente.
+            </span>
           </div>
         )}
 

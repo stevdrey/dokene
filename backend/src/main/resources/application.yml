@@ -32,6 +32,7 @@ dokene:
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
   security:
     post-login-redirect-url: ${DOKENE_POST_LOGIN_REDIRECT_URL:/}
+    post-login-failure-redirect-url: ${DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL:}
     cors:
       allowed-origins: ${DOKENE_CORS_ALLOWED_ORIGINS:}
 
