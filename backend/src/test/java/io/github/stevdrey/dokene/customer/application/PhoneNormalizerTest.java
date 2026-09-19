@@ -14,6 +14,11 @@ class PhoneNormalizerTest {
     }
 
     @Test
+    void normalizesCarrierPrefixedBrazilianNumber() {
+        assertThat(normalizer.normalize("0 21 11 99999-8888", "BR")).isEqualTo("+5511999998888");
+    }
+
+    @Test
     void rejectsMissingUnsupportedAmbiguousAndOverlongInput() {
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", "ZZ")).isInstanceOf(IllegalArgumentException.class);

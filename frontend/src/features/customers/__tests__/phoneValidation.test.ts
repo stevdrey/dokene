@@ -105,6 +105,28 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('123', 'CA').isValid).toBe(false);
     });
 
+    it('validates Brasil (BR) numbers: requires 10 to 11 digits and accepts carrier selection codes and trunk 0', () => {
+      // Standard mobile (11 digits) and landline (10 digits)
+      expect(validatePhoneNumber('11999998888', 'BR').isValid).toBe(true);
+      expect(validatePhoneNumber('+55 11 99999 8888', 'BR').isValid).toBe(true);
+      expect(validatePhoneNumber('1123456789', 'BR').isValid).toBe(true);
+      expect(validatePhoneNumber('+55 11 2345 6789', 'BR').isValid).toBe(true);
+
+      // Carrier selection codes (0 + 2-digit CSP + DDD + number) e.g. 0 21 11 99999-8888
+      expect(validatePhoneNumber('0 21 11 99999-8888', 'BR').isValid).toBe(true);
+      expect(validatePhoneNumber('0 15 11 2345-6789', 'BR').isValid).toBe(true);
+
+      // Trunk 0 (0 + DDD + number)
+      expect(validatePhoneNumber('0 11 99999-8888', 'BR').isValid).toBe(true);
+      expect(validatePhoneNumber('0 11 2345-6789', 'BR').isValid).toBe(true);
+
+      // Invalid short number
+      expect(validatePhoneNumber('123', 'BR').isValid).toBe(false);
+      expect(validatePhoneNumber('123', 'BR').message).toBe(
+        'El número ingresado no es válido para la región seleccionada (Brasil requiere 10 u 11 dígitos).'
+      );
+    });
+
     it('validates generic/unlisted regions using E.164 7-15 digit boundaries', () => {
       expect(validatePhoneNumber('1234567', 'OTHER').isValid).toBe(true);
       expect(validatePhoneNumber('+380501234567', 'UA').isValid).toBe(true);

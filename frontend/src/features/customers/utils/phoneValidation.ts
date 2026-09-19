@@ -125,6 +125,14 @@ export function extractNationalDigits(
     } else if ((digitsOnly.startsWith('044') || digitsOnly.startsWith('045')) && digitsOnly.length === 13) {
       digitsOnly = digitsOnly.slice(3);
     }
+  } else if (normRegion === 'BR') {
+    // Domestic dialing with carrier selection code (0 + 2-digit CSP + 10 or 11 national digits = 13 or 14 digits)
+    if (digitsOnly.startsWith('0') && (digitsOnly.length === 13 || digitsOnly.length === 14)) {
+      digitsOnly = digitsOnly.slice(3);
+    } else if (digitsOnly.startsWith('0') && (digitsOnly.length === 11 || digitsOnly.length === 12)) {
+      // Domestic dialing with trunk 0 (0 + 10 or 11 national digits = 11 or 12 digits)
+      digitsOnly = digitsOnly.slice(1);
+    }
   } else if (digitsOnly.startsWith('0') && digitsOnly.length === minNationalDigits + 1) {
     // Single leading trunk zero (e.g. 09XXXXXXXX in Chile)
     digitsOnly = digitsOnly.slice(1);
