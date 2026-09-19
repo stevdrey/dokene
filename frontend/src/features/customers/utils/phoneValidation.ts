@@ -77,6 +77,21 @@ const REGION_RULES: Record<string, RegionRule> = {
   }
 };
 
+const KEYPAD_MAPPING: Record<string, string> = {
+  A: '2', B: '2', C: '2',
+  D: '3', E: '3', F: '3',
+  G: '4', H: '4', I: '4',
+  J: '5', K: '5', L: '5',
+  M: '6', N: '6', O: '6',
+  P: '7', Q: '7', R: '7', S: '7',
+  T: '8', U: '8', V: '8',
+  W: '9', X: '9', Y: '9', Z: '9'
+};
+
+export function convertVanityToDigits(rawNumber: string): string {
+  return rawNumber.replace(/[a-zA-Z]/g, (ch) => KEYPAD_MAPPING[ch.toUpperCase()] ?? ch);
+}
+
 /**
  * Extracts digits and handles international calling codes and domestic trunk/carrier prefixes.
  */
@@ -86,7 +101,8 @@ export function extractNationalDigits(
   minNationalDigits: number,
   region = ''
 ): string {
-  const trimmed = rawNumber.trim();
+  const converted = convertVanityToDigits(rawNumber);
+  const trimmed = converted.trim();
   let digitsOnly = trimmed.replace(/\D/g, '');
   const normRegion = region.toUpperCase();
 
@@ -162,8 +178,8 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
     };
   }
 
-  // Check for disallowed characters (only +, digits, spaces, hyphens, dots, parentheses)
-  if (!/^[+\d\s\-().]+$/.test(trimmed)) {
+  // Check for disallowed characters (only +, digits, letters, spaces, hyphens, dots, parentheses)
+  if (!/^[+\da-zA-Z\s\-().]+$/.test(trimmed)) {
     return {
       isValid: false,
       message: 'El número telefónico contiene caracteres no válidos.'
@@ -183,7 +199,7 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
   }
 
   // Generic fallback for other regions (E.164 total digits between 7 and 15)
-  let allDigits = trimmed.replace(/\D/g, '');
+  let allDigits = convertVanityToDigits(trimmed).replace(/\D/g, '');
   if (allDigits.startsWith('00') && allDigits.length >= 9) {
     allDigits = allDigits.slice(2);
   } else if (allDigits.startsWith('011') && allDigits.length >= 10) {

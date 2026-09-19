@@ -30,6 +30,11 @@ class PhoneNormalizerTest {
     }
 
     @Test
+    void normalizesVanityNumber() {
+        assertThat(normalizer.normalize("1-800-FLOWERS", "US")).isEqualTo("+18003569377");
+    }
+
+    @Test
     void rejectsMissingUnsupportedAmbiguousAndOverlongInput() {
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", "ZZ")).isInstanceOf(IllegalArgumentException.class);

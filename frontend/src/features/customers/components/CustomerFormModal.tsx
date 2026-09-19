@@ -207,12 +207,14 @@ export function CustomerFormModal({
   }, [customerToEdit, isOpen]);
 
   const handlePhoneChange = (index: number, field: keyof PhoneRequest, value: unknown) => {
-    setPhoneErrors((prev) => {
-      if (!prev[index]) return prev;
-      const copy = { ...prev };
-      delete copy[index];
-      return copy;
-    });
+    if (field !== 'primary') {
+      setPhoneErrors((prev) => {
+        if (!prev[index]) return prev;
+        const copy = { ...prev };
+        delete copy[index];
+        return copy;
+      });
+    }
     setPhones((prev) => {
       const updated = [...prev];
       if (field === 'primary' && value === true) {

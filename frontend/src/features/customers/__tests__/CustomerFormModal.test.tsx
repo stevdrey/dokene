@@ -478,5 +478,59 @@ describe('CustomerFormModal', () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+
+  it('retains field-level error and aria-invalid state when toggling phone primary status', async () => {
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    // Set valid display name
+    fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), {
+      target: { value: 'Valentina Morales' }
+    });
+
+    // Add a second phone so there are two phones
+    fireEvent.click(screen.getByRole('button', { name: /Agregar teléfono/i }));
+
+    // Phone 1 enters an invalid number for Chile
+    const phoneInput1 = screen.getByLabelText(/Número de teléfono 1/i);
+    fireEvent.change(phoneInput1, { target: { value: '123' } });
+
+    // Phone 2 enters a valid number
+    const phoneInput2 = screen.getByLabelText(/Número de teléfono 2/i);
+    fireEvent.change(phoneInput2, { target: { value: '912345678' } });
+
+    // Submit form to trigger client-side validation
+    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+    const expectedMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
+    await waitFor(() => {
+      expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+    });
+
+    // Toggle phone 2 as primary
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(2);
+    fireEvent.click(radios[1]);
+
+    // Phone 1 must still have its field-level error and aria attributes
+    expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+    expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+    expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+
+    // Toggle phone 1 back as primary
+    fireEvent.click(radios[0]);
+
+    // Phone 1 must STILL retain its field error
+    expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+    expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+    expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+  });
 });
 

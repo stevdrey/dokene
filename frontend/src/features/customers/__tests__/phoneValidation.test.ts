@@ -1,12 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { validatePhoneNumber, extractNationalDigits } from '@/features/customers/utils/phoneValidation';
+import { validatePhoneNumber, extractNationalDigits, convertVanityToDigits } from '@/features/customers/utils/phoneValidation';
 
 describe('phoneValidation utility', () => {
+  describe('convertVanityToDigits', () => {
+    it('converts vanity phonewords to standard keypad digits', () => {
+      expect(convertVanityToDigits('1-800-FLOWERS')).toBe('1-800-3569377');
+      expect(convertVanityToDigits('FLOWERS')).toBe('3569377');
+    });
+  });
+
   describe('extractNationalDigits', () => {
     it('strips leading + and country calling code when present', () => {
       expect(extractNationalDigits('+56 9 8452 1190', '56', 9)).toBe('984521190');
       expect(extractNationalDigits('+54 9 11 1234 5678', '54', 10)).toBe('91112345678');
       expect(extractNationalDigits('+1 416 555 1234', '1', 10)).toBe('4165551234');
+    });
+
+    it('converts vanity numbers to digits and extracts national portion', () => {
+      expect(extractNationalDigits('1-800-FLOWERS', '1', 10, 'US')).toBe('8003569377');
+      expect(extractNationalDigits('+1-800-FLOWERS', '1', 10, 'US')).toBe('8003569377');
+      expect(extractNationalDigits('800-FLOWERS', '1', 10, 'US')).toBe('8003569377');
     });
 
     it('strips un-prefixed country code only when total length clearly includes calling code', () => {
@@ -28,8 +41,8 @@ describe('phoneValidation utility', () => {
       expect(res.message).toBe('Todos los teléfonos deben tener un número asignado.');
     });
 
-    it('rejects characters other than digits and phone punctuation', () => {
-      const res = validatePhoneNumber('98452abc', 'CL');
+    it('rejects characters other than digits, letters, and phone punctuation', () => {
+      const res = validatePhoneNumber('98452!@#', 'CL');
       expect(res.isValid).toBe(false);
       expect(res.message).toBe('El número telefónico contiene caracteres no válidos.');
     });
@@ -105,9 +118,12 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('123', 'ES').isValid).toBe(false);
     });
 
-    it('validates Estados Unidos (US) and Canadá (CA) numbers: requires 10 digits', () => {
+    it('validates Estados Unidos (US) and Canadá (CA) numbers: requires 10 digits and supports vanity phonewords', () => {
       expect(validatePhoneNumber('2025550123', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('+1 202 555 0123', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('1-800-FLOWERS', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('800-FLOWERS', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('+1-800-FLOWERS', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('123', 'US').isValid).toBe(false);
 
       expect(validatePhoneNumber('4165551234', 'CA').isValid).toBe(true);
