@@ -38,4 +38,49 @@ class TenantSecurityConfigurationTest {
         assertThat(configuration.getAllowedOrigins()).isEmpty();
         assertThat(configuration.checkOrigin("https://malicious.example.test")).isNull();
     }
+
+    @Test
+    void preservesExplicitlyConfiguredPostLoginFailureRedirectUrl() {
+        String resolved = TenantSecurityConfiguration.resolvePostLoginFailureRedirectUrl(
+                "https://app.dokene.test/custom-error?source=oidc",
+                "https://app.dokene.test/"
+        );
+        assertThat(resolved).isEqualTo("https://app.dokene.test/custom-error?source=oidc");
+    }
+
+    @Test
+    void derivesPostLoginFailureUrlFromRootRedirect() {
+        String resolved = TenantSecurityConfiguration.resolvePostLoginFailureRedirectUrl(
+                "",
+                "/"
+        );
+        assertThat(resolved).isEqualTo("/?error=login_failed");
+    }
+
+    @Test
+    void derivesPostLoginFailureUrlFromLocalViteDevUrl() {
+        String resolved = TenantSecurityConfiguration.resolvePostLoginFailureRedirectUrl(
+                "   ",
+                "http://localhost:5173/"
+        );
+        assertThat(resolved).isEqualTo("http://localhost:5173/?error=login_failed");
+    }
+
+    @Test
+    void derivesPostLoginFailureUrlWhenPostLoginUrlLacksTrailingSlash() {
+        String resolved = TenantSecurityConfiguration.resolvePostLoginFailureRedirectUrl(
+                null,
+                "http://localhost:5173"
+        );
+        assertThat(resolved).isEqualTo("http://localhost:5173/?error=login_failed");
+    }
+
+    @Test
+    void derivesPostLoginFailureUrlAppendingToExistingQueryParams() {
+        String resolved = TenantSecurityConfiguration.resolvePostLoginFailureRedirectUrl(
+                null,
+                "http://localhost:5173/app?lang=es"
+        );
+        assertThat(resolved).isEqualTo("http://localhost:5173/app?lang=es&error=login_failed");
+    }
 }

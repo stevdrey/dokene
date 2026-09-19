@@ -62,13 +62,14 @@ The BFF exposes a minimal same-origin session contract:
 1. **Login Initiation**: Navigating to `/oauth2/authorization/{registrationId}` (e.g., `/oauth2/authorization/dokene`)
    initiates the confidential authorization-code redirect to Keycloak/OIDC provider.
 2. **Post-Login Target**: The authentication success handler redirects to the application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain initial session state.
-3. **Session Check**: `GET /api/session` returns application-safe session metadata:
+3. **Authentication Failure & Stale Callback Recovery**: The authentication failure handler intercepts failed, canceled, or stale callback attempts (e.g. `/login/oauth2/code/{registrationId}`) and redirects the browser back to the frontend application (`/?error=login_failed` by default, or configurable via `DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL` / `dokene.security.post-login-failure-redirect-url`). Framework-level default login page generation is suppressed (`.loginPage("/oauth2/authorization/dokene")`) and session creation is disabled on failure (`setAllowSessionCreation(false)`), ensuring internal provider paths or raw framework error pages are never exposed to browser users.
+4. **Session Check**: `GET /api/session` returns application-safe session metadata:
    `{ "authenticated": true, "identityId": "<uuid>", "csrfToken": "<token>" }`.
    Unauthenticated calls return `401 Unauthorized`.
-4. **CSRF Protection**: CSRF protection is enforced for all state-changing HTTP methods (POST, PUT, DELETE, PATCH).
+5. **CSRF Protection**: CSRF protection is enforced for all state-changing HTTP methods (POST, PUT, DELETE, PATCH).
    The frontend retrieves the CSRF token from `GET /api/session` and transmits it in the `X-CSRF-TOKEN` header on
    mutation requests.
-5. **Logout (Local vs Provider SSO)**:
+6. **Logout (Local vs Provider SSO)**:
    - **Local Session Logout**: `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server `HttpSession`, clears the
      security context, deletes the `JSESSIONID` cookie, and returns `204 No Content` for API clients.
    - **Provider SSO Logout**: `POST /logout?provider=true` requires `X-CSRF-TOKEN` (or `_csrf` form field), invalidates the
@@ -76,7 +77,7 @@ The BFF exposes a minimal same-origin session contract:
      The handler extracts the `idToken` from the server-side `OidcUser` (never exposed to client JavaScript) and redirects
      (`302 Found`) the browser to the provider's `end_session_endpoint` with `id_token_hint` and `post_logout_redirect_uri={baseUrl}/`.
      Keycloak terminates its SSO session and redirects the browser back to the application.
-6. **CORS & Origin Model**: Same-origin deployment is the default architectural expectation. Cross-origin requests
+7. **CORS & Origin Model**: Same-origin deployment is the default architectural expectation. Cross-origin requests
    are rejected unless exact origins are explicitly configured in `dokene.security.cors.allowed-origins` (e.g.,
    `http://localhost:5173` for Vite local development).
 

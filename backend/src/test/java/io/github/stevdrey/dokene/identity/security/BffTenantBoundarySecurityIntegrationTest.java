@@ -401,6 +401,34 @@ class BffTenantBoundarySecurityIntegrationTest {
                 .isEqualTo(401);
     }
 
+    @Test
+    void staleOrFailedOidcCallbackRedirectsToFrontendFailureUrlWithoutExposingInternalPages() throws Exception {
+        Browser browser = browser();
+
+        // Stale or invalid callback request
+        HttpResponse<String> callbackResponse = get(browser, "/login/oauth2/code/dokene?code=stale_code_xyz&state=stale_state_xyz");
+        assertThat(callbackResponse.statusCode()).isEqualTo(302);
+
+        String redirectTarget = callbackResponse.headers().firstValue("Location").orElseThrow();
+        // Redirect target must point to frontend error parameter rather than internal /login?error
+        assertThat(redirectTarget).doesNotContain("/login?error");
+        assertThat(redirectTarget).endsWith("/?error=login_failed");
+
+        // Assert sensitive tokens and provider secrets are strictly absent
+        assertThat(redirectTarget).doesNotContain("access_token", "id_token", "refresh_token", CLIENT_SECRET);
+        assertThat(callbackResponse.headers().map().toString()).doesNotContain(CLIENT_SECRET, "server-side-access-token");
+
+        // Stale/failed callback must not establish an active session
+        HttpResponse<String> sessionResponse = get(browser, "/api/session");
+        assertThat(sessionResponse.statusCode()).isEqualTo(401);
+
+        // Accessing /login or /login?error directly must not render Spring Security's default unstyled login page
+        HttpResponse<String> loginPageResponse = get(browser, "/login?error");
+        assertThat(loginPageResponse.body()).doesNotContain("Login with OAuth 2.0");
+        assertThat(loginPageResponse.body()).doesNotContain("Please sign in");
+        assertThat(loginPageResponse.body()).doesNotContain(OIDC.issuer());
+    }
+
     private static String sessionId(Browser browser) {
         return browser.cookies().getCookieStore().getCookies().stream()
                 .filter(cookie -> "JSESSIONID".equalsIgnoreCase(cookie.getName()))

@@ -26,6 +26,26 @@ describe('App routing transitions', () => {
     });
   });
 
+  it('renders LoginView with recoverable error alert when visiting with ?error=login_failed', async () => {
+    window.history.pushState({}, '', '/?error=login_failed');
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/session') {
+        return new Response(null, { status: 401 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'No se pudo completar el inicio de sesión o el enlace de autenticación ha expirado. Por favor intenta iniciar sesión nuevamente.'
+      );
+      expect(screen.getByRole('button', { name: /Iniciar sesión con OIDC/i })).toBeInTheDocument();
+    });
+  });
+
   it('renders NoMembershipsView when authenticated with 0 workspaces', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       if (url === '/api/session') {

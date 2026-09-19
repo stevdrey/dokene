@@ -24,7 +24,9 @@ import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
@@ -33,6 +35,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Configuration
 @ConditionalOnWebApplication(type = Type.SERVLET)
@@ -92,7 +95,8 @@ class TenantSecurityConfiguration {
             TenantContextRequestFilter tenantContextRequestFilter,
             OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService,
             ObjectProvider<ClientRegistrationRepository> clientRegistrations,
-            @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl
+            @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl,
+            @Value("${dokene.security.post-login-failure-redirect-url:}") String postLoginFailureRedirectUrl
     )
             throws Exception {
         LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
@@ -117,11 +121,38 @@ class TenantSecurityConfiguration {
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
 
         if (clientRegistrations.getIfAvailable() != null) {
+            String failureRedirectUrl = resolvePostLoginFailureRedirectUrl(postLoginFailureRedirectUrl, postLoginRedirectUrl);
             http.oauth2Login(oauth -> oauth
+                    .loginPage("/oauth2/authorization/dokene")
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
-                    .defaultSuccessUrl(postLoginRedirectUrl, true));
+                    .defaultSuccessUrl(postLoginRedirectUrl, true)
+                    .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl)));
         }
         return http.build();
+    }
+
+    static String resolvePostLoginFailureRedirectUrl(String configuredFailureUrl, String postLoginRedirectUrl) {
+        if (configuredFailureUrl != null && !configuredFailureUrl.isBlank()) {
+            return configuredFailureUrl.trim();
+        }
+        String base = (postLoginRedirectUrl != null && !postLoginRedirectUrl.isBlank())
+                ? postLoginRedirectUrl.trim()
+                : "/";
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(base);
+        if (builder.build().getPath() == null || builder.build().getPath().isEmpty()) {
+            builder.path("/");
+        }
+        return builder
+                .queryParam("error", "login_failed")
+                .build()
+                .toUriString();
+    }
+
+    private AuthenticationFailureHandler createAuthenticationFailureHandler(String failureRedirectUrl) {
+        SimpleUrlAuthenticationFailureHandler failureHandler =
+                new SimpleUrlAuthenticationFailureHandler(failureRedirectUrl);
+        failureHandler.setAllowSessionCreation(false);
+        return failureHandler;
     }
 
     private LogoutSuccessHandler createLogoutSuccessHandler(
