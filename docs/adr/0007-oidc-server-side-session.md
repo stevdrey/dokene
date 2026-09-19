@@ -68,7 +68,9 @@ The BFF exposes a minimal same-origin session contract:
    Unauthenticated calls return `401 Unauthorized`.
 5. **CSRF Protection**: CSRF protection is enforced for all state-changing HTTP methods (POST, PUT, DELETE, PATCH).
    The frontend retrieves the CSRF token from `GET /api/session` and transmits it in the `X-CSRF-TOKEN` header on
-   mutation requests.
+   mutation requests. State-changing requests to `/api/**` on expired or unauthenticated sessions fail closed with
+   `401 Unauthorized` (rather than `403 Forbidden`), allowing the client SPA to trigger session-expired workflows.
+   Authenticated requests with invalid or missing CSRF tokens fail closed with `403 Forbidden`.
 6. **Logout (Local vs Provider SSO)**:
    - **Local Session Logout**: `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server `HttpSession`, clears the
      security context, deletes the `JSESSIONID` cookie, and returns `204 No Content` for API clients.

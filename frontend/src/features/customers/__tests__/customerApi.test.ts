@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { httpClient } from '@/shared/api/httpClient';
+import { apiClient } from '@/api/apiClient';
 import { customerApi } from '@/features/customers/api/customerApi';
 
 describe('customerApi and httpClient', () => {
@@ -219,6 +220,28 @@ describe('customerApi and httpClient', () => {
     await customerApi.listCustomers({ name: 'Maria' }, controller.signal);
 
     expect(capturedSignal).toBeDefined();
+  });
+
+  it('triggers notifyUnauthorized and throws ApiError(401) when mutation fails with 401', async () => {
+    const notifySpy = vi.spyOn(apiClient, 'notifyUnauthorized');
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    await expect(
+      customerApi.createCustomer({
+        displayName: 'Probe Customer',
+        notes: null,
+        phones: [{ number: '984521190', region: 'CL', primary: true }]
+      })
+    ).rejects.toThrow('Sesión no autorizada o expirada');
+
+    expect(notifySpy).toHaveBeenCalledTimes(1);
   });
 });
 
