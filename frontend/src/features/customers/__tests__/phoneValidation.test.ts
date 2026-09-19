@@ -97,9 +97,11 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('123', 'MX').isValid).toBe(false);
     });
 
-    it('validates España (ES) numbers: requires 9 digits', () => {
+    it('validates España (ES) numbers: requires 9 digits and accepts international 00 and 011 prefixes', () => {
       expect(validatePhoneNumber('612345678', 'ES').isValid).toBe(true);
       expect(validatePhoneNumber('+34 612 345 678', 'ES').isValid).toBe(true);
+      expect(validatePhoneNumber('0034 612 345 678', 'ES').isValid).toBe(true);
+      expect(validatePhoneNumber('01134 612 345 678', 'ES').isValid).toBe(true);
       expect(validatePhoneNumber('123', 'ES').isValid).toBe(false);
     });
 
@@ -138,6 +140,7 @@ describe('phoneValidation utility', () => {
     it('validates generic/unlisted regions using E.164 7-15 digit boundaries', () => {
       expect(validatePhoneNumber('1234567', 'OTHER').isValid).toBe(true);
       expect(validatePhoneNumber('+380501234567', 'UA').isValid).toBe(true);
+      expect(validatePhoneNumber('00380 50 123 4567', 'UA').isValid).toBe(true);
       expect(validatePhoneNumber('123', 'OTHER').isValid).toBe(false);
       expect(validatePhoneNumber('123', 'OTHER').message).toBe(
         'El número ingresado no es válido para la región seleccionada (se requieren entre 7 y 15 dígitos).'

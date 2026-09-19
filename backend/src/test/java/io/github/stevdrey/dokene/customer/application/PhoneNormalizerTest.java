@@ -25,6 +25,11 @@ class PhoneNormalizerTest {
     }
 
     @Test
+    void normalizesInternationalIddPrefixedNumber() {
+        assertThat(normalizer.normalize("0034 612 345 678", "ES")).isEqualTo("+34612345678");
+    }
+
+    @Test
     void rejectsMissingUnsupportedAmbiguousAndOverlongInput() {
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", "ZZ")).isInstanceOf(IllegalArgumentException.class);

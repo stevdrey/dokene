@@ -94,6 +94,10 @@ export function extractNationalDigits(
     if (digitsOnly.startsWith(callingCode)) {
       digitsOnly = digitsOnly.slice(callingCode.length);
     }
+  } else if (digitsOnly.startsWith('00' + callingCode) && digitsOnly.length >= minNationalDigits + callingCode.length + 2) {
+    digitsOnly = digitsOnly.slice(callingCode.length + 2);
+  } else if (digitsOnly.startsWith('011' + callingCode) && digitsOnly.length >= minNationalDigits + callingCode.length + 3) {
+    digitsOnly = digitsOnly.slice(callingCode.length + 3);
   } else if (digitsOnly.startsWith(callingCode) && digitsOnly.length >= minNationalDigits + callingCode.length) {
     digitsOnly = digitsOnly.slice(callingCode.length);
   }
@@ -179,7 +183,12 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
   }
 
   // Generic fallback for other regions (E.164 total digits between 7 and 15)
-  const allDigits = trimmed.replace(/\D/g, '');
+  let allDigits = trimmed.replace(/\D/g, '');
+  if (allDigits.startsWith('00') && allDigits.length >= 9) {
+    allDigits = allDigits.slice(2);
+  } else if (allDigits.startsWith('011') && allDigits.length >= 10) {
+    allDigits = allDigits.slice(3);
+  }
   if (allDigits.length < 7 || allDigits.length > 15) {
     return {
       isValid: false,
