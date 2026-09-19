@@ -36,9 +36,9 @@ const REGION_RULES: Record<string, RegionRule> = {
   PE: {
     countryName: 'Perú',
     callingCode: '51',
-    minDigits: 9,
+    minDigits: 8,
     maxDigits: 9,
-    ruleDescription: 'Perú requiere 9 dígitos'
+    ruleDescription: 'Perú requiere 8 o 9 dígitos'
   },
   MX: {
     countryName: 'México',
@@ -131,6 +131,11 @@ export function extractNationalDigits(
       digitsOnly = digitsOnly.slice(3);
     } else if (digitsOnly.startsWith('0') && (digitsOnly.length === 11 || digitsOnly.length === 12)) {
       // Domestic dialing with trunk 0 (0 + 10 or 11 national digits = 11 or 12 digits)
+      digitsOnly = digitsOnly.slice(1);
+    }
+  } else if (normRegion === 'PE') {
+    // Domestic trunk prefix '0' (e.g. 01 5173501 for Lima fixed-line or 09XXXXXXXX for mobile)
+    if (digitsOnly.startsWith('0') && (digitsOnly.length === 9 || digitsOnly.length === 10)) {
       digitsOnly = digitsOnly.slice(1);
     }
   } else if (digitsOnly.startsWith('0') && digitsOnly.length === minNationalDigits + 1) {

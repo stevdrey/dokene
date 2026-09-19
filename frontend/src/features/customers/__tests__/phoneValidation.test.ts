@@ -74,12 +74,20 @@ describe('phoneValidation utility', () => {
       );
     });
 
-    it('validates Perú (PE) numbers: requires 9 digits', () => {
+    it('validates Perú (PE) numbers: requires 8 or 9 digits (permitting 8-digit fixed lines)', () => {
+      // 9-digit mobile
       expect(validatePhoneNumber('912345678', 'PE').isValid).toBe(true);
       expect(validatePhoneNumber('+51 912 345 678', 'PE').isValid).toBe(true);
+      // 8-digit fixed line (e.g. Lima +51 1 5173501)
+      expect(validatePhoneNumber('15173501', 'PE').isValid).toBe(true);
+      expect(validatePhoneNumber('+51 1 5173501', 'PE').isValid).toBe(true);
+      // Domestic dialing with trunk 0 (e.g. 01 5173501, 0912345678)
+      expect(validatePhoneNumber('01 5173501', 'PE').isValid).toBe(true);
+      expect(validatePhoneNumber('0912345678', 'PE').isValid).toBe(true);
+
       expect(validatePhoneNumber('123', 'PE').isValid).toBe(false);
       expect(validatePhoneNumber('123', 'PE').message).toBe(
-        'El número ingresado no es válido para la región seleccionada (Perú requiere 9 dígitos).'
+        'El número ingresado no es válido para la región seleccionada (Perú requiere 8 o 9 dígitos).'
       );
     });
 

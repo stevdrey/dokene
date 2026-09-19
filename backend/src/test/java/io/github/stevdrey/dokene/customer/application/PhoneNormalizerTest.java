@@ -19,6 +19,12 @@ class PhoneNormalizerTest {
     }
 
     @Test
+    void normalizesPeruvianFixedLineNumber() {
+        assertThat(normalizer.normalize("+51 1 5173501", "PE")).isEqualTo("+5115173501");
+        assertThat(normalizer.normalize("1 5173501", "PE")).isEqualTo("+5115173501");
+    }
+
+    @Test
     void rejectsMissingUnsupportedAmbiguousAndOverlongInput() {
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", "ZZ")).isInstanceOf(IllegalArgumentException.class);
