@@ -44,18 +44,33 @@ describe('LoginView', () => {
       logout: vi.fn(),
     });
 
-    // Mock window.location
+    // Mock window.location.href assignment
+    const hrefSetter = vi.fn();
     const originalLocation = window.location;
-    // @ts-expect-error override location for test
-    delete window.location;
-    window.location = { ...originalLocation, href: '' } as unknown as Location;
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      configurable: true,
+      value: {
+        ...originalLocation,
+        get href() {
+          return '';
+        },
+        set href(val: string) {
+          hrefSetter(val);
+        },
+      },
+    });
 
     render(<LoginView />);
 
     fireEvent.click(screen.getByRole('button', { name: /Iniciar sesión con OIDC/i }));
-    expect(window.location.href).toBe('/oauth2/authorization/dokene');
+    expect(hrefSetter).toHaveBeenCalledWith('/oauth2/authorization/dokene');
 
-    window.location = originalLocation;
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      configurable: true,
+      value: originalLocation,
+    });
   });
 
   it('displays session expiration alert when wasExpired is true', () => {
