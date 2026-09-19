@@ -52,7 +52,7 @@ class CustomerServiceTest {
                 .satisfies(ex -> {
                     var cve = (CustomerValidationException) ex;
                     assertThat(cve.field()).isEqualTo("phones[0].number");
-                    assertThat(cve.getMessage()).isEqualTo("Invalid phone number");
+                    assertThat(cve.getMessage()).isEqualTo("El formato del teléfono es inválido para la región seleccionada.");
                 });
     }
 
@@ -68,7 +68,22 @@ class CustomerServiceTest {
                 .satisfies(ex -> {
                     var cve = (CustomerValidationException) ex;
                     assertThat(cve.field()).isEqualTo("phones[1].number");
-                    assertThat(cve.getMessage()).isEqualTo("Invalid phone number");
+                    assertThat(cve.getMessage()).isEqualTo("El formato del teléfono es inválido para la región seleccionada.");
+                });
+    }
+
+    @Test
+    void createIdentifiesRegionFieldWhenPhoneRegionIsInvalidOrUnsupported() {
+        var phones = List.of(
+                new CustomerService.PhoneInput("984521190", "ZZ", true)
+        );
+
+        assertThatThrownBy(() -> service.create("Valentina Morales", null, phones))
+                .isInstanceOf(CustomerValidationException.class)
+                .satisfies(ex -> {
+                    var cve = (CustomerValidationException) ex;
+                    assertThat(cve.field()).isEqualTo("phones[0].region");
+                    assertThat(cve.getMessage()).isEqualTo("La región del teléfono es inválida o no está soportada.");
                 });
     }
 }

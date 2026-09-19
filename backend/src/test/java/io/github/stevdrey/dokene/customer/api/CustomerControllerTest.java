@@ -65,7 +65,7 @@ class CustomerControllerTest {
     @Test
     void createRejectsInvalidPhoneWithStructuredBadRequestAndIdentifiesField() throws Exception {
         when(service.create(eq("Valentina Morales"), eq(null), any()))
-                .thenThrow(new io.github.stevdrey.dokene.customer.application.CustomerValidationException("phones[0].number", "Invalid phone number"));
+                .thenThrow(new io.github.stevdrey.dokene.customer.application.CustomerValidationException("phones[0].number", "El formato del teléfono es inválido para la región seleccionada."));
 
         mvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content("""
                 {"displayName":"Valentina Morales","phones":[{"number":"123","region":"CL","primary":true}]}
@@ -73,7 +73,7 @@ class CustomerControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.field").value("phones[0].number"))
-                .andExpect(jsonPath("$.message").value("Invalid phone number"))
+                .andExpect(jsonPath("$.message").value("El formato del teléfono es inválido para la región seleccionada."))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("123"))));
     }
 
@@ -217,5 +217,15 @@ class CustomerControllerTest {
         mvc.perform(get("/api/customers/{id}", customer.id().value()))
                 .andExpect(status().isForbidden())
                 .andExpect(content().string(""));
+    }
+
+    @Test
+    void malformedPayloadReturnsSanitizedFrameworkErrorWithoutInternalDetails() throws Exception {
+        mvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content("{\"invalid-json: raw-secret-data"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Invalid request payload or parameters"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("raw-secret-data"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("com.fasterxml.jackson"))));
     }
 }

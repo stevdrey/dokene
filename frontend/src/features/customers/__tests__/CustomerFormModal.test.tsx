@@ -366,13 +366,10 @@ describe('CustomerFormModal', () => {
     const submitBtn = screen.getByRole('button', { name: /Crear cliente/i });
     fireEvent.click(submitBtn);
 
-    // Assert actionable error message in both banner and inline field error
+    // Assert actionable error message in banner and field-level error association
     const expectedMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
     await waitFor(() => {
-      const alerts = screen.getAllByRole('alert');
-      expect(alerts.length).toBeGreaterThanOrEqual(2);
-      expect(alerts[0]).toHaveTextContent(expectedMsg);
-      expect(alerts[1]).toHaveTextContent(expectedMsg);
+      expect(screen.getByRole('alert')).toHaveTextContent(expectedMsg);
     });
 
     // Assert field-level error association
@@ -425,9 +422,60 @@ describe('CustomerFormModal', () => {
     await waitFor(() => {
       expect(phoneInput).toHaveAttribute('aria-invalid', 'true');
       expect(phoneInput).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(screen.getByRole('alert')).toHaveTextContent(expectedApiMsg);
       expect(screen.getAllByText(expectedApiMsg)).toHaveLength(2);
       // Verify generic "Error HTTP 400" is NOT displayed
       expect(screen.queryByText('Error HTTP 400')).not.toBeInTheDocument();
+    });
+  });
+
+  it('preserves existing unchanged phone from uncommon/unlisted region during customer edit without validation error', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    const customerWithUnusualPhone = {
+      id: 'cust-za-1',
+      displayName: 'South African Customer',
+      notes: null,
+      phones: [{ id: 'p-za-1', e164: '+27115551234', primary: true }],
+      status: 'ACTIVE' as const,
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      archivedAt: null
+    };
+
+    const updateSpy = vi.spyOn(customerApi, 'updateCustomer').mockResolvedValueOnce({
+      ...customerWithUnusualPhone,
+      displayName: 'South African Customer Renamed',
+      version: 2
+    });
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+        customerToEdit={customerWithUnusualPhone}
+      />
+    );
+
+    const nameInput = screen.getByLabelText(/Nombre completo/i);
+    fireEvent.change(nameInput, { target: { value: 'South African Customer Renamed' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar cambios/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        'cust-za-1',
+        1,
+        expect.objectContaining({
+          displayName: 'South African Customer Renamed',
+          phones: [{ number: '+27115551234', region: 'ZA', primary: true }]
+        })
+      );
+      expect(onSaved).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
     });
   });
 });

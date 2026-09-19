@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -115,7 +116,12 @@ public class CustomerService {
                 try {
                     normalized = phoneNormalizer.normalize(phone.number(), phone.region());
                 } catch (IllegalArgumentException ex) {
-                    throw new CustomerValidationException("phones[" + i + "].number", ex.getMessage());
+                    boolean isRegion = ex.getMessage() != null && ex.getMessage().toLowerCase(Locale.ROOT).contains("region");
+                    String fieldName = isRegion ? "phones[" + i + "].region" : "phones[" + i + "].number";
+                    String message = isRegion
+                            ? "La región del teléfono es inválida o no está soportada."
+                            : "El formato del teléfono es inválido para la región seleccionada.";
+                    throw new CustomerValidationException(fieldName, message);
                 }
             }
             UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());

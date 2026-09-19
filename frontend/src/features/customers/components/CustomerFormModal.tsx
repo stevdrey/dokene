@@ -131,7 +131,8 @@ const CALLING_CODE_MAP: [string, string][] = [
   ['+998', 'UZ'],
   ['+76', 'KZ'],
   ['+77', 'KZ'],
-  ['+7', 'RU']
+  ['+7', 'RU'],
+  ['+27', 'ZA']
 ];
 
 export function detectRegionFromE164(e164?: string | null): string {
@@ -283,6 +284,13 @@ export function CustomerFormModal({
     const currentPhoneErrors: Record<number, string> = {};
     let firstPhoneErrorMessage: string | null = null;
     for (let i = 0; i < validPhones.length; i++) {
+      // Preserve existing unchanged phones during edits so unlisted/undetected regions are not blocked
+      const isUnchangedExistingPhone =
+        isEdit && customerToEdit?.phones?.some((existing) => existing.e164 === validPhones[i].number);
+      if (isUnchangedExistingPhone) {
+        continue;
+      }
+
       const validation = validatePhoneNumber(validPhones[i].number, validPhones[i].region);
       if (!validation.isValid) {
         const msg = validation.message || 'Número de teléfono no válido.';
@@ -546,7 +554,6 @@ export function CustomerFormModal({
                 {phoneErrors[idx] && (
                   <div
                     id={`phone-error-${idx}`}
-                    role="alert"
                     style={{
                       color: 'var(--color-error-text, #c53030)',
                       fontSize: 'var(--font-size-meta)',

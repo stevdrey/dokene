@@ -52,13 +52,17 @@ describe('phoneValidation utility', () => {
       expect(longRes.message).toBe('El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).');
     });
 
-    it('validates Argentina (AR) numbers: requires 10 to 11 digits', () => {
+    it('validates Argentina (AR) numbers: requires 10 to 11 digits and accepts domestic 011 15 prefixes', () => {
       expect(validatePhoneNumber('123', 'AR').isValid).toBe(false);
       expect(validatePhoneNumber('123', 'AR').message).toBe(
         'El número ingresado no es válido para la región seleccionada (Argentina requiere 10 dígitos).'
       );
       expect(validatePhoneNumber('1112345678', 'AR').isValid).toBe(true);
       expect(validatePhoneNumber('+54 9 11 1234 5678', 'AR').isValid).toBe(true);
+      // Domestic dialing with trunk 0 and mobile 15
+      expect(validatePhoneNumber('011 15-2345-6789', 'AR').isValid).toBe(true);
+      expect(validatePhoneNumber('011 2345 6789', 'AR').isValid).toBe(true);
+      expect(validatePhoneNumber('11 15 2345 6789', 'AR').isValid).toBe(true);
     });
 
     it('validates Colombia (CO) numbers: requires 10 digits', () => {

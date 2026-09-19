@@ -78,18 +78,56 @@ const REGION_RULES: Record<string, RegionRule> = {
 };
 
 /**
- * Extracts digits and strips international calling code if present.
+ * Extracts digits and handles international calling codes and domestic trunk/carrier prefixes.
  */
-export function extractNationalDigits(rawNumber: string, callingCode: string, minNationalDigits: number): string {
+export function extractNationalDigits(
+  rawNumber: string,
+  callingCode: string,
+  minNationalDigits: number,
+  region = ''
+): string {
   const trimmed = rawNumber.trim();
-  const digitsOnly = trimmed.replace(/\D/g, '');
+  let digitsOnly = trimmed.replace(/\D/g, '');
+  const normRegion = region.toUpperCase();
 
   if (trimmed.startsWith('+')) {
     if (digitsOnly.startsWith(callingCode)) {
-      return digitsOnly.slice(callingCode.length);
+      digitsOnly = digitsOnly.slice(callingCode.length);
     }
   } else if (digitsOnly.startsWith(callingCode) && digitsOnly.length >= minNationalDigits + callingCode.length) {
-    return digitsOnly.slice(callingCode.length);
+    digitsOnly = digitsOnly.slice(callingCode.length);
+  }
+
+  // Handle region-specific domestic dialing prefixes (e.g. Argentine 011 15-..., Mexican 01/044/045)
+  if (normRegion === 'AR') {
+    // International mobile indicator (+54 9 ...)
+    if (digitsOnly.startsWith('9') && digitsOnly.length === 11) {
+      digitsOnly = digitsOnly.slice(1);
+    }
+    // Domestic trunk prefix '0'
+    if (digitsOnly.startsWith('0')) {
+      digitsOnly = digitsOnly.slice(1);
+    }
+    // Domestic mobile prefix '15' after 2, 3, or 4-digit area code (e.g. 011 15-2345-6789)
+    if (digitsOnly.length === 12) {
+      if (digitsOnly.slice(2, 4) === '15') {
+        digitsOnly = digitsOnly.slice(0, 2) + digitsOnly.slice(4);
+      } else if (digitsOnly.slice(3, 5) === '15') {
+        digitsOnly = digitsOnly.slice(0, 3) + digitsOnly.slice(5);
+      } else if (digitsOnly.slice(4, 6) === '15') {
+        digitsOnly = digitsOnly.slice(0, 4) + digitsOnly.slice(6);
+      }
+    }
+  } else if (normRegion === 'MX') {
+    // Historical Mexican domestic trunk prefixes
+    if (digitsOnly.startsWith('01') && digitsOnly.length === 12) {
+      digitsOnly = digitsOnly.slice(2);
+    } else if ((digitsOnly.startsWith('044') || digitsOnly.startsWith('045')) && digitsOnly.length === 13) {
+      digitsOnly = digitsOnly.slice(3);
+    }
+  } else if (digitsOnly.startsWith('0') && digitsOnly.length === minNationalDigits + 1) {
+    // Single leading trunk zero (e.g. 09XXXXXXXX in Chile)
+    digitsOnly = digitsOnly.slice(1);
   }
 
   return digitsOnly;
@@ -117,7 +155,7 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
 
   const rule = REGION_RULES[region.toUpperCase()];
   if (rule) {
-    const nationalDigits = extractNationalDigits(trimmed, rule.callingCode, rule.minDigits);
+    const nationalDigits = extractNationalDigits(trimmed, rule.callingCode, rule.minDigits, region);
     if (nationalDigits.length < rule.minDigits || nationalDigits.length > rule.maxDigits) {
       return {
         isValid: false,

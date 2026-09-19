@@ -19,17 +19,29 @@ public class CustomerExceptionHandler {
 
     @ExceptionHandler(CustomerValidationException.class)
     ResponseEntity<CustomerValidationErrorResponse> validationError(CustomerValidationException ex) {
+        String message = ex.getMessage();
+        if ("Invalid phone number".equalsIgnoreCase(message)) {
+            message = "El formato del teléfono es inválido para la región seleccionada.";
+        }
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                ex.getMessage(),
+                message,
                 ex.field()
         ));
     }
 
-    @ExceptionHandler({IllegalArgumentException.class,
-            MissingRequestHeaderException.class, MissingServletRequestParameterException.class,
-            MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
-    ResponseEntity<CustomerValidationErrorResponse> invalidInput(Exception ex) {
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
+            MissingRequestHeaderException.class, MissingServletRequestParameterException.class})
+    ResponseEntity<CustomerValidationErrorResponse> frameworkBindingError(Exception ex) {
+        return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "Invalid request payload or parameters",
+                null
+        ));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    ResponseEntity<CustomerValidationErrorResponse> invalidInput(IllegalArgumentException ex) {
         String message = (ex.getMessage() != null && !ex.getMessage().isBlank()) ? ex.getMessage() : "Invalid input";
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
