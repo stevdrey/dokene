@@ -133,6 +133,12 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('＋５６ ９８４５２１１９０', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('＋56984521190', 'CL').isValid).toBe(true);
 
+      // Correct digit count (9 digits) but impossible structure
+      const clInvalidStructure = validatePhoneNumber('000000000', 'CL');
+      expect(clInvalidStructure.isValid).toBe(false);
+      expect(clInvalidStructure.message).toBe('El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).');
+      expect(validatePhoneNumber('111111111', 'CL').isValid).toBe(false);
+
       // Overlong case
       const longRes = validatePhoneNumber('98452119012', 'CL');
       expect(longRes.isValid).toBe(false);
@@ -193,6 +199,13 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('5512345678', 'MX').isValid).toBe(true);
       expect(validatePhoneNumber('+52 55 1234 5678', 'MX').isValid).toBe(true);
       expect(validatePhoneNumber('123', 'MX').isValid).toBe(false);
+
+      // Correct digit count (10 digits) but impossible structure
+      const mxInvalidStructure = validatePhoneNumber('0000000000', 'MX');
+      expect(mxInvalidStructure.isValid).toBe(false);
+      expect(mxInvalidStructure.message).toBe(
+        'El número ingresado no es válido para la región seleccionada (México requiere 10 dígitos).'
+      );
     });
 
     it('validates España (ES) numbers: requires 9 digits and accepts international 00 and 011 prefixes', () => {
@@ -222,6 +235,14 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('1-800-FLOWERS ext. 123', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('ext. 123', 'US').isValid).toBe(false);
       expect(validatePhoneNumber('123', 'US').isValid).toBe(false);
+
+      // Correct digit count (10 digits) but impossible structure
+      const usInvalidStructure = validatePhoneNumber('0000000000', 'US');
+      expect(usInvalidStructure.isValid).toBe(false);
+      expect(usInvalidStructure.message).toBe(
+        'El número ingresado no es válido para la región seleccionada (Estados Unidos requiere 10 dígitos).'
+      );
+      expect(validatePhoneNumber('1111111111', 'US').isValid).toBe(false);
 
       expect(validatePhoneNumber('4165551234', 'CA').isValid).toBe(true);
       expect(validatePhoneNumber('+1 416 555 1234', 'CA').isValid).toBe(true);

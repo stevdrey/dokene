@@ -301,9 +301,8 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
             return { isValid: true };
           }
         } catch {
-          // Fall through
+          // Fall through to invalid result
         }
-        return { isValid: true };
       }
     }
 
