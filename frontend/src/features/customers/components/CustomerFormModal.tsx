@@ -478,6 +478,7 @@ export function CustomerFormModal({
                     <input
                       type="tel"
                       required
+                      maxLength={64}
                       value={phone.number}
                       onChange={(e) => handlePhoneChange(idx, 'number', e.target.value)}
                       placeholder="Ej. +56 9 8452 1190 o 984521190"

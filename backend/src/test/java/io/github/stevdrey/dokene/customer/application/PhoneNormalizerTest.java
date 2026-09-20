@@ -53,6 +53,7 @@ class PhoneNormalizerTest {
         assertThat(normalizer.normalize("+56 ٩٨٤٥٢١١٩٠", "CL")).isEqualTo("+56984521190");
         assertThat(normalizer.normalize("９８４５２１１９０", "CL")).isEqualTo("+56984521190");
         assertThat(normalizer.normalize("९८४५२११९०", "CL")).isEqualTo("+56984521190");
+        assertThat(normalizer.normalize("𝟡𝟠𝟜𝟝𝟚𝟙𝟙𝟡𝟘", "CL")).isEqualTo("+56984521190");
     }
 
     @Test

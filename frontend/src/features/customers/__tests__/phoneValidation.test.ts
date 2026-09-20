@@ -19,9 +19,25 @@ describe('phoneValidation utility', () => {
       expect(normalizeUnicodeDigits('९८४५२११९०')).toBe('984521190');
       expect(normalizeUnicodeDigits('９８４５２１１９０')).toBe('984521190');
     });
+
+    it('normalizes mathematical bold and double-struck digits across adjacent Nd blocks', () => {
+      // Mathematical double-struck (U+1D7D8..U+1D7E1) and bold (U+1D7CE..U+1D7D7)
+      expect(normalizeUnicodeDigits('𝟡𝟠𝟜𝟝𝟚𝟙𝟙𝟡𝟘')).toBe('984521190');
+      expect(normalizeUnicodeDigits('𝟵𝟴𝟰𝟱𝟮𝟭𝟭𝟵𝟬')).toBe('984521190');
+    });
   });
 
   describe('stripExtension', () => {
+    it('safely bounds overlong inputs without regex backtracking', () => {
+      const overlong = '1' + ' '.repeat(20000) + '1';
+      const start = performance.now();
+      const res = stripExtension(overlong);
+      const elapsed = performance.now() - start;
+
+      expect(res).toBe(overlong);
+      expect(elapsed).toBeLessThan(100);
+    });
+
     it('strips extension patterns recognized by libphonenumber', () => {
       expect(stripExtension('+1 202-555-0123 ext. 456')).toBe('+1 202-555-0123');
       expect(stripExtension('202-555-0123 ext 456')).toBe('202-555-0123');
@@ -96,16 +112,28 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('+56984521190', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('9-8452-1190', 'CL').isValid).toBe(true);
 
-      // Unicode decimal digits (Arabic-Indic, Fullwidth, Devanagari)
+      // Unicode decimal digits (Arabic-Indic, Fullwidth, Devanagari, Mathematical double-struck)
       expect(validatePhoneNumber('٩٨٤٥٢١١٩٠', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('+56 ٩٨٤٥٢١١٩٠', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('９８４５２１１９０', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('९८४५२११९०', 'CL').isValid).toBe(true);
+      expect(validatePhoneNumber('𝟡𝟠𝟜𝟝𝟚𝟙𝟙𝟡𝟘', 'CL').isValid).toBe(true);
 
       // Overlong case
       const longRes = validatePhoneNumber('98452119012', 'CL');
       expect(longRes.isValid).toBe(false);
       expect(longRes.message).toBe('El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).');
+    });
+
+    it('rejects input exceeding 64 characters without regex backtracking', () => {
+      const overlong = '1' + ' '.repeat(20000) + '1';
+      const start = performance.now();
+      const res = validatePhoneNumber(overlong, 'US');
+      const elapsed = performance.now() - start;
+
+      expect(res.isValid).toBe(false);
+      expect(res.message).toBe('El número telefónico no puede superar los 64 caracteres.');
+      expect(elapsed).toBeLessThan(100);
     });
 
     it('validates Argentina (AR) numbers: requires 10 to 11 digits and accepts domestic 011 15 prefixes', () => {
