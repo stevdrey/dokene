@@ -1,3 +1,5 @@
+import { parsePhoneNumberWithError, CountryCode, isSupportedCountry } from 'libphonenumber-js/min';
+
 export interface PhoneValidationResult {
   isValid: boolean;
   message?: string;
@@ -11,7 +13,7 @@ interface RegionRule {
   ruleDescription: string;
 }
 
-const REGION_RULES: Record<string, RegionRule> = {
+export const REGION_RULES: Record<string, RegionRule> = {
   CL: {
     countryName: 'Chile',
     callingCode: '56',
@@ -143,8 +145,10 @@ export function convertVanityToDigits(rawNumber: string): string {
   return rawNumber.replace(/[a-zA-Z]/g, (ch) => KEYPAD_MAPPING[ch.toUpperCase()] ?? ch);
 }
 
+const EXTENSION_REGEX = /(?:[;,#]|\s+(?:ext\.?|extension|x|[;,#])|\s*[-–—]\s*(?:ext\.?|extension|x)|(?<=\d)[xX]|;ext=|;isub=)\s*\d+\s*#?$/i;
+
 /**
- * Strips phone extensions recognized by libphonenumber (e.g. ext. 123, ext 123, extension 123, x123, #123, ,123, ;123).
+ * Strips phone extensions recognized by libphonenumber (e.g. ext. 123, ext 123, extension 123, x123, #123, ,123, ;123, ;ext=123, ;isub=123).
  */
 export function stripExtension(rawNumber: string): string {
   if (rawNumber.length > PHONE_INPUT_MAX_LENGTH) {
@@ -152,8 +156,8 @@ export function stripExtension(rawNumber: string): string {
   }
   const normalized = normalizeUnicodeDigits(rawNumber);
   return normalized
-    .replace(/(?:[;,#]|\s+(?:ext\.?|extension|x|[;,#])|\s*[-–—]\s*(?:ext\.?|extension|x)|(?<=\d)[xX])\s*\d+\s*#?$/i, '')
-    .replace(/[,;\s\-–—]+$/, '')
+    .replace(EXTENSION_REGEX, '')
+    .replace(/[,;\s\-–—=]+$/, '')
     .trim();
 }
 
@@ -237,7 +241,8 @@ export function extractNationalDigits(
 }
 
 /**
- * Validates whether a phone number conforms to the requirements of the given region.
+ * Validates whether a phone number conforms to the requirements of the given region,
+ * backed authoritatively by libphonenumber semantics per ADR 0009.
  */
 export function validatePhoneNumber(phoneNumber: string, region: string): PhoneValidationResult {
   const trimmed = phoneNumber.trim();
@@ -257,27 +262,67 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
 
   const normalized = normalizeUnicodeDigits(trimmed);
 
-  // Check for disallowed characters (only +, full-width +, digits, letters, spaces, hyphens, dots, parentheses, commas, semicolons, hash)
-  if (!/^[+\uFF0B\da-zA-Z\s\-().,;#]+$/.test(normalized)) {
+  // Check for disallowed characters (only +, =, full-width +, digits, letters, spaces, hyphens, dots, parentheses, commas, semicolons, hash)
+  if (!/^[+=\uFF0B\da-zA-Z\s\-().,;#]+$/.test(normalized)) {
     return {
       isValid: false,
       message: 'El número telefónico contiene caracteres no válidos.'
     };
   }
 
-  const rule = REGION_RULES[region.toUpperCase()];
-  if (rule) {
-    const nationalDigits = extractNationalDigits(normalized, rule.callingCode, rule.minDigits, region);
-    if (nationalDigits.length < rule.minDigits || nationalDigits.length > rule.maxDigits) {
-      return {
-        isValid: false,
-        message: `El número ingresado no es válido para la región seleccionada (${rule.ruleDescription}).`
-      };
+  const normRegion = region.toUpperCase();
+  const rule = REGION_RULES[normRegion];
+  const desc = rule ? ` (${rule.ruleDescription})` : '';
+
+  // Prepare input for libphonenumber by converting vanity phonewords in the base number
+  const withoutExt = stripExtension(normalized);
+  const convertedBase = convertVanityToDigits(withoutExt);
+  const extMatch = normalized.match(EXTENSION_REGEX);
+  const inputForLib = extMatch ? `${convertedBase} ${extMatch[0].trim()}` : convertedBase;
+
+  // 1. Authoritative libphonenumber validation for supported ISO countries
+  if (isSupportedCountry(normRegion)) {
+    try {
+      const parsed = parsePhoneNumberWithError(inputForLib, normRegion as CountryCode);
+      if (parsed && parsed.isValid()) {
+        return { isValid: true };
+      }
+    } catch {
+      // Fall through to check regional domestic dialing or return actionable message
     }
-    return { isValid: true };
+
+    // Secondary pass: domestic prefixes (e.g. Argentine 011 15-..., Mexican 01/044/045, Peruvian 01)
+    if (rule) {
+      const nationalDigits = extractNationalDigits(normalized, rule.callingCode, rule.minDigits, normRegion);
+      if (nationalDigits.length >= rule.minDigits && nationalDigits.length <= rule.maxDigits) {
+        try {
+          const parsed = parsePhoneNumberWithError(nationalDigits, normRegion as CountryCode);
+          if (parsed && parsed.isValid()) {
+            return { isValid: true };
+          }
+        } catch {
+          // Fall through
+        }
+        return { isValid: true };
+      }
+    }
+
+    return {
+      isValid: false,
+      message: `El número ingresado no es válido para la región seleccionada${desc}.`
+    };
   }
 
-  // Generic fallback for other regions (E.164 total digits between 7 and 15)
+  // 2. Fallback for unlisted or custom regions (e.g. 'OTHER')
+  try {
+    const parsed = parsePhoneNumberWithError(inputForLib);
+    if (parsed && parsed.isValid()) {
+      return { isValid: true };
+    }
+  } catch {
+    // Fall through
+  }
+
   let allDigits = convertVanityToDigits(stripExtension(normalized)).replace(/\D/g, '');
   if (allDigits.startsWith('00') && allDigits.length >= 9) {
     allDigits = allDigits.slice(2);
@@ -293,3 +338,4 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
 
   return { isValid: true };
 }
+

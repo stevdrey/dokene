@@ -52,6 +52,8 @@ describe('phoneValidation utility', () => {
       expect(stripExtension('202-555-0123, 456')).toBe('202-555-0123');
       expect(stripExtension('202-555-0123; 456')).toBe('202-555-0123');
       expect(stripExtension('1-800-FLOWERS ext. 123')).toBe('1-800-FLOWERS');
+      expect(stripExtension('+1 202-555-0123;ext=456')).toBe('+1 202-555-0123');
+      expect(stripExtension('+1 202-555-0123;isub=456')).toBe('+1 202-555-0123');
     });
 
     it('does not strip letters that are part of vanity phonewords', () => {
@@ -214,6 +216,9 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('202-555-0123 #456', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('202-555-0123, 456', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('202-555-0123; 456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('+1 202-555-0123;ext=456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123;ext=456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('+1 202-555-0123;isub=456', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('1-800-FLOWERS ext. 123', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('ext. 123', 'US').isValid).toBe(false);
       expect(validatePhoneNumber('123', 'US').isValid).toBe(false);

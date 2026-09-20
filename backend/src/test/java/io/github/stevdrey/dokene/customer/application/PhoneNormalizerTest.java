@@ -45,6 +45,8 @@ class PhoneNormalizerTest {
         assertThat(normalizer.normalize("202-555-0123; 456", "US")).isEqualTo("+12025550123");
         assertThat(normalizer.normalize("2025550123x456", "US")).isEqualTo("+12025550123");
         assertThat(normalizer.normalize("1-800-FLOWERS ext. 123", "US")).isEqualTo("+18003569377");
+        assertThat(normalizer.normalize("+1 202-555-0123;ext=456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123;ext=456", "US")).isEqualTo("+12025550123");
     }
 
     @Test
