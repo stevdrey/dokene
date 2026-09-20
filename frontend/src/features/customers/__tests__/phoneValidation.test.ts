@@ -1,7 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { validatePhoneNumber, extractNationalDigits, convertVanityToDigits } from '@/features/customers/utils/phoneValidation';
+import { validatePhoneNumber, extractNationalDigits, convertVanityToDigits, stripExtension } from '@/features/customers/utils/phoneValidation';
 
 describe('phoneValidation utility', () => {
+  describe('stripExtension', () => {
+    it('strips extension patterns recognized by libphonenumber', () => {
+      expect(stripExtension('+1 202-555-0123 ext. 456')).toBe('+1 202-555-0123');
+      expect(stripExtension('202-555-0123 ext 456')).toBe('202-555-0123');
+      expect(stripExtension('202-555-0123 x456')).toBe('202-555-0123');
+      expect(stripExtension('202-555-0123 extension 456')).toBe('202-555-0123');
+      expect(stripExtension('202-555-0123 #456')).toBe('202-555-0123');
+      expect(stripExtension('202-555-0123, 456')).toBe('202-555-0123');
+      expect(stripExtension('202-555-0123; 456')).toBe('202-555-0123');
+      expect(stripExtension('1-800-FLOWERS ext. 123')).toBe('1-800-FLOWERS');
+    });
+
+    it('does not strip letters that are part of vanity phonewords', () => {
+      expect(stripExtension('1-800-FLOWERS')).toBe('1-800-FLOWERS');
+      expect(stripExtension('1-800-FOX')).toBe('1-800-FOX');
+    });
+  });
+
   describe('convertVanityToDigits', () => {
     it('converts vanity phonewords to standard keypad digits', () => {
       expect(convertVanityToDigits('1-800-FLOWERS')).toBe('1-800-3569377');
@@ -118,16 +136,26 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('123', 'ES').isValid).toBe(false);
     });
 
-    it('validates Estados Unidos (US) and Canadá (CA) numbers: requires 10 digits and supports vanity phonewords', () => {
+    it('validates Estados Unidos (US) and Canadá (CA) numbers: requires 10 digits and supports vanity phonewords and extensions', () => {
       expect(validatePhoneNumber('2025550123', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('+1 202 555 0123', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('1-800-FLOWERS', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('800-FLOWERS', 'US').isValid).toBe(true);
       expect(validatePhoneNumber('+1-800-FLOWERS', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('+1 202-555-0123 ext. 456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123 ext 456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123 x456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123 extension 456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123 #456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123, 456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('202-555-0123; 456', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('1-800-FLOWERS ext. 123', 'US').isValid).toBe(true);
+      expect(validatePhoneNumber('ext. 123', 'US').isValid).toBe(false);
       expect(validatePhoneNumber('123', 'US').isValid).toBe(false);
 
       expect(validatePhoneNumber('4165551234', 'CA').isValid).toBe(true);
       expect(validatePhoneNumber('+1 416 555 1234', 'CA').isValid).toBe(true);
+      expect(validatePhoneNumber('+1 416 555 1234 ext. 789', 'CA').isValid).toBe(true);
       expect(validatePhoneNumber('123', 'CA').isValid).toBe(false);
     });
 

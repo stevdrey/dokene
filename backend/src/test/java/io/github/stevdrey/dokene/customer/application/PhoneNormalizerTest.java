@@ -35,6 +35,19 @@ class PhoneNormalizerTest {
     }
 
     @Test
+    void normalizesNumberWithExtension() {
+        assertThat(normalizer.normalize("+1 202-555-0123 ext. 456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123 ext 456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123 x456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123 extension 456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123 #456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123, 456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("202-555-0123; 456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("2025550123x456", "US")).isEqualTo("+12025550123");
+        assertThat(normalizer.normalize("1-800-FLOWERS ext. 123", "US")).isEqualTo("+18003569377");
+    }
+
+    @Test
     void rejectsMissingUnsupportedAmbiguousAndOverlongInput() {
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", "ZZ")).isInstanceOf(IllegalArgumentException.class);

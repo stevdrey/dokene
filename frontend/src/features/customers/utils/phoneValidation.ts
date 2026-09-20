@@ -93,6 +93,15 @@ export function convertVanityToDigits(rawNumber: string): string {
 }
 
 /**
+ * Strips phone extensions recognized by libphonenumber (e.g. ext. 123, ext 123, extension 123, x123, #123, ,123, ;123).
+ */
+export function stripExtension(rawNumber: string): string {
+  return rawNumber
+    .replace(/(?:[,;]|\s*[-–—]\s*)?\s*(?:(?<=[^a-zA-Z]|^)(?:ext\.?|extension|x)|[#;,])\s*\d+\s*#?$/i, '')
+    .trim();
+}
+
+/**
  * Extracts digits and handles international calling codes and domestic trunk/carrier prefixes.
  */
 export function extractNationalDigits(
@@ -101,7 +110,8 @@ export function extractNationalDigits(
   minNationalDigits: number,
   region = ''
 ): string {
-  const converted = convertVanityToDigits(rawNumber);
+  const withoutExt = stripExtension(rawNumber);
+  const converted = convertVanityToDigits(withoutExt);
   const trimmed = converted.trim();
   let digitsOnly = trimmed.replace(/\D/g, '');
   const normRegion = region.toUpperCase();
@@ -178,8 +188,8 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
     };
   }
 
-  // Check for disallowed characters (only +, digits, letters, spaces, hyphens, dots, parentheses)
-  if (!/^[+\da-zA-Z\s\-().]+$/.test(trimmed)) {
+  // Check for disallowed characters (only +, digits, letters, spaces, hyphens, dots, parentheses, commas, semicolons, hash)
+  if (!/^[+\da-zA-Z\s\-().,;#]+$/.test(trimmed)) {
     return {
       isValid: false,
       message: 'El número telefónico contiene caracteres no válidos.'
@@ -199,7 +209,7 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
   }
 
   // Generic fallback for other regions (E.164 total digits between 7 and 15)
-  let allDigits = convertVanityToDigits(trimmed).replace(/\D/g, '');
+  let allDigits = convertVanityToDigits(stripExtension(trimmed)).replace(/\D/g, '');
   if (allDigits.startsWith('00') && allDigits.length >= 9) {
     allDigits = allDigits.slice(2);
   } else if (allDigits.startsWith('011') && allDigits.length >= 10) {
