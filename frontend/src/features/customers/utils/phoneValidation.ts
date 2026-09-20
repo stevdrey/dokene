@@ -91,13 +91,21 @@ export const UNICODE_DIGIT_ZEROS: number[] = [
 ];
 
 /**
- * Normalizes any Unicode decimal digits (Nd category) to standard ASCII 0-9 digits.
+ * Normalizes any Unicode decimal digits (Nd category) to standard ASCII 0-9 digits
+ * and normalizes the full-width plus sign (U+FF0B) to the standard plus sign (+).
  */
 export function normalizeUnicodeDigits(input: string): string {
-  if (input.length > PHONE_INPUT_MAX_LENGTH || !/\p{Nd}/u.test(input)) {
+  if (input.length > PHONE_INPUT_MAX_LENGTH) {
     return input;
   }
-  return input.replace(/\p{Nd}/gu, (ch) => {
+  let result = input;
+  if (result.includes('\uFF0B')) {
+    result = result.replace(/\uFF0B/g, '+');
+  }
+  if (!/\p{Nd}/u.test(result)) {
+    return result;
+  }
+  return result.replace(/\p{Nd}/gu, (ch) => {
     const cp = ch.codePointAt(0)!;
     if (cp >= 0x30 && cp <= 0x39) {
       return ch;
@@ -168,7 +176,7 @@ export function extractNationalDigits(
   let digitsOnly = trimmed.replace(/\D/g, '');
   const normRegion = region.toUpperCase();
 
-  if (trimmed.startsWith('+')) {
+  if (trimmed.startsWith('+') || trimmed.startsWith('\uFF0B')) {
     if (digitsOnly.startsWith(callingCode)) {
       digitsOnly = digitsOnly.slice(callingCode.length);
     }
@@ -249,8 +257,8 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
 
   const normalized = normalizeUnicodeDigits(trimmed);
 
-  // Check for disallowed characters (only +, digits, letters, spaces, hyphens, dots, parentheses, commas, semicolons, hash)
-  if (!/^[+\da-zA-Z\s\-().,;#]+$/.test(normalized)) {
+  // Check for disallowed characters (only +, full-width +, digits, letters, spaces, hyphens, dots, parentheses, commas, semicolons, hash)
+  if (!/^[+\uFF0B\da-zA-Z\s\-().,;#]+$/.test(normalized)) {
     return {
       isValid: false,
       message: 'El número telefónico contiene caracteres no válidos.'

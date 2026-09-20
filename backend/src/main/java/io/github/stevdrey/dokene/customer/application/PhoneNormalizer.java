@@ -48,6 +48,8 @@ public class PhoneNormalizer {
             int digit = Character.digit(cp, 10);
             if (digit >= 0 && (cp < '0' || cp > '9')) {
                 sb.append(digit);
+            } else if (cp == 0xFF0B) {
+                sb.append('+');
             } else {
                 sb.appendCodePoint(cp);
             }

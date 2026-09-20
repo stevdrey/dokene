@@ -25,6 +25,11 @@ describe('phoneValidation utility', () => {
       expect(normalizeUnicodeDigits('𝟡𝟠𝟜𝟝𝟚𝟙𝟙𝟡𝟘')).toBe('984521190');
       expect(normalizeUnicodeDigits('𝟵𝟴𝟰𝟱𝟮𝟭𝟭𝟵𝟬')).toBe('984521190');
     });
+
+    it('normalizes full-width plus sign (U+FF0B) to ASCII plus', () => {
+      expect(normalizeUnicodeDigits('＋56 984521190')).toBe('+56 984521190');
+      expect(normalizeUnicodeDigits('＋５６ ９８４５２１１９０')).toBe('+56 984521190');
+    });
   });
 
   describe('stripExtension', () => {
@@ -65,6 +70,8 @@ describe('phoneValidation utility', () => {
   describe('extractNationalDigits', () => {
     it('strips leading + and country calling code when present', () => {
       expect(extractNationalDigits('+56 9 8452 1190', '56', 9)).toBe('984521190');
+      expect(extractNationalDigits('＋56 9 8452 1190', '56', 9)).toBe('984521190');
+      expect(extractNationalDigits('＋５６ ９８４５２１１９０', '56', 9)).toBe('984521190');
       expect(extractNationalDigits('+54 9 11 1234 5678', '54', 10)).toBe('91112345678');
       expect(extractNationalDigits('+1 416 555 1234', '1', 10)).toBe('4165551234');
     });
@@ -118,6 +125,11 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('９８４５２１１９０', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('९८४५२११९०', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('𝟡𝟠𝟜𝟝𝟚𝟙𝟙𝟡𝟘', 'CL').isValid).toBe(true);
+
+      // Full-width plus sign (U+FF0B)
+      expect(validatePhoneNumber('＋56 9 8452 1190', 'CL').isValid).toBe(true);
+      expect(validatePhoneNumber('＋５６ ９８４５２１１９０', 'CL').isValid).toBe(true);
+      expect(validatePhoneNumber('＋56984521190', 'CL').isValid).toBe(true);
 
       // Overlong case
       const longRes = validatePhoneNumber('98452119012', 'CL');
