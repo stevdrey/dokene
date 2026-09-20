@@ -532,5 +532,78 @@ describe('CustomerFormModal', () => {
     expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
     expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
   });
+
+  it('remaps and shifts validation errors when deleting a phone row with multiple errors', async () => {
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), {
+      target: { value: 'Cliente Pruebas' }
+    });
+
+    // Add second and third phone rows
+    fireEvent.click(screen.getByRole('button', { name: /Agregar teléfono/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Agregar teléfono/i }));
+
+    const phoneInput1 = screen.getByLabelText(/Número de teléfono 1/i);
+    const phoneInput2 = screen.getByLabelText(/Número de teléfono 2/i);
+    const phoneInput3 = screen.getByLabelText(/Número de teléfono 3/i);
+
+    // Row 1: invalid for Chile (123)
+    fireEvent.change(phoneInput1, { target: { value: '123' } });
+    // Row 2: valid for Chile (984521190)
+    fireEvent.change(phoneInput2, { target: { value: '984521190' } });
+    // Row 3: invalid for Chile (456)
+    fireEvent.change(phoneInput3, { target: { value: '456' } });
+
+    // Submit to trigger validation
+    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+    const chileErrMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
+
+    await waitFor(() => {
+      // Row 1 and Row 3 are invalid, Row 2 is valid
+      expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(phoneInput2).toHaveAttribute('aria-invalid', 'false');
+      expect(phoneInput3).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput3).toHaveAttribute('aria-describedby', 'phone-error-2');
+    });
+
+    // Delete Row 1 (index 0)
+    const deleteBtn1 = screen.getByRole('button', { name: /Eliminar teléfono 1/i });
+    fireEvent.click(deleteBtn1);
+
+    // Now remaining phones:
+    // Former Row 2 is now Row 1 (value: '984521190', valid)
+    // Former Row 3 is now Row 2 (value: '456', invalid)
+    const remainingInput1 = screen.getByLabelText(/Número de teléfono 1/i);
+    const remainingInput2 = screen.getByLabelText(/Número de teléfono 2/i);
+    expect(remainingInput1).toHaveValue('984521190');
+    expect(remainingInput2).toHaveValue('456');
+
+    // Shifted row 2 (formerly row 3) must now have error index 1 and aria attributes
+    expect(remainingInput1).toHaveAttribute('aria-invalid', 'false');
+    expect(remainingInput2).toHaveAttribute('aria-invalid', 'true');
+    expect(remainingInput2).toHaveAttribute('aria-describedby', 'phone-error-1');
+    expect(screen.getAllByText(chileErrMsg)).toHaveLength(2);
+    expect(document.getElementById('phone-error-1')).toHaveTextContent(chileErrMsg);
+
+    // Now delete the remaining invalid row (Row 2, index 1)
+    const deleteBtnRemaining2 = screen.getByRole('button', { name: /Eliminar teléfono 2/i });
+    fireEvent.click(deleteBtnRemaining2);
+
+    // Only valid phone remains; error banner and inline error should be cleared
+    const finalInput = screen.getByLabelText(/Número de teléfono 1/i);
+    expect(finalInput).toHaveValue('984521190');
+    expect(finalInput).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.queryByText(chileErrMsg)).not.toBeInTheDocument();
+  });
 });
+
 

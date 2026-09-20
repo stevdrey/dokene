@@ -211,7 +211,17 @@ export function CustomerFormModal({
       setPhoneErrors((prev) => {
         if (!prev[index]) return prev;
         const copy = { ...prev };
+        const removedError = copy[index];
         delete copy[index];
+        setError((currentError) => {
+          if (currentError === removedError) {
+            const remainingKeys = Object.keys(copy)
+              .map(Number)
+              .sort((a, b) => a - b);
+            return remainingKeys.length > 0 ? copy[remainingKeys[0]] : null;
+          }
+          return currentError;
+        });
         return copy;
       });
     }
@@ -236,15 +246,53 @@ export function CustomerFormModal({
 
   const removePhone = (index: number) => {
     if (phones.length <= 1) return;
+    let nextRemainingPhones: PhoneRequest[] = [];
     setPhones((prev) => {
       const updated = prev.filter((_, idx) => idx !== index);
       // If we removed the primary phone, ensure the first remaining phone becomes primary
       if (!updated.some((p) => p.primary)) {
         updated[0] = { ...updated[0], primary: true };
       }
+      nextRemainingPhones = updated;
       return updated;
     });
-    setPhoneErrors({});
+
+    setPhoneErrors((prev) => {
+      const updatedErrors: Record<number, string> = {};
+      const sortedKeys = Object.keys(prev)
+        .map(Number)
+        .sort((a, b) => a - b);
+
+      for (const errorIdx of sortedKeys) {
+        if (errorIdx < index) {
+          updatedErrors[errorIdx] = prev[errorIdx];
+        } else if (errorIdx > index) {
+          updatedErrors[errorIdx - 1] = prev[errorIdx];
+        }
+      }
+
+      setError((currentError) => {
+        const remainingKeys = Object.keys(updatedErrors)
+          .map(Number)
+          .sort((a, b) => a - b);
+        const wasPhoneError = Object.values(prev).includes(currentError || '');
+        if (wasPhoneError) {
+          return remainingKeys.length > 0 ? updatedErrors[remainingKeys[0]] : null;
+        }
+        if (
+          currentError === 'Todos los teléfonos deben tener un número asignado.' &&
+          nextRemainingPhones.every((p) => p.number.trim() !== '')
+        ) {
+          return null;
+        }
+        if (currentError === 'Debe seleccionar exactamente un teléfono como principal.') {
+          return null;
+        }
+        return currentError;
+      });
+
+      return updatedErrors;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
