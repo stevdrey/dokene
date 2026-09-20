@@ -31,7 +31,8 @@ public class PhoneNormalizer {
             throw new IllegalArgumentException("Unsupported phone region");
         }
         try {
-            var parsed = phoneNumbers.parse(input, normalizedRegion);
+            String normalizedInput = normalizeDigits(input);
+            var parsed = phoneNumbers.parse(normalizedInput, normalizedRegion);
             if (!phoneNumbers.isValidNumberForRegion(parsed, normalizedRegion)) {
                 throw new IllegalArgumentException("Invalid phone number");
             }
@@ -39,5 +40,20 @@ public class PhoneNormalizer {
         } catch (NumberParseException exception) {
             throw new IllegalArgumentException("Invalid phone number");
         }
+    }
+
+    private static String normalizeDigits(String input) {
+        StringBuilder sb = new StringBuilder(input.length());
+        input.codePoints().forEach(cp -> {
+            int digit = Character.digit(cp, 10);
+            if (digit >= 0 && (cp < '0' || cp > '9')) {
+                sb.append(digit);
+            } else if (cp == 0xFF0B) {
+                sb.append('+');
+            } else {
+                sb.appendCodePoint(cp);
+            }
+        });
+        return sb.toString();
     }
 }

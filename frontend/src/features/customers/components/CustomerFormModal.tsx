@@ -5,6 +5,8 @@ import { Modal } from '@/shared/components/Modal';
 import { Button } from '@/shared/components/Button';
 import { AddIcon, CloseIcon } from '@/shared/components/Icons';
 import { countCodePoints } from '@/features/tenants/TenantContext';
+import { validatePhoneNumber } from '@/features/customers/utils/phoneValidation';
+import { ApiError } from '@/shared/api/httpClient';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -129,7 +131,8 @@ const CALLING_CODE_MAP: [string, string][] = [
   ['+998', 'UZ'],
   ['+76', 'KZ'],
   ['+77', 'KZ'],
-  ['+7', 'RU']
+  ['+7', 'RU'],
+  ['+27', 'ZA']
 ];
 
 export function detectRegionFromE164(e164?: string | null): string {
@@ -175,6 +178,7 @@ export function CustomerFormModal({
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneErrors, setPhoneErrors] = useState<Record<number, string>>({});
 
   const isEdit = Boolean(customerToEdit);
 
@@ -199,9 +203,28 @@ export function CustomerFormModal({
       setPhones([{ number: '', region: 'CL', primary: true }]);
     }
     setError(null);
+    setPhoneErrors({});
   }, [customerToEdit, isOpen]);
 
   const handlePhoneChange = (index: number, field: keyof PhoneRequest, value: unknown) => {
+    if (field !== 'primary') {
+      setPhoneErrors((prev) => {
+        if (!prev[index]) return prev;
+        const copy = { ...prev };
+        const removedError = copy[index];
+        delete copy[index];
+        setError((currentError) => {
+          if (currentError === removedError) {
+            const remainingKeys = Object.keys(copy)
+              .map(Number)
+              .sort((a, b) => a - b);
+            return remainingKeys.length > 0 ? copy[remainingKeys[0]] : null;
+          }
+          return currentError;
+        });
+        return copy;
+      });
+    }
     setPhones((prev) => {
       const updated = [...prev];
       if (field === 'primary' && value === true) {
@@ -223,19 +246,59 @@ export function CustomerFormModal({
 
   const removePhone = (index: number) => {
     if (phones.length <= 1) return;
+    let nextRemainingPhones: PhoneRequest[] = [];
     setPhones((prev) => {
       const updated = prev.filter((_, idx) => idx !== index);
       // If we removed the primary phone, ensure the first remaining phone becomes primary
       if (!updated.some((p) => p.primary)) {
         updated[0] = { ...updated[0], primary: true };
       }
+      nextRemainingPhones = updated;
       return updated;
+    });
+
+    setPhoneErrors((prev) => {
+      const updatedErrors: Record<number, string> = {};
+      const sortedKeys = Object.keys(prev)
+        .map(Number)
+        .sort((a, b) => a - b);
+
+      for (const errorIdx of sortedKeys) {
+        if (errorIdx < index) {
+          updatedErrors[errorIdx] = prev[errorIdx];
+        } else if (errorIdx > index) {
+          updatedErrors[errorIdx - 1] = prev[errorIdx];
+        }
+      }
+
+      setError((currentError) => {
+        const remainingKeys = Object.keys(updatedErrors)
+          .map(Number)
+          .sort((a, b) => a - b);
+        const wasPhoneError = Object.values(prev).includes(currentError || '');
+        if (wasPhoneError) {
+          return remainingKeys.length > 0 ? updatedErrors[remainingKeys[0]] : null;
+        }
+        if (
+          currentError === 'Todos los teléfonos deben tener un número asignado.' &&
+          nextRemainingPhones.every((p) => p.number.trim() !== '')
+        ) {
+          return null;
+        }
+        if (currentError === 'Debe seleccionar exactamente un teléfono como principal.') {
+          return null;
+        }
+        return currentError;
+      });
+
+      return updatedErrors;
     });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setPhoneErrors({});
 
     const trimmedName = displayName.trim();
     if (!trimmedName) {
@@ -267,6 +330,33 @@ export function CustomerFormModal({
       return;
     }
 
+    // Specific phone format and length validation per selected region
+    const currentPhoneErrors: Record<number, string> = {};
+    let firstPhoneErrorMessage: string | null = null;
+    for (let i = 0; i < validPhones.length; i++) {
+      // Preserve existing unchanged phones during edits so unlisted/undetected regions are not blocked
+      const isUnchangedExistingPhone =
+        isEdit && customerToEdit?.phones?.some((existing) => existing.e164 === validPhones[i].number);
+      if (isUnchangedExistingPhone) {
+        continue;
+      }
+
+      const validation = validatePhoneNumber(validPhones[i].number, validPhones[i].region);
+      if (!validation.isValid) {
+        const msg = validation.message || 'Número de teléfono no válido.';
+        currentPhoneErrors[i] = msg;
+        if (!firstPhoneErrorMessage) {
+          firstPhoneErrorMessage = msg;
+        }
+      }
+    }
+
+    if (firstPhoneErrorMessage) {
+      setPhoneErrors(currentPhoneErrors);
+      setError(firstPhoneErrorMessage);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       let resolvedNotes: string | null;
@@ -292,7 +382,19 @@ export function CustomerFormModal({
       onSaved(result);
       onClose();
     } catch (err: unknown) {
-      if (err instanceof Error) {
+      if (err instanceof ApiError) {
+        if (err.payload?.field) {
+          const match = err.payload.field.match(/phones\[(\d+)\]/);
+          if (match) {
+            const idx = parseInt(match[1], 10);
+            const msg = err.payload.message || err.message;
+            setPhoneErrors({ [idx]: msg });
+            setError(msg);
+            return;
+          }
+        }
+        setError(err.message);
+      } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('Ocurrió un error al guardar la ficha del cliente.');
@@ -375,114 +477,143 @@ export function CustomerFormModal({
                 key={idx}
                 style={{
                   display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 'var(--space-8)',
-                  alignItems: 'center',
+                  flexDirection: 'column',
+                  gap: 'var(--space-4)',
                   padding: 'var(--space-8)',
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: phone.primary ? 'var(--color-surface-low)' : 'var(--color-surface-inset)',
-                  border: '1px solid var(--color-outline-subtle)'
+                  border: phoneErrors[idx]
+                    ? '1px solid var(--color-error-border, #e53e3e)'
+                    : '1px solid var(--color-outline-subtle)'
                 }}
               >
-                <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 240px', minWidth: '0px' }}>
-                  <select
-                    value={phone.region}
-                    onChange={(e) => handlePhoneChange(idx, 'region', e.target.value)}
-                    aria-label={`Región para teléfono ${idx + 1}`}
-                    style={{
-                      minHeight: '44px',
-                      padding: 'var(--space-8)',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--color-outline)',
-                      backgroundColor: 'var(--color-surface)',
-                      fontSize: 'var(--font-size-dense)',
-                      flexShrink: 0
-                    }}
-                  >
-                    {!SUPPORTED_REGIONS.some((r) => r.code === phone.region) && (
-                      <option value={phone.region}>
-                        {phone.region} (Detectado)
-                      </option>
-                    )}
-                    {SUPPORTED_REGIONS.map((r) => (
-                      <option key={r.code} value={r.code}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <input
-                    type="tel"
-                    required
-                    value={phone.number}
-                    onChange={(e) => handlePhoneChange(idx, 'number', e.target.value)}
-                    placeholder="Ej. +56 9 8452 1190 o 984521190"
-                    aria-label={`Número de teléfono ${idx + 1}`}
-                    style={{
-                      flex: 1,
-                      minWidth: '0px',
-                      minHeight: '44px',
-                      padding: 'var(--space-8) var(--space-12)',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--color-outline)',
-                      backgroundColor: 'var(--color-surface)',
-                      fontSize: 'var(--font-size-dense)'
-                    }}
-                  />
-                </div>
-
                 <div
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
                     gap: 'var(--space-8)',
-                    flexShrink: 0,
-                    marginLeft: 'auto'
+                    alignItems: 'center',
+                    width: '100%'
                   }}
                 >
-                  <label
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 'var(--space-4)',
-                      fontSize: 'var(--font-size-meta)',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      minHeight: '44px',
-                      padding: '0 var(--space-4)'
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="primaryPhone"
-                      checked={phone.primary}
-                      onChange={() => handlePhoneChange(idx, 'primary', true)}
-                      style={{ width: '18px', height: '18px' }}
-                    />
-                    Principal
-                  </label>
-
-                  {phones.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removePhone(idx)}
-                      aria-label={`Eliminar teléfono ${idx + 1}`}
-                      className="interactive-target"
+                  <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 240px', minWidth: '0px' }}>
+                    <select
+                      value={phone.region}
+                      onChange={(e) => handlePhoneChange(idx, 'region', e.target.value)}
+                      aria-label={`Región para teléfono ${idx + 1}`}
                       style={{
-                        color: 'var(--color-error-text)',
-                        borderRadius: 'var(--radius-md)',
-                        minWidth: '44px',
                         minHeight: '44px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
+                        padding: 'var(--space-8)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-outline)',
+                        backgroundColor: 'var(--color-surface)',
+                        fontSize: 'var(--font-size-dense)',
+                        flexShrink: 0
                       }}
                     >
-                      <CloseIcon size={18} />
-                    </button>
-                  )}
+                      {!SUPPORTED_REGIONS.some((r) => r.code === phone.region) && (
+                        <option value={phone.region}>
+                          {phone.region} (Detectado)
+                        </option>
+                      )}
+                      {SUPPORTED_REGIONS.map((r) => (
+                        <option key={r.code} value={r.code}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="tel"
+                      required
+                      maxLength={64}
+                      value={phone.number}
+                      onChange={(e) => handlePhoneChange(idx, 'number', e.target.value)}
+                      placeholder="Ej. +56 9 8452 1190 o 984521190"
+                      aria-label={`Número de teléfono ${idx + 1}`}
+                      aria-invalid={Boolean(phoneErrors[idx])}
+                      aria-describedby={phoneErrors[idx] ? `phone-error-${idx}` : undefined}
+                      style={{
+                        flex: 1,
+                        minWidth: '0px',
+                        minHeight: '44px',
+                        padding: 'var(--space-8) var(--space-12)',
+                        borderRadius: 'var(--radius-md)',
+                        border: phoneErrors[idx]
+                          ? '1px solid var(--color-error-border, #e53e3e)'
+                          : '1px solid var(--color-outline)',
+                        backgroundColor: 'var(--color-surface)',
+                        fontSize: 'var(--font-size-dense)'
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 'var(--space-8)',
+                      flexShrink: 0,
+                      marginLeft: 'auto'
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--space-4)',
+                        fontSize: 'var(--font-size-meta)',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        minHeight: '44px',
+                        padding: '0 var(--space-4)'
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="primaryPhone"
+                        checked={phone.primary}
+                        onChange={() => handlePhoneChange(idx, 'primary', true)}
+                        style={{ width: '18px', height: '18px' }}
+                      />
+                      Principal
+                    </label>
+
+                    {phones.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removePhone(idx)}
+                        aria-label={`Eliminar teléfono ${idx + 1}`}
+                        className="interactive-target"
+                        style={{
+                          color: 'var(--color-error-text)',
+                          borderRadius: 'var(--radius-md)',
+                          minWidth: '44px',
+                          minHeight: '44px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <CloseIcon size={18} />
+                      </button>
+                    )}
+                  </div>
                 </div>
+
+                {phoneErrors[idx] && (
+                  <div
+                    id={`phone-error-${idx}`}
+                    style={{
+                      color: 'var(--color-error-text, #c53030)',
+                      fontSize: 'var(--font-size-meta)',
+                      paddingLeft: 'var(--space-4)'
+                    }}
+                  >
+                    {phoneErrors[idx]}
+                  </div>
+                )}
               </div>
             ))}
           </div>

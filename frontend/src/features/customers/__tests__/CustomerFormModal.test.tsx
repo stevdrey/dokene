@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { CustomerFormModal, detectRegionFromE164 } from '@/features/customers/components/CustomerFormModal';
 import { customerApi } from '@/features/customers/api/customerApi';
+import { ApiError } from '@/shared/api/httpClient';
 
 describe('CustomerFormModal', () => {
   it('renders correctly and validates required name', async () => {
@@ -336,5 +337,273 @@ describe('CustomerFormModal', () => {
       expect(screen.queryByText('Acceso denegado en este espacio de trabajo.')).not.toBeInTheDocument();
     });
   });
+
+  it('validates Chilean phone length (rejecting 123 with actionable error and preserving input without API call) [Issue #72]', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    const createSpy = vi.spyOn(customerApi, 'createCustomer');
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
+
+    // Step 1 & 2: Enter valid customer display name
+    const nameInput = screen.getByLabelText(/Nombre completo \/ Razón social/i) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Valentina Morales' } });
+
+    // Step 3: Select region Chile (+56) and enter 123
+    const regionSelect = screen.getByLabelText(/Región para teléfono 1/i) as HTMLSelectElement;
+    expect(regionSelect.value).toBe('CL');
+
+    const phoneInput = screen.getByLabelText(/Número de teléfono 1/i) as HTMLInputElement;
+    fireEvent.change(phoneInput, { target: { value: '123' } });
+
+    // Step 4: Click Crear cliente
+    const submitBtn = screen.getByRole('button', { name: /Crear cliente/i });
+    fireEvent.click(submitBtn);
+
+    // Assert actionable error message in banner and field-level error association
+    const expectedMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(expectedMsg);
+    });
+
+    // Assert field-level error association
+    expect(phoneInput).toHaveAttribute('aria-invalid', 'true');
+    expect(phoneInput).toHaveAttribute('aria-describedby', 'phone-error-0');
+    expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+
+    // Assert work preservation: valid user inputs remain intact
+    expect(nameInput.value).toBe('Valentina Morales');
+    expect(phoneInput.value).toBe('123');
+
+    // Assert no network call was made
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('associates backend validation error to specific phone input when API returns field-level error [Issue #72]', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    const apiError = new ApiError(400, 'El formato del teléfono es inválido para la región seleccionada.', {
+      status: 400,
+      message: 'El formato del teléfono es inválido para la región seleccionada.',
+      field: 'phones[0].number'
+    });
+
+    vi.spyOn(customerApi, 'createCustomer').mockRejectedValueOnce(apiError);
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/Nombre completo/i), {
+      target: { value: 'Valentina Morales' }
+    });
+    // Enter a 9-digit number that passes client validation but triggers backend rejection
+    const phoneInput = screen.getByLabelText(/Número de teléfono 1/i);
+    fireEvent.change(phoneInput, {
+      target: { value: '984521190' }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+    const expectedApiMsg = 'El formato del teléfono es inválido para la región seleccionada.';
+    await waitFor(() => {
+      expect(phoneInput).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(screen.getByRole('alert')).toHaveTextContent(expectedApiMsg);
+      expect(screen.getAllByText(expectedApiMsg)).toHaveLength(2);
+      // Verify generic "Error HTTP 400" is NOT displayed
+      expect(screen.queryByText('Error HTTP 400')).not.toBeInTheDocument();
+    });
+  });
+
+  it('preserves existing unchanged phone from uncommon/unlisted region during customer edit without validation error', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+
+    const customerWithUnusualPhone = {
+      id: 'cust-za-1',
+      displayName: 'South African Customer',
+      notes: null,
+      phones: [{ id: 'p-za-1', e164: '+27115551234', primary: true }],
+      status: 'ACTIVE' as const,
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      archivedAt: null
+    };
+
+    const updateSpy = vi.spyOn(customerApi, 'updateCustomer').mockResolvedValueOnce({
+      ...customerWithUnusualPhone,
+      displayName: 'South African Customer Renamed',
+      version: 2
+    });
+
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={onClose}
+        onSaved={onSaved}
+        customerToEdit={customerWithUnusualPhone}
+      />
+    );
+
+    const nameInput = screen.getByLabelText(/Nombre completo/i);
+    fireEvent.change(nameInput, { target: { value: 'South African Customer Renamed' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Guardar cambios/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        'cust-za-1',
+        1,
+        expect.objectContaining({
+          displayName: 'South African Customer Renamed',
+          phones: [{ number: '+27115551234', region: 'ZA', primary: true }]
+        })
+      );
+      expect(onSaved).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it('retains field-level error and aria-invalid state when toggling phone primary status', async () => {
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    // Set valid display name
+    fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), {
+      target: { value: 'Valentina Morales' }
+    });
+
+    // Add a second phone so there are two phones
+    fireEvent.click(screen.getByRole('button', { name: /Agregar teléfono/i }));
+
+    // Phone 1 enters an invalid number for Chile
+    const phoneInput1 = screen.getByLabelText(/Número de teléfono 1/i);
+    fireEvent.change(phoneInput1, { target: { value: '123' } });
+
+    // Phone 2 enters a valid number
+    const phoneInput2 = screen.getByLabelText(/Número de teléfono 2/i);
+    fireEvent.change(phoneInput2, { target: { value: '912345678' } });
+
+    // Submit form to trigger client-side validation
+    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+    const expectedMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
+    await waitFor(() => {
+      expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+    });
+
+    // Toggle phone 2 as primary
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(2);
+    fireEvent.click(radios[1]);
+
+    // Phone 1 must still have its field-level error and aria attributes
+    expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+    expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+    expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+
+    // Toggle phone 1 back as primary
+    fireEvent.click(radios[0]);
+
+    // Phone 1 must STILL retain its field error
+    expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+    expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+    expect(screen.getAllByText(expectedMsg)).toHaveLength(2);
+  });
+
+  it('remaps and shifts validation errors when deleting a phone row with multiple errors', async () => {
+    render(
+      <CustomerFormModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), {
+      target: { value: 'Cliente Pruebas' }
+    });
+
+    // Add second and third phone rows
+    fireEvent.click(screen.getByRole('button', { name: /Agregar teléfono/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Agregar teléfono/i }));
+
+    const phoneInput1 = screen.getByLabelText(/Número de teléfono 1/i);
+    const phoneInput2 = screen.getByLabelText(/Número de teléfono 2/i);
+    const phoneInput3 = screen.getByLabelText(/Número de teléfono 3/i);
+
+    // Row 1: invalid for Chile (123)
+    fireEvent.change(phoneInput1, { target: { value: '123' } });
+    // Row 2: valid for Chile (984521190)
+    fireEvent.change(phoneInput2, { target: { value: '984521190' } });
+    // Row 3: invalid for Chile (456)
+    fireEvent.change(phoneInput3, { target: { value: '456' } });
+
+    // Submit to trigger validation
+    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+    const chileErrMsg = 'El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos).';
+
+    await waitFor(() => {
+      // Row 1 and Row 3 are invalid, Row 2 is valid
+      expect(phoneInput1).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput1).toHaveAttribute('aria-describedby', 'phone-error-0');
+      expect(phoneInput2).toHaveAttribute('aria-invalid', 'false');
+      expect(phoneInput3).toHaveAttribute('aria-invalid', 'true');
+      expect(phoneInput3).toHaveAttribute('aria-describedby', 'phone-error-2');
+    });
+
+    // Delete Row 1 (index 0)
+    const deleteBtn1 = screen.getByRole('button', { name: /Eliminar teléfono 1/i });
+    fireEvent.click(deleteBtn1);
+
+    // Now remaining phones:
+    // Former Row 2 is now Row 1 (value: '984521190', valid)
+    // Former Row 3 is now Row 2 (value: '456', invalid)
+    const remainingInput1 = screen.getByLabelText(/Número de teléfono 1/i);
+    const remainingInput2 = screen.getByLabelText(/Número de teléfono 2/i);
+    expect(remainingInput1).toHaveValue('984521190');
+    expect(remainingInput2).toHaveValue('456');
+
+    // Shifted row 2 (formerly row 3) must now have error index 1 and aria attributes
+    expect(remainingInput1).toHaveAttribute('aria-invalid', 'false');
+    expect(remainingInput2).toHaveAttribute('aria-invalid', 'true');
+    expect(remainingInput2).toHaveAttribute('aria-describedby', 'phone-error-1');
+    expect(screen.getAllByText(chileErrMsg)).toHaveLength(2);
+    expect(document.getElementById('phone-error-1')).toHaveTextContent(chileErrMsg);
+
+    // Now delete the remaining invalid row (Row 2, index 1)
+    const deleteBtnRemaining2 = screen.getByRole('button', { name: /Eliminar teléfono 2/i });
+    fireEvent.click(deleteBtnRemaining2);
+
+    // Only valid phone remains; error banner and inline error should be cleared
+    const finalInput = screen.getByLabelText(/Número de teléfono 1/i);
+    expect(finalInput).toHaveValue('984521190');
+    expect(finalInput).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.queryByText(chileErrMsg)).not.toBeInTheDocument();
+  });
 });
+
 

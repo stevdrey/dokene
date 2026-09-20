@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -104,19 +105,29 @@ public class CustomerService {
         Objects.requireNonNull(phones, "Phones are required");
         Map<String, UUID> existingIdsByPhone = (existingPhones == null) ? Map.of() :
                 existingPhones.stream().collect(Collectors.toMap(CustomerPhone::e164, CustomerPhone::id, (a, b) -> a));
-        return phones.stream()
-                .map(phone -> {
-                    String rawNumber = phone.number() == null ? "" : phone.number().strip();
-                    String normalized;
-                    if (existingIdsByPhone.containsKey(rawNumber)) {
-                        normalized = rawNumber;
-                    } else {
-                        normalized = phoneNormalizer.normalize(phone.number(), phone.region());
-                    }
-                    UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());
-                    return new CustomerPhone(phoneId, normalized, phone.primary());
-                })
-                .toList();
+        List<CustomerPhone> result = new java.util.ArrayList<>(phones.size());
+        for (int i = 0; i < phones.size(); i++) {
+            PhoneInput phone = phones.get(i);
+            String rawNumber = phone.number() == null ? "" : phone.number().strip();
+            String normalized;
+            if (existingIdsByPhone.containsKey(rawNumber)) {
+                normalized = rawNumber;
+            } else {
+                try {
+                    normalized = phoneNormalizer.normalize(phone.number(), phone.region());
+                } catch (IllegalArgumentException ex) {
+                    boolean isRegion = ex.getMessage() != null && ex.getMessage().toLowerCase(Locale.ROOT).contains("region");
+                    String fieldName = isRegion ? "phones[" + i + "].region" : "phones[" + i + "].number";
+                    String message = isRegion
+                            ? "La región del teléfono es inválida o no está soportada."
+                            : "El formato del teléfono es inválido para la región seleccionada.";
+                    throw new CustomerValidationException(fieldName, message);
+                }
+            }
+            UUID phoneId = existingIdsByPhone.getOrDefault(normalized, UUID.randomUUID());
+            result.add(new CustomerPhone(phoneId, normalized, phone.primary()));
+        }
+        return result;
     }
 
     public record PhoneInput(String number, String region, boolean primary) {

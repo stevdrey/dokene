@@ -63,11 +63,27 @@ class CustomerControllerTest {
     }
 
     @Test
+    void createRejectsInvalidPhoneWithStructuredBadRequestAndIdentifiesField() throws Exception {
+        when(service.create(eq("Valentina Morales"), eq(null), any()))
+                .thenThrow(new io.github.stevdrey.dokene.customer.application.CustomerValidationException("phones[0].number", "El formato del teléfono es inválido para la región seleccionada."));
+
+        mvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content("""
+                {"displayName":"Valentina Morales","phones":[{"number":"123","region":"CL","primary":true}]}
+                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.field").value("phones[0].number"))
+                .andExpect(jsonPath("$.message").value("El formato del teléfono es inválido para la región seleccionada."))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("123"))));
+    }
+
+    @Test
     void updateRequiresVersionAndMapsConflictToEmpty409() throws Exception {
         mvc.perform(put("/api/customers/{id}", customer.id().value()).contentType(MediaType.APPLICATION_JSON).content("""
                 {"displayName":"Ana","phones":[{"number":"8888 7777","region":"CR","primary":true}]}
                 """))
-                .andExpect(status().isBadRequest()).andExpect(content().string(""));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Customer version is required"));
 
         when(service.update(eq(customer.id()), eq(0L), eq("Ana"), eq(null), any()))
                 .thenThrow(new CustomerConflictException());
@@ -201,5 +217,15 @@ class CustomerControllerTest {
         mvc.perform(get("/api/customers/{id}", customer.id().value()))
                 .andExpect(status().isForbidden())
                 .andExpect(content().string(""));
+    }
+
+    @Test
+    void malformedPayloadReturnsSanitizedFrameworkErrorWithoutInternalDetails() throws Exception {
+        mvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content("{\"invalid-json: raw-secret-data"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Invalid request payload or parameters"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("raw-secret-data"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("com.fasterxml.jackson"))));
     }
 }
