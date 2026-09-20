@@ -1,7 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { validatePhoneNumber, extractNationalDigits, convertVanityToDigits, stripExtension } from '@/features/customers/utils/phoneValidation';
+import {
+  validatePhoneNumber,
+  extractNationalDigits,
+  convertVanityToDigits,
+  stripExtension,
+  normalizeUnicodeDigits
+} from '@/features/customers/utils/phoneValidation';
 
 describe('phoneValidation utility', () => {
+  describe('normalizeUnicodeDigits', () => {
+    it('normalizes Arabic-Indic digits to ASCII digits', () => {
+      expect(normalizeUnicodeDigits('٩٨٤٥٢١١٩٠')).toBe('984521190');
+      expect(normalizeUnicodeDigits('+56 ٩٨٤٥٢١١٩٠')).toBe('+56 984521190');
+    });
+
+    it('normalizes Eastern Arabic-Indic, Devanagari, and Fullwidth digits', () => {
+      expect(normalizeUnicodeDigits('۹۸۴۵۲۱۱۹۰')).toBe('984521190');
+      expect(normalizeUnicodeDigits('९८४५२११९०')).toBe('984521190');
+      expect(normalizeUnicodeDigits('９８４５２１１９０')).toBe('984521190');
+    });
+  });
+
   describe('stripExtension', () => {
     it('strips extension patterns recognized by libphonenumber', () => {
       expect(stripExtension('+1 202-555-0123 ext. 456')).toBe('+1 202-555-0123');
@@ -76,6 +95,12 @@ describe('phoneValidation utility', () => {
       expect(validatePhoneNumber('+56 9 8452 1190', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('+56984521190', 'CL').isValid).toBe(true);
       expect(validatePhoneNumber('9-8452-1190', 'CL').isValid).toBe(true);
+
+      // Unicode decimal digits (Arabic-Indic, Fullwidth, Devanagari)
+      expect(validatePhoneNumber('٩٨٤٥٢١١٩٠', 'CL').isValid).toBe(true);
+      expect(validatePhoneNumber('+56 ٩٨٤٥٢١١٩٠', 'CL').isValid).toBe(true);
+      expect(validatePhoneNumber('９８４５２１１９０', 'CL').isValid).toBe(true);
+      expect(validatePhoneNumber('९८४५२११९०', 'CL').isValid).toBe(true);
 
       // Overlong case
       const longRes = validatePhoneNumber('98452119012', 'CL');

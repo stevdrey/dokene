@@ -77,6 +77,47 @@ const REGION_RULES: Record<string, RegionRule> = {
   }
 };
 
+const UNICODE_DIGIT_ZEROS: number[] = [
+  0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6,
+  0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090, 0x17e0,
+  0x1810, 0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620,
+  0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30, 0x10d40,
+  0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650, 0x116c0, 0x116d0,
+  0x11730, 0x118e0, 0x11950, 0x11bf0, 0x11c50, 0x11d50, 0x11da0, 0x11de0, 0x11f50, 0x16130,
+  0x16a60, 0x16ac0, 0x16b50, 0x16d70, 0x1ccf0, 0x1d7ce, 0x1e140, 0x1e2f0, 0x1e4f0, 0x1e5f1,
+  0x1e950, 0x1fbf0
+];
+
+/**
+ * Normalizes any Unicode decimal digits (Nd category) to standard ASCII 0-9 digits.
+ */
+export function normalizeUnicodeDigits(input: string): string {
+  if (!/\p{Nd}/u.test(input)) {
+    return input;
+  }
+  return input.replace(/\p{Nd}/gu, (ch) => {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x30 && cp <= 0x39) {
+      return ch;
+    }
+    let low = 0;
+    let high = UNICODE_DIGIT_ZEROS.length - 1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const base = UNICODE_DIGIT_ZEROS[mid];
+      if (cp >= base && cp <= base + 9) {
+        return String(cp - base);
+      }
+      if (cp < base) {
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+    return ch;
+  });
+}
+
 const KEYPAD_MAPPING: Record<string, string> = {
   A: '2', B: '2', C: '2',
   D: '3', E: '3', F: '3',
@@ -96,7 +137,8 @@ export function convertVanityToDigits(rawNumber: string): string {
  * Strips phone extensions recognized by libphonenumber (e.g. ext. 123, ext 123, extension 123, x123, #123, ,123, ;123).
  */
 export function stripExtension(rawNumber: string): string {
-  return rawNumber
+  const normalized = normalizeUnicodeDigits(rawNumber);
+  return normalized
     .replace(/(?:[,;]|\s*[-–—]\s*)?\s*(?:(?<=[^a-zA-Z]|^)(?:ext\.?|extension|x)|[#;,])\s*\d+\s*#?$/i, '')
     .trim();
 }
@@ -110,7 +152,8 @@ export function extractNationalDigits(
   minNationalDigits: number,
   region = ''
 ): string {
-  const withoutExt = stripExtension(rawNumber);
+  const normalized = normalizeUnicodeDigits(rawNumber);
+  const withoutExt = stripExtension(normalized);
   const converted = convertVanityToDigits(withoutExt);
   const trimmed = converted.trim();
   let digitsOnly = trimmed.replace(/\D/g, '');
@@ -180,8 +223,8 @@ export function extractNationalDigits(
  * Validates whether a phone number conforms to the requirements of the given region.
  */
 export function validatePhoneNumber(phoneNumber: string, region: string): PhoneValidationResult {
-  const trimmed = phoneNumber.trim();
-  if (!trimmed) {
+  const normalized = normalizeUnicodeDigits(phoneNumber.trim());
+  if (!normalized) {
     return {
       isValid: false,
       message: 'Todos los teléfonos deben tener un número asignado.'
@@ -189,7 +232,7 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
   }
 
   // Check for disallowed characters (only +, digits, letters, spaces, hyphens, dots, parentheses, commas, semicolons, hash)
-  if (!/^[+\da-zA-Z\s\-().,;#]+$/.test(trimmed)) {
+  if (!/^[+\da-zA-Z\s\-().,;#]+$/.test(normalized)) {
     return {
       isValid: false,
       message: 'El número telefónico contiene caracteres no válidos.'
@@ -198,7 +241,7 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
 
   const rule = REGION_RULES[region.toUpperCase()];
   if (rule) {
-    const nationalDigits = extractNationalDigits(trimmed, rule.callingCode, rule.minDigits, region);
+    const nationalDigits = extractNationalDigits(normalized, rule.callingCode, rule.minDigits, region);
     if (nationalDigits.length < rule.minDigits || nationalDigits.length > rule.maxDigits) {
       return {
         isValid: false,
@@ -209,7 +252,7 @@ export function validatePhoneNumber(phoneNumber: string, region: string): PhoneV
   }
 
   // Generic fallback for other regions (E.164 total digits between 7 and 15)
-  let allDigits = convertVanityToDigits(stripExtension(trimmed)).replace(/\D/g, '');
+  let allDigits = convertVanityToDigits(stripExtension(normalized)).replace(/\D/g, '');
   if (allDigits.startsWith('00') && allDigits.length >= 9) {
     allDigits = allDigits.slice(2);
   } else if (allDigits.startsWith('011') && allDigits.length >= 10) {

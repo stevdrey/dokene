@@ -48,6 +48,14 @@ class PhoneNormalizerTest {
     }
 
     @Test
+    void normalizesUnicodeDigits() {
+        assertThat(normalizer.normalize("٩٨٤٥٢١١٩٠", "CL")).isEqualTo("+56984521190");
+        assertThat(normalizer.normalize("+56 ٩٨٤٥٢١١٩٠", "CL")).isEqualTo("+56984521190");
+        assertThat(normalizer.normalize("９８４５２１１９０", "CL")).isEqualTo("+56984521190");
+        assertThat(normalizer.normalize("९८४५२११९०", "CL")).isEqualTo("+56984521190");
+    }
+
+    @Test
     void rejectsMissingUnsupportedAmbiguousAndOverlongInput() {
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("8888 7777", "ZZ")).isInstanceOf(IllegalArgumentException.class);
