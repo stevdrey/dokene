@@ -30,10 +30,13 @@ A total of **60 scenarios** were executed:
 ### Key Quality Observations & Verification:
 1. **Zero 500 Internal Server Errors & Zero Information Leaks**: No malformed JSON, wrong types, missing headers, SQL injection tokens, boundary values, or protocol mutations triggered an HTTP 500 error, stack trace, class name, or SQL exception in client responses.
 2. **Form Data Preservation**: Across all client validation rejections in `CustomerFormModal`, valid user-entered values (names, phone numbers, notes) remained intact in the DOM, preventing loss of work.
-3. **Compound-Invalid Scenarios & Remediation of Defect #1 (PR #73 / Issue #72)**:
-   - Previously, entering an invalid phone length for the region (e.g. `123` for Chile `+56`) resulted in a generic `"Error HTTP 400"`.
-   - In PR #73 (commit `2c4dde7`), pre-submit regional phone validation was implemented in `CustomerFormModal.tsx`.
-   - Verified on live commit `24bab9d06b`: A compound invalid submission (whitespace name + invalid phone `123` + 2000-character notes) correctly blocks submission client-side, renders an accessible field-level error linked via `aria-describedby` directly below the phone input (*"El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos)."*), and displays the notes character counter `2000/500`. Visual proof captured in `07-compound-invalid-form-validation.png`.
+3. **Sequential Compound-Invalid Scenario & Remediation of Defect #1 (PR #73 / Issue #72)**:
+   - Evaluated the validation order and state preservation of `CustomerFormModal.tsx` in a real browser session:
+     1. Initial submission entered with whitespace-only name (`"   "`), invalid Chile phone (`123` with `+56`), and exactly 2000 characters of notes (`2000/2000`).
+     2. Form validation order halts first on empty/whitespace name (`if (!trimmedName)`), rendering top alert *"El nombre del cliente es obligatorio."* while preserving phone (`123`), notes content, and counter (`2000/2000`) in the DOM.
+     3. Correcting only the customer name to `"Juan Valdés"` while leaving the invalid phone `123` untouched and submitting again activates pre-submit regional phone validation.
+     4. Pre-submit phone validation renders an accessible field-level error linked via `aria-describedby="phone-error-0"` directly below the phone input (*"El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos)."*), sets `aria-invalid="true"`, and preserves the corrected name, phone, notes, and counter (`2000/2000`).
+   - Visual proof captured and committed in `07-compound-invalid-form-validation.png`.
 4. **Multi-User & Membership RBAC Negative Scenarios**:
    - Tested using pre-provisioned synthetic identities (`testuser` OWNER, `testoperator` OPERATOR, `testviewer` VIEWER) in tenant `QA Café Norte`.
    - Unauthorized invite attempts by `OPERATOR` and `VIEWER` fail-closed with HTTP `403 Forbidden`.
@@ -83,7 +86,7 @@ A total of **60 scenarios** were executed:
 | **UI-05** | Customer Form | Duplicate normalized phone in same workspace (`+56987654321`) | Blocked with 409 Conflict; displays actionable conflict feedback; form data preserved | Backend returns 409 Conflict; UI renders: `Conflicto: el registro o número de contacto ya existe o está en conflicto.`; name and phone retained | **PASS** | `05-customer-duplicate-phone-conflict.png` |
 | **UI-06** | Purchases | Purchase description boundary (500 chars) & void workflow | 500-char description saved; voiding updates status to `Anulada` and recalculates latest purchase | Description accepted; void modal cleanly marks purchase as `Anulada`; latest purchase summary immediately updates to `Sin compras registradas` | **PASS** | `04-customer-unicode-success.png` |
 | **UI-07** | Follow-Up Search | Special characters & SQL injection tokens in search query (`'; DROP TABLE...`) | Handled safely via parameterized query; no errors or unhandled exceptions | UI gracefully shows empty state: `No se encontraron resultados para "'; DROP TABLE..."` | **PASS** | `06-followup-safe-query-handling.png` |
-| **UI-08** | Compound Form | Whitespace name + invalid phone (`123` for Chile `+56`) + 2000 chars notes | Multiple field errors identified simultaneously; accessible error linked via `aria-describedby`; form data retained | Pre-submit validation blocks request. Field-level error appears below phone input (*"El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos)."*). Character counter displays `2000/500`. Work preserved. | **PASS** *(Fix for #72 verified)* | `07-compound-invalid-form-validation.png` |
+| **UI-08** | Sequential Compound Form | (1) Whitespace name (`"   "`) + invalid Chile phone (`123`) + 2000 chars notes; (2) Correct name to `"Juan Valdés"`, leaving phone `123` unchanged | Initial submission halts on name requirement and preserves phone & notes; second submission halts on regional phone format, displaying inline error linked via `aria-describedby` while preserving all inputs and counter (`2000/2000`) | Step 1: Blocks with alert `El nombre del cliente es obligatorio.`; phone `123` and notes preserved. Step 2: Phone field displays inline `aria-describedby="phone-error-0"` error (*"El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos)."*); counter shows `2000/2000`. No data lost. | **PASS** *(Fix for #72 verified)* | `07-compound-invalid-form-validation.png` |
 
 ---
 
@@ -162,10 +165,10 @@ Executed against live environment at commit `24bab9d06b83d64185136adc6961a69b5f5
 - **Resolution**: Tracked in [Issue #72](https://github.com/stevdrey/dokene/issues/72) and fixed in [PR #73](https://github.com/stevdrey/dokene/pull/73) (`2c4dde7`).
 - **Verification on main (`24bab9d`)**:
   - `CustomerFormModal.tsx` validates phone numbers against country calling code rules before submission.
-  - An accessible error message is rendered directly below the input field and linked via `aria-describedby="phone-error"`:
+  - An accessible error message is rendered directly below the input field and linked via `aria-describedby="phone-error-0"`:
     *"El número ingresado no es válido para la región seleccionada (Chile requiere 9 dígitos)."*
-  - Tested in both isolated and compound-invalid scenarios (see UI-08 and `07-compound-invalid-form-validation.png`).
-  - Work and entered field values remain preserved in form state.
+  - Tested via sequential compound-invalid recovery flow (see UI-08 and `07-compound-invalid-form-validation.png`).
+  - Work and entered field values (name, phone, and 2000-character notes with counter `2000/2000`) remain preserved in form state.
 
 ---
 
@@ -178,4 +181,4 @@ All screenshots captured during testing are stored in `docs/verification/issue-5
 4. `04-customer-unicode-success.png` — Full Unicode (Arabic RTL, accents, emoji) customer profile view.
 5. `05-customer-duplicate-phone-conflict.png` — Actionable conflict feedback on duplicate phone submission.
 6. `06-followup-safe-query-handling.png` — Follow-up queue search handling SQL injection and special characters safely.
-7. `07-compound-invalid-form-validation.png` — Compound-invalid scenario verifying resolution of Issue #72 / PR #73 (accessible field error and counter).
+7. `07-compound-invalid-form-validation.png` — Sequential compound-invalid recovery flow verifying resolution of Issue #72 / PR #73 (accessible phone field error, preserved inputs, and accurate 2000/2000 counter).
