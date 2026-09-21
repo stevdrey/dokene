@@ -4,7 +4,7 @@ Date: 2026-09-20
 Tester: Antigravity QA Agent  
 Subject: Follow-up security coverage addressing maintainer review feedback for [Issue #59](https://github.com/stevdrey/dokene/issues/59) / [PR #81](https://github.com/stevdrey/dokene/pull/81)  
 Automated Suite: [`scripts/verify-issue-59-followup.sh`](file:///home/srey/Projects/Java/dokene/scripts/verify-issue-59-followup.sh)  
-Tested Commit SHA: `5a06635bbad46162ef28acaaab2cb37a92c1633a` (with harness fail-closed corrections applied)  
+Tested Commit SHA: `3449ec61f28c4e6cb8826e616ede7543d07d2cce` (incorporating all harness fail-closed corrections and live browser CDP evidence)  
 Environment:
 - OS: Linux x86_64
 - Java: OpenJDK Temurin `26.0.2.1`
