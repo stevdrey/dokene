@@ -80,6 +80,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
         .desktop-main {
           flex: 1;
+          min-width: 0;
           margin-left: var(--sidebar-width);
           margin-top: var(--header-height);
           padding: var(--space-24);
