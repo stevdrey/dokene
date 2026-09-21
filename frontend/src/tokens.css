@@ -109,6 +109,19 @@ button, a.nav-link, select, input[type="button"], input[type="submit"], .interac
   min-width: 44px;
 }
 
+/* Screen reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Material Symbols Outlined (Self-hosted) */
 @font-face {
   font-family: 'Material Symbols Outlined';
