@@ -169,3 +169,34 @@ This manual QA verification exercises the end-to-end multi-step customer lifecyc
 - [x] Non-destructive synthetic data used; zero direct DB edits.
 - [x] Visual and HTTP evidence captured and archived.
 - [x] GitHub CLI (`gh`) used for reporting and issue interaction.
+
+---
+
+## 7. Maintainer Focused Follow-Up Verification (Resolution of Review Points 1–7)
+
+In response to the maintainer review on Issue #61, a targeted, rigorous verification suite was executed to cover the missing and partially covered lifecycle branches. All 7 areas were exercised against the live stack via `scripts/verify-issue-61-focused-followup.sh` (19/19 PASSED) and interactive browser verification via Chrome DevTools Protocol MCP.
+
+### Focused Follow-Up Execution Matrix
+
+| Area | Capability / Test Scenario | Layer | Expected Behavior | Observed Result | Status | Evidence Reference |
+| :--- | :--- | :---: | :--- | :--- | :---: | :--- |
+| **1. Consent Lifecycle** | 1.1 Initial ungranted state | API | New contact has no consent; eligibility is `INELIGIBLE` (`NO_ELIGIBLE_CONTACT`) | Status `INELIGIBLE`, reason `NO_ELIGIBLE_CONTACT` | **PASS** | Script Assertion 1.1 |
+| **1. Consent Lifecycle** | 1.2 `NOT_GRANTED` -> `GRANTED` | API | Consent granted; with purchase, status transitions to `NOT_YET_DUE` | Status `NOT_YET_DUE` (`CADENCE_NOT_DUE`) | **PASS** | Script Assertion 1.2 |
+| **1. Consent Lifecycle** | 1.3 `GRANTED` -> `REVOKED` | API | WhatsApp revoked; status immediately drops to `INELIGIBLE` | Status `INELIGIBLE`, follow-up disposition rejected | **PASS** | Script Assertion 1.3 |
+| **1. Consent Lifecycle** | 1.4 `REVOKED` -> DNC enabled | API | Global DNC enabled; adds `DO_NOT_CONTACT` hard reason | Status `INELIGIBLE` with `DO_NOT_CONTACT` reason | **PASS** | Script Assertion 1.4 |
+| **1. Consent Lifecycle** | 1.5 DNC cleared while REVOKED | API | Clearing DNC leaves candidate `INELIGIBLE` if channel consent remains `REVOKED` | Status `INELIGIBLE` (`NO_ELIGIBLE_CONTACT`) | **PASS** | Script Assertion 1.5 |
+| **1. Consent Lifecycle** | 1.6 Channel consent re-granted | API | Re-granting WhatsApp restores eligibility to `NOT_YET_DUE` | Status `NOT_YET_DUE` restored | **PASS** | Script Assertion 1.6 |
+| **2. Contact Identity Change** | 2.1 Audit history preservation | API | Replacing Phone A with Phone B preserves immutable consent audit history | History remains coherent with prior events intact | **PASS** | Script Assertion 2.1 |
+| **2. Contact Identity Change** | 2.2 Authoritative contact state | API | New Phone B has NO unverified granted consent (`UNKNOWN`) | Contact policy reports status `UNKNOWN` | **PASS** | Script Assertion 2.2 |
+| **2. Contact Identity Change** | 2.3 Eligibility fail-closed | API | Eligibility does NOT use stale Phone A; transitions to `INELIGIBLE` (`NO_ELIGIBLE_CONTACT`) | Status `INELIGIBLE` (`NO_ELIGIBLE_CONTACT`) | **PASS** | Script Assertion 2.3 |
+| **3. Cross-Session Stale State** | 3.1 Concurrent revocation | API | Session A prepared follow-up fails closed (`409 Conflict`) after Session B revokes consent | HTTP 409 Conflict returned; mutation rejected | **PASS** | Script Assertion 3.1 |
+| **4. Purchase Gaps** | 4.1 Idempotent retry | API | Submitting purchase with same `Idempotency-Key` returns 200 without duplicate creation | 201 initial, 200 replay with identical purchase ID | **PASS** | Script Assertion 4.1 |
+| **4. Purchase Gaps** | 4.2 Purchase correction | API | `PUT /purchases/{id}` updates description and increments version | Returns 200 OK with updated description | **PASS** | Script Assertion 4.2 |
+| **4. Purchase Gaps** | 4.3 Void latest purchase | API | Voiding current latest purchase recalculates last-purchase to previous valid record | Last-purchase accurately rolls back to prior valid record | **PASS** | Script Assertion 4.3 |
+| **5. Eligibility Invalidation** | 5.1 Invalidation by Archival | API | Archiving due customer immediately purges candidate from due queue | Disappears from queue; eligibility is `CUSTOMER_ARCHIVED` | **PASS** | Script Assertion 5.1 |
+| **5. Eligibility Invalidation** | 5.2 Invalidation by Purchase | API | Adding new purchase to due customer recalculates due date to future | Disappears from queue; status transitions to `NOT_YET_DUE` (`LAST_PURCHASE`) | **PASS** | Script Assertion 5.2 |
+| **6. Cross-Workspace Mutation** | 6.1 Stale workspace mutation | API | Submitting mutation on Workspace A entity scoped to Workspace B fails closed | HTTP 404 Not Found; zero cross-tenant contamination | **PASS** | Script Assertion 6.1 |
+| **7. First-Use & Empty States** | 7.1 Zero purchases empty state | UI/API | Displays "Sin compras registradas" in UI; API `/last` returns 204 No Content | Clean empty guidance; 204 on `/last` | **PASS** | `11-empty-purchase-and-consent-history.png`; Script 7.1 |
+| **7. First-Use & Empty States** | 7.2 Zero consent empty state | UI/API | Displays "Desconocido (No solicitado)" in UI; audit modal shows "No hay eventos..." | Explicit empty modal message; 0 events in API | **PASS** | `12-empty-consent-audit-modal.png`; Script 7.2 |
+| **7. First-Use & Empty States** | 7.3 Unconsented evaluation | API | First-use unconsented customer reports deterministic fail-closed reasons | Status `INELIGIBLE` (`NO_ELIGIBLE_CONTACT`) | **PASS** | Script Assertion 7.3 |
+
