@@ -73,12 +73,12 @@ This manual exploratory QA pass completes all evaluation areas and acceptance cr
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **LoginView** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | **NoMembershipsView** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
-| **AppShell (Desktop)** | PASS | PASS | FAIL *(#82)* | N/A | N/A | PASS | PASS | PASS | **FAIL** *(#82)* |
+| **AppShell (Desktop)** | PASS | PASS | PASS *(#82)* | N/A | N/A | PASS | PASS | PASS | **PASS** *(Fix #82 verified)* |
 | **AppShell (Mobile)** | N/A | N/A | N/A | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | **WorkspaceSelector** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | **FollowUpWorkbench (List)** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | **FollowUpWorkbench (Detail)** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
-| **CustomerList** | PASS | PASS | FAIL *(#82)* | PASS | FAIL *(#83)* | PASS | PASS | PASS | **FAIL** *(#82, #83)* |
+| **CustomerList** | PASS | PASS | PASS *(#82)* | PASS | PASS *(#83)* | PASS | PASS | PASS | **PASS** *(Fixes #82 & #83 verified)* |
 | **CustomerProfile** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | **CustomerFormModal** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
 | **PurchaseModal** | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | **PASS** |
@@ -92,12 +92,12 @@ This manual exploratory QA pass completes all evaluation areas and acceptance cr
 
 ---
 
-## 3. Defects Filed
+## 3. Defects Filed and Verified Remediations
 
-| Issue | Title | Severity / Type | Affected Viewports | Root Cause |
-| :---: | :--- | :---: | :---: | :--- |
-| **[#82](https://github.com/stevdrey/dokene/issues/82)** | `[UI/Layout] Horizontal overflow on 768px tablet portrait viewport caused by desktop-main default min-width: auto` | Medium / Usability | 768×1024 | `.desktop-main` flex item in `AppShell.tsx` lacks `min-width: 0`, forcing 545px intrinsic width alongside 232px sidebar (total 777px > 768px). |
-| **[#83](https://github.com/stevdrey/dokene/issues/83)** | `[UI/Layout] Horizontal page overflow on narrow mobile viewports (320px) caused by CustomerList phone search flex-basis` | Medium / Responsiveness | 320×568 | In `CustomerList.tsx`, phone search container specifies `flex: 1 1 260px` without `min-width: 0`, exceeding 256px available width and expanding `scrollWidth` to 497px. |
+| Issue | Title | Severity / Type | Affected Viewports | Root Cause | Remediation & Revalidation Status |
+| :---: | :--- | :---: | :---: | :--- | :---: |
+| **[#82](https://github.com/stevdrey/dokene/issues/82)** | `[UI/Layout] Horizontal overflow on 768px tablet portrait viewport caused by desktop-main default min-width: auto` | Medium / Usability | 768×1024 | `.desktop-main` flex item in `AppShell.tsx` lacked `min-width: 0`, forcing 545px intrinsic width alongside 232px sidebar (total 777px > 768px). | **RESOLVED & VERIFIED** *(PR #85, commit `3fc7fb9`). `scrollWidth` decreased from 777px to 753px at 768px viewport; 0px overflow verified.* |
+| **[#83](https://github.com/stevdrey/dokene/issues/83)** | `[UI/Layout] Horizontal page overflow on narrow mobile viewports (320px) caused by CustomerList phone search flex-basis` | Medium / Responsiveness | 320×568 | In `CustomerList.tsx`, phone search container specified `flex: 1 1 260px` without `min-width: 0`, exceeding 256px available width and expanding `scrollWidth` to 497px. | **RESOLVED & VERIFIED** *(PR #86, commit `deb3536`). `scrollWidth` decreased from 497px to exactly 320px; 0px overflow verified.* |
 
 ---
 
