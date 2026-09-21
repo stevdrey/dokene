@@ -197,7 +197,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
           alignItems: 'center'
         }}
       >
-        <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+        <div style={{ flex: '1 1 min(240px, 100%)', minWidth: 0, maxWidth: '100%' }}>
           <label htmlFor="search-name" className="sr-only">
             Buscar por nombre
           </label>
@@ -220,7 +220,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 260px', minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 min(260px, 100%)', minWidth: 0, maxWidth: '100%' }}>
           <label htmlFor="search-region" className="sr-only">
             Región telefónica
           </label>
@@ -377,7 +377,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
                     gap: 'var(--space-12)'
                   }}
                 >
-                  <div style={{ minWidth: '240px', flex: '1 1 auto' }}>
+                  <div style={{ minWidth: 0, maxWidth: '100%', flex: '1 1 auto' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flexWrap: 'wrap' }}>
                       <button
                         type="button"
@@ -421,7 +421,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
                       {c.notes && (
                         <>
                           <span>•</span>
-                          <span style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {c.notes}
                           </span>
                         </>

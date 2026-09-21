@@ -438,4 +438,38 @@ describe('CustomerList', () => {
       nextCursor: null
     });
   });
+
+  it('applies defensive responsive styles (min-width: 0 and bounded flex-basis) to prevent horizontal overflow on 320px viewports', async () => {
+    render(<CustomerList onSelectCustomer={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Valentina Morales Gómez')).toBeInTheDocument();
+    });
+
+    const phoneInput = screen.getByLabelText('Buscar por teléfono') as HTMLInputElement;
+    const phoneContainer = phoneInput.parentElement;
+    expect(phoneContainer).not.toBeNull();
+    expect(phoneContainer?.style.minWidth).toBe('0');
+    expect(phoneContainer?.style.maxWidth).toBe('100%');
+    expect(phoneContainer?.style.flex).toBe('1 1 min(260px, 100%)');
+    expect(phoneInput.style.minWidth).toBe('0');
+
+    const nameInput = screen.getByLabelText('Buscar por nombre') as HTMLInputElement;
+    const nameContainer = nameInput.parentElement;
+    expect(nameContainer).not.toBeNull();
+    expect(nameContainer?.style.minWidth).toBe('0');
+    expect(nameContainer?.style.maxWidth).toBe('100%');
+    expect(nameContainer?.style.flex).toBe('1 1 min(240px, 100%)');
+    expect(nameInput.style.minWidth).toBe('0');
+
+    const customerNameBtn = screen.getByText('Valentina Morales Gómez');
+    const customerInfoContainer = customerNameBtn.closest('div')?.parentElement as HTMLDivElement;
+    expect(customerInfoContainer).not.toBeNull();
+    expect(customerInfoContainer.style.minWidth).toBe('0');
+    expect(customerInfoContainer.style.maxWidth).toBe('100%');
+
+    const notesSpan = screen.getByText('Taller de Pastelería Las Lilas');
+    expect(notesSpan.style.maxWidth).toBe('100%');
+  });
 });
+
