@@ -409,17 +409,22 @@ echo "=== 6. MISCONFIGURATION / DISCLOSURE FOLLOW-UP ==="
 # 6.1 Frontend production build artifact inspection
 echo "Running frontend build verification..."
 BUILD_LOG="$TEMP_DIR/build.log"
-(cd "$ROOT_DIR/frontend" && npm run build) > "$BUILD_LOG" 2>&1 || true
 DIST_DIR="$ROOT_DIR/frontend/dist"
-if [ -d "$DIST_DIR" ]; then
-    # Verify no source maps with secret environment variables in production dist
-    if grep -rq "DOKENE_DB_PASSWORD" "$DIST_DIR" 2>/dev/null; then
-        record_result "Misconfig" "Production build artifacts secret disclosure" "FAIL" "Found secrets in frontend build output!"
+rm -rf "$DIST_DIR"
+
+if (cd "$ROOT_DIR/frontend" && npm run build) > "$BUILD_LOG" 2>&1; then
+    if [ -d "$DIST_DIR" ]; then
+        # Verify no source maps with secret environment variables in production dist
+        if grep -rq "DOKENE_DB_PASSWORD" "$DIST_DIR" 2>/dev/null; then
+            record_result "Misconfig" "Production build artifacts secret disclosure" "FAIL" "Found database secret in frontend build output!"
+        else
+            record_result "Misconfig" "Production build artifacts secret disclosure" "PASS" "Zero hardcoded database or OIDC secrets found in frontend build artifacts"
+        fi
     else
-        record_result "Misconfig" "Production build artifacts secret disclosure" "PASS" "Zero hardcoded database or OIDC secrets found in frontend build artifacts"
+        record_result "Misconfig" "Production build artifacts secret disclosure" "FAIL" "Build command succeeded but dist/ output directory was not found"
     fi
 else
-    record_result "Misconfig" "Production build artifacts secret disclosure" "PASS" "Build verified clean"
+    record_result "Misconfig" "Production build artifacts secret disclosure" "FAIL" "Production build failed: $(cat "$BUILD_LOG")"
 fi
 
 # 6.2 Session endpoint token non-disclosure
@@ -529,7 +534,7 @@ CODE="$(curl -s -b "$OWNER_COOKIE" -o "$RESP_BODY" -w "%{http_code}" \
 if [ "$CODE" = "409" ]; then
     record_result "AmbiguousResolution" "Follow-up dismissal payload on non-due customer" "NOT APPLICABLE" "Follow-up dismissal rejected with HTTP 409 Conflict (customer not in DUE state). Stored-rendering test on dismissal is NOT APPLICABLE in non-due state, preventing misleading dual-status acceptance."
 else
-    record_result "AmbiguousResolution" "Follow-up dismissal payload on non-due customer" "PASS" "Follow-up dismissal handled with status HTTP $CODE"
+    record_result "AmbiguousResolution" "Follow-up dismissal payload on non-due customer" "FAIL" "Expected HTTP 409 Conflict for non-due customer dismissal but got HTTP $CODE: $(cat "$RESP_BODY")"
 fi
 
 # 9.2 Stored XSS in Customer Notes (deterministic verifiable stored-rendering)
