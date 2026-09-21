@@ -197,7 +197,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
           alignItems: 'center'
         }}
       >
-        <div style={{ flex: '1 1 240px' }}>
+        <div style={{ flex: '1 1 240px', minWidth: 0 }}>
           <label htmlFor="search-name" className="sr-only">
             Buscar por nombre
           </label>
@@ -209,6 +209,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
             onChange={(e) => setNameSearch(e.target.value)}
             style={{
               width: '100%',
+              minWidth: 0,
               minHeight: '44px',
               padding: 'var(--space-8) var(--space-12)',
               borderRadius: 'var(--radius-md)',
@@ -219,7 +220,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 260px' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-8)', flex: '1 1 260px', minWidth: 0 }}>
           <label htmlFor="search-region" className="sr-only">
             Región telefónica
           </label>
@@ -258,6 +259,7 @@ export function CustomerList({ onSelectCustomer }: CustomerListProps) {
             onChange={(e) => setPhoneSearch(e.target.value)}
             style={{
               flex: 1,
+              minWidth: 0,
               minHeight: '44px',
               padding: 'var(--space-8) var(--space-12)',
               borderRadius: 'var(--radius-md)',

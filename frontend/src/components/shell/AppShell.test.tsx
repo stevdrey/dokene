@@ -453,4 +453,12 @@ describe('AppShell', () => {
     fireEvent.click(configBtn);
     expect(onTabChange).toHaveBeenCalledWith('configuracion');
   });
+
+  it('defines min-width: 0 on .desktop-main to prevent horizontal flex overflow on 768px tablet viewports', () => {
+    const { container } = render(<AppShell />);
+    const styleEl = container.querySelector('style');
+
+    expect(styleEl).not.toBeNull();
+    expect(styleEl?.textContent).toMatch(/\.desktop-main\s*\{[^}]*min-width:\s*0;/);
+  });
 });
