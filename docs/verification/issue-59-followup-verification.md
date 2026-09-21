@@ -107,6 +107,11 @@ Using Chrome DevTools Protocol MCP against Google Chrome 153 connected to `http:
    - Executed `window.history.back()`: the browser navigated to the Keycloak OIDC authorization URL (`http://localhost:8081/realms/dokene/protocol/openid-connect/auth...`); no customer, workspace, or session data was restored or rendered.
    - Executed `window.history.forward()` and `window.location.reload()`: the application strictly rendered the unauthenticated landing view (`Iniciar sesión con OIDC`), confirming no authenticated workspace data is recoverable through browser back/forward caches.
 
+5. **Visual Evidence**:
+   - Customer profile with inert stored XSS in React 19 DOM: `docs/verification/issue-59-evidence/02-live-browser-customer-profile.png`
+   - Clean unauthenticated view post-logout: `docs/verification/issue-59-evidence/03-live-browser-post-logout.png`
+   - Back navigation redirected to login error without data disclosure: `docs/verification/issue-59-evidence/04-live-browser-back-nav-denied.png`
+
 ### 3.4 Resolution of Ambiguous Dismissal Status (Point 9)
 - Probe 9.1 tested the follow-up dismissal endpoint (`POST /api/customers/{id}/follow-up-dismissals`) against a customer not in `DUE` state, observing `HTTP 409 Conflict` (domain cadence rule).
 - In accordance with maintainer feedback, this is explicitly classified as **NOT APPLICABLE** for stored-rendering verification in non-due customer state.
