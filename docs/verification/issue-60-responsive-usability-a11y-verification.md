@@ -2,7 +2,8 @@
 
 Date: 2026-09-20  
 Tester: Antigravity QA Agent  
-Commit Tested: `c6570a7862788e0015fbe8766157833a6998ff5a` (branch `main` / `60-manual-qa-uiux-evaluate-responsive-usability-accessibility-and-recovery-states`)  
+Initial Test Commit: `c6570a7862788e0015fbe8766157833a6998ff5a` (baseline exploratory run)  
+Final Revalidation Commit: `deb35360ab0cd506330452e83a9de640ed583ae0` (post-remediation verification on `main`)  
 Environment:
 - OS: Linux x86_64
 - Java: OpenJDK Temurin `26.0.2.1`
@@ -22,6 +23,12 @@ Environment:
 ## 1. Executive Summary
 
 This manual exploratory QA pass completes all evaluation areas and acceptance criteria for [Issue #60](https://github.com/stevdrey/dokene/issues/60). Testing evaluated the real, live local Dokene frontend and BFF stack as a human operator would use it across desktop, tablet, and mobile viewports, keyboard-driven navigation, browser zoom, accessible semantics, content boundaries, loading, empty, and failure recovery states.
+
+The evaluation was performed across two execution phases:
+1. **Initial Exploratory Baseline (Commit `c6570a7`):** Full interactive exploration across all 9 UI areas uncovered two responsive layout defects: #82 (horizontal overflow at 768px tablet portrait) and #83 (horizontal overflow at 320px narrow mobile).
+2. **Focused Remediation Revalidation (Commit `deb3536`):** Re-testing in a live browser environment after merging PR #85 (fix for #82) and PR #86 (fix for #83) confirmed that both defects are 100% resolved.
+
+The final screen × viewport × interaction matrix in Section 2 represents this verified post-remediation state on `main`.
 
 ### Key Observations & Verification Results:
 
@@ -112,16 +119,22 @@ In accordance with Issue #60's non-duplication requirement:
 
 ## 5. Visual Evidence Captured
 
-All captured evidence is stored under `docs/verification/issue-60-evidence/`:
+All captured evidence from the initial exploratory run on `c6570a7` is stored under `docs/verification/issue-60-evidence/`:
 
 1. `01-desktop-1440-followups-workbench.png` — Full desktop view (1440×900) showing 232px sidebar, header, and follow-up workbench layout.
 2. `02-mobile-390-followups-list.png` — Mobile view (390×844) displaying mobile mint canvas, mobile header, and fixed bottom navigation.
 3. `03-mobile-390-followup-detail.png` — Mobile view (390×844) demonstrating single-column stacked customer profile.
 4. `04-tablet-1024-workbench-reflow.png` — Intermediate tablet landscape (1024×768) demonstrating fluid reflow without horizontal overflow.
-5. `05-tablet-768-narrow-breakpoint.png` — Tablet portrait (768×1024) documenting the 9px horizontal overflow defect ([#82](https://github.com/stevdrey/dokene/issues/82)).
-6. `06-narrow-320-horizontal-overflow-defect.png` — Narrow mobile (320×568) documenting the search bar overflow defect ([#83](https://github.com/stevdrey/dokene/issues/83)).
+5. `05-tablet-768-narrow-breakpoint.png` — Tablet portrait (768×1024) documenting the original 9px horizontal overflow failure ([#82](https://github.com/stevdrey/dokene/issues/82)).
+6. `06-narrow-320-horizontal-overflow-defect.png` — Narrow mobile (320×568) documenting the original search bar overflow failure ([#83](https://github.com/stevdrey/dokene/issues/83)).
 7. `07-zoom-200-customer-modal.png` — Browser zoom at 200% on `CustomerFormModal` showing readable reflow and accessible scrollable body.
 8. `08-keyboard-nav-focus-rings.png` — Active keyboard navigation showing visible 2px teal focus ring (`#0f766e`) with 2px offset.
 9. `09-a11y-tree-and-error-associations.png` — Accessible error state showing `aria-invalid="true"` and `aria-describedby="phone-error-0"`.
 10. `10-long-unicode-content-resilience.png` — Customer profile with emoji and accented name (`María José ☕ Del Valle...`) and 2000 chars notes.
 11. `11-empty-states-and-recovery.png` — Customer list empty search result showing friendly, actionable user recovery message.
+
+### Resolution Evidence & Post-Remediation Verification
+
+Visual evidence demonstrating that the horizontal overflow defects were eliminated belongs to the subsequent remediation PRs and the final live revalidation pass on `deb3536`:
+- **Issue #82 Resolution Evidence (768px Tablet Portrait):** `docs/verification/issue-82-evidence/tablet-768-portrait-resolved.png` (committed in PR #85, commit `3fc7fb9`, confirming 0px horizontal overflow with `scrollWidth: 753px <= 768px`).
+- **Issue #83 Resolution Evidence (320px Narrow Mobile):** `docs/verification/issue-83-evidence/narrow-320-resolved.png` (committed in PR #86, commit `deb3536`, confirming 0px horizontal overflow with `scrollWidth: 320px = 320px`).
