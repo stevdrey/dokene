@@ -15,6 +15,43 @@ export class ApiError extends Error {
   }
 }
 
+export function getFriendlyErrorMessage(status: number, method?: string): string {
+  if (status === 400) {
+    return 'La solicitud no pudo ser procesada. Revisa los datos ingresados.';
+  }
+  if (status === 401) {
+    return 'Sesión no autorizada o expirada.';
+  }
+  if (status === 403) {
+    return 'Acceso denegado en este espacio de trabajo.';
+  }
+  if (status === 404) {
+    return 'El recurso solicitado no fue encontrado.';
+  }
+  if (status === 409) {
+    const isMutation = method === 'PUT' || method === 'DELETE' || method === 'PATCH';
+    return isMutation
+      ? 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.'
+      : 'Conflicto: el registro o número de contacto ya existe o está en conflicto.';
+  }
+  if (status === 412) {
+    return 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';
+  }
+  if (status === 422) {
+    return 'Los datos enviados contienen errores o no cumplen con las reglas requeridas.';
+  }
+  if (status === 429) {
+    return 'Demasiadas solicitudes. Por favor espera un momento antes de reintentar.';
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return 'El servicio no está disponible temporalmente. Por favor intenta de nuevo en unos momentos.';
+  }
+  if (status >= 500) {
+    return 'Ocurrió un problema en el servidor al procesar la solicitud. Por favor intenta nuevamente.';
+  }
+  return 'Ocurrió un error inesperado al procesar la solicitud. Por favor intenta nuevamente.';
+}
+
 class HttpClient {
   private activeTenantId: string | null = null;
   private csrfToken: string | null = null;
@@ -147,19 +184,11 @@ class HttpClient {
           // Response is not JSON
         }
 
-        if (response.status === 409) {
-          const isMutation = method === 'PUT' || method === 'DELETE' || method === 'PATCH';
-          const defaultMsg = isMutation
-            ? 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.'
-            : 'Conflicto: el registro o número de contacto ya existe o está en conflicto.';
-          errorMessage = errorMessage || defaultMsg;
-        } else if (response.status === 412) {
-          errorMessage = errorMessage || 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';
-        } else if (response.status === 403) {
-          errorMessage = errorMessage || 'Acceso denegado en este espacio de trabajo.';
+        if (!errorMessage) {
+          errorMessage = getFriendlyErrorMessage(response.status, method);
         }
 
-        throw new ApiError(response.status, errorMessage || `Error HTTP ${response.status}`, errorPayload);
+        throw new ApiError(response.status, errorMessage, errorPayload);
       }
 
       const etag = response.headers.get('ETag');
