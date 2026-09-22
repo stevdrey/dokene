@@ -38,7 +38,7 @@ FollowUpDecision
 └── draftVariables: {...}
 ```
 
-The exact schema may evolve, but free-form model text must not be interpreted directly as an arbitrary command.
+The exact schema is governed by [ADR 0015: Structured Next Best Action Recommendation Contracts](../adr/0015-structured-next-best-action-recommendation-contracts.md), which strictly separates deterministic evaluation facts (from `FollowUpEvaluation`) from advisory, untrusted AI output (`RecommendationOutcome`). Free-form model text must not be interpreted directly as an arbitrary command.
 
 ## AI Action Gate
 

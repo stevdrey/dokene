@@ -1,0 +1,37 @@
+package io.github.stevdrey.dokene.recommendation.domain;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+/**
+ * Advisory recommendation advocating for a specific semantic follow-up action and template intent.
+ */
+public record ActionRecommendation(
+        @JsonProperty("action") SemanticAction action,
+        @JsonProperty("templateIntent") SemanticTemplateIntent templateIntent,
+        @JsonProperty("rationale") String rationale,
+        @JsonProperty("confidence") RecommendationConfidence confidence,
+        @JsonProperty("draftVariables") DraftVariables draftVariables) implements RecommendationOutcome {
+
+    public ActionRecommendation {
+        if (action == null) {
+            throw new RecommendationValidationException("action", "Action is required");
+        }
+        if (templateIntent == null) {
+            throw new RecommendationValidationException("templateIntent", "Template intent is required");
+        }
+        if (rationale == null || rationale.isBlank()) {
+            throw new RecommendationValidationException("rationale", "Rationale is required");
+        }
+        rationale = rationale.trim();
+        if (rationale.length() > MAX_RATIONALE_LENGTH) {
+            throw new RecommendationValidationException("rationale",
+                    "Rationale exceeds maximum length of " + MAX_RATIONALE_LENGTH + " characters");
+        }
+        if (confidence == null) {
+            throw new RecommendationValidationException("confidence", "Confidence is required");
+        }
+        if (draftVariables == null) {
+            draftVariables = DraftVariables.empty();
+        }
+    }
+}
