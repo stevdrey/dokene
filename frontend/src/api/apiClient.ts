@@ -1,10 +1,30 @@
+function getFriendlyStatusText(status: number, statusText?: string): string {
+  if (status === 401) return 'Sesión no autorizada o expirada.';
+  if (status === 403) return 'Acceso denegado en este espacio de trabajo.';
+  if (status === 404) return 'El recurso solicitado no fue encontrado.';
+  if (status === 409 || status === 412) return 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';
+  if (status === 502 || status === 503 || status === 504) {
+    return 'El servicio no está disponible temporalmente. Por favor intenta de nuevo en unos momentos.';
+  }
+  if (status >= 500) {
+    return 'Ocurrió un problema en el servidor al procesar la solicitud. Por favor intenta nuevamente.';
+  }
+  if (statusText && !statusText.startsWith('API Error')) {
+    return statusText;
+  }
+  return 'Ocurrió un error inesperado al procesar la solicitud. Por favor intenta nuevamente.';
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly statusText: string,
     public readonly body?: unknown
   ) {
-    super(`API Error ${status}: ${statusText}`);
+    const message = (typeof body === 'object' && body !== null && 'message' in body && typeof (body as any).message === 'string')
+      ? (body as any).message
+      : getFriendlyStatusText(status, statusText);
+    super(message);
     this.name = 'ApiError';
   }
 }

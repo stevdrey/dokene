@@ -205,6 +205,34 @@ describe('customerApi and httpClient', () => {
     );
   });
 
+  it('provides user-friendly message for bodyless 502, 503, and 504 responses instead of raw HTTP status', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 502 })
+    );
+
+    await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow(
+      'El servicio no está disponible temporalmente. Por favor intenta de nuevo en unos momentos.'
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 503 })
+    );
+
+    await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow(
+      'El servicio no está disponible temporalmente. Por favor intenta de nuevo en unos momentos.'
+    );
+  });
+
+  it('provides user-friendly message for bodyless 500 Internal Server Error responses instead of raw HTTP status', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(null, { status: 500 })
+    );
+
+    await expect(customerApi.getLastPurchase('cust-1')).rejects.toThrow(
+      'Ocurrió un problema en el servidor al procesar la solicitud. Por favor intenta nuevamente.'
+    );
+  });
+
   it('passes AbortSignal to fetch in listCustomers', async () => {
     const controller = new AbortController();
     let capturedSignal: AbortSignal | undefined;
