@@ -5,7 +5,7 @@ Status: COMPLETE. All scenarios executed, verified, and passing.
 ## Environment
 
 - Date: 2026-09-21 to 2026-09-22.
-- Commit: `cf645b7f0a5f523201708f724095ab85e001c85e`; matches remote main verified with `git ls-remote`.
+- Commits: Initial exploratory QA executed on `cf645b7f0a5f523201708f724095ab85e001c85e`. UX error improvements and follow-up validations verified on branch tree `8d9aa97`.
 - Linux `6.17.0-41-generic`; Temurin Java `26.0.2.1`; Node `24.18.0`; Vite `8.3.0`.
 - Browser: Chrome DevTools MCP & Codex in-app browser, localhost:5173.
 - PostgreSQL 17 and Keycloak containers healthy before and during testing.
@@ -79,11 +79,11 @@ Manual scenarios targeted actual service interruption, live multi-tab concurrenc
 | Network interruption | PASS | Offline mode displays recoverable "Failed to fetch" with retry button (`14-network-offline-error.png`); clicking retry restores list seamlessly (`15-network-recovered-success.png`). |
 | Backend restart | PASS | Outage during form submit produces 502 with data preserved (`12-backend-interruption-502-preserved.png`); restart invalidates in-memory session cleanly with friendly re-auth message (`13-backend-restart-session-invalidation.png`). |
 | PostgreSQL interruption | PASS | DB outage fails closed with 500 error (`03-db-write-error.png`, `04-db-read-error.png`); DB recovery allows immediate successful retry with single committed record (`05-db-recovered-single-purchase.png`). |
-| Keycloak interruption | PASS | Established BFF sessions remain functional while Keycloak is stopped (`08-keycloak-stopped-session-persists.png`); new logins fail gracefully (`09-keycloak-stopped-login-failure.png`) and recover upon Keycloak restart. |
+| Keycloak interruption | PARTIAL PASS / ARCHITECTURAL LIMITATION | Established BFF sessions persist and operate normally (PASS, `08-keycloak-stopped-session-persists.png`); local logout during outage de-authenticates safely (PASS, `22-keycloak-logout-interruption.png`). Unauthenticated new logins during complete IdP outage redirect to IdP endpoint producing browser network error `ERR_CONNECTION_REFUSED` without in-app recovery UI (ARCHITECTURAL LIMITATION / EXPECTED OIDC REDIRECT BEHAVIOR, `09-keycloak-stopped-login-failure.png`). |
 | Stale authorization | PASS | Demoting membership to VIEWER causes stale form submit to fail-closed with 403 *"Acceso denegado en este espacio de trabajo"*, preserving user inputs (`10-stale-authorization-denial.png`). |
 | Stale business eligibility | PASS | Archiving customer causes stale purchase submit to fail-closed with 409 Conflict, preserving form data (`11-stale-business-eligibility-conflict.png`). |
 | Workspace/session races | PASS | Concurrent tab logout invalidates session; other tabs catch 401 and redirect to login with *"Tu sesión ha expirado por inactividad"* (`07-stale-session-denial.png`). |
-| Recovery quality | PASS | All 10 areas preserve user data in forms across errors (502, 500, 409, 403, offline); clear Spanish messaging; no SQL/stack traces leaked; retry controls work predictably. |
+| Recovery quality | PASS | User form data is strictly preserved across all failure modes (502, 500, 409, 403, offline); clear Spanish messaging verified in post-fix tree (`23-post-fix-friendly-error-ux.png`; pre-fix technical strings in `01`/`12` superseded); no SQL or stack traces exposed; retry workflows behave predictably. |
 
 ## Follow-up focused resilience validations (September 22 maintainer review)
 
