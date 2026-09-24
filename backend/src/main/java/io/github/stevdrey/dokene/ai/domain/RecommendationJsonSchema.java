@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -7,44 +7,32 @@ import java.util.Map;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Generates strict JSON Schemas representing {@link RecommendationOutcome} contracts.
+ * Generates strict, provider-neutral JSON Schemas representing {@link RecommendationOutcome} contracts.
  * <p>
- * Specifically tailored for AI provider adapters using Structured Outputs (e.g. OpenAI JSON Schema mode),
- * enforcing {@code additionalProperties: false} on all object schemas, strict enum allowlists,
- * and explicit {@code required} arrays.
+ * Enforces strict JSON Schema constraints: {@code additionalProperties: false} on all object schemas,
+ * strict enum allowlists, and explicit {@code required} arrays.
+ * <p>
+ * Provider adapters (e.g. OpenAI Structured Outputs) consume this neutral schema and wrap it in
+ * their proprietary wire transport envelopes.
  */
 public final class RecommendationJsonSchema {
-    private static final String SCHEMA_NAME = "next_best_action_recommendation";
+    public static final String SCHEMA_TITLE = "next_best_action_recommendation";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private RecommendationJsonSchema() {}
 
     /**
-     * Generates the strict JSON Schema for {@link RecommendationOutcome}.
+     * Generates the strict, provider-neutral JSON Schema for {@link RecommendationOutcome}.
      */
     public static Map<String, Object> generateSchema() {
         Map<String, Object> actionSchema = generateActionSchema();
         Map<String, Object> noRecommendationSchema = generateNoRecommendationSchema();
 
         Map<String, Object> root = new LinkedHashMap<>();
+        root.put("title", SCHEMA_TITLE);
         root.put("type", "object");
         root.put("anyOf", List.of(actionSchema, noRecommendationSchema));
         return root;
-    }
-
-    /**
-     * Generates the full OpenAI Structured Outputs {@code response_format} configuration map.
-     */
-    public static Map<String, Object> generateResponseFormat() {
-        Map<String, Object> jsonSchema = new LinkedHashMap<>();
-        jsonSchema.put("name", SCHEMA_NAME);
-        jsonSchema.put("strict", true);
-        jsonSchema.put("schema", generateSchema());
-
-        Map<String, Object> responseFormat = new LinkedHashMap<>();
-        responseFormat.put("type", "json_schema");
-        responseFormat.put("json_schema", jsonSchema);
-        return responseFormat;
     }
 
     /**

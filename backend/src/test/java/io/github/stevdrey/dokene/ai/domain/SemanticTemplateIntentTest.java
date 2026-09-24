@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -9,33 +9,33 @@ import org.junit.jupiter.params.provider.ValueSource;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class NoRecommendationReasonTest {
+class SemanticTemplateIntentTest {
 
     @ParameterizedTest
-    @EnumSource(NoRecommendationReason.class)
-    void parsesValidEnumNames(NoRecommendationReason reason) {
-        assertThat(NoRecommendationReason.from(reason.name())).isEqualTo(reason);
-        assertThat(NoRecommendationReason.from("  " + reason.name() + "  ")).isEqualTo(reason);
+    @EnumSource(SemanticTemplateIntent.class)
+    void parsesValidEnumNames(SemanticTemplateIntent intent) {
+        assertThat(SemanticTemplateIntent.from(intent.name())).isEqualTo(intent);
+        assertThat(SemanticTemplateIntent.from("  " + intent.name() + "  ")).isEqualTo(intent);
     }
 
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"   ", "\t", "\n"})
     void rejectsNullOrBlankValues(String invalid) {
-        assertThatThrownBy(() -> NoRecommendationReason.from(invalid))
+        assertThatThrownBy(() -> SemanticTemplateIntent.from(invalid))
                 .isInstanceOf(RecommendationValidationException.class)
-                .hasMessageContaining("No-recommendation reason is required")
+                .hasMessageContaining("Semantic template intent is required")
                 .extracting(e -> ((RecommendationValidationException) e).field())
-                .isEqualTo("reason");
+                .isEqualTo("templateIntent");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"UNKNOWN_REASON", "insufficient_history", "REFUSED_TO_ANSWER"})
+    @ValueSource(strings = {"CUSTOM_TEMPLATE", "general_follow_up", "PROMO_CODE_2026"})
     void rejectsUnknownValuesWithoutCoercion(String unknown) {
-        assertThatThrownBy(() -> NoRecommendationReason.from(unknown))
+        assertThatThrownBy(() -> SemanticTemplateIntent.from(unknown))
                 .isInstanceOf(RecommendationValidationException.class)
-                .hasMessageContaining("Unknown no-recommendation reason: " + unknown)
+                .hasMessageContaining("Unknown semantic template intent: " + unknown)
                 .extracting(e -> ((RecommendationValidationException) e).field())
-                .isEqualTo("reason");
+                .isEqualTo("templateIntent");
     }
 }

@@ -16,7 +16,7 @@ To enable AI-assisted decision support, Dokene requires strongly typed, provider
 
 ### 1. Closed Vocabulary and Application Ownership
 
-Recommendation concepts are defined as closed domain types in `io.github.stevdrey.dokene.recommendation.domain`:
+Recommendation concepts are defined as closed domain types in the `ai` module under `io.github.stevdrey.dokene.ai.domain` (aligning with `docs/wiki/Architecture.md` and `backend/README.md`):
 
 - **Semantic Action (`SemanticAction`)**: Allowlisted follow-up actions owned by Dokene (`REPEAT_PURCHASE_FOLLOW_UP`, `GENERAL_CHECK_IN`, `RELATED_PRODUCT_OFFER`, `DORMANT_REENGAGEMENT`, `SEASONAL_GREETING`). Unknown values fail fast with `RecommendationValidationException` and are never coerced or defaulted.
 - **Semantic Template Intent (`SemanticTemplateIntent`)**: Allowlisted message intents (`GENERAL_FOLLOW_UP`, `REPEAT_PURCHASE`, `RELATED_PRODUCT`, `SEASONAL_EVENT`, `DORMANT_CUSTOMER`). Provider-specific template identifiers (e.g. Meta WhatsApp Cloud API template IDs) are mapped deterministically by the application core and never invented or specified by the model.
@@ -58,13 +58,14 @@ Authoritative business decisions combine deterministic eligibility and untrusted
    - Constructing a `FollowUpDecision` with an `ActionRecommendation` for a customer who is deterministically ineligible (`!eligible`) throws `RecommendationValidationException`.
 
 ### 4. Strict Schema Generation for Structured Outputs
-
-The `RecommendationJsonSchema` generator produces strict JSON Schemas compatible with OpenAI Structured Outputs (`response_format = json_schema` with `strict: true`) and equivalent constrained decoding engines:
-
+ 
+The `RecommendationJsonSchema` generator produces strict, provider-neutral JSON Schemas compatible with OpenAI Structured Outputs (`strict: true`) and equivalent constrained decoding engines:
+ 
 - `additionalProperties: false` is enforced on all object schemas.
 - All defined properties are declared in the `required` array.
 - Enums are strictly populated from the Java domain enums.
 - Draft variables are modeled as typed key-value item arrays, preventing dynamic map validation rejections.
+- Wire transport envelopes (such as OpenAI's `response_format = { type: "json_schema", ... }`) belong exclusively to provider adapters and do not leak into the domain contract.
 
 ## Consequences
 

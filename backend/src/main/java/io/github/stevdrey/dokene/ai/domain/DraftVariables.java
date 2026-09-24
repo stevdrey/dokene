@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;

@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;

@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -17,6 +17,7 @@ class RecommendationJsonSchemaTest {
     @SuppressWarnings("unchecked")
     void generatesStrictOpenAiCompatibleSchema() {
         Map<String, Object> schema = RecommendationJsonSchema.generateSchema();
+        assertThat(schema.get("title")).isEqualTo(RecommendationJsonSchema.SCHEMA_TITLE);
         assertThat(schema.get("type")).isEqualTo("object");
 
         List<Map<String, Object>> anyOf = (List<Map<String, Object>>) schema.get("anyOf");
@@ -29,7 +30,7 @@ class RecommendationJsonSchemaTest {
             Map<String, Object> properties = (Map<String, Object>) branch.get("properties");
             List<String> required = (List<String>) branch.get("required");
 
-            // In OpenAI strict mode, every property defined in properties must be in required
+            // In strict structured outputs, every property defined in properties must be in required
             assertThat(required).containsExactlyInAnyOrderElementsOf(properties.keySet());
         }
 
@@ -61,28 +62,13 @@ class RecommendationJsonSchemaTest {
     }
 
     @Test
-    void generatesValidResponseFormatEnvelope() throws Exception {
-        Map<String, Object> responseFormat = RecommendationJsonSchema.generateResponseFormat();
-        assertThat(responseFormat.get("type")).isEqualTo("json_schema");
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> jsonSchema = (Map<String, Object>) responseFormat.get("json_schema");
-        assertThat(jsonSchema.get("name")).isEqualTo("next_best_action_recommendation");
-        assertThat(jsonSchema.get("strict")).isEqualTo(true);
-        assertThat(jsonSchema.get("schema")).isNotNull();
-
-        String jsonString = objectMapper.writeValueAsString(responseFormat);
-        JsonNode tree = objectMapper.readTree(jsonString);
-        assertThat(tree.get("type").asString()).isEqualTo("json_schema");
-        assertThat(tree.get("json_schema").get("strict").asBoolean()).isTrue();
-    }
-
-    @Test
     void generatesValidPrettyJsonString() throws Exception {
         String schemaJson = RecommendationJsonSchema.generateSchemaJson();
         assertThat(schemaJson).isNotBlank();
 
         JsonNode tree = objectMapper.readTree(schemaJson);
+        assertThat(tree.get("title").asString()).isEqualTo(RecommendationJsonSchema.SCHEMA_TITLE);
+        assertThat(tree.get("type").asString()).isEqualTo("object");
         assertThat(tree.has("anyOf")).isTrue();
     }
 }

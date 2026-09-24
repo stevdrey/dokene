@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 /**
  * Closed reasons explaining why no follow-up action was recommended by the model.

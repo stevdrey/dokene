@@ -101,7 +101,7 @@ define precedence, no-purchase behavior, time-zone semantics, queue pagination, 
 
 ## AI recommendation boundary
 
-The `recommendation` module defines strongly typed, provider-neutral Next Best Action contracts
+The `ai` module defines strongly typed, provider-neutral Next Best Action contracts
 ([ADR 0015](../adr/0015-structured-next-best-action-recommendation-contracts.md)). AI output is strictly advisory,
 untrusted input governed by the AI Action Gate ([ADR 0004](../adr/0004-ai-action-gate.md)). Model recommendations
 (`RecommendationOutcome`) are validated against closed application-owned semantic actions and template intents,

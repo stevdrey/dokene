@@ -1,4 +1,4 @@
-package io.github.stevdrey.dokene.recommendation.domain;
+package io.github.stevdrey.dokene.ai.domain;
 
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
