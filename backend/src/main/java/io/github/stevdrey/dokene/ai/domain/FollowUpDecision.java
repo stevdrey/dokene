@@ -56,6 +56,12 @@ public record FollowUpDecision(
         Objects.requireNonNull(evaluatedAt, "Evaluation timestamp is required");
         eligibilityReasons = List.copyOf(eligibilityReasons != null ? eligibilityReasons : List.of());
 
+        boolean expectedEligible = (followUpStatus == FollowUpStatus.DUE || followUpStatus == FollowUpStatus.OVERDUE);
+        if (eligible != expectedEligible) {
+            throw new RecommendationValidationException("eligible",
+                    "Eligible flag (" + eligible + ") must match status-derived eligibility (" + expectedEligible + ") for status " + followUpStatus);
+        }
+
         // Invariant: An action recommendation can NEVER be assigned to an ineligible customer
         if (!eligible && recommendation instanceof ActionRecommendation) {
             throw new RecommendationValidationException("eligible",

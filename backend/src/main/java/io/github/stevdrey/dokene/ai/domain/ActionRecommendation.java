@@ -1,10 +1,12 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Advisory recommendation advocating for a specific semantic follow-up action and template intent.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record ActionRecommendation(
         @JsonProperty("action") SemanticAction action,
         @JsonProperty("templateIntent") SemanticTemplateIntent templateIntent,

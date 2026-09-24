@@ -83,7 +83,7 @@ class FollowUpDecisionTest {
                 .isInstanceOf(RecommendationValidationException.class)
                 .hasMessageContaining("Cannot recommend action for deterministically ineligible customer");
 
-        // Direct constructor invocation invariant check
+        // Direct constructor invocation invariant check: action recommendation with ineligible flag
         assertThatThrownBy(() -> new FollowUpDecision(
                 customerId,
                 false,
@@ -99,6 +99,40 @@ class FollowUpDecisionTest {
                 sampleAction
         )).isInstanceOf(RecommendationValidationException.class)
                 .hasMessageContaining("Cannot associate an action recommendation with a deterministically ineligible customer");
+
+        // Direct constructor invocation invariant check: eligible=true passed with INELIGIBLE status
+        assertThatThrownBy(() -> new FollowUpDecision(
+                customerId,
+                true,
+                FollowUpStatus.INELIGIBLE,
+                List.of(FollowUpReason.DO_NOT_CONTACT),
+                tenantDate,
+                zoneId,
+                evaluatedAt,
+                null,
+                FollowUpTimingSource.NONE,
+                0,
+                null,
+                null
+        )).isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Eligible flag (true) must match status-derived eligibility (false)");
+
+        // Direct constructor invocation invariant check: eligible=false passed with DUE status
+        assertThatThrownBy(() -> new FollowUpDecision(
+                customerId,
+                false,
+                FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY),
+                tenantDate,
+                zoneId,
+                evaluatedAt,
+                tenantDate,
+                FollowUpTimingSource.LAST_PURCHASE,
+                30,
+                null,
+                null
+        )).isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Eligible flag (false) must match status-derived eligibility (true)");
     }
 
     @Test

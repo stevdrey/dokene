@@ -1,11 +1,13 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Advisory outcome indicating that no follow-up action is recommended by the model.
  * Explicitly models refusal or lack of follow-up opportunity without placeholder actions.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record NoRecommendation(
         @JsonProperty("reason") NoRecommendationReason reason,
         @JsonProperty("rationale") String rationale,
