@@ -222,6 +222,68 @@ class RecommendationJsonSchemaTest {
     }
 
     @Test
+    void parseOutcomeRejectsNullOrBlankPayloads() {
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("JSON payload cannot be null or blank");
+
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome("   "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("JSON payload cannot be null or blank");
+
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome("null"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("JSON payload cannot be null");
+
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome("{\"recommendation\": null}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Target recommendation node cannot be null");
+    }
+
+    @Test
+    void parseOutcomeRejectsUnexpectedProperties() {
+        String jsonWithExtraField = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "hallucinated": "value"
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithExtraField))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        String jsonWithCrossBranch = """
+                {
+                    "outcome": "NO_RECOMMENDATION",
+                    "reason": "INSUFFICIENT_HISTORY",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP"
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithCrossBranch))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        String wrappedWithExtraRootProp = """
+                {
+                    "recommendation": {
+                        "outcome": "ACTION",
+                        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                        "templateIntent": "REPEAT_PURCHASE",
+                        "rationale": "Valid rationale",
+                        "confidence": 0.88
+                    },
+                    "extraRoot": "disallowed"
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(wrappedWithExtraRootProp))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void generatesValidPrettyJsonString() throws Exception {
         String schemaJson = RecommendationJsonSchema.generateSchemaJson();
         assertThat(schemaJson).isNotBlank();

@@ -9,7 +9,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RecommendationOutcomeSerializationTest {
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = tools.jackson.databind.json.JsonMapper.builder()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
 
     @Test
     void serializesAndDeserializesActionRecommendation() throws Exception {
@@ -119,6 +121,66 @@ class RecommendationOutcomeSerializationTest {
                 """;
 
         assertThatThrownBy(() -> objectMapper.readValue(json, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void rejectsUnexpectedPropertiesInActionPayload() {
+        String jsonWithExtraField = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "extraField": "unexpected"
+                }
+                """;
+
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithExtraField, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+
+        String jsonWithCrossBranchField = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "reason": "INSUFFICIENT_HISTORY"
+                }
+                """;
+
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithCrossBranchField, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void rejectsUnexpectedPropertiesInNoRecommendationPayload() {
+        String jsonWithExtraField = """
+                {
+                    "outcome": "NO_RECOMMENDATION",
+                    "reason": "INSUFFICIENT_HISTORY",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "extraField": "unexpected"
+                }
+                """;
+
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithExtraField, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+
+        String jsonWithCrossBranchField = """
+                {
+                    "outcome": "NO_RECOMMENDATION",
+                    "reason": "INSUFFICIENT_HISTORY",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP"
+                }
+                """;
+
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithCrossBranchField, RecommendationOutcome.class))
                 .isInstanceOf(Exception.class);
     }
 

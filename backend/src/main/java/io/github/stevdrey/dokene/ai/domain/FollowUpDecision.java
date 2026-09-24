@@ -54,6 +54,7 @@ public record FollowUpDecision(
         Objects.requireNonNull(tenantDate, "Tenant date is required");
         Objects.requireNonNull(tenantZone, "Tenant zone is required");
         Objects.requireNonNull(evaluatedAt, "Evaluation timestamp is required");
+        Objects.requireNonNull(timingSource, "Timing source is required");
         Objects.requireNonNull(eligibilityReasons, "Eligibility reasons is required");
         eligibilityReasons = List.copyOf(eligibilityReasons);
         if (eligibilityReasons.isEmpty()) {

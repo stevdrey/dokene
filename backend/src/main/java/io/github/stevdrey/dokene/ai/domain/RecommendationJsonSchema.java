@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -22,7 +23,15 @@ import tools.jackson.databind.ObjectMapper;
 public final class RecommendationJsonSchema {
     public static final String SCHEMA_TITLE = "next_best_action_recommendation";
     public static final String ROOT_PROPERTY = "recommendation";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = tools.jackson.databind.json.JsonMapper.builder()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
+    private static final java.util.Set<String> ALLOWED_ACTION_PROPERTIES = java.util.Set.of(
+            "outcome", "action", "templateIntent", "rationale", "confidence", "draftVariables"
+    );
+    private static final java.util.Set<String> ALLOWED_NO_REC_PROPERTIES = java.util.Set.of(
+            "outcome", "reason", "rationale", "confidence"
+    );
 
     private RecommendationJsonSchema() {}
 
@@ -70,12 +79,64 @@ public final class RecommendationJsonSchema {
      * @return the deserialized {@link RecommendationOutcome}
      */
     public static RecommendationOutcome parseOutcome(String json, ObjectMapper objectMapper) {
+        if (json == null || json.isBlank()) {
+            throw new IllegalArgumentException("JSON payload cannot be null or blank");
+        }
+        Objects.requireNonNull(objectMapper, "ObjectMapper is required");
         try {
             JsonNode rootNode = objectMapper.readTree(json);
-            JsonNode targetNode = rootNode.has(ROOT_PROPERTY) ? rootNode.get(ROOT_PROPERTY) : rootNode;
-            return objectMapper.treeToValue(targetNode, RecommendationOutcome.class);
+            if (rootNode == null || rootNode.isNull()) {
+                throw new IllegalArgumentException("JSON payload cannot be null");
+            }
+            if (!rootNode.isObject()) {
+                throw new IllegalArgumentException("JSON payload must be an object");
+            }
+            JsonNode targetNode;
+            if (rootNode.has(ROOT_PROPERTY)) {
+                for (String fieldName : rootNode.propertyNames()) {
+                    if (!ROOT_PROPERTY.equals(fieldName)) {
+                        throw new IllegalArgumentException("Unexpected property '" + fieldName + "' in schema envelope");
+                    }
+                }
+                targetNode = rootNode.get(ROOT_PROPERTY);
+            } else {
+                targetNode = rootNode;
+            }
+            if (targetNode == null || targetNode.isNull()) {
+                throw new IllegalArgumentException("Target recommendation node cannot be null");
+            }
+            if (!targetNode.isObject()) {
+                throw new IllegalArgumentException("Target recommendation node must be an object");
+            }
+            validateAllowedProperties(targetNode);
+            RecommendationOutcome outcome = objectMapper.treeToValue(targetNode, RecommendationOutcome.class);
+            if (outcome == null) {
+                throw new IllegalArgumentException("Deserialized RecommendationOutcome cannot be null");
+            }
+            return outcome;
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to deserialize RecommendationOutcome from JSON payload", e);
+        }
+    }
+
+    private static void validateAllowedProperties(JsonNode node) {
+        if (!node.has("outcome")) {
+            return;
+        }
+        String outcome = node.get("outcome").asText();
+        java.util.Set<String> allowed = "ACTION".equals(outcome)
+                ? ALLOWED_ACTION_PROPERTIES
+                : "NO_RECOMMENDATION".equals(outcome)
+                        ? ALLOWED_NO_REC_PROPERTIES
+                        : null;
+        if (allowed != null) {
+            for (String fieldName : node.propertyNames()) {
+                if (!allowed.contains(fieldName)) {
+                    throw new IllegalArgumentException("Unexpected property '" + fieldName + "' for outcome " + outcome);
+                }
+            }
         }
     }
 

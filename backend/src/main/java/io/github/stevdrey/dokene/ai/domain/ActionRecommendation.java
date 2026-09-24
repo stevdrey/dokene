@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 /**
  * Advisory recommendation advocating for a specific semantic follow-up action and template intent.
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonIgnoreProperties(ignoreUnknown = false)
 public record ActionRecommendation(
         @JsonProperty("action") SemanticAction action,
         @JsonProperty("templateIntent") SemanticTemplateIntent templateIntent,

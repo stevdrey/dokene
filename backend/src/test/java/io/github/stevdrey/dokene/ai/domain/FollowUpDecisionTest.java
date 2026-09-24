@@ -167,6 +167,23 @@ class FollowUpDecisionTest {
                 null
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("At least one eligibility reason is required");
+
+        // Null timingSource rejected
+        assertThatThrownBy(() -> new FollowUpDecision(
+                customerId,
+                true,
+                FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY),
+                tenantDate,
+                zoneId,
+                evaluatedAt,
+                tenantDate,
+                null,
+                30,
+                null,
+                null
+        )).isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Timing source is required");
     }
 
     @Test
