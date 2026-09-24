@@ -33,7 +33,7 @@ public record ActionRecommendation(
             throw new RecommendationValidationException("confidence", "Confidence is required");
         }
         if (draftVariables == null) {
-            draftVariables = DraftVariables.empty();
+            throw new RecommendationValidationException("draftVariables", "Draft variables is required");
         }
     }
 }

@@ -32,6 +32,9 @@ public final class RecommendationJsonSchema {
     private static final java.util.Set<String> ALLOWED_NO_REC_PROPERTIES = java.util.Set.of(
             "outcome", "reason", "rationale", "confidence"
     );
+    private static final java.util.Set<String> ALLOWED_DRAFT_VARIABLE_PROPERTIES = java.util.Set.of(
+            "key", "value"
+    );
 
     private RecommendationJsonSchema() {}
 
@@ -109,14 +112,29 @@ public final class RecommendationJsonSchema {
                 throw new IllegalArgumentException("Target recommendation node must be an object");
             }
             validateAllowedProperties(targetNode);
-            RecommendationOutcome outcome = objectMapper.treeToValue(targetNode, RecommendationOutcome.class);
+            ObjectMapper mapperToUse = objectMapper.isEnabled(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    ? objectMapper
+                    : objectMapper.rebuild().enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
+            RecommendationOutcome outcome = mapperToUse.treeToValue(targetNode, RecommendationOutcome.class);
             if (outcome == null) {
                 throw new IllegalArgumentException("Deserialized RecommendationOutcome cannot be null");
             }
             return outcome;
+        } catch (RecommendationValidationException e) {
+            throw e;
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
+            Throwable cause = e.getCause();
+            while (cause != null) {
+                if (cause instanceof RecommendationValidationException rve) {
+                    throw rve;
+                }
+                if (cause instanceof IllegalArgumentException iae) {
+                    throw iae;
+                }
+                cause = cause.getCause();
+            }
             throw new IllegalArgumentException("Failed to deserialize RecommendationOutcome from JSON payload", e);
         }
     }
@@ -135,6 +153,20 @@ public final class RecommendationJsonSchema {
             for (String fieldName : node.propertyNames()) {
                 if (!allowed.contains(fieldName)) {
                     throw new IllegalArgumentException("Unexpected property '" + fieldName + "' for outcome " + outcome);
+                }
+            }
+        }
+        if (node.has("draftVariables")) {
+            JsonNode draftVarsNode = node.get("draftVariables");
+            if (draftVarsNode != null && draftVarsNode.isArray()) {
+                for (JsonNode item : draftVarsNode) {
+                    if (item.isObject()) {
+                        for (String fieldName : item.propertyNames()) {
+                            if (!ALLOWED_DRAFT_VARIABLE_PROPERTIES.contains(fieldName)) {
+                                throw new IllegalArgumentException("Unexpected property '" + fieldName + "' in draft variable entry");
+                            }
+                        }
+                    }
                 }
             }
         }

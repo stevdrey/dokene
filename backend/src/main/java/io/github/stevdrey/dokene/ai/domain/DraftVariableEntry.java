@@ -1,10 +1,12 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.regex.Pattern;
 
 /**
  * A single key-value entry for drafted template inputs with bounded length and valid identifier key.
  */
+@JsonIgnoreProperties(ignoreUnknown = false)
 public record DraftVariableEntry(String key, String value) {
     public static final int MAX_KEY_LENGTH = 50;
     public static final int MAX_VALUE_LENGTH = 500;

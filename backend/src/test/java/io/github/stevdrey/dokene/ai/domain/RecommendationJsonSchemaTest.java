@@ -249,6 +249,7 @@ class RecommendationJsonSchemaTest {
                     "templateIntent": "REPEAT_PURCHASE",
                     "rationale": "Valid rationale",
                     "confidence": 0.88,
+                    "draftVariables": [],
                     "hallucinated": "value"
                 }
                 """;
@@ -274,13 +275,67 @@ class RecommendationJsonSchemaTest {
                         "action": "REPEAT_PURCHASE_FOLLOW_UP",
                         "templateIntent": "REPEAT_PURCHASE",
                         "rationale": "Valid rationale",
-                        "confidence": 0.88
+                        "confidence": 0.88,
+                        "draftVariables": []
                     },
                     "extraRoot": "disallowed"
                 }
                 """;
         assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(wrappedWithExtraRootProp))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void parseOutcomeRejectsNestedUnexpectedPropertiesWithCustomMapper() {
+        ObjectMapper customMapperWithoutFailOnUnknown = new ObjectMapper();
+        String jsonWithNestedExtraField = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "draftVariables": [
+                        {
+                            "key": "discount",
+                            "value": "10%",
+                            "unexpected": "disallowed"
+                        }
+                    ]
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithNestedExtraField, customMapperWithoutFailOnUnknown))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void parseOutcomePreservesDomainValidationException() {
+        String jsonWithInvalidConfidence = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 1.5,
+                    "draftVariables": []
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithInvalidConfidence))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("confidence"));
+
+        String jsonWithMissingDraftVariables = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithMissingDraftVariables))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("draftVariables"));
     }
 
     @Test

@@ -133,6 +133,7 @@ class RecommendationOutcomeSerializationTest {
                     "templateIntent": "REPEAT_PURCHASE",
                     "rationale": "Valid rationale",
                     "confidence": 0.88,
+                    "draftVariables": [],
                     "extraField": "unexpected"
                 }
                 """;
@@ -147,12 +148,70 @@ class RecommendationOutcomeSerializationTest {
                     "templateIntent": "REPEAT_PURCHASE",
                     "rationale": "Valid rationale",
                     "confidence": 0.88,
+                    "draftVariables": [],
                     "reason": "INSUFFICIENT_HISTORY"
                 }
                 """;
 
         assertThatThrownBy(() -> objectMapper.readValue(jsonWithCrossBranchField, RecommendationOutcome.class))
                 .isInstanceOf(Exception.class);
+
+        String jsonWithNestedExtraField = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "draftVariables": [
+                        {
+                            "key": "discount",
+                            "value": "10%",
+                            "unexpected": "property"
+                        }
+                    ]
+                }
+                """;
+
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithNestedExtraField, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void rejectsMissingOrNullDraftVariables() {
+        String jsonWithoutDraftVariables = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88
+                }
+                """;
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithoutDraftVariables, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+
+        String jsonWithNullDraftVariables = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "draftVariables": null
+                }
+                """;
+        assertThatThrownBy(() -> objectMapper.readValue(jsonWithNullDraftVariables, RecommendationOutcome.class))
+                .isInstanceOf(Exception.class);
+
+        assertThatThrownBy(() -> new ActionRecommendation(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Valid rationale",
+                RecommendationConfidence.of(0.88),
+                null
+        )).isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("draftVariables"));
     }
 
     @Test
