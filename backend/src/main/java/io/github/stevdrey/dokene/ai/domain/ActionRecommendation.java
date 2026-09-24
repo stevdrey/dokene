@@ -25,7 +25,7 @@ public record ActionRecommendation(
             throw new RecommendationValidationException("rationale", "Rationale is required");
         }
         rationale = rationale.trim();
-        if (rationale.length() > MAX_RATIONALE_LENGTH) {
+        if (rationale.codePointCount(0, rationale.length()) > MAX_RATIONALE_LENGTH) {
             throw new RecommendationValidationException("rationale",
                     "Rationale exceeds maximum length of " + MAX_RATIONALE_LENGTH + " characters");
         }

@@ -69,6 +69,7 @@ class RecommendationJsonSchemaTest {
         assertThat(actionRationaleProp.get("type")).isEqualTo("string");
         assertThat(actionRationaleProp.get("minLength")).isEqualTo(1);
         assertThat(actionRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
+        assertThat(actionRationaleProp.get("pattern")).isEqualTo("^.*\\S.*$");
 
         Map<String, Object> actionConfidenceProp = (Map<String, Object>) actionProperties.get("confidence");
         assertThat(actionConfidenceProp.get("type")).isEqualTo("number");
@@ -118,6 +119,7 @@ class RecommendationJsonSchemaTest {
         assertThat(noRecRationaleProp.get("type")).isEqualTo("string");
         assertThat(noRecRationaleProp.get("minLength")).isEqualTo(1);
         assertThat(noRecRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
+        assertThat(noRecRationaleProp.get("pattern")).isEqualTo("^.*\\S.*$");
 
         Map<String, Object> noRecConfidenceProp = (Map<String, Object>) noRecProperties.get("confidence");
         assertThat(noRecConfidenceProp.get("type")).isEqualTo("number");
@@ -182,6 +184,34 @@ class RecommendationJsonSchemaTest {
         // Also works with direct Jackson readValue
         RecommendationOutcome direct = objectMapper.readValue(actionJson, RecommendationOutcome.class);
         assertThat(direct).isInstanceOf(ActionRecommendation.class);
+    }
+
+    @Test
+    void deserializesPayloadWithSupplementaryUnicodeAndDuplicateVariableKeys() {
+        String wrappedJson = """
+                {
+                    "recommendation": {
+                        "outcome": "ACTION",
+                        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                        "templateIntent": "REPEAT_PURCHASE",
+                        "rationale": "Cadence threshold reached \uD83D\uDE00\uD83D\uDE00",
+                        "confidence": 0.9,
+                        "draftVariables": [
+                            {"key": "customer_name", "value": "Alice \uD83C\uDF89"},
+                            {"key": "discount", "value": "10%"},
+                            {"key": "discount", "value": "15%"}
+                        ]
+                    }
+                }
+                """;
+
+        RecommendationOutcome outcome = RecommendationJsonSchema.parseOutcome(wrappedJson);
+        assertThat(outcome).isInstanceOf(ActionRecommendation.class);
+        ActionRecommendation action = (ActionRecommendation) outcome;
+        assertThat(action.rationale()).isEqualTo("Cadence threshold reached \uD83D\uDE00\uD83D\uDE00");
+        assertThat(action.draftVariables().size()).isEqualTo(2);
+        assertThat(action.draftVariables().asMap()).containsEntry("customer_name", "Alice \uD83C\uDF89");
+        assertThat(action.draftVariables().asMap()).containsEntry("discount", "15%");
     }
 
     @Test

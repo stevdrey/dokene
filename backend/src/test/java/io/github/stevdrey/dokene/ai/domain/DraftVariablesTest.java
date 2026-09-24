@@ -54,14 +54,18 @@ class DraftVariablesTest {
     }
 
     @Test
-    void rejectsDuplicateKeys() {
+    void deduplicatesDuplicateKeysWithLastWriteWins() {
         List<DraftVariableEntry> entries = List.of(
+                new DraftVariableEntry("customer", "Alice"),
                 new DraftVariableEntry("item", "Coffee"),
                 new DraftVariableEntry("item", "Tea")
         );
-        assertThatThrownBy(() -> DraftVariables.ofEntries(entries))
-                .isInstanceOf(RecommendationValidationException.class)
-                .hasMessageContaining("Duplicate variable key: item");
+        DraftVariables vars = DraftVariables.ofEntries(entries);
+        assertThat(vars.size()).isEqualTo(2);
+        assertThat(vars.asMap()).containsExactly(
+                Map.entry("customer", "Alice"),
+                Map.entry("item", "Tea")
+        );
     }
 
     @ParameterizedTest
@@ -92,6 +96,20 @@ class DraftVariablesTest {
     void rejectsOversizedValue() {
         String longValue = "x".repeat(DraftVariableEntry.MAX_VALUE_LENGTH + 1);
         assertThatThrownBy(() -> new DraftVariableEntry("validKey", longValue))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("exceeds maximum length of " + DraftVariableEntry.MAX_VALUE_LENGTH);
+    }
+
+    @Test
+    void acceptsValueWithSupplementaryUnicodeUpToMaxLength() {
+        // Emoji \uD83D\uDE00 has 1 code point but 2 UTF-16 code units (length = 1000)
+        String maxEmojis = "\uD83D\uDE00".repeat(DraftVariableEntry.MAX_VALUE_LENGTH);
+        DraftVariableEntry entry = new DraftVariableEntry("emojiKey", maxEmojis);
+        assertThat(entry.value()).isEqualTo(maxEmojis);
+
+        // 501 emojis exceed MAX_VALUE_LENGTH code points
+        String oversizedEmojis = "\uD83D\uDE00".repeat(DraftVariableEntry.MAX_VALUE_LENGTH + 1);
+        assertThatThrownBy(() -> new DraftVariableEntry("emojiKey", oversizedEmojis))
                 .isInstanceOf(RecommendationValidationException.class)
                 .hasMessageContaining("exceeds maximum length of " + DraftVariableEntry.MAX_VALUE_LENGTH);
     }

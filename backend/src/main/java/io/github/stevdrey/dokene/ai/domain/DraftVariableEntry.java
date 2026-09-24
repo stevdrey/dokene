@@ -22,7 +22,7 @@ public record DraftVariableEntry(String key, String value) {
         if (value == null) {
             throw new RecommendationValidationException("draftVariables.value", "Variable value is required");
         }
-        if (value.length() > MAX_VALUE_LENGTH) {
+        if (value.codePointCount(0, value.length()) > MAX_VALUE_LENGTH) {
             throw new RecommendationValidationException("draftVariables.value",
                     "Variable value exceeds maximum length of " + MAX_VALUE_LENGTH + " characters");
         }

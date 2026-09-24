@@ -144,6 +144,45 @@ class RecommendationOutcomeSerializationTest {
     }
 
     @Test
+    void acceptsRationaleWithSupplementaryUnicodeUpToMaxLength() {
+        // 500 emojis have 500 code points but 1000 UTF-16 code units
+        String maxEmojis = "\uD83D\uDE00".repeat(RecommendationOutcome.MAX_RATIONALE_LENGTH);
+        ActionRecommendation action = new ActionRecommendation(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                maxEmojis,
+                RecommendationConfidence.of(0.8),
+                DraftVariables.empty()
+        );
+        assertThat(action.rationale()).isEqualTo(maxEmojis);
+
+        NoRecommendation noRec = new NoRecommendation(
+                NoRecommendationReason.NO_RELEVANT_OFFER,
+                maxEmojis,
+                RecommendationConfidence.of(0.8)
+        );
+        assertThat(noRec.rationale()).isEqualTo(maxEmojis);
+
+        // 501 emojis exceed MAX_RATIONALE_LENGTH code points
+        String oversizedEmojis = "\uD83D\uDE00".repeat(RecommendationOutcome.MAX_RATIONALE_LENGTH + 1);
+        assertThatThrownBy(() -> new ActionRecommendation(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                oversizedEmojis,
+                RecommendationConfidence.of(0.8),
+                DraftVariables.empty()
+        )).isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Rationale exceeds maximum length of 500 characters");
+
+        assertThatThrownBy(() -> new NoRecommendation(
+                NoRecommendationReason.NO_RELEVANT_OFFER,
+                oversizedEmojis,
+                RecommendationConfidence.of(0.8)
+        )).isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Rationale exceeds maximum length of 500 characters");
+    }
+
+    @Test
     void rejectsNullOrBlankRationale() {
         assertThatThrownBy(() -> new ActionRecommendation(
                 SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
