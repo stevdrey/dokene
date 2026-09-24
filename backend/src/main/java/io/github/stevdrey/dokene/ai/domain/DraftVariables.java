@@ -22,16 +22,16 @@ public record DraftVariables(@JsonValue List<DraftVariableEntry> entries) {
         if (entries == null) {
             entries = List.of();
         } else {
+            if (entries.size() > MAX_ENTRIES) {
+                throw new RecommendationValidationException("draftVariables",
+                        "Cannot exceed " + MAX_ENTRIES + " draft variables, got: " + entries.size());
+            }
             Map<String, DraftVariableEntry> uniqueMap = new LinkedHashMap<>();
             for (DraftVariableEntry entry : entries) {
                 if (entry == null) {
                     throw new RecommendationValidationException("draftVariables", "Draft variable entry cannot be null");
                 }
                 uniqueMap.put(entry.key(), entry);
-            }
-            if (uniqueMap.size() > MAX_ENTRIES) {
-                throw new RecommendationValidationException("draftVariables",
-                        "Cannot exceed " + MAX_ENTRIES + " draft variables, got: " + uniqueMap.size());
             }
             entries = List.copyOf(uniqueMap.values());
         }

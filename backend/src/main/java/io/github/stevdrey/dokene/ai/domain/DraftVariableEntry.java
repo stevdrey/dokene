@@ -16,7 +16,6 @@ public record DraftVariableEntry(String key, String value) {
         if (key == null || key.isBlank()) {
             throw new RecommendationValidationException("draftVariables.key", "Variable key is required");
         }
-        key = key.trim();
         if (key.length() > MAX_KEY_LENGTH || !KEY_PATTERN.matcher(key).matches()) {
             throw new RecommendationValidationException("draftVariables.key",
                     "Variable key must match ^[a-zA-Z0-9_]{1,50}$, got: " + key);

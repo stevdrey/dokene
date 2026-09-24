@@ -51,6 +51,15 @@ class DraftVariablesTest {
         assertThatThrownBy(() -> DraftVariables.ofEntries(entries))
                 .isInstanceOf(RecommendationValidationException.class)
                 .hasMessageContaining("Cannot exceed " + DraftVariables.MAX_ENTRIES + " draft variables");
+
+        // Verify that entries with duplicate keys are capped before deduplication
+        List<DraftVariableEntry> duplicateEntries = new ArrayList<>();
+        for (int i = 0; i <= DraftVariables.MAX_ENTRIES; i++) {
+            duplicateEntries.add(new DraftVariableEntry("sameKey", "val_" + i));
+        }
+        assertThatThrownBy(() -> DraftVariables.ofEntries(duplicateEntries))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Cannot exceed " + DraftVariables.MAX_ENTRIES + " draft variables");
     }
 
     @Test
@@ -70,7 +79,7 @@ class DraftVariablesTest {
 
     @ParameterizedTest
     @NullAndEmptySource
-    @ValueSource(strings = {"   ", "key with space", "item-name", "item.name", "item$1", "!invalid"})
+    @ValueSource(strings = {"   ", "key with space", " customer ", "customer ", " customer", "item-name", "item.name", "item$1", "!invalid"})
     void rejectsInvalidKeys(String invalidKey) {
         assertThatThrownBy(() -> new DraftVariableEntry(invalidKey, "validValue"))
                 .isInstanceOf(RecommendationValidationException.class)

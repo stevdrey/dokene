@@ -156,16 +156,41 @@ public final class RecommendationJsonSchema {
                 }
             }
         }
+        if (node.has("rationale") && !node.get("rationale").isTextual()) {
+            throw new IllegalArgumentException("Property 'rationale' must be a string");
+        }
+        if (node.has("confidence") && !node.get("confidence").isNumber()) {
+            throw new IllegalArgumentException("Property 'confidence' must be a number");
+        }
+        if (node.has("action") && !node.get("action").isTextual()) {
+            throw new IllegalArgumentException("Property 'action' must be a string");
+        }
+        if (node.has("templateIntent") && !node.get("templateIntent").isTextual()) {
+            throw new IllegalArgumentException("Property 'templateIntent' must be a string");
+        }
+        if (node.has("reason") && !node.get("reason").isTextual()) {
+            throw new IllegalArgumentException("Property 'reason' must be a string");
+        }
         if (node.has("draftVariables")) {
             JsonNode draftVarsNode = node.get("draftVariables");
-            if (draftVarsNode != null && draftVarsNode.isArray()) {
+            if (draftVarsNode != null) {
+                if (!draftVarsNode.isArray()) {
+                    throw new IllegalArgumentException("Property 'draftVariables' must be an array");
+                }
                 for (JsonNode item : draftVarsNode) {
-                    if (item.isObject()) {
-                        for (String fieldName : item.propertyNames()) {
-                            if (!ALLOWED_DRAFT_VARIABLE_PROPERTIES.contains(fieldName)) {
-                                throw new IllegalArgumentException("Unexpected property '" + fieldName + "' in draft variable entry");
-                            }
+                    if (!item.isObject()) {
+                        throw new IllegalArgumentException("Draft variable item must be an object");
+                    }
+                    for (String fieldName : item.propertyNames()) {
+                        if (!ALLOWED_DRAFT_VARIABLE_PROPERTIES.contains(fieldName)) {
+                            throw new IllegalArgumentException("Unexpected property '" + fieldName + "' in draft variable entry");
                         }
+                    }
+                    if (item.has("key") && !item.get("key").isTextual()) {
+                        throw new IllegalArgumentException("Draft variable key must be a string");
+                    }
+                    if (item.has("value") && !item.get("value").isTextual()) {
+                        throw new IllegalArgumentException("Draft variable value must be a string");
                     }
                 }
             }

@@ -336,6 +336,82 @@ class RecommendationJsonSchemaTest {
         assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithMissingDraftVariables))
                 .isInstanceOf(RecommendationValidationException.class)
                 .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("draftVariables"));
+
+        String jsonWithUnknownAction = """
+                {
+                    "outcome": "ACTION",
+                    "action": "INVALID_ACTION",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "draftVariables": []
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithUnknownAction))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("action"));
+
+        String jsonWithUnknownIntent = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "INVALID_INTENT",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "draftVariables": []
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithUnknownIntent))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("templateIntent"));
+
+        String jsonWithUnknownReason = """
+                {
+                    "outcome": "NO_RECOMMENDATION",
+                    "reason": "INVALID_REASON",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithUnknownReason))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("reason"));
+    }
+
+    @Test
+    void parseOutcomeRejectsScalarCoercionForStringFields() {
+        String jsonWithNumericRationale = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": 12345,
+                    "confidence": 0.88,
+                    "draftVariables": []
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithNumericRationale))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Property 'rationale' must be a string");
+
+        String jsonWithNumericDraftVariableValue = """
+                {
+                    "outcome": "ACTION",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "rationale": "Valid rationale",
+                    "confidence": 0.88,
+                    "draftVariables": [
+                        {
+                            "key": "discount",
+                            "value": 100
+                        }
+                    ]
+                }
+                """;
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithNumericDraftVariableValue))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Draft variable value must be a string");
     }
 
     @Test

@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+
 /**
  * Closed reasons explaining why no follow-up action was recommended by the model.
  * Models an explicit refusal / no-action outcome without placeholder actions.
@@ -11,6 +13,7 @@ public enum NoRecommendationReason {
     UNCERTAIN_INTENT,
     MANUAL_REVIEW_REQUIRED;
 
+    @JsonCreator
     public static NoRecommendationReason from(String value) {
         if (value == null || value.isBlank()) {
             throw new RecommendationValidationException("reason", "No-recommendation reason is required");
