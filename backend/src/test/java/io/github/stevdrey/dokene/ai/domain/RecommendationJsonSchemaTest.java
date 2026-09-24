@@ -9,65 +9,73 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RecommendationJsonSchemaTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     @SuppressWarnings("unchecked")
-    void generatesStrictOpenAiCompatibleRootObjectSchema() {
-        Map<String, Object> schema = RecommendationJsonSchema.generateSchema();
-        assertThat(schema.get("title")).isEqualTo(RecommendationJsonSchema.SCHEMA_TITLE);
-        assertThat(schema.get("type")).isEqualTo("object");
-        assertThat(schema.get("additionalProperties")).isEqualTo(false);
-        assertThat(schema).doesNotContainKey("anyOf");
+    void generatesStrictOpenAiCompatibleRootObjectSchemaWithDiscriminatedUnion() {
+        Map<String, Object> root = RecommendationJsonSchema.generateSchema();
+        assertThat(root.get("title")).isEqualTo(RecommendationJsonSchema.SCHEMA_TITLE);
+        assertThat(root.get("type")).isEqualTo("object");
+        assertThat(root.get("additionalProperties")).isEqualTo(false);
+        assertThat(root).doesNotContainKey("anyOf");
 
-        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
-        List<String> required = (List<String>) schema.get("required");
+        List<String> rootRequired = (List<String>) root.get("required");
+        assertThat(rootRequired).containsExactly(RecommendationJsonSchema.ROOT_PROPERTY);
 
-        // In strict mode, every property defined in properties must be in required
-        assertThat(required).containsExactlyInAnyOrderElementsOf(properties.keySet());
+        Map<String, Object> rootProperties = (Map<String, Object>) root.get("properties");
+        assertThat(rootProperties).containsKey(RecommendationJsonSchema.ROOT_PROPERTY);
 
-        // Outcome property checks
-        Map<String, Object> outcomeProp = (Map<String, Object>) properties.get("outcome");
-        assertThat(outcomeProp.get("type")).isEqualTo("string");
-        assertThat((List<String>) outcomeProp.get("enum")).containsExactly("ACTION", "NO_RECOMMENDATION");
+        Map<String, Object> recProp = (Map<String, Object>) rootProperties.get(RecommendationJsonSchema.ROOT_PROPERTY);
+        List<Map<String, Object>> anyOf = (List<Map<String, Object>>) recProp.get("anyOf");
+        assertThat(anyOf).hasSize(2);
 
-        // Action property checks
-        Map<String, Object> actionProp = (Map<String, Object>) properties.get("action");
-        assertThat((List<String>) actionProp.get("type")).containsExactly("string", "null");
-        List<Object> actionEnums = (List<Object>) actionProp.get("enum");
-        assertThat(actionEnums).containsAll(Arrays.stream(SemanticAction.values()).map(Enum::name).toList());
-        assertThat(actionEnums).containsNull();
+        // Branch 0: ACTION
+        Map<String, Object> actionBranch = anyOf.get(0);
+        assertThat(actionBranch.get("type")).isEqualTo("object");
+        assertThat(actionBranch.get("additionalProperties")).isEqualTo(false);
+        List<String> actionRequired = (List<String>) actionBranch.get("required");
+        assertThat(actionRequired).containsExactlyInAnyOrder(
+                "outcome", "action", "templateIntent", "rationale", "confidence", "draftVariables"
+        );
 
-        // TemplateIntent property checks
-        Map<String, Object> templateProp = (Map<String, Object>) properties.get("templateIntent");
-        assertThat((List<String>) templateProp.get("type")).containsExactly("string", "null");
-        List<Object> templateEnums = (List<Object>) templateProp.get("enum");
-        assertThat(templateEnums).containsAll(Arrays.stream(SemanticTemplateIntent.values()).map(Enum::name).toList());
-        assertThat(templateEnums).containsNull();
+        Map<String, Object> actionProperties = (Map<String, Object>) actionBranch.get("properties");
+        assertThat(actionProperties).doesNotContainKey("reason");
 
-        // Reason property checks
-        Map<String, Object> reasonProp = (Map<String, Object>) properties.get("reason");
-        assertThat((List<String>) reasonProp.get("type")).containsExactly("string", "null");
-        List<Object> reasonEnums = (List<Object>) reasonProp.get("enum");
-        assertThat(reasonEnums).containsAll(Arrays.stream(NoRecommendationReason.values()).map(Enum::name).toList());
-        assertThat(reasonEnums).containsNull();
+        Map<String, Object> actionOutcomeProp = (Map<String, Object>) actionProperties.get("outcome");
+        assertThat(actionOutcomeProp.get("type")).isEqualTo("string");
+        assertThat((List<String>) actionOutcomeProp.get("enum")).containsExactly("ACTION");
 
-        // Rationale property checks
-        Map<String, Object> rationaleProp = (Map<String, Object>) properties.get("rationale");
-        assertThat(rationaleProp.get("type")).isEqualTo("string");
-        assertThat(rationaleProp.get("minLength")).isEqualTo(1);
-        assertThat(rationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
+        Map<String, Object> actionFieldProp = (Map<String, Object>) actionProperties.get("action");
+        assertThat(actionFieldProp.get("type")).isEqualTo("string");
+        List<String> actionEnums = (List<String>) actionFieldProp.get("enum");
+        assertThat(actionEnums).containsExactlyInAnyOrderElementsOf(
+                Arrays.stream(SemanticAction.values()).map(Enum::name).toList()
+        );
+        assertThat(actionEnums).doesNotContainNull();
 
-        // Confidence property checks
-        Map<String, Object> confidenceProp = (Map<String, Object>) properties.get("confidence");
-        assertThat(confidenceProp.get("type")).isEqualTo("number");
-        assertThat(confidenceProp.get("minimum")).isEqualTo(0.0);
-        assertThat(confidenceProp.get("maximum")).isEqualTo(1.0);
+        Map<String, Object> templateFieldProp = (Map<String, Object>) actionProperties.get("templateIntent");
+        assertThat(templateFieldProp.get("type")).isEqualTo("string");
+        List<String> templateEnums = (List<String>) templateFieldProp.get("enum");
+        assertThat(templateEnums).containsExactlyInAnyOrderElementsOf(
+                Arrays.stream(SemanticTemplateIntent.values()).map(Enum::name).toList()
+        );
+        assertThat(templateEnums).doesNotContainNull();
 
-        // DraftVariables property checks
-        Map<String, Object> draftVarsProp = (Map<String, Object>) properties.get("draftVariables");
+        Map<String, Object> actionRationaleProp = (Map<String, Object>) actionProperties.get("rationale");
+        assertThat(actionRationaleProp.get("type")).isEqualTo("string");
+        assertThat(actionRationaleProp.get("minLength")).isEqualTo(1);
+        assertThat(actionRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
+
+        Map<String, Object> actionConfidenceProp = (Map<String, Object>) actionProperties.get("confidence");
+        assertThat(actionConfidenceProp.get("type")).isEqualTo("number");
+        assertThat(actionConfidenceProp.get("minimum")).isEqualTo(0.0);
+        assertThat(actionConfidenceProp.get("maximum")).isEqualTo(1.0);
+
+        Map<String, Object> draftVarsProp = (Map<String, Object>) actionProperties.get("draftVariables");
         assertThat(draftVarsProp.get("type")).isEqualTo("array");
         assertThat(draftVarsProp.get("maxItems")).isEqualTo(DraftVariables.MAX_ENTRIES);
 
@@ -83,44 +91,104 @@ class RecommendationJsonSchemaTest {
 
         Map<String, Object> valueProp = (Map<String, Object>) itemProps.get("value");
         assertThat(valueProp.get("maxLength")).isEqualTo(DraftVariableEntry.MAX_VALUE_LENGTH);
+
+        // Branch 1: NO_RECOMMENDATION
+        Map<String, Object> noRecBranch = anyOf.get(1);
+        assertThat(noRecBranch.get("type")).isEqualTo("object");
+        assertThat(noRecBranch.get("additionalProperties")).isEqualTo(false);
+        List<String> noRecRequired = (List<String>) noRecBranch.get("required");
+        assertThat(noRecRequired).containsExactlyInAnyOrder("outcome", "reason", "rationale", "confidence");
+
+        Map<String, Object> noRecProperties = (Map<String, Object>) noRecBranch.get("properties");
+        assertThat(noRecProperties).doesNotContainKeys("action", "templateIntent", "draftVariables");
+
+        Map<String, Object> noRecOutcomeProp = (Map<String, Object>) noRecProperties.get("outcome");
+        assertThat(noRecOutcomeProp.get("type")).isEqualTo("string");
+        assertThat((List<String>) noRecOutcomeProp.get("enum")).containsExactly("NO_RECOMMENDATION");
+
+        Map<String, Object> reasonProp = (Map<String, Object>) noRecProperties.get("reason");
+        assertThat(reasonProp.get("type")).isEqualTo("string");
+        List<String> reasonEnums = (List<String>) reasonProp.get("enum");
+        assertThat(reasonEnums).containsExactlyInAnyOrderElementsOf(
+                Arrays.stream(NoRecommendationReason.values()).map(Enum::name).toList()
+        );
+        assertThat(reasonEnums).doesNotContainNull();
+
+        Map<String, Object> noRecRationaleProp = (Map<String, Object>) noRecProperties.get("rationale");
+        assertThat(noRecRationaleProp.get("type")).isEqualTo("string");
+        assertThat(noRecRationaleProp.get("minLength")).isEqualTo(1);
+        assertThat(noRecRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
+
+        Map<String, Object> noRecConfidenceProp = (Map<String, Object>) noRecProperties.get("confidence");
+        assertThat(noRecConfidenceProp.get("type")).isEqualTo("number");
+        assertThat(noRecConfidenceProp.get("minimum")).isEqualTo(0.0);
+        assertThat(noRecConfidenceProp.get("maximum")).isEqualTo(1.0);
     }
 
     @Test
-    void deserializesSchemaConformingJsonPayloads() throws Exception {
+    void deserializesWrappedSchemaEnvelopes() {
+        String wrappedActionJson = """
+                {
+                    "recommendation": {
+                        "outcome": "ACTION",
+                        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                        "templateIntent": "REPEAT_PURCHASE",
+                        "rationale": "Cadence threshold reached",
+                        "confidence": 0.88,
+                        "draftVariables": [{"key": "item", "value": "Coffee"}]
+                    }
+                }
+                """;
+
+        RecommendationOutcome actionOutcome = RecommendationJsonSchema.parseOutcome(wrappedActionJson);
+        assertThat(actionOutcome).isInstanceOf(ActionRecommendation.class);
+        ActionRecommendation action = (ActionRecommendation) actionOutcome;
+        assertThat(action.action()).isEqualTo(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP);
+        assertThat(action.draftVariables().asMap()).containsEntry("item", "Coffee");
+
+        String wrappedNoRecJson = """
+                {
+                    "recommendation": {
+                        "outcome": "NO_RECOMMENDATION",
+                        "reason": "INSUFFICIENT_HISTORY",
+                        "rationale": "Only one purchase recorded",
+                        "confidence": 0.95
+                    }
+                }
+                """;
+
+        RecommendationOutcome noRecOutcome = RecommendationJsonSchema.parseOutcome(wrappedNoRecJson);
+        assertThat(noRecOutcome).isInstanceOf(NoRecommendation.class);
+        NoRecommendation noRec = (NoRecommendation) noRecOutcome;
+        assertThat(noRec.reason()).isEqualTo(NoRecommendationReason.INSUFFICIENT_HISTORY);
+    }
+
+    @Test
+    void deserializesRawPayloadDirectly() throws Exception {
         String actionJson = """
                 {
                     "outcome": "ACTION",
                     "action": "REPEAT_PURCHASE_FOLLOW_UP",
                     "templateIntent": "REPEAT_PURCHASE",
-                    "reason": null,
                     "rationale": "Cadence threshold reached",
                     "confidence": 0.88,
                     "draftVariables": [{"key": "item", "value": "Coffee"}]
                 }
                 """;
 
-        RecommendationOutcome actionOutcome = objectMapper.readValue(actionJson, RecommendationOutcome.class);
+        RecommendationOutcome actionOutcome = RecommendationJsonSchema.parseOutcome(actionJson);
         assertThat(actionOutcome).isInstanceOf(ActionRecommendation.class);
-        ActionRecommendation action = (ActionRecommendation) actionOutcome;
-        assertThat(action.action()).isEqualTo(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP);
-        assertThat(action.draftVariables().asMap()).containsEntry("item", "Coffee");
 
-        String noRecJson = """
-                {
-                    "outcome": "NO_RECOMMENDATION",
-                    "action": null,
-                    "templateIntent": null,
-                    "reason": "INSUFFICIENT_HISTORY",
-                    "rationale": "Only one purchase recorded",
-                    "confidence": 0.95,
-                    "draftVariables": []
-                }
-                """;
+        // Also works with direct Jackson readValue
+        RecommendationOutcome direct = objectMapper.readValue(actionJson, RecommendationOutcome.class);
+        assertThat(direct).isInstanceOf(ActionRecommendation.class);
+    }
 
-        RecommendationOutcome noRecOutcome = objectMapper.readValue(noRecJson, RecommendationOutcome.class);
-        assertThat(noRecOutcome).isInstanceOf(NoRecommendation.class);
-        NoRecommendation noRec = (NoRecommendation) noRecOutcome;
-        assertThat(noRec.reason()).isEqualTo(NoRecommendationReason.INSUFFICIENT_HISTORY);
+    @Test
+    void parseOutcomeFailsOnMalformedJson() {
+        assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome("{invalid-json"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Failed to deserialize RecommendationOutcome");
     }
 
     @Test
@@ -132,5 +200,6 @@ class RecommendationJsonSchemaTest {
         assertThat(tree.get("title").asString()).isEqualTo(RecommendationJsonSchema.SCHEMA_TITLE);
         assertThat(tree.get("type").asString()).isEqualTo("object");
         assertThat(tree.get("additionalProperties").asBoolean()).isFalse();
+        assertThat(tree.get("required").get(0).asString()).isEqualTo(RecommendationJsonSchema.ROOT_PROPERTY);
     }
 }

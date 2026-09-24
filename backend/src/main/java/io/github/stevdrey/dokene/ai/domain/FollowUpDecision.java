@@ -54,7 +54,11 @@ public record FollowUpDecision(
         Objects.requireNonNull(tenantDate, "Tenant date is required");
         Objects.requireNonNull(tenantZone, "Tenant zone is required");
         Objects.requireNonNull(evaluatedAt, "Evaluation timestamp is required");
-        eligibilityReasons = List.copyOf(eligibilityReasons != null ? eligibilityReasons : List.of());
+        Objects.requireNonNull(eligibilityReasons, "Eligibility reasons is required");
+        eligibilityReasons = List.copyOf(eligibilityReasons);
+        if (eligibilityReasons.isEmpty()) {
+            throw new IllegalArgumentException("At least one eligibility reason is required");
+        }
 
         boolean expectedEligible = (followUpStatus == FollowUpStatus.DUE || followUpStatus == FollowUpStatus.OVERDUE);
         if (eligible != expectedEligible) {

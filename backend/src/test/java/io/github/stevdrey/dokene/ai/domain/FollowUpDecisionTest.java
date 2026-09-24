@@ -133,6 +133,40 @@ class FollowUpDecisionTest {
                 null
         )).isInstanceOf(RecommendationValidationException.class)
                 .hasMessageContaining("Eligible flag (false) must match status-derived eligibility (true)");
+
+        // Null eligibilityReasons rejected
+        assertThatThrownBy(() -> new FollowUpDecision(
+                customerId,
+                true,
+                FollowUpStatus.DUE,
+                null,
+                tenantDate,
+                zoneId,
+                evaluatedAt,
+                tenantDate,
+                FollowUpTimingSource.LAST_PURCHASE,
+                30,
+                null,
+                null
+        )).isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Eligibility reasons is required");
+
+        // Empty eligibilityReasons rejected
+        assertThatThrownBy(() -> new FollowUpDecision(
+                customerId,
+                true,
+                FollowUpStatus.DUE,
+                List.of(),
+                tenantDate,
+                zoneId,
+                evaluatedAt,
+                tenantDate,
+                FollowUpTimingSource.LAST_PURCHASE,
+                30,
+                null,
+                null
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("At least one eligibility reason is required");
     }
 
     @Test
