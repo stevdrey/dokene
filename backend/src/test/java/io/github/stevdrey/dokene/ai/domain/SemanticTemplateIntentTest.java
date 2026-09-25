@@ -15,7 +15,6 @@ class SemanticTemplateIntentTest {
     @EnumSource(SemanticTemplateIntent.class)
     void parsesValidEnumNames(SemanticTemplateIntent intent) {
         assertThat(SemanticTemplateIntent.from(intent.name())).isEqualTo(intent);
-        assertThat(SemanticTemplateIntent.from("  " + intent.name() + "  ")).isEqualTo(intent);
     }
 
     @ParameterizedTest
@@ -30,7 +29,7 @@ class SemanticTemplateIntentTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"CUSTOM_TEMPLATE", "general_follow_up", "PROMO_CODE_2026"})
+    @ValueSource(strings = {"CUSTOM_TEMPLATE", "general_follow_up", "PROMO_CODE_2026", " GENERAL_FOLLOW_UP "})
     void rejectsUnknownValuesWithoutCoercion(String unknown) {
         assertThatThrownBy(() -> SemanticTemplateIntent.from(unknown))
                 .isInstanceOf(RecommendationValidationException.class)

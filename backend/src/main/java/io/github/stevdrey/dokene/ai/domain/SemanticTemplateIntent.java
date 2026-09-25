@@ -20,7 +20,7 @@ public enum SemanticTemplateIntent {
             throw new RecommendationValidationException("templateIntent", "Semantic template intent is required");
         }
         try {
-            return SemanticTemplateIntent.valueOf(value.trim());
+            return SemanticTemplateIntent.valueOf(value);
         } catch (IllegalArgumentException e) {
             throw new RecommendationValidationException("templateIntent", "Unknown semantic template intent: " + value);
         }

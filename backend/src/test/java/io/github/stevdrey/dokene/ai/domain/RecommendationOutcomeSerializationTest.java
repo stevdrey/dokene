@@ -316,6 +316,32 @@ class RecommendationOutcomeSerializationTest {
     }
 
     @Test
+    void rejectsRationaleExceedingLimitBeforeWhitespaceIsTrimmed() {
+        String padded = " ".repeat(RecommendationOutcome.MAX_RATIONALE_LENGTH) + "valid";
+        assertThatThrownBy(() -> new ActionRecommendation(
+                SemanticAction.GENERAL_CHECK_IN, SemanticTemplateIntent.GENERAL_FOLLOW_UP,
+                padded, RecommendationConfidence.of(0.8), DraftVariables.empty()))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Rationale exceeds maximum length");
+        assertThatThrownBy(() -> new NoRecommendation(
+                NoRecommendationReason.NO_RELEVANT_OFFER, padded, RecommendationConfidence.of(0.8)))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Rationale exceeds maximum length");
+    }
+
+    @Test
+    void acceptsNonblankMultilineRationaleInBothOutcomes() {
+        String rationale = "First point\nSecond point";
+        assertThat(new ActionRecommendation(
+                SemanticAction.GENERAL_CHECK_IN, SemanticTemplateIntent.GENERAL_FOLLOW_UP,
+                rationale, RecommendationConfidence.of(0.8), DraftVariables.empty()).rationale())
+                .isEqualTo(rationale);
+        assertThat(new NoRecommendation(
+                NoRecommendationReason.NO_RELEVANT_OFFER, rationale,
+                RecommendationConfidence.of(0.8)).rationale()).isEqualTo(rationale);
+    }
+
+    @Test
     void rejectsNullActionOrTemplate() {
         assertThatThrownBy(() -> new ActionRecommendation(
                 null,

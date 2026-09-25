@@ -19,7 +19,7 @@ public enum SemanticAction {
             throw new RecommendationValidationException("action", "Semantic action is required");
         }
         try {
-            return SemanticAction.valueOf(value.trim());
+            return SemanticAction.valueOf(value);
         } catch (IllegalArgumentException e) {
             throw new RecommendationValidationException("action", "Unknown semantic action: " + value);
         }

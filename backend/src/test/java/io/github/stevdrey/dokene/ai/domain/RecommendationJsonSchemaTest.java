@@ -7,6 +7,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,7 +70,11 @@ class RecommendationJsonSchemaTest {
         assertThat(actionRationaleProp.get("type")).isEqualTo("string");
         assertThat(actionRationaleProp.get("minLength")).isEqualTo(1);
         assertThat(actionRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        assertThat(actionRationaleProp.get("pattern")).isEqualTo("^.*\\S.*$");
+        assertThat(actionRationaleProp.get("pattern")).isEqualTo("\\S");
+        assertThat(Pattern.compile((String) actionRationaleProp.get("pattern"))
+                .matcher("First point\nSecond point").find()).isTrue();
+        assertThat(Pattern.compile((String) actionRationaleProp.get("pattern"))
+                .matcher(" \n\t ").find()).isFalse();
 
         Map<String, Object> actionConfidenceProp = (Map<String, Object>) actionProperties.get("confidence");
         assertThat(actionConfidenceProp.get("type")).isEqualTo("number");
@@ -119,7 +124,9 @@ class RecommendationJsonSchemaTest {
         assertThat(noRecRationaleProp.get("type")).isEqualTo("string");
         assertThat(noRecRationaleProp.get("minLength")).isEqualTo(1);
         assertThat(noRecRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        assertThat(noRecRationaleProp.get("pattern")).isEqualTo("^.*\\S.*$");
+        assertThat(noRecRationaleProp.get("pattern")).isEqualTo("\\S");
+        assertThat(Pattern.compile((String) noRecRationaleProp.get("pattern"))
+                .matcher("First point\nSecond point").find()).isTrue();
 
         Map<String, Object> noRecConfidenceProp = (Map<String, Object>) noRecProperties.get("confidence");
         assertThat(noRecConfidenceProp.get("type")).isEqualTo("number");

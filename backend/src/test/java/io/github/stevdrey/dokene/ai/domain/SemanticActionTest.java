@@ -15,7 +15,6 @@ class SemanticActionTest {
     @EnumSource(SemanticAction.class)
     void parsesValidEnumNames(SemanticAction action) {
         assertThat(SemanticAction.from(action.name())).isEqualTo(action);
-        assertThat(SemanticAction.from("  " + action.name() + "  ")).isEqualTo(action);
     }
 
     @ParameterizedTest
@@ -30,7 +29,7 @@ class SemanticActionTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"UNKNOWN_ACTION", "repeat_purchase_follow_up", "DELETE_ACCOUNT", "SEND_EMAIL"})
+    @ValueSource(strings = {"UNKNOWN_ACTION", "repeat_purchase_follow_up", "DELETE_ACCOUNT", "SEND_EMAIL", " REPEAT_PURCHASE_FOLLOW_UP "})
     void rejectsUnknownValuesWithoutCoercion(String unknown) {
         assertThatThrownBy(() -> SemanticAction.from(unknown))
                 .isInstanceOf(RecommendationValidationException.class)

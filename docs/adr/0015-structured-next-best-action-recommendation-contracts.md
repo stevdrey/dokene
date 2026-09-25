@@ -22,7 +22,7 @@ Recommendation concepts are defined as closed domain types in the `ai` module un
 - **Semantic Template Intent (`SemanticTemplateIntent`)**: Allowlisted message intents (`GENERAL_FOLLOW_UP`, `REPEAT_PURCHASE`, `RELATED_PRODUCT`, `SEASONAL_EVENT`, `DORMANT_CUSTOMER`). Provider-specific template identifiers (e.g. Meta WhatsApp Cloud API template IDs) are mapped deterministically by the application core and never invented or specified by the model.
 - **Explicit Refusal / No-Recommendation (`NoRecommendationReason`)**: Closed reasons explaining why no action was advised (`INSUFFICIENT_HISTORY`, `RECENTLY_CONTACTED`, `NO_RELEVANT_OFFER`, `UNCERTAIN_INTENT`, `MANUAL_REVIEW_REQUIRED`), avoiding placeholder actions or ambiguous empty responses.
 - **Bounded Confidence (`RecommendationConfidence`)**: A finite score strictly validated within `[0.0, 1.0]`.
-- **Bounded Draft Variables (`DraftVariables`, `DraftVariableEntry`)**: Structured draft inputs for template rendering with strict boundaries: at most 20 entries, key matching `^[a-zA-Z0-9_]{1,50}$`, value maximum 500 characters, no duplicates.
+- **Bounded Draft Variables (`DraftVariables`, `DraftVariableEntry`)**: Structured draft inputs for template rendering with strict boundaries: at most 20 input entries before deduplication, key matching `^[a-zA-Z0-9_]{1,50}$`, and value maximum 500 characters. Repeated keys are accepted with the last value winning; the resulting entries are unique and retain the order of each key's first appearance.
 
 ### 2. Sealed Hierarchy for Advisory AI Output
 

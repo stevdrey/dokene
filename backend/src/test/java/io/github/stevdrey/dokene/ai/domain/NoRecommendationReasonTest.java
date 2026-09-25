@@ -15,7 +15,6 @@ class NoRecommendationReasonTest {
     @EnumSource(NoRecommendationReason.class)
     void parsesValidEnumNames(NoRecommendationReason reason) {
         assertThat(NoRecommendationReason.from(reason.name())).isEqualTo(reason);
-        assertThat(NoRecommendationReason.from("  " + reason.name() + "  ")).isEqualTo(reason);
     }
 
     @ParameterizedTest
@@ -30,7 +29,7 @@ class NoRecommendationReasonTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"UNKNOWN_REASON", "insufficient_history", "REFUSED_TO_ANSWER"})
+    @ValueSource(strings = {"UNKNOWN_REASON", "insufficient_history", "REFUSED_TO_ANSWER", " INSUFFICIENT_HISTORY "})
     void rejectsUnknownValuesWithoutCoercion(String unknown) {
         assertThatThrownBy(() -> NoRecommendationReason.from(unknown))
                 .isInstanceOf(RecommendationValidationException.class)

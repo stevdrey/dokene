@@ -19,7 +19,7 @@ public enum NoRecommendationReason {
             throw new RecommendationValidationException("reason", "No-recommendation reason is required");
         }
         try {
-            return NoRecommendationReason.valueOf(value.trim());
+            return NoRecommendationReason.valueOf(value);
         } catch (IllegalArgumentException e) {
             throw new RecommendationValidationException("reason", "Unknown no-recommendation reason: " + value);
         }

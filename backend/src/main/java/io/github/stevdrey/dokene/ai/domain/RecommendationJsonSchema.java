@@ -233,7 +233,7 @@ public final class RecommendationJsonSchema {
         rationaleProps.put("type", "string");
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        rationaleProps.put("pattern", "^.*\\S.*$");
+        rationaleProps.put("pattern", "\\S");
         rationaleProps.put("description", "Concise non-blank reasoning for the recommendation (1 to "
                 + RecommendationOutcome.MAX_RATIONALE_LENGTH + " characters)");
         properties.put("rationale", rationaleProps);
@@ -300,7 +300,7 @@ public final class RecommendationJsonSchema {
         rationaleProps.put("type", "string");
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        rationaleProps.put("pattern", "^.*\\S.*$");
+        rationaleProps.put("pattern", "\\S");
         rationaleProps.put("description", "Concise non-blank explanation of why no action was recommended (1 to "
                 + RecommendationOutcome.MAX_RATIONALE_LENGTH + " characters)");
         properties.put("rationale", rationaleProps);
