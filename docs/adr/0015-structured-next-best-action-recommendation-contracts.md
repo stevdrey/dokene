@@ -46,16 +46,15 @@ public sealed interface RecommendationOutcome permits ActionRecommendation, NoRe
 
 ### 3. Separation of Authority: `FollowUpDecision`
 
-Authoritative business decisions combine deterministic eligibility and untrusted advisory recommendations via `FollowUpDecision`:
+The `followup.application` boundary owns `FollowUpDecision`, which composes the authoritative `FollowUpEvaluation` with an optional, untrusted `RecommendationOutcome`. This keeps the dependency direction `followup → ai`; the `ai` module does not depend on follow-up policy types.
 
 1. **Deterministic Facts (Authoritative)**:
-   - `customerId`, `eligible`, `followUpStatus`, `eligibilityReasons`, `tenantDate`, `tenantZone`, `evaluatedAt`, `nextFollowUpDate`, `timingSource`, `effectiveCadenceDays`, `lastPurchaseAt`.
-   - Originates strictly from `FollowUpEvaluation` ([ADR 0012](0012-deterministic-follow-up-eligibility.md)).
+   - `evaluation` (`FollowUpEvaluation`) owns customer identity, eligibility, status, reasons, tenant date and zone, timing, and purchase facts ([ADR 0012](0012-deterministic-follow-up-eligibility.md)).
 2. **Advisory AI Fields (Untrusted)**:
    - `recommendation` (`RecommendationOutcome`, optional).
 3. **Inviolable Invariant**:
    - Model output can never override deterministic eligibility.
-   - Constructing a `FollowUpDecision` with an `ActionRecommendation` for a customer who is deterministically ineligible (`!eligible`) throws `RecommendationValidationException`.
+   - Constructing a `FollowUpDecision` with an `ActionRecommendation` when `evaluation.eligible()` is false throws `RecommendationValidationException`.
 
 ### 4. Strict Schema Generation for Structured Outputs
  
