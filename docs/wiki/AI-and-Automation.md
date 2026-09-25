@@ -43,6 +43,26 @@ FollowUpDecision
 
 The exact schema is governed by [ADR 0015: Structured Next Best Action Recommendation Contracts](../adr/0015-structured-next-best-action-recommendation-contracts.md), which strictly separates deterministic evaluation facts (from `FollowUpEvaluation`) from advisory, untrusted AI output (`RecommendationOutcome`). Free-form model text must not be interpreted directly as an arbitrary command.
 
+## Recommendation Context Classification
+
+The application assembles recommendation context for one authorized customer before any provider call. Its
+`trusted` section contains tenant-local date, follow-up status and reasons, effective cadence, due date,
+contact eligibility, up to five valid purchase timestamps, and the fixed application action vocabulary when
+the customer is due or overdue. These fields come from deterministic application services; the context does
+not carry tenant, customer, contact, or purchase IDs.
+
+The separate `untrusted` section contains display name, optional customer notes, and descriptions paired by
+position with the purchase timestamps. These are customer/business text, including imported text, and must be
+rendered as data by any future provider adapter. They cannot provide instructions, tool calls, authorization,
+tenant identity, or action policy. Each text field is limited to 500 Java characters; combined text is limited
+to 2,500 characters. The assembler selects at most five valid purchases, ordered by purchase time and ID
+descending; no other history is included. A context payload with more than five entries or mismatched lists
+is rejected with a typed, content-free application error. Excess text fails rather than being truncated.
+
+Phone numbers, audit data, internal IDs, credentials, integration settings, and free-form tenant rules are
+excluded. The assembler does not log context. Provider adapters must preserve the structured trust separation
+and must not log raw requests or responses.
+
 ## AI Action Gate
 
 All AI-recommended side effects must cross an application-controlled gate.

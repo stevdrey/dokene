@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
@@ -26,11 +27,14 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FollowUpRecommendationServiceTest {
     private final LocalDate tenantDate = LocalDate.of(2026, 9, 25);
     private final Instant lastPurchase = Instant.parse("2026-08-01T12:00:00Z");
     private final Duration timeout = Duration.ofSeconds(3);
+    private final RecommendationContextAssembler assembler = mock();
 
     @Test
     void eligibleEvaluationUsesFakeForActionAndRefusal() {
@@ -43,13 +47,14 @@ class FollowUpRecommendationServiceTest {
 
         for (var outcome : List.of(action, refusal)) {
             DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(outcome);
-            FollowUpDecision decision = new FollowUpRecommendationService(fake).recommend(due, timeout);
+            when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
+            FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(due.customerId(), timeout);
             assertThat(decision.evaluation()).isSameAs(due);
             assertThat(decision.advisoryRecommendation()).contains(outcome);
             assertThat(fake.lastRequest().operation()).isEqualTo(AiOperation.NEXT_BEST_ACTION);
-            assertThat(fake.lastRequest().context().tenantDate()).isEqualTo(tenantDate);
-            assertThat(fake.lastRequest().context().effectiveCadenceDays()).isEqualTo(30);
-            assertThat(fake.lastRequest().context().lastPurchaseAt()).isEqualTo(lastPurchase);
+            assertThat(fake.lastRequest().context().trusted().tenantDate()).isEqualTo(tenantDate);
+            assertThat(fake.lastRequest().context().trusted().effectiveCadenceDays()).isEqualTo(30);
+            assertThat(fake.lastRequest().context().trusted().purchaseDates()).containsExactly(lastPurchase);
             assertThat(fake.lastRequest().timeout()).isEqualTo(timeout);
         }
     }
@@ -59,7 +64,8 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
         FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE);
 
-        FollowUpDecision decision = new FollowUpRecommendationService(fake).recommend(ineligible, timeout);
+        when(assembler.assemble(ineligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(ineligible, context()));
+        FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(ineligible.customerId(), timeout);
 
         assertThat(decision.evaluation()).isSameAs(ineligible);
         assertThat(decision.advisoryRecommendation()).isEmpty();
@@ -72,9 +78,16 @@ class FollowUpRecommendationServiceTest {
         for (DeterministicFakeAiProvider fake : List.of(
                 DeterministicFakeAiProvider.malformedOutput(),
                 DeterministicFakeAiProvider.failure(AiFailureCategory.TIMEOUT))) {
-            assertThatThrownBy(() -> new FollowUpRecommendationService(fake).recommend(due, timeout))
+            when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
+            assertThatThrownBy(() -> new FollowUpRecommendationService(fake, assembler).recommend(due.customerId(), timeout))
                     .isInstanceOf(AiProviderException.class);
         }
+    }
+
+    private RecommendationContext context() {
+        return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
+                List.of("DUE_TODAY"), 30, tenantDate, true, List.of(lastPurchase), List.of()),
+                new RecommendationContext.UntrustedText("Customer", null, List.of("Purchase")));
     }
 
     private FollowUpEvaluation evaluation(FollowUpStatus status) {
