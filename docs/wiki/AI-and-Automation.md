@@ -30,15 +30,18 @@ Example conceptual response:
 
 ```text
 FollowUpDecision
-├── eligible: true
-├── action: REPEAT_PURCHASE_FOLLOW_UP
-├── template: REPEAT_PURCHASE
-├── reason: "Customer bought a repeat-purchase item 63 days ago"
-├── confidence: 0.84
-└── draftVariables: {...}
+├── evaluation: FollowUpEvaluation
+│   ├── status: DUE
+│   └── reasons: [DUE_TODAY]
+└── recommendation: ActionRecommendation
+    ├── action: REPEAT_PURCHASE_FOLLOW_UP
+    ├── templateIntent: REPEAT_PURCHASE
+    ├── rationale: "Customer bought a repeat-purchase item 63 days ago"
+    ├── confidence: 0.84
+    └── draftVariables: {...}
 ```
 
-The exact schema may evolve, but free-form model text must not be interpreted directly as an arbitrary command.
+The exact schema is governed by [ADR 0015: Structured Next Best Action Recommendation Contracts](../adr/0015-structured-next-best-action-recommendation-contracts.md), which strictly separates deterministic evaluation facts (from `FollowUpEvaluation`) from advisory, untrusted AI output (`RecommendationOutcome`). Free-form model text must not be interpreted directly as an arbitrary command.
 
 ## AI Action Gate
 

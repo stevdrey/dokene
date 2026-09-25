@@ -47,7 +47,7 @@ Key outcomes:
 
 - `AiProvider` abstraction;
 - initial hosted-model adapter;
-- structured `FollowUpDecision`-style contract;
+- structured `FollowUpDecision`-style contract ([ADR 0015](../adr/0015-structured-next-best-action-recommendation-contracts.md));
 - Next Best Action recommendation;
 - constrained message drafting;
 - strict schema validation;

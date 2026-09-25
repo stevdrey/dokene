@@ -98,3 +98,13 @@ with optimistic concurrency (`If-Match`), idempotency (`Idempotency-Key`), and c
 tenant scope from trusted context and produces no external messaging side effects.
 [ADR 0012](../adr/0012-deterministic-follow-up-eligibility.md) and [ADR 0013](../adr/0013-due-follow-up-queue-and-operator-dispositions.md)
 define precedence, no-purchase behavior, time-zone semantics, queue pagination, and disposition contracts.
+
+## AI recommendation boundary
+
+The `ai` module defines strongly typed, provider-neutral Next Best Action output contracts
+([ADR 0015](../adr/0015-structured-next-best-action-recommendation-contracts.md)). AI output is strictly advisory,
+untrusted input governed by the AI Action Gate ([ADR 0004](../adr/0004-ai-action-gate.md)). Model recommendations
+(`RecommendationOutcome`) are validated against closed application-owned semantic actions and template intents.
+The `followup.application` boundary composes them with authoritative `FollowUpEvaluation` in `FollowUpDecision`;
+the dependency runs from `followup` to `ai`, and model output cannot override deterministic eligibility.
+AI contracts serialize to strict JSON Schemas enforcing `additionalProperties: false` for Structured Outputs provider adapters.
