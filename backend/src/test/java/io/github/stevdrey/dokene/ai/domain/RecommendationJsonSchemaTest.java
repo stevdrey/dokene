@@ -70,11 +70,15 @@ class RecommendationJsonSchemaTest {
         assertThat(actionRationaleProp.get("type")).isEqualTo("string");
         assertThat(actionRationaleProp.get("minLength")).isEqualTo(1);
         assertThat(actionRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        assertThat(actionRationaleProp.get("pattern")).isEqualTo("\\S");
+        assertThat(actionRationaleProp.get("pattern")).isEqualTo(RecommendationRationale.NON_WHITESPACE_PATTERN);
         assertThat(Pattern.compile((String) actionRationaleProp.get("pattern"))
                 .matcher("First point\nSecond point").find()).isTrue();
         assertThat(Pattern.compile((String) actionRationaleProp.get("pattern"))
                 .matcher(" \n\t ").find()).isFalse();
+        assertThat(Pattern.compile((String) actionRationaleProp.get("pattern"))
+                .matcher("\u00A0").find()).isFalse();
+        assertThat(Pattern.compile((String) actionRationaleProp.get("pattern"))
+                .matcher("\u001C").find()).isTrue();
 
         Map<String, Object> actionConfidenceProp = (Map<String, Object>) actionProperties.get("confidence");
         assertThat(actionConfidenceProp.get("type")).isEqualTo("number");
@@ -124,9 +128,13 @@ class RecommendationJsonSchemaTest {
         assertThat(noRecRationaleProp.get("type")).isEqualTo("string");
         assertThat(noRecRationaleProp.get("minLength")).isEqualTo(1);
         assertThat(noRecRationaleProp.get("maxLength")).isEqualTo(RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        assertThat(noRecRationaleProp.get("pattern")).isEqualTo("\\S");
+        assertThat(noRecRationaleProp.get("pattern")).isEqualTo(RecommendationRationale.NON_WHITESPACE_PATTERN);
         assertThat(Pattern.compile((String) noRecRationaleProp.get("pattern"))
                 .matcher("First point\nSecond point").find()).isTrue();
+        assertThat(Pattern.compile((String) noRecRationaleProp.get("pattern"))
+                .matcher("\u00A0").find()).isFalse();
+        assertThat(Pattern.compile((String) noRecRationaleProp.get("pattern"))
+                .matcher("\u001C").find()).isTrue();
 
         Map<String, Object> noRecConfidenceProp = (Map<String, Object>) noRecProperties.get("confidence");
         assertThat(noRecConfidenceProp.get("type")).isEqualTo("number");
@@ -419,6 +427,38 @@ class RecommendationJsonSchemaTest {
         assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(jsonWithNumericDraftVariableValue))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Draft variable value must be a string");
+    }
+
+    @Test
+    void rejectsOutOfRangeConfidenceBeforeDoubleConversionWithDefaultAndCustomMappers() {
+        String actionJson = """
+                {
+                    "outcome": "ACTION",
+                    "action": "GENERAL_CHECK_IN",
+                    "templateIntent": "GENERAL_FOLLOW_UP",
+                    "rationale": "Valid rationale",
+                    "confidence": 1.00000000000000001,
+                    "draftVariables": []
+                }
+                """;
+        String noRecommendationJson = """
+                {
+                    "recommendation": {
+                        "outcome": "NO_RECOMMENDATION",
+                        "reason": "NO_RELEVANT_OFFER",
+                        "rationale": "Valid rationale",
+                        "confidence": -0.00000000000000001
+                    }
+                }
+                """;
+        for (String json : List.of(actionJson, noRecommendationJson)) {
+            assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(json))
+                    .isInstanceOf(RecommendationValidationException.class)
+                    .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("confidence"));
+            assertThatThrownBy(() -> RecommendationJsonSchema.parseOutcome(json, new ObjectMapper()))
+                    .isInstanceOf(RecommendationValidationException.class)
+                    .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("confidence"));
+        }
     }
 
     @Test

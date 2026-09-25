@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +26,7 @@ public final class RecommendationJsonSchema {
     public static final String ROOT_PROPERTY = "recommendation";
     private static final ObjectMapper OBJECT_MAPPER = tools.jackson.databind.json.JsonMapper.builder()
             .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .enable(tools.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
             .build();
     private static final java.util.Set<String> ALLOWED_ACTION_PROPERTIES = java.util.Set.of(
             "outcome", "action", "templateIntent", "rationale", "confidence", "draftVariables"
@@ -87,7 +89,11 @@ public final class RecommendationJsonSchema {
         }
         Objects.requireNonNull(objectMapper, "ObjectMapper is required");
         try {
-            JsonNode rootNode = objectMapper.readTree(json);
+            ObjectMapper mapperToUse = objectMapper.rebuild()
+                    .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .enable(tools.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                    .build();
+            JsonNode rootNode = mapperToUse.readTree(json);
             if (rootNode == null || rootNode.isNull()) {
                 throw new IllegalArgumentException("JSON payload cannot be null");
             }
@@ -112,9 +118,6 @@ public final class RecommendationJsonSchema {
                 throw new IllegalArgumentException("Target recommendation node must be an object");
             }
             validateAllowedProperties(targetNode);
-            ObjectMapper mapperToUse = objectMapper.isEnabled(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                    ? objectMapper
-                    : objectMapper.rebuild().enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
             RecommendationOutcome outcome = mapperToUse.treeToValue(targetNode, RecommendationOutcome.class);
             if (outcome == null) {
                 throw new IllegalArgumentException("Deserialized RecommendationOutcome cannot be null");
@@ -161,6 +164,12 @@ public final class RecommendationJsonSchema {
         }
         if (node.has("confidence") && !node.get("confidence").isNumber()) {
             throw new IllegalArgumentException("Property 'confidence' must be a number");
+        }
+        if (node.has("confidence")) {
+            BigDecimal confidence = node.get("confidence").decimalValue();
+            if (confidence.compareTo(BigDecimal.ZERO) < 0 || confidence.compareTo(BigDecimal.ONE) > 0) {
+                throw new RecommendationValidationException("confidence", "Confidence must be between 0.0 and 1.0");
+            }
         }
         if (node.has("action") && !node.get("action").isTextual()) {
             throw new IllegalArgumentException("Property 'action' must be a string");
@@ -233,7 +242,7 @@ public final class RecommendationJsonSchema {
         rationaleProps.put("type", "string");
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        rationaleProps.put("pattern", "\\S");
+        rationaleProps.put("pattern", RecommendationRationale.NON_WHITESPACE_PATTERN);
         rationaleProps.put("description", "Concise non-blank reasoning for the recommendation (1 to "
                 + RecommendationOutcome.MAX_RATIONALE_LENGTH + " characters)");
         properties.put("rationale", rationaleProps);
@@ -300,7 +309,7 @@ public final class RecommendationJsonSchema {
         rationaleProps.put("type", "string");
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", RecommendationOutcome.MAX_RATIONALE_LENGTH);
-        rationaleProps.put("pattern", "\\S");
+        rationaleProps.put("pattern", RecommendationRationale.NON_WHITESPACE_PATTERN);
         rationaleProps.put("description", "Concise non-blank explanation of why no action was recommended (1 to "
                 + RecommendationOutcome.MAX_RATIONALE_LENGTH + " characters)");
         properties.put("rationale", rationaleProps);

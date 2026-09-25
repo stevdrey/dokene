@@ -21,14 +21,14 @@ public record ActionRecommendation(
         if (templateIntent == null) {
             throw new RecommendationValidationException("templateIntent", "Template intent is required");
         }
-        if (rationale == null || rationale.isBlank()) {
+        if (!RecommendationRationale.isNonBlank(rationale)) {
             throw new RecommendationValidationException("rationale", "Rationale is required");
         }
         if (rationale.codePointCount(0, rationale.length()) > MAX_RATIONALE_LENGTH) {
             throw new RecommendationValidationException("rationale",
                     "Rationale exceeds maximum length of " + MAX_RATIONALE_LENGTH + " characters");
         }
-        rationale = rationale.trim();
+        rationale = RecommendationRationale.trim(rationale);
         if (confidence == null) {
             throw new RecommendationValidationException("confidence", "Confidence is required");
         }

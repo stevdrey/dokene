@@ -342,6 +342,27 @@ class RecommendationOutcomeSerializationTest {
     }
 
     @Test
+    void usesSchemaWhitespaceDefinitionForBothOutcomes() {
+        assertThatThrownBy(() -> new ActionRecommendation(
+                SemanticAction.GENERAL_CHECK_IN, SemanticTemplateIntent.GENERAL_FOLLOW_UP,
+                "\u00A0", RecommendationConfidence.of(0.8), DraftVariables.empty()))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("rationale"));
+        assertThatThrownBy(() -> new NoRecommendation(
+                NoRecommendationReason.NO_RELEVANT_OFFER, "\u00A0", RecommendationConfidence.of(0.8)))
+                .isInstanceOf(RecommendationValidationException.class)
+                .satisfies(e -> assertThat(((RecommendationValidationException) e).field()).isEqualTo("rationale"));
+
+        assertThat(new ActionRecommendation(
+                SemanticAction.GENERAL_CHECK_IN, SemanticTemplateIntent.GENERAL_FOLLOW_UP,
+                "\u001C", RecommendationConfidence.of(0.8), DraftVariables.empty()).rationale())
+                .isEqualTo("\u001C");
+        assertThat(new NoRecommendation(
+                NoRecommendationReason.NO_RELEVANT_OFFER, "\u001C", RecommendationConfidence.of(0.8)).rationale())
+                .isEqualTo("\u001C");
+    }
+
+    @Test
     void rejectsNullActionOrTemplate() {
         assertThatThrownBy(() -> new ActionRecommendation(
                 null,
