@@ -168,6 +168,12 @@ The initial adapter may target OpenAI, but core follow-up logic must not depend 
 
 This keeps future options open for other hosted models or local providers.
 
+The provider port takes a typed, already assembled recommendation context and an explicit timeout. It returns
+the structured advisory outcome plus safe invocation metadata, or a normalized failure. Each concrete adapter
+owns one reusable client, handles provider-specific payloads internally, and preserves cancellation. The
+application validates eligibility and authorization before invocation and gates any later action independently
+of the provider result.
+
 ## Deterministic rules before AI
 
 Use ordinary application logic when the problem is deterministic.

@@ -1,0 +1,89 @@
+package io.github.stevdrey.dokene.followup.application;
+
+import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
+import io.github.stevdrey.dokene.ai.application.AiOperation;
+import io.github.stevdrey.dokene.ai.application.AiProviderException;
+import io.github.stevdrey.dokene.ai.application.DeterministicFakeAiProvider;
+import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.DraftVariables;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
+import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
+import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
+import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
+import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class FollowUpRecommendationServiceTest {
+    private final LocalDate tenantDate = LocalDate.of(2026, 9, 25);
+    private final Instant lastPurchase = Instant.parse("2026-08-01T12:00:00Z");
+    private final Duration timeout = Duration.ofSeconds(3);
+
+    @Test
+    void eligibleEvaluationUsesFakeForActionAndRefusal() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Insufficient signal", RecommendationConfidence.of(0.4));
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+
+        for (var outcome : List.of(action, refusal)) {
+            DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(outcome);
+            FollowUpDecision decision = new FollowUpRecommendationService(fake).recommend(due, timeout);
+            assertThat(decision.evaluation()).isSameAs(due);
+            assertThat(decision.advisoryRecommendation()).contains(outcome);
+            assertThat(fake.lastRequest().operation()).isEqualTo(AiOperation.NEXT_BEST_ACTION);
+            assertThat(fake.lastRequest().context().tenantDate()).isEqualTo(tenantDate);
+            assertThat(fake.lastRequest().context().effectiveCadenceDays()).isEqualTo(30);
+            assertThat(fake.lastRequest().context().lastPurchaseAt()).isEqualTo(lastPurchase);
+            assertThat(fake.lastRequest().timeout()).isEqualTo(timeout);
+        }
+    }
+
+    @Test
+    void ineligibleEvaluationNeverCallsProvider() {
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
+        FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE);
+
+        FollowUpDecision decision = new FollowUpRecommendationService(fake).recommend(ineligible, timeout);
+
+        assertThat(decision.evaluation()).isSameAs(ineligible);
+        assertThat(decision.advisoryRecommendation()).isEmpty();
+        assertThat(fake.invocationCount()).isZero();
+    }
+
+    @Test
+    void malformedOutputAndProviderFailurePropagateWithoutFallbackAction() {
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        for (DeterministicFakeAiProvider fake : List.of(
+                DeterministicFakeAiProvider.malformedOutput(),
+                DeterministicFakeAiProvider.failure(AiFailureCategory.TIMEOUT))) {
+            assertThatThrownBy(() -> new FollowUpRecommendationService(fake).recommend(due, timeout))
+                    .isInstanceOf(AiProviderException.class);
+        }
+    }
+
+    private FollowUpEvaluation evaluation(FollowUpStatus status) {
+        boolean eligible = status == FollowUpStatus.DUE;
+        return new FollowUpEvaluation(new CustomerId(UUID.fromString("00000000-0000-0000-0000-000000000090")),
+                status, List.of(eligible ? FollowUpReason.DUE_TODAY : FollowUpReason.DO_NOT_CONTACT),
+                Instant.parse("2026-09-25T12:00:00Z"), tenantDate, ZoneId.of("America/Costa_Rica"),
+                eligible ? tenantDate : null,
+                eligible ? FollowUpTimingSource.LAST_PURCHASE : FollowUpTimingSource.NONE,
+                eligible ? 30 : 0, eligible ? lastPurchase : null);
+    }
+}
