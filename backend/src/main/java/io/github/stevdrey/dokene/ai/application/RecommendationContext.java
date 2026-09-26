@@ -13,6 +13,7 @@ public record RecommendationContext(TrustedFacts trusted, UntrustedText untruste
     public static final int MAX_TEXT_LENGTH = UntrustedText.MAX_TEXT_LENGTH;
     public static final int MAX_TOTAL_TEXT_LENGTH = 2_500;
     public static final int MAX_PURCHASES = 5;
+    public static final int MAX_CADENCE_DAYS = 3_650;
 
     public RecommendationContext {
         Objects.requireNonNull(trusted, "Trusted facts are required");
@@ -40,6 +41,7 @@ public record RecommendationContext(TrustedFacts trusted, UntrustedText untruste
                     || ("DUE".equals(followUpStatus) && (!dueDate.equals(tenantDate) || !List.of(TrustedFollowUpReason.DUE_TODAY).equals(followUpReasons)))
                     || ("OVERDUE".equals(followUpStatus) && (!dueDate.isBefore(tenantDate) || !List.of(TrustedFollowUpReason.OVERDUE).equals(followUpReasons)))
                     || effectiveCadenceDays <= 0
+                    || effectiveCadenceDays > MAX_CADENCE_DAYS
                     || purchaseDates.size() > MAX_PURCHASES
                     || allowedActions.isEmpty()
                     || allowedActions.size() > SemanticAction.values().length

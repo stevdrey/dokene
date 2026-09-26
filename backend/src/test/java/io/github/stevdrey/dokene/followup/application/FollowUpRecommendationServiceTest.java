@@ -50,7 +50,6 @@ class FollowUpRecommendationServiceTest {
         for (var outcome : List.of(action, refusal)) {
             DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(outcome);
             when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
-            when(assembler.assemble(due)).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
 
             FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(due.customerId(), timeout);
             assertThat(decision.evaluation()).isSameAs(due);
@@ -79,11 +78,10 @@ class FollowUpRecommendationServiceTest {
         assertThat(decision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
 
-        RecommendationContextAssembler isolatedAssembler = mock();
-        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, isolatedAssembler).recommend(ineligible, timeout);
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(ineligible, timeout);
         assertThat(directDecision.evaluation()).isSameAs(ineligible);
         assertThat(directDecision.advisoryRecommendation()).isEmpty();
-        verifyNoInteractions(isolatedAssembler);
+        assertThat(fake.invocationCount()).isZero();
     }
 
     @Test
@@ -99,33 +97,33 @@ class FollowUpRecommendationServiceTest {
     }
 
     @Test
-    void refreshedEvaluationFromAssemblerIsUsedAndShortCircuitsWhenIneligible() {
-        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
-        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
-        FollowUpEvaluation refreshedIneligible = evaluation(FollowUpStatus.INELIGIBLE);
-
-        when(assembler.assemble(due)).thenReturn(new RecommendationContextAssembler.Assembly(refreshedIneligible, null));
-
-        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(due, timeout);
-        assertThat(directDecision.evaluation()).isSameAs(refreshedIneligible);
-        assertThat(directDecision.advisoryRecommendation()).isEmpty();
-        assertThat(fake.invocationCount()).isZero();
-    }
-
-    @Test
-    void refreshedEligibleEvaluationFromAssemblerIsPairedWithContext() {
+    void callerSuppliedEvaluationDelegatesToCustomerIdAndUsesAuthoritativeOutcome() {
         ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
                 SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
                 RecommendationConfidence.of(0.8), DraftVariables.empty());
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
-        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
-        FollowUpEvaluation refreshedDue = evaluation(FollowUpStatus.DUE);
+        FollowUpEvaluation forged = evaluation(FollowUpStatus.DUE);
+        FollowUpEvaluation authoritative = evaluation(FollowUpStatus.DUE);
 
-        when(assembler.assemble(due)).thenReturn(new RecommendationContextAssembler.Assembly(refreshedDue, context()));
+        when(assembler.assemble(forged.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(authoritative, context()));
 
-        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(due, timeout);
-        assertThat(directDecision.evaluation()).isSameAs(refreshedDue);
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(forged, timeout);
+        assertThat(directDecision.evaluation()).isSameAs(authoritative);
         assertThat(directDecision.advisoryRecommendation()).contains(action);
+    }
+
+    @Test
+    void callerSuppliedEligibleEvaluationShortCircuitsWhenAuthoritativeEvaluationIsIneligible() {
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
+        FollowUpEvaluation forgedEligible = evaluation(FollowUpStatus.DUE);
+        FollowUpEvaluation authoritativeIneligible = evaluation(FollowUpStatus.INELIGIBLE);
+
+        when(assembler.assemble(forgedEligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(authoritativeIneligible, null));
+
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(forgedEligible, timeout);
+        assertThat(directDecision.evaluation()).isSameAs(authoritativeIneligible);
+        assertThat(directDecision.advisoryRecommendation()).isEmpty();
+        assertThat(fake.invocationCount()).isZero();
     }
 
     private RecommendationContext context() {

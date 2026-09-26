@@ -36,17 +36,6 @@ public final class FollowUpRecommendationService {
     public FollowUpDecision recommend(FollowUpEvaluation evaluation, Duration timeout) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         Objects.requireNonNull(timeout, "Timeout is required");
-        if (!evaluation.eligible()) {
-            return FollowUpDecision.ineligible(evaluation);
-        }
-        var assembly = assembler.assemble(evaluation);
-        var refreshedEvaluation = assembly.evaluation();
-        if (!refreshedEvaluation.eligible()) {
-            return FollowUpDecision.ineligible(refreshedEvaluation);
-        }
-        AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
-                assembly.context(), timeout);
-        RecommendationOutcome outcome = provider.recommend(request).outcome();
-        return new FollowUpDecision(refreshedEvaluation, outcome);
+        return recommend(evaluation.customerId(), timeout);
     }
 }

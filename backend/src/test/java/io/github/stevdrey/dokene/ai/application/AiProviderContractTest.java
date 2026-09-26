@@ -84,8 +84,8 @@ class AiProviderContractTest {
     }
 
     @Test
-    void rejectsNonPositiveCadenceInTrustedFacts() {
-        for (int invalidCadence : List.of(0, -1, -30)) {
+    void rejectsNonPositiveOrExcessiveCadenceInTrustedFacts() {
+        for (int invalidCadence : List.of(0, -1, -30, 3_651, Integer.MAX_VALUE)) {
             assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
                     List.of(TrustedFollowUpReason.DUE_TODAY), invalidCadence, LocalDate.of(2026, 9, 25), true,
                     List.of(Instant.parse("2026-09-01T12:00:00Z")),
@@ -93,6 +93,12 @@ class AiProviderContractTest {
                     .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
                             assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
         }
+
+        var maxCadenceFacts = new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 3_650, LocalDate.of(2026, 9, 25), true,
+                List.of(Instant.parse("2026-09-01T12:00:00Z")),
+                List.of(SemanticAction.GENERAL_CHECK_IN));
+        assertThat(maxCadenceFacts.effectiveCadenceDays()).isEqualTo(3_650);
     }
 
     @Test

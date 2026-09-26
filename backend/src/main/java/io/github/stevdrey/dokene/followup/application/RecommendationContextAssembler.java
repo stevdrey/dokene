@@ -40,16 +40,9 @@ public class RecommendationContextAssembler {
     public Assembly assemble(CustomerId customerId) {
         Objects.requireNonNull(customerId, "Customer ID is required");
         FollowUpEvaluation evaluation = followUps.evaluate(customerId);
-        return assemble(evaluation);
-    }
-
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public Assembly assemble(FollowUpEvaluation evaluation) {
-        Objects.requireNonNull(evaluation, "Evaluation is required");
         if (!evaluation.eligible()) {
             return new Assembly(evaluation, null);
         }
-        CustomerId customerId = evaluation.customerId();
         Customer customer = customers.get(customerId);
         boolean contactEligible = customer.phones().stream().anyMatch(phone ->
                 contacts.evaluate(customerId, phone.id(), ContactChannel.WHATSAPP).eligible());
@@ -80,6 +73,12 @@ public class RecommendationContextAssembler {
         var untrusted = new RecommendationContext.UntrustedText(customer.displayName(), customer.notes(),
                 recent.stream().map(purchase -> purchase.description()).toList());
         return new Assembly(evaluation, new RecommendationContext(trusted, untrusted));
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Assembly assemble(FollowUpEvaluation evaluation) {
+        Objects.requireNonNull(evaluation, "Evaluation is required");
+        return assemble(evaluation.customerId());
     }
 
     public record Assembly(FollowUpEvaluation evaluation, RecommendationContext context) { }

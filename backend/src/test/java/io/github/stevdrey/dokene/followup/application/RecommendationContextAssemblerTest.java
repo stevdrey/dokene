@@ -188,6 +188,45 @@ class RecommendationContextAssemblerTest {
         assertThat(assembly.context()).isNull();
     }
 
+    @Test
+    void forgedOrStaleCallerEvaluationCannotAlterTrustedFacts() {
+        FollowUpEvaluation forged = new FollowUpEvaluation(customerId, FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
+                LocalDate.of(2026, 9, 25), FollowUpTimingSource.EXPLICIT_DATE, 1, now.minusSeconds(1));
+
+        FollowUpEvaluation authoritative = new FollowUpEvaluation(customerId, FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
+                LocalDate.of(2026, 9, 25), FollowUpTimingSource.LAST_PURCHASE, 30, now.minusSeconds(1));
+        when(followUps.evaluate(customerId)).thenReturn(authoritative);
+        when(customers.get(customerId)).thenReturn(customer(null));
+        when(purchases.list(customerId, PurchaseStatus.VALID, null, 5))
+                .thenReturn(new PurchasePage(List.of(purchase(1, "item")), null));
+
+        var assembly = assembler.assemble(forged);
+
+        assertThat(assembly.evaluation()).isSameAs(authoritative);
+        assertThat(assembly.context().trusted().effectiveCadenceDays()).isEqualTo(30);
+    }
+
+    @Test
+    void forgedEligibleCallerEvaluationShortCircuitsWhenAuthoritativeEvaluationIsIneligible() {
+        FollowUpEvaluation forged = new FollowUpEvaluation(customerId, FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
+                LocalDate.of(2026, 9, 25), FollowUpTimingSource.EXPLICIT_DATE, 1, now.minusSeconds(1));
+
+        FollowUpEvaluation authoritativeNotDue = new FollowUpEvaluation(customerId, FollowUpStatus.NOT_YET_DUE,
+                List.of(FollowUpReason.CADENCE_NOT_DUE), now, LocalDate.of(2026, 9, 25),
+                ZoneId.of("America/Costa_Rica"), LocalDate.of(2026, 10, 25),
+                FollowUpTimingSource.LAST_PURCHASE, 30, now.minusSeconds(1));
+        when(followUps.evaluate(customerId)).thenReturn(authoritativeNotDue);
+
+        var assembly = assembler.assemble(forged);
+
+        assertThat(assembly.evaluation()).isSameAs(authoritativeNotDue);
+        assertThat(assembly.context()).isNull();
+        verifyNoInteractions(customers, contacts, purchases);
+    }
+
     private Customer customer(String notes) {
         return Customer.create(customerId, tenantId, "Customer", notes, List.of(phone), now);
     }
