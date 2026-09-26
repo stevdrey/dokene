@@ -111,9 +111,10 @@ AI contracts serialize to strict JSON Schemas enforcing `additionalProperties: f
 
 The `ai.application.AiProvider` port accepts an already assembled, typed recommendation context and a positive
 invocation timeout. It returns the validated `RecommendationOutcome` with safe diagnostic metadata, or raises an
-application-owned failure category. The initial context contains only tenant-local date, effective cadence, and
-optional last-purchase time; prompt assembly remains a separate concern. `followup.application` depends on this
-port, while a future provider adapter owns one reusable client and translates provider transport and malformed
+application-owned failure category. `followup.application.RecommendationContextAssembler` obtains current facts
+through authorized follow-up, customer, contact-policy, and purchase application reads. The provider-bound context
+separates trusted facts from explicitly untrusted text and carries no tenant/resource identifiers or phone numbers.
+`followup.application` depends on this port, while a future provider adapter owns one reusable client and translates provider transport and malformed
 responses at the boundary. Provider names and model identifiers are diagnostic configuration values, not domain
 enums. Neither provider metadata nor exceptions contain raw prompts, responses, credentials, headers, tenant
 identifiers, or customer data. Application services retain authorization, tenant scope, policy validation, and
