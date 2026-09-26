@@ -40,9 +40,13 @@ public final class FollowUpRecommendationService {
             return FollowUpDecision.ineligible(evaluation);
         }
         var assembly = assembler.assemble(evaluation);
+        var refreshedEvaluation = assembly.evaluation();
+        if (!refreshedEvaluation.eligible()) {
+            return FollowUpDecision.ineligible(refreshedEvaluation);
+        }
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
         RecommendationOutcome outcome = provider.recommend(request).outcome();
-        return new FollowUpDecision(evaluation, outcome);
+        return new FollowUpDecision(refreshedEvaluation, outcome);
     }
 }

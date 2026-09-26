@@ -98,6 +98,36 @@ class FollowUpRecommendationServiceTest {
         }
     }
 
+    @Test
+    void refreshedEvaluationFromAssemblerIsUsedAndShortCircuitsWhenIneligible() {
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        FollowUpEvaluation refreshedIneligible = evaluation(FollowUpStatus.INELIGIBLE);
+
+        when(assembler.assemble(due)).thenReturn(new RecommendationContextAssembler.Assembly(refreshedIneligible, null));
+
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(due, timeout);
+        assertThat(directDecision.evaluation()).isSameAs(refreshedIneligible);
+        assertThat(directDecision.advisoryRecommendation()).isEmpty();
+        assertThat(fake.invocationCount()).isZero();
+    }
+
+    @Test
+    void refreshedEligibleEvaluationFromAssemblerIsPairedWithContext() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        FollowUpEvaluation refreshedDue = evaluation(FollowUpStatus.DUE);
+
+        when(assembler.assemble(due)).thenReturn(new RecommendationContextAssembler.Assembly(refreshedDue, context()));
+
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(due, timeout);
+        assertThat(directDecision.evaluation()).isSameAs(refreshedDue);
+        assertThat(directDecision.advisoryRecommendation()).contains(action);
+    }
+
     private RecommendationContext context() {
         return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
                 List.of(TrustedFollowUpReason.DUE_TODAY), 30, tenantDate, true, List.of(lastPurchase),
