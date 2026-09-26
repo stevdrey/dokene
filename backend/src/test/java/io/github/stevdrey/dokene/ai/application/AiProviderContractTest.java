@@ -81,6 +81,17 @@ class AiProviderContractTest {
     }
 
     @Test
+    void rejectsNonPositiveCadenceInTrustedFacts() {
+        for (int invalidCadence : List.of(0, -1, -30)) {
+            assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
+                    List.of("DUE_TODAY"), invalidCadence, LocalDate.of(2026, 9, 25), true,
+                    List.of(Instant.parse("2026-09-01T12:00:00Z")), List.of()))
+                    .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                            assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+        }
+    }
+
+    @Test
     void fakeNormalizesMalformedOutputAndEveryProviderFailure() {
         for (AiFailureCategory category : AiFailureCategory.values()) {
             DeterministicFakeAiProvider fake = category == AiFailureCategory.INVALID_STRUCTURED_RESPONSE

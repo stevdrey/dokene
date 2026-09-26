@@ -129,6 +129,40 @@ class RecommendationContextAssemblerTest {
         assertThatThrownBy(() -> assembler.assemble(customerId)).isInstanceOf(SecurityException.class);
     }
 
+    @Test
+    void ineligibleEvaluationSkipsCustomerAndPurchaseReadsAndContextAssembly() {
+        FollowUpEvaluation ineligible = new FollowUpEvaluation(customerId, FollowUpStatus.INELIGIBLE,
+                List.of(FollowUpReason.DO_NOT_CONTACT), now, LocalDate.of(2026, 9, 25),
+                ZoneId.of("America/Costa_Rica"), null, FollowUpTimingSource.NONE, 30, null);
+        when(followUps.evaluate(customerId)).thenReturn(ineligible);
+
+        var assembly = assembler.assemble(customerId);
+
+        assertThat(assembly.evaluation()).isSameAs(ineligible);
+        assertThat(assembly.context()).isNull();
+        verifyNoInteractions(customers, contacts, purchases);
+
+        var directAssembly = assembler.assemble(ineligible);
+        assertThat(directAssembly.evaluation()).isSameAs(ineligible);
+        assertThat(directAssembly.context()).isNull();
+        verifyNoInteractions(customers, contacts, purchases);
+    }
+
+    @Test
+    void notYetDueEvaluationSkipsContextAssembly() {
+        FollowUpEvaluation notYetDue = new FollowUpEvaluation(customerId, FollowUpStatus.NOT_YET_DUE,
+                List.of(FollowUpReason.CADENCE_NOT_DUE), now, LocalDate.of(2026, 9, 25),
+                ZoneId.of("America/Costa_Rica"), LocalDate.of(2026, 10, 25),
+                FollowUpTimingSource.LAST_PURCHASE, 30, now);
+        when(followUps.evaluate(customerId)).thenReturn(notYetDue);
+
+        var assembly = assembler.assemble(customerId);
+
+        assertThat(assembly.evaluation()).isSameAs(notYetDue);
+        assertThat(assembly.context()).isNull();
+        verifyNoInteractions(customers, contacts, purchases);
+    }
+
     private Customer customer(String notes) {
         return Customer.create(customerId, tenantId, "Customer", notes, List.of(phone), now);
     }

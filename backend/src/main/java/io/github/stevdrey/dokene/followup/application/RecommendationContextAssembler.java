@@ -37,10 +37,20 @@ public class RecommendationContextAssembler {
     public Assembly assemble(CustomerId customerId) {
         Objects.requireNonNull(customerId, "Customer ID is required");
         FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+        return assemble(evaluation);
+    }
+
+    @Transactional(readOnly = true)
+    public Assembly assemble(FollowUpEvaluation evaluation) {
+        Objects.requireNonNull(evaluation, "Evaluation is required");
+        if (!evaluation.eligible()) {
+            return new Assembly(evaluation, null);
+        }
+        CustomerId customerId = evaluation.customerId();
         Customer customer = customers.get(customerId);
         boolean contactEligible = customer.phones().stream().anyMatch(phone ->
                 contacts.evaluate(customerId, phone.id(), ContactChannel.WHATSAPP).eligible());
-        if (evaluation.eligible() && !contactEligible) {
+        if (!contactEligible) {
             throw new RecommendationContextException(RecommendationContextException.Reason.UNSUPPORTED);
         }
         var recent = purchases.list(customerId, PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES)
@@ -49,7 +59,7 @@ public class RecommendationContextAssembler {
                 evaluation.status().name(), evaluation.reasons().stream().map(Enum::name).toList(),
                 evaluation.effectiveCadenceDays(), evaluation.nextFollowUpDate(), contactEligible,
                 recent.stream().map(purchase -> purchase.purchasedAt()).toList(),
-                evaluation.eligible() ? Arrays.asList(SemanticAction.values()) : List.of());
+                Arrays.asList(SemanticAction.values()));
         var untrusted = new RecommendationContext.UntrustedText(customer.displayName(), customer.notes(),
                 recent.stream().map(purchase -> purchase.description()).toList());
         return new Assembly(evaluation, new RecommendationContext(trusted, untrusted));

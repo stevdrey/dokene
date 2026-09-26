@@ -41,7 +41,7 @@ public record RecommendationContext(TrustedFacts trusted, UntrustedText untruste
             followUpReasons = List.copyOf(followUpReasons);
             purchaseDates = List.copyOf(purchaseDates);
             allowedActions = List.copyOf(allowedActions);
-            if (followUpReasons.isEmpty() || effectiveCadenceDays < 0 || purchaseDates.size() > MAX_PURCHASES) {
+            if (followUpReasons.isEmpty() || effectiveCadenceDays <= 0 || purchaseDates.size() > MAX_PURCHASES) {
                 throw new RecommendationContextException(RecommendationContextException.Reason.UNSUPPORTED);
             }
         }

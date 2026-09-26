@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class FollowUpRecommendationServiceTest {
@@ -48,6 +49,8 @@ class FollowUpRecommendationServiceTest {
         for (var outcome : List.of(action, refusal)) {
             DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(outcome);
             when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
+            when(assembler.assemble(due)).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
+
             FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(due.customerId(), timeout);
             assertThat(decision.evaluation()).isSameAs(due);
             assertThat(decision.advisoryRecommendation()).contains(outcome);
@@ -56,6 +59,10 @@ class FollowUpRecommendationServiceTest {
             assertThat(fake.lastRequest().context().trusted().effectiveCadenceDays()).isEqualTo(30);
             assertThat(fake.lastRequest().context().trusted().purchaseDates()).containsExactly(lastPurchase);
             assertThat(fake.lastRequest().timeout()).isEqualTo(timeout);
+
+            FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(due, timeout);
+            assertThat(directDecision.evaluation()).isSameAs(due);
+            assertThat(directDecision.advisoryRecommendation()).contains(outcome);
         }
     }
 
@@ -64,12 +71,18 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
         FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE);
 
-        when(assembler.assemble(ineligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(ineligible, context()));
+        when(assembler.assemble(ineligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(ineligible, null));
         FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(ineligible.customerId(), timeout);
 
         assertThat(decision.evaluation()).isSameAs(ineligible);
         assertThat(decision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
+
+        RecommendationContextAssembler isolatedAssembler = mock();
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, isolatedAssembler).recommend(ineligible, timeout);
+        assertThat(directDecision.evaluation()).isSameAs(ineligible);
+        assertThat(directDecision.advisoryRecommendation()).isEmpty();
+        verifyNoInteractions(isolatedAssembler);
     }
 
     @Test
