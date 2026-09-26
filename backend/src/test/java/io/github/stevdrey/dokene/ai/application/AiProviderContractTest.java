@@ -4,6 +4,7 @@ import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -16,8 +17,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AiProviderContractTest {
     private final RecommendationContext context = new RecommendationContext(
-            new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE", List.of("DUE_TODAY"),
-                    30, LocalDate.of(2026, 9, 25), true, List.of(Instant.parse("2026-09-01T12:00:00Z")),
+            new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
+                    List.of(TrustedFollowUpReason.DUE_TODAY), 30, LocalDate.of(2026, 9, 25), true,
+                    List.of(Instant.parse("2026-09-01T12:00:00Z")),
                     List.of(SemanticAction.GENERAL_CHECK_IN)),
             new RecommendationContext.UntrustedText("Customer", null, List.of("Purchase")));
     private final AiRecommendationRequest request = new AiRecommendationRequest(
@@ -72,7 +74,7 @@ class AiProviderContractTest {
                         assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.TOO_LARGE));
         var descriptions = Collections.nCopies(5, "x".repeat(500));
         var facts = new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
-                List.of("DUE_TODAY"), 30, LocalDate.of(2026, 9, 25), true,
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, LocalDate.of(2026, 9, 25), true,
                 Collections.nCopies(5, Instant.parse("2026-09-01T12:00:00Z")),
                 List.of(SemanticAction.GENERAL_CHECK_IN));
         assertThatThrownBy(() -> new RecommendationContext(facts,
@@ -85,7 +87,7 @@ class AiProviderContractTest {
     void rejectsNonPositiveCadenceInTrustedFacts() {
         for (int invalidCadence : List.of(0, -1, -30)) {
             assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
-                    List.of("DUE_TODAY"), invalidCadence, LocalDate.of(2026, 9, 25), true,
+                    List.of(TrustedFollowUpReason.DUE_TODAY), invalidCadence, LocalDate.of(2026, 9, 25), true,
                     List.of(Instant.parse("2026-09-01T12:00:00Z")),
                     List.of(SemanticAction.GENERAL_CHECK_IN)))
                     .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
@@ -100,25 +102,77 @@ class AiProviderContractTest {
         List<SemanticAction> actions = List.of(SemanticAction.GENERAL_CHECK_IN);
 
         assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
-                List.of("DUE_TODAY"), 30, date, false, purchases, actions))
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, false, purchases, actions))
                 .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
                         assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
 
         for (String invalidStatus : List.of("INELIGIBLE", "NOT_YET_DUE", "OTHER")) {
             assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, invalidStatus,
-                    List.of("DUE_TODAY"), 30, date, true, purchases, actions))
+                    List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases, actions))
                     .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
                             assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
         }
 
         assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
-                List.of("DUE_TODAY"), 30, null, true, purchases, actions))
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, null, true, purchases, actions))
                 .isInstanceOf(NullPointerException.class);
 
         assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
-                List.of("DUE_TODAY"), 30, date, true, purchases, List.of()))
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases, List.of()))
                 .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
                         assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        // Empty reasons or excessive reasons (> 5)
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(), 30, date, true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                Collections.nCopies(6, TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        // DUE requires dueDate == tenantDate and reason DUE_TODAY
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date.minusDays(1), true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date.plusDays(1), true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.OVERDUE), 30, date, true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        // OVERDUE requires dueDate < tenantDate and reason OVERDUE
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "OVERDUE",
+                List.of(TrustedFollowUpReason.OVERDUE), 30, date, true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "OVERDUE",
+                List.of(TrustedFollowUpReason.OVERDUE), 30, date.plusDays(1), true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "OVERDUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date.minusDays(1), true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        // Valid DUE and OVERDUE cases
+        var validDue = new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases, actions);
+        assertThat(validDue.followUpStatus()).isEqualTo("DUE");
+
+        var validOverdue = new RecommendationContext.TrustedFacts(date, "OVERDUE",
+                List.of(TrustedFollowUpReason.OVERDUE), 30, date.minusDays(1), true, purchases, actions);
+        assertThat(validOverdue.followUpStatus()).isEqualTo("OVERDUE");
     }
 
     @Test

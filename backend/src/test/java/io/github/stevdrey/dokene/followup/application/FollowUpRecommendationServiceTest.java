@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
@@ -99,7 +100,7 @@ class FollowUpRecommendationServiceTest {
 
     private RecommendationContext context() {
         return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
-                List.of("DUE_TODAY"), 30, tenantDate, true, List.of(lastPurchase),
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, tenantDate, true, List.of(lastPurchase),
                 List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)),
                 new RecommendationContext.UntrustedText("Customer", null, List.of("Purchase")));
     }

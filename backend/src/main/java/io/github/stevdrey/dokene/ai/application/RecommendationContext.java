@@ -5,12 +5,14 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
 
 /** Provider-bound allowlisted data. Free-form fields are data, never instructions. */
 public record RecommendationContext(TrustedFacts trusted, UntrustedText untrusted) {
     public static final int MAX_TEXT_LENGTH = 500;
     public static final int MAX_TOTAL_TEXT_LENGTH = 2_500;
     public static final int MAX_PURCHASES = 5;
+    public static final int MAX_REASONS = 5;
 
     public RecommendationContext {
         Objects.requireNonNull(trusted, "Trusted facts are required");
@@ -32,7 +34,7 @@ public record RecommendationContext(TrustedFacts trusted, UntrustedText untruste
         }
     }
 
-    public record TrustedFacts(LocalDate tenantDate, String followUpStatus, List<String> followUpReasons,
+    public record TrustedFacts(LocalDate tenantDate, String followUpStatus, List<TrustedFollowUpReason> followUpReasons,
             int effectiveCadenceDays, LocalDate dueDate, boolean contactEligible,
             List<Instant> purchaseDates, List<SemanticAction> allowedActions) {
         public TrustedFacts {
@@ -44,7 +46,10 @@ public record RecommendationContext(TrustedFacts trusted, UntrustedText untruste
             allowedActions = List.copyOf(allowedActions);
             if (!contactEligible
                     || (!"DUE".equals(followUpStatus) && !"OVERDUE".equals(followUpStatus))
+                    || ("DUE".equals(followUpStatus) && (!dueDate.equals(tenantDate) || !followUpReasons.contains(TrustedFollowUpReason.DUE_TODAY)))
+                    || ("OVERDUE".equals(followUpStatus) && (!dueDate.isBefore(tenantDate) || !followUpReasons.contains(TrustedFollowUpReason.OVERDUE)))
                     || followUpReasons.isEmpty()
+                    || followUpReasons.size() > MAX_REASONS
                     || effectiveCadenceDays <= 0
                     || purchaseDates.size() > MAX_PURCHASES
                     || allowedActions.isEmpty()) {

@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.followup.application;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.domain.ContactChannel;
@@ -71,7 +72,8 @@ public class RecommendationContextAssembler {
             }
         }
         var trusted = new RecommendationContext.TrustedFacts(evaluation.tenantDate(),
-                evaluation.status().name(), evaluation.reasons().stream().map(Enum::name).toList(),
+                evaluation.status().name(), evaluation.reasons().stream()
+                        .map(r -> TrustedFollowUpReason.valueOf(r.name())).toList(),
                 evaluation.effectiveCadenceDays(), evaluation.nextFollowUpDate(), contactEligible,
                 recent.stream().map(purchase -> purchase.purchasedAt()).toList(),
                 Arrays.asList(SemanticAction.values()));
