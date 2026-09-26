@@ -27,6 +27,13 @@ spring:
     clean-disabled: true
 
 dokene:
+  ai:
+    provider: ${DOKENE_AI_PROVIDER:fake}
+    openai:
+      api-key: ${DOKENE_AI_OPENAI_API_KEY:}
+      model: ${DOKENE_AI_OPENAI_MODEL:gpt-6-luna}
+      base-url: ${DOKENE_AI_OPENAI_BASE_URL:}
+      timeout: ${DOKENE_AI_OPENAI_TIMEOUT:15s}
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
