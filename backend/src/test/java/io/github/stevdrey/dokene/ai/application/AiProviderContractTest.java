@@ -73,7 +73,8 @@ class AiProviderContractTest {
         var descriptions = Collections.nCopies(5, "x".repeat(500));
         var facts = new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
                 List.of("DUE_TODAY"), 30, LocalDate.of(2026, 9, 25), true,
-                Collections.nCopies(5, Instant.parse("2026-09-01T12:00:00Z")), List.of());
+                Collections.nCopies(5, Instant.parse("2026-09-01T12:00:00Z")),
+                List.of(SemanticAction.GENERAL_CHECK_IN));
         assertThatThrownBy(() -> new RecommendationContext(facts,
                 new RecommendationContext.UntrustedText("Customer", null, descriptions)))
                 .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
@@ -85,10 +86,39 @@ class AiProviderContractTest {
         for (int invalidCadence : List.of(0, -1, -30)) {
             assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(LocalDate.of(2026, 9, 25), "DUE",
                     List.of("DUE_TODAY"), invalidCadence, LocalDate.of(2026, 9, 25), true,
-                    List.of(Instant.parse("2026-09-01T12:00:00Z")), List.of()))
+                    List.of(Instant.parse("2026-09-01T12:00:00Z")),
+                    List.of(SemanticAction.GENERAL_CHECK_IN)))
                     .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
                             assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
         }
+    }
+
+    @Test
+    void rejectsIneligibleValuesInTrustedFacts() {
+        LocalDate date = LocalDate.of(2026, 9, 25);
+        List<Instant> purchases = List.of(Instant.parse("2026-09-01T12:00:00Z"));
+        List<SemanticAction> actions = List.of(SemanticAction.GENERAL_CHECK_IN);
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of("DUE_TODAY"), 30, date, false, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        for (String invalidStatus : List.of("INELIGIBLE", "NOT_YET_DUE", "OTHER")) {
+            assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, invalidStatus,
+                    List.of("DUE_TODAY"), 30, date, true, purchases, actions))
+                    .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                            assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+        }
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of("DUE_TODAY"), 30, null, true, purchases, actions))
+                .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of("DUE_TODAY"), 30, date, true, purchases, List.of()))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
     }
 
     @Test

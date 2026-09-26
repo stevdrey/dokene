@@ -56,7 +56,7 @@ class RecommendationContextAssemblerTest {
     void authorizedReads() {
         when(followUps.evaluate(customerId)).thenReturn(new FollowUpEvaluation(customerId, FollowUpStatus.DUE,
                 List.of(FollowUpReason.DUE_TODAY), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
-                LocalDate.of(2026, 9, 25), FollowUpTimingSource.LAST_PURCHASE, 30, now));
+                LocalDate.of(2026, 9, 25), FollowUpTimingSource.LAST_PURCHASE, 30, now.minusSeconds(1)));
         when(contacts.evaluate(customerId, phone.id(), ContactChannel.WHATSAPP))
                 .thenReturn(new ContactEligibility(true, List.of()));
     }
@@ -84,6 +84,9 @@ class RecommendationContextAssemblerTest {
 
     @Test
     void handlesNoHistoryAndRejectsExcessWithoutLeakingText() {
+        when(followUps.evaluate(customerId)).thenReturn(new FollowUpEvaluation(customerId, FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
+                LocalDate.of(2026, 9, 25), FollowUpTimingSource.EXPLICIT_DATE, 30, null));
         when(customers.get(customerId)).thenReturn(customer(null));
         when(purchases.list(customerId, PurchaseStatus.VALID, null, 5))
                 .thenReturn(new PurchasePage(List.of(), null));
@@ -161,6 +164,28 @@ class RecommendationContextAssemblerTest {
         assertThat(assembly.evaluation()).isSameAs(notYetDue);
         assertThat(assembly.context()).isNull();
         verifyNoInteractions(customers, contacts, purchases);
+    }
+
+    @Test
+    void detectsChangedLatestPurchaseAndReEvaluates() {
+        FollowUpEvaluation initialDue = new FollowUpEvaluation(customerId, FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
+                LocalDate.of(2026, 9, 25), FollowUpTimingSource.LAST_PURCHASE, 30, now.minusSeconds(100));
+        when(followUps.evaluate(customerId)).thenReturn(initialDue);
+        when(customers.get(customerId)).thenReturn(customer(null));
+
+        FollowUpEvaluation reEvaluatedNotDue = new FollowUpEvaluation(customerId, FollowUpStatus.NOT_YET_DUE,
+                List.of(FollowUpReason.CADENCE_NOT_DUE), now, LocalDate.of(2026, 9, 25),
+                ZoneId.of("America/Costa_Rica"), LocalDate.of(2026, 10, 25),
+                FollowUpTimingSource.LAST_PURCHASE, 30, now.minusSeconds(1));
+        when(purchases.list(customerId, PurchaseStatus.VALID, null, 5))
+                .thenReturn(new PurchasePage(List.of(purchase(1, "recent")), null));
+        when(followUps.evaluate(customerId)).thenReturn(initialDue, reEvaluatedNotDue);
+
+        var assembly = assembler.assemble(customerId);
+
+        assertThat(assembly.evaluation()).isSameAs(reEvaluatedNotDue);
+        assertThat(assembly.context()).isNull();
     }
 
     private Customer customer(String notes) {

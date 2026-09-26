@@ -38,10 +38,16 @@ public record RecommendationContext(TrustedFacts trusted, UntrustedText untruste
         public TrustedFacts {
             Objects.requireNonNull(tenantDate, "Tenant date is required");
             Objects.requireNonNull(followUpStatus, "Follow-up status is required");
+            Objects.requireNonNull(dueDate, "Due date is required");
             followUpReasons = List.copyOf(followUpReasons);
             purchaseDates = List.copyOf(purchaseDates);
             allowedActions = List.copyOf(allowedActions);
-            if (followUpReasons.isEmpty() || effectiveCadenceDays <= 0 || purchaseDates.size() > MAX_PURCHASES) {
+            if (!contactEligible
+                    || (!"DUE".equals(followUpStatus) && !"OVERDUE".equals(followUpStatus))
+                    || followUpReasons.isEmpty()
+                    || effectiveCadenceDays <= 0
+                    || purchaseDates.size() > MAX_PURCHASES
+                    || allowedActions.isEmpty()) {
                 throw new RecommendationContextException(RecommendationContextException.Reason.UNSUPPORTED);
             }
         }

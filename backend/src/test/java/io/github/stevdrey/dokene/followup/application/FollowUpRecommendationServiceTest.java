@@ -99,7 +99,8 @@ class FollowUpRecommendationServiceTest {
 
     private RecommendationContext context() {
         return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
-                List.of("DUE_TODAY"), 30, tenantDate, true, List.of(lastPurchase), List.of()),
+                List.of("DUE_TODAY"), 30, tenantDate, true, List.of(lastPurchase),
+                List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)),
                 new RecommendationContext.UntrustedText("Customer", null, List.of("Purchase")));
     }
 

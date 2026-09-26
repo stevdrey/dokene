@@ -11,10 +11,12 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Assembles provider-bound context only from authorized application reads. */
@@ -33,14 +35,14 @@ public class RecommendationContextAssembler {
         this.purchases = Objects.requireNonNull(purchases);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Assembly assemble(CustomerId customerId) {
         Objects.requireNonNull(customerId, "Customer ID is required");
         FollowUpEvaluation evaluation = followUps.evaluate(customerId);
         return assemble(evaluation);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Assembly assemble(FollowUpEvaluation evaluation) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         if (!evaluation.eligible()) {
@@ -55,6 +57,19 @@ public class RecommendationContextAssembler {
         }
         var recent = purchases.list(customerId, PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES)
                 .purchases();
+        Instant latestPurchase = recent.isEmpty() ? null : recent.getFirst().purchasedAt();
+        if (!Objects.equals(evaluation.lastPurchaseAt(), latestPurchase)) {
+            evaluation = followUps.evaluate(customerId);
+            if (!evaluation.eligible()) {
+                return new Assembly(evaluation, null);
+            }
+            recent = purchases.list(customerId, PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES)
+                    .purchases();
+            latestPurchase = recent.isEmpty() ? null : recent.getFirst().purchasedAt();
+            if (!Objects.equals(evaluation.lastPurchaseAt(), latestPurchase)) {
+                throw new RecommendationContextException(RecommendationContextException.Reason.UNSUPPORTED);
+            }
+        }
         var trusted = new RecommendationContext.TrustedFacts(evaluation.tenantDate(),
                 evaluation.status().name(), evaluation.reasons().stream().map(Enum::name).toList(),
                 evaluation.effectiveCadenceDays(), evaluation.nextFollowUpDate(), contactEligible,
