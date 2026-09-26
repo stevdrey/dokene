@@ -165,6 +165,40 @@ class AiProviderContractTest {
                 .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
                         assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
 
+        // Contradictory reasons or duplicate reasons
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY, TrustedFollowUpReason.OVERDUE), 30, date, true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY, TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "OVERDUE",
+                List.of(TrustedFollowUpReason.OVERDUE, TrustedFollowUpReason.DUE_TODAY), 30, date.minusDays(1), true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "OVERDUE",
+                List.of(TrustedFollowUpReason.OVERDUE, TrustedFollowUpReason.OVERDUE), 30, date.minusDays(1), true, purchases, actions))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        // Duplicate or excessive allowed actions
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases,
+                List.of(SemanticAction.GENERAL_CHECK_IN, SemanticAction.GENERAL_CHECK_IN)))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
+        assertThatThrownBy(() -> new RecommendationContext.TrustedFacts(date, "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases,
+                Collections.nCopies(6, SemanticAction.GENERAL_CHECK_IN)))
+                .isInstanceOfSatisfying(RecommendationContextException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(RecommendationContextException.Reason.UNSUPPORTED));
+
         // Valid DUE and OVERDUE cases
         var validDue = new RecommendationContext.TrustedFacts(date, "DUE",
                 List.of(TrustedFollowUpReason.DUE_TODAY), 30, date, true, purchases, actions);
@@ -173,6 +207,15 @@ class AiProviderContractTest {
         var validOverdue = new RecommendationContext.TrustedFacts(date, "OVERDUE",
                 List.of(TrustedFollowUpReason.OVERDUE), 30, date.minusDays(1), true, purchases, actions);
         assertThat(validOverdue.followUpStatus()).isEqualTo("OVERDUE");
+    }
+
+    @Test
+    void untrustedTextCalculatesTotalLengthAndValidates() {
+        var text = new RecommendationContext.UntrustedText("Customer", "Notes", List.of("P1", "P2"));
+        assertThat(text.totalTextLength()).isEqualTo("Customer".length() + "Notes".length() + 2 + 2);
+
+        var withoutNotes = new RecommendationContext.UntrustedText("Customer", null, List.of("P1"));
+        assertThat(withoutNotes.totalTextLength()).isEqualTo("Customer".length() + 2);
     }
 
     @Test
