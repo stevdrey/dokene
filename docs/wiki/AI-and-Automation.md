@@ -184,7 +184,10 @@ The application should expose a narrow interface such as:
 AiProvider
 ```
 
-The initial adapter may target OpenAI, but core follow-up logic must not depend on OpenAI-specific request/response types.
+The initial hosted adapter targets OpenAI using the official Java SDK and the Responses API
+(`OpenAiResponsesApiAdapter` in `io.github.stevdrey.dokene.ai.provider.openai`), as governed by
+[ADR 0016: OpenAI Responses API Adapter with Structured Outputs](../adr/0016-openai-responses-api-adapter-with-structured-outputs.md).
+Core follow-up logic depends exclusively on `AiProvider`, never on OpenAI-specific request/response types.
 
 This keeps future options open for other hosted models or local providers.
 
@@ -193,6 +196,11 @@ the structured advisory outcome plus safe invocation metadata, or a normalized f
 owns one reusable client, handles provider-specific payloads internally, and preserves cancellation. The
 application validates eligibility and authorization before invocation and gates any later action independently
 of the provider result.
+
+Configuration is externalized through `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`), with
+default model set to `gpt-6-luna`. Local development and normal CI testing default to `fake` provider mode
+without requiring an external API key or outbound internet connectivity. Raw prompts, customer text, and API keys
+are strictly excluded from diagnostic metadata and logs.
 
 ## Deterministic rules before AI
 

@@ -12,6 +12,8 @@ description = 'Dokene backend'
 
 // Remove once Spring Boot manages Tomcat 11.0.25 or later.
 ext['tomcat.version'] = '11.0.25'
+// Override Kotlin version to address CVE-2026-53914 in transitive dependencies of com.openai:openai-java
+ext['kotlin.version'] = '2.4.20'
 
 java {
     toolchain {
@@ -31,6 +33,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.40'
+    implementation 'com.openai:openai-java:4.69.3'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
 
@@ -44,8 +47,7 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
-
-def nvdApiKey = System.getenv('DOKENE_NVD_API_KEY')?.trim()
+def nvdApiKey = (System.getenv('DOKENE_NVD_API_KEY') ?: System.getenv('NVD_API_KEY'))?.trim()
 
 dependencyCheck {
     failBuildOnCVSS = 7.0
