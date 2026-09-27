@@ -19,6 +19,7 @@ import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.ResponseFormatTextJsonSchemaConfig;
 import com.openai.models.responses.ResponseStatus;
 import com.openai.models.responses.ResponseTextConfig;
+import com.openai.models.responses.ResponseUsage;
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
@@ -42,6 +43,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Adapter implementing {@link AiProvider} using the OpenAI Java SDK and the Responses API
@@ -52,7 +54,7 @@ import tools.jackson.databind.ObjectMapper;
 public final class OpenAiResponsesApiAdapter implements AiProvider {
     private static final String PROVIDER_ID = "openai";
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9._:/-]{1,128}");
-    private static final ObjectMapper OBJECT_MAPPER = tools.jackson.databind.json.JsonMapper.builder().build();
+    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder().build();
 
     private static final String SYSTEM_INSTRUCTIONS = """
             You are the Next Best Action decision support assistant for Dokene follow-up customer relationship management.
@@ -331,15 +333,19 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             return null;
         }
         return response.usage()
-                .filter(u -> u.inputTokens() >= 0 && u.outputTokens() >= 0)
-                .map(u -> {
-                    try {
-                        return new AiTokenUsage(u.inputTokens(), u.outputTokens());
-                    } catch (IllegalArgumentException e) {
-                        return null;
-                    }
-                })
+                .map(this::toSafeUsage)
                 .orElse(null);
+    }
+
+    private AiTokenUsage toSafeUsage(ResponseUsage usage) {
+        if (usage == null || usage.inputTokens() < 0 || usage.outputTokens() < 0) {
+            return null;
+        }
+        try {
+            return new AiTokenUsage(usage.inputTokens(), usage.outputTokens());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private String resolveModelId(Response response, String fallback) {
