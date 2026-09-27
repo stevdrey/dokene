@@ -53,4 +53,30 @@ class OpenAiConfigurationTest {
                             .hasRootCauseMessage("OpenAI API key must be configured when dokene.ai.provider is set to 'openai'");
                 });
     }
+
+    @Test
+    void failsStartupWhenMaxRetriesConfiguredGreaterThanZero() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key",
+                "dokene.ai.openai.max-retries=2"
+        ).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure())
+                    .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                    .hasRootCauseMessage("dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
+                            + "multi-attempt retries violate request deadline contracts and must be handled at domain level");
+        });
+    }
+
+    @Test
+    void validatesMaxRetriesInPropertiesConstructor() {
+        OpenAiProviderProperties defaultProps = new OpenAiProviderProperties("key", null, null, null, null);
+        assertThat(defaultProps.maxRetries()).isEqualTo(0);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new OpenAiProviderProperties("key", null, null, null, 1)
+        ).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("dokene.ai.openai.max-retries must be 0");
+    }
 }

@@ -31,7 +31,12 @@ public class OpenAiConfiguration {
         if (properties.timeout() != null) {
             builder.timeout(properties.timeout());
         }
-        builder.maxRetries(properties.maxRetries());
+        if (properties.maxRetries() != null && properties.maxRetries() != 0) {
+            throw new IllegalArgumentException(
+                    "dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
+                            + "multi-attempt retries violate request deadline contracts and must be handled at domain level");
+        }
+        builder.maxRetries(0);
         return builder.build();
     }
 

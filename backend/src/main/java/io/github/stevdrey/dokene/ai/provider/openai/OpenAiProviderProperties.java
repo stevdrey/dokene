@@ -26,8 +26,12 @@ public record OpenAiProviderProperties(
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             timeout = DEFAULT_TIMEOUT;
         }
-        if (maxRetries == null || maxRetries < 0) {
+        if (maxRetries == null) {
             maxRetries = DEFAULT_MAX_RETRIES;
+        } else if (maxRetries != 0) {
+            throw new IllegalArgumentException(
+                    "dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
+                            + "multi-attempt retries violate request deadline contracts and must be handled at domain level");
         }
     }
 }

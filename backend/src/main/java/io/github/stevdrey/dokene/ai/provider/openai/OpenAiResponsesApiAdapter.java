@@ -34,7 +34,6 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
@@ -74,7 +73,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
     public AiRecommendationResponse recommend(AiRecommendationRequest request) {
         Objects.requireNonNull(request, "Recommendation request is required");
 
-        Instant start = Instant.now();
+        long startNanos = System.nanoTime();
         String modelId = properties.model();
 
         if (Thread.currentThread().isInterrupted()) {
@@ -90,7 +89,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                     .build();
 
             response = client.responses().create(params, requestOptions);
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
 
             if (Thread.currentThread().isInterrupted()) {
                 throw new AiProviderException(AiFailureCategory.CANCELLED,
@@ -150,20 +149,20 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
         } catch (AiProviderException e) {
             throw e;
         } catch (RateLimitException e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             throw new AiProviderException(AiFailureCategory.THROTTLED,
                     failureMetadata(modelId, null, latency, null, AiFailureCategory.THROTTLED));
         } catch (BadRequestException | UnauthorizedException | PermissionDeniedException
                  | NotFoundException | UnprocessableEntityException e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             throw new AiProviderException(AiFailureCategory.REJECTED_REQUEST,
                     failureMetadata(modelId, null, latency, null, AiFailureCategory.REJECTED_REQUEST));
         } catch (InternalServerException e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             throw new AiProviderException(AiFailureCategory.UNAVAILABLE,
                     failureMetadata(modelId, null, latency, null, AiFailureCategory.UNAVAILABLE));
         } catch (OpenAIIoException e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             if (Thread.currentThread().isInterrupted()) {
                 Thread.currentThread().interrupt();
                 throw new AiProviderException(AiFailureCategory.CANCELLED,
@@ -181,7 +180,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             throw new AiProviderException(AiFailureCategory.UNAVAILABLE,
                     failureMetadata(modelId, null, latency, null, AiFailureCategory.UNAVAILABLE));
         } catch (OpenAIServiceException e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             AiFailureCategory category = e.statusCode() == 429 ? AiFailureCategory.THROTTLED
                     : e.statusCode() == 408 ? AiFailureCategory.TIMEOUT
                     : (e.statusCode() == 409 || e.statusCode() >= 500) ? AiFailureCategory.UNAVAILABLE
@@ -189,12 +188,12 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             throw new AiProviderException(category,
                     failureMetadata(modelId, null, latency, null, category));
         } catch (OpenAIException e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             AiFailureCategory category = isTimeout(e) ? AiFailureCategory.TIMEOUT : AiFailureCategory.UNAVAILABLE;
             throw new AiProviderException(category,
                     failureMetadata(modelId, null, latency, null, category));
         } catch (Exception e) {
-            Duration latency = Duration.between(start, Instant.now());
+            Duration latency = calculateLatency(startNanos);
             if (Thread.currentThread().isInterrupted() || e instanceof InterruptedException
                     || e instanceof CancellationException) {
                 Thread.currentThread().interrupt();
@@ -348,6 +347,11 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 usage,
                 status
         );
+    }
+
+    private Duration calculateLatency(long startNanos) {
+        long elapsedNanos = System.nanoTime() - startNanos;
+        return elapsedNanos > 0 ? Duration.ofNanos(elapsedNanos) : Duration.ZERO;
     }
 
     private String safeId(String id, String fallback) {

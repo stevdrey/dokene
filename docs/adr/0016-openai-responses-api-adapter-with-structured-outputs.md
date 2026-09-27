@@ -61,7 +61,7 @@ All SDK and HTTP exceptions are mapped into application-controlled `AiFailureCat
 - **Schema Violations / Missing Status / Disallowed Actions**: Mapped to `AiFailureCategory.INVALID_STRUCTURED_RESPONSE`.
 - **Thread Interruption / Cancelled Responses**: Mapped to `AiFailureCategory.CANCELLED`, restoring the thread's interrupt status.
 
-Every mapped exception and response produces `AiInvocationMetadata` carrying diagnostic data only: provider ID (`openai`), sanitized model ID, provider request ID (validated against safe identifier patterns), latency, token usage (`AiTokenUsage`), and completion status. Exception messages and logs never include raw prompts, customer text, or API credentials.
+Every mapped exception and response produces `AiInvocationMetadata` carrying diagnostic data only: provider ID (`openai`), sanitized model ID, provider request ID (validated against safe identifier patterns), latency (measured via a monotonic clock source `System.nanoTime()` and normalized to prevent negative durations across system clock adjustments), token usage (`AiTokenUsage`), and completion status. Exception messages and logs never include raw prompts, customer text, or API credentials.
 
 ### 6. Externalized Configuration and Secret Handling
 
@@ -71,7 +71,7 @@ Configuration is externalized through `OpenAiProviderProperties` (`@Configuratio
 - `dokene.ai.openai.model`: Configurable model name (default: `gpt-6-luna`), avoiding domain coupling to a single model.
 - `dokene.ai.openai.base-url`: Sourced from `DOKENE_AI_OPENAI_BASE_URL` to support proxies or local gateways.
 - `dokene.ai.openai.timeout`: Configurable timeout (default: `15s`).
-- `dokene.ai.openai.max-retries`: Configurable retries (default: `0`). Client-level SDK retries are disabled by default to enforce the deterministic single-invocation request timeout contract and surface transient errors immediately for domain-level handling.
+- `dokene.ai.openai.max-retries`: Configurable retries (default: `0`, restricted strictly to `0`). Client-level SDK retries are disabled to enforce the deterministic single-invocation request timeout contract and surface transient errors immediately for domain-level handling; multi-attempt retry loops that violate request deadlines are rejected at startup.
 
 A shared singleton `OpenAIClient` is reused across all requests.
 
