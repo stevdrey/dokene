@@ -38,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.DraftVariables;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
@@ -323,6 +324,24 @@ class FollowUpControllerTest {
         mvc.perform(post("/api/customers/{id}/follow-up-recommendation", customerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("NO_RECOMMENDATION"));
+    }
+
+    @Test
+    void requestRecommendationReturnsRefusalWithRationaleAndConfidence() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Model indicates uncertainty", RecommendationConfidence.of(0.65));
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenReturn(FollowUpRecommendationResult.refusal(evaluation, refusal, 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NO_RECOMMENDATION"))
+                .andExpect(jsonPath("$.refusalReason").value("UNCERTAIN_INTENT"))
+                .andExpect(jsonPath("$.refusal.reason").value("UNCERTAIN_INTENT"))
+                .andExpect(jsonPath("$.refusal.rationale").value("Model indicates uncertainty"))
+                .andExpect(jsonPath("$.refusal.confidence").value(0.65));
     }
 
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {

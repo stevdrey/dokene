@@ -58,6 +58,7 @@ public final class TenantSecurityIntegrationFixture {
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
+        registry.add("dokene.ai.provider", () -> "fake");
     }
 
     public static Tenant seedTenant(TenantRepository tenants, String displayName, Instant createdAt) {

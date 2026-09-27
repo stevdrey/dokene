@@ -8,8 +8,11 @@ import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
+import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
+import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -70,6 +73,16 @@ public final class FollowUpRecommendationService {
         RecommendationOutcome outcome = provider.recommend(request).outcome();
 
         ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
+        if (gateDecision.rejectionReason().isPresent()) {
+            ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
+            if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
+                throw new TenantAccessDeniedException("Authorization revoked or tenant context unavailable");
+            }
+            if (reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND) {
+                throw new CustomerNotFoundException();
+            }
+        }
+
         FollowUpEvaluation effectiveEvaluation = gateDecision.evaluation().orElse(evaluation);
         if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
             return FollowUpDecision.accepted(effectiveEvaluation, accepted);
@@ -115,33 +128,74 @@ public final class FollowUpRecommendationService {
         try {
             FollowUpDecision decision = recommend(customerId, effectiveTimeout);
             FollowUpEvaluation evaluation = decision.evaluation();
+            long freshVersion = resolvePolicyVersion(customerId, policyVersion);
 
             if (decision.gateDecision().isAccepted()) {
                 if (decision.recommendation() instanceof ActionRecommendation action) {
-                    return FollowUpRecommendationResult.available(evaluation, action, policyVersion);
+                    return FollowUpRecommendationResult.available(evaluation, action, freshVersion);
                 } else if (decision.recommendation() instanceof NoRecommendation refusal) {
-                    return FollowUpRecommendationResult.refusal(evaluation, refusal.reason(), policyVersion);
+                    if (!evaluation.eligible()) {
+                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                        return FollowUpRecommendationResult.ineligible(evaluation, ineligibilityReason, freshVersion);
+                    }
+                    return FollowUpRecommendationResult.refusal(evaluation, refusal, freshVersion);
                 }
             }
 
             // Gate rejection or deterministic ineligibility
-            if (decision.rejectionReason().isPresent()
-                    && decision.rejectionReason().get() == ActionGateRejectionReason.STALE_STATE) {
-                return FollowUpRecommendationResult.staleState(evaluation, policyVersion);
+            if (decision.rejectionReason().isPresent()) {
+                ActionGateRejectionReason reason = decision.rejectionReason().get();
+                if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
+                    throw new TenantAccessDeniedException("Authorization revoked or tenant context unavailable");
+                }
+                if (reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND) {
+                    throw new CustomerNotFoundException();
+                }
+                if (reason == ActionGateRejectionReason.STALE_STATE) {
+                    return FollowUpRecommendationResult.staleState(evaluation, freshVersion);
+                }
+                return FollowUpRecommendationResult.ineligible(evaluation, reason, freshVersion);
             }
-            ActionGateRejectionReason reason = decision.rejectionReason()
-                    .orElse(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
-            return FollowUpRecommendationResult.ineligible(evaluation, reason, policyVersion);
+            return FollowUpRecommendationResult.ineligible(
+                    evaluation, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, freshVersion);
 
         } catch (AiProviderException ex) {
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
-            return FollowUpRecommendationResult.aiUnavailable(eval, ex.category().name(), policyVersion);
+            long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            return FollowUpRecommendationResult.aiUnavailable(eval, ex.category().name(), freshVersion);
         } catch (RecommendationContextException ex) {
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
-            return FollowUpRecommendationResult.ineligible(
+            long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            return FollowUpRecommendationResult.aiUnavailable(
                     eval,
-                    ActionGateRejectionReason.NO_CONTACT_CONSENT,
-                    policyVersion);
+                    "CONTEXT_" + ex.reason().name(),
+                    freshVersion);
+        }
+    }
+
+    private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {
+        if (evaluation != null && evaluation.reasons() != null) {
+            if (evaluation.reasons().contains(FollowUpReason.DO_NOT_CONTACT)) {
+                return ActionGateRejectionReason.DO_NOT_CONTACT;
+            }
+            if (evaluation.reasons().contains(FollowUpReason.NO_ELIGIBLE_CONTACT)) {
+                return ActionGateRejectionReason.NO_CONTACT_CONSENT;
+            }
+            if (evaluation.reasons().contains(FollowUpReason.CUSTOMER_ARCHIVED)) {
+                return ActionGateRejectionReason.CUSTOMER_ARCHIVED;
+            }
+        }
+        return ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE;
+    }
+
+    private long resolvePolicyVersion(CustomerId customerId, long fallbackVersion) {
+        if (followUps == null) {
+            return fallbackVersion;
+        }
+        try {
+            return followUps.customerPolicy(customerId).version();
+        } catch (Exception ex) {
+            return fallbackVersion;
         }
     }
 

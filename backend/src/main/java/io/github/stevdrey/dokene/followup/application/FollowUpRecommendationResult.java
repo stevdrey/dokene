@@ -1,7 +1,9 @@
 package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
+import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import java.util.Objects;
 import java.util.Optional;
@@ -14,7 +16,7 @@ public record FollowUpRecommendationResult(
         RecommendationStatus status,
         FollowUpEvaluation evaluation,
         ActionRecommendation recommendation,
-        NoRecommendationReason refusalReason,
+        NoRecommendation refusal,
         ActionGateRejectionReason rejectionReason,
         String unavailableReason,
         long policyVersion) {
@@ -41,16 +43,26 @@ public record FollowUpRecommendationResult(
 
     public static FollowUpRecommendationResult refusal(
             FollowUpEvaluation evaluation,
-            NoRecommendationReason refusalReason,
+            NoRecommendation refusal,
             long policyVersion) {
-        Objects.requireNonNull(refusalReason, "Refusal reason is required");
+        Objects.requireNonNull(refusal, "Refusal is required");
         return new FollowUpRecommendationResult(
                 RecommendationStatus.NO_RECOMMENDATION,
                 evaluation,
                 null,
-                refusalReason,
+                refusal,
                 null,
                 null,
+                policyVersion);
+    }
+
+    public static FollowUpRecommendationResult refusal(
+            FollowUpEvaluation evaluation,
+            NoRecommendationReason refusalReason,
+            long policyVersion) {
+        Objects.requireNonNull(refusalReason, "Refusal reason is required");
+        return refusal(evaluation,
+                new NoRecommendation(refusalReason, "No follow-up action is recommended", RecommendationConfidence.of(1.0)),
                 policyVersion);
     }
 
@@ -96,12 +108,20 @@ public record FollowUpRecommendationResult(
                 policyVersion);
     }
 
+    public NoRecommendationReason refusalReason() {
+        return refusal != null ? refusal.reason() : null;
+    }
+
     public Optional<ActionRecommendation> advisoryRecommendation() {
         return Optional.ofNullable(recommendation);
     }
 
+    public Optional<NoRecommendation> advisoryRefusal() {
+        return Optional.ofNullable(refusal);
+    }
+
     public Optional<NoRecommendationReason> explicitRefusal() {
-        return Optional.ofNullable(refusalReason);
+        return Optional.ofNullable(refusalReason());
     }
 
     public Optional<ActionGateRejectionReason> gateRejection() {

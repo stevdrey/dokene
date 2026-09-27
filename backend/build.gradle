@@ -46,6 +46,7 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'dokene.ai.provider', 'fake'
 }
 def nvdApiKey = (System.getenv('DOKENE_NVD_API_KEY') ?: System.getenv('NVD_API_KEY'))?.trim()
 

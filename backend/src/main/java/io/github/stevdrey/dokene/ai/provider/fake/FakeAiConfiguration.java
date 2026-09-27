@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Configuration;
 public class FakeAiConfiguration {
 
     @Bean
-    @ConditionalOnProperty(name = "dokene.ai.provider", havingValue = "fake", matchIfMissing = true)
+    @ConditionalOnProperty(name = "dokene.ai.provider", havingValue = "fake", matchIfMissing = false)
     @ConditionalOnMissingBean(AiProvider.class)
     public AiProvider defaultFakeAiProvider() {
         return new DefaultFakeAiProvider();

@@ -188,6 +188,13 @@ public class FollowUpController {
                     action.confidence().value(),
                     vars);
         }
+        RefusalResponse refusalResponse = null;
+        if (result.refusal() != null) {
+            refusalResponse = new RefusalResponse(
+                    result.refusal().reason(),
+                    result.refusal().rationale(),
+                    result.refusal().confidence().value());
+        }
         UUID cId = result.evaluation() != null
                 ? result.evaluation().customerId().value()
                 : null;
@@ -196,6 +203,7 @@ public class FollowUpController {
                 cId,
                 evalResponse,
                 actionResponse,
+                refusalResponse,
                 result.refusalReason(),
                 result.rejectionReason(),
                 result.unavailableReason());
@@ -281,11 +289,16 @@ public class FollowUpController {
             String rationale,
             double confidence,
             List<DraftVariableResponse> draftVariables) { }
+    public record RefusalResponse(
+            NoRecommendationReason reason,
+            String rationale,
+            double confidence) { }
     public record RecommendationResponse(
             RecommendationStatus status,
             UUID customerId,
             EvaluationResponse evaluation,
             ActionRecommendationResponse recommendation,
+            RefusalResponse refusal,
             NoRecommendationReason refusalReason,
             ActionGateRejectionReason rejectionReason,
             String unavailableReason) { }

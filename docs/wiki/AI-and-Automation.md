@@ -111,13 +111,13 @@ Recommendation orchestration is coordinated by `FollowUpRecommendationService` a
 
 ### Headers & Optimistic Locking
 - Requires authenticated tenant context and `TenantPermission.FOLLOWUP_EVALUATE` (returns `403 Forbidden` if denied).
-- Supports optional `If-Match: "<version>"` or `If-Match: <version>`. If the customer policy version does not match, returns `409 Conflict`.
+- Supports optional `If-Match: "<version>"` (strong quoted numeric entity tag). If the customer policy version does not match, returns `409 Conflict`.
 - Successful responses return `ETag: "<version>"` matching the evaluated customer policy version.
 
 ### Response Statuses & Semantics
 The response body returns a top-level `status` enum (`RecommendationStatus`):
 - `AVAILABLE`: Valid action recommendation approved through `AiActionGate`. Contains advisory action, template intent, rationale, and draft variables.
-- `NO_RECOMMENDATION`: AI provider evaluated the context and determined no follow-up action is needed at this time.
+- `NO_RECOMMENDATION`: AI provider evaluated the context and determined no follow-up action is needed at this time. Preserves advisory refusal reason, rationale, and confidence in `refusal`.
 - `STALE_STATE`: Customer purchase history or cadence state drifted between context assembly and gate evaluation.
 - `INELIGIBLE`: Customer is not currently due/overdue, has no WhatsApp consent/opt-out, or is archived.
 - `AI_UNAVAILABLE`: Provider call timed out, threw an exception, or failed schema validation. Degrades gracefully with zero raw provider error payloads or stack traces exposed to clients.
