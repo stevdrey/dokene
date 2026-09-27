@@ -65,13 +65,14 @@ class FollowUpDecisionTest {
     void rejectedGateDecisionHidesActionRecommendationAndExposesReason() {
         FollowUpEvaluation due = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
         ActionGateDecision rejectedGate = ActionGateDecision.rejected(
-                ActionGateRejectionReason.STALE_STATE, "State changed");
+                ActionGateRejectionReason.STALE_STATE, "State changed", due, sampleAction);
 
         FollowUpDecision decision = FollowUpDecision.rejected(due, rejectedGate);
 
         assertThat(decision.evaluation()).isSameAs(due);
         assertThat(decision.hasActionRecommendation()).isFalse();
         assertThat(decision.advisoryRecommendation()).isEmpty();
+        assertThat(decision.rawOutcome()).contains(sampleAction);
         assertThat(decision.gateDecision().isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
     }

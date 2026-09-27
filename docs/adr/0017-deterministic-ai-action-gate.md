@@ -40,9 +40,13 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
     boolean isAccepted();
     default boolean isRejected() { return !isAccepted(); }
     Optional<ActionGateRejectionReason> rejectionReason();
+    Optional<String> diagnostic();
+    FollowUpEvaluation currentEvaluation();
+    default Optional<FollowUpEvaluation> evaluation() { return Optional.ofNullable(currentEvaluation()); }
+    default Optional<RecommendationOutcome> rawOutcome() { return Optional.empty(); }
 
-    record Accepted(RecommendationOutcome outcome) implements ActionGateDecision { ... }
-    record Rejected(ActionGateRejectionReason reason, RecommendationOutcome rawOutcome) implements ActionGateDecision { ... }
+    record Accepted(RecommendationOutcome outcome, FollowUpEvaluation currentEvaluation) implements ActionGateDecision { ... }
+    record Rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation currentEvaluation, RecommendationOutcome rawOutcome) implements ActionGateDecision { ... }
 }
 ```
 
@@ -61,14 +65,16 @@ The rejection reasons are defined as a closed enum (`ActionGateRejectionReason`)
 
 Explicit refusals (`NoRecommendation`) returned by the model pass through the gate without requiring action eligibility checks, provided tenant context, authorization, and customer status checks pass.
 
+On rejection, `Rejected` retains the raw unaccepted `RecommendationOutcome` alongside the fresh authoritative `FollowUpEvaluation` and typed rejection reason. This raw outcome is available strictly for offline analytics, troubleshooting, and audit telemetry via `decision.rawOutcome()`, but is never exposed as an actionable suggestion.
+
 ### 3. Separation of Authority in `FollowUpDecision`
 
 `FollowUpDecision` composes:
 - `FollowUpEvaluation evaluation`: Deterministic, authoritative evaluation facts.
-- `RecommendationOutcome recommendation`: Untrusted raw outcome from the AI provider.
+- `RecommendationOutcome recommendation`: Gate-approved outcome (must match `accepted.outcome()` when accepted, or `null` when rejected).
 - `ActionGateDecision gateDecision`: Authoritative verification decision from `AiActionGate`.
 
-When `gateDecision.isRejected()`, `hasActionRecommendation()` returns `false` and `advisoryRecommendation()` returns `Optional.empty()`, ensuring that downstream operator views and automated handlers can never consume or display an unauthorized or stale recommendation as actionable.
+When `gateDecision.isRejected()`, `hasActionRecommendation()` returns `false` and `advisoryRecommendation()` returns `Optional.empty()`, ensuring that downstream operator views and automated handlers can never consume or display an unauthorized or stale recommendation as actionable. The raw rejected outcome remains accessible solely via `decision.rawOutcome()` for non-actionable diagnostics.
 
 ### 4. Zero External Side Effects
 
@@ -77,11 +83,12 @@ Gate evaluation is strictly read-only validation:
 - No customer, purchase, or follow-up disposition mutations occur.
 - Read operations are protected by tenant context and repository boundaries.
 
-### 5. Privacy-Safe Security Observability
+### 5. Privacy-Safe Durable Security Auditing
 
 Security-relevant rejections are emitted to `AiActionGateAuditListener`:
-- Carries tenant ID, customer ID, rejection reason, caller actor ID, and evaluation timestamp.
+- Emits typed `SecurityRejectionEvent` carrying tenant ID, customer ID, rejection reason, caller actor ID, and evaluation timestamp.
 - Strictly excludes raw prompt text, customer notes, purchase descriptions, draft variables, or sensitive PII.
+- Handled durably in production by `DurableAiActionGateAuditListener`, which maps rejection reasons to `AuditDenialReason` and records them through `AuditRecorder.authorizationDenied(TenantPermission.FOLLOWUP_EVALUATE, denialReason)` into the append-only `audit_events` table under `REQUIRES_NEW` transaction propagation, fulfilling Security Invariant 12.
 
 ## Consequences
 

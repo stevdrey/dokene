@@ -26,6 +26,10 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
         return Optional.ofNullable(currentEvaluation());
     }
 
+    default Optional<RecommendationOutcome> rawOutcome() {
+        return Optional.empty();
+    }
+
     record Accepted(RecommendationOutcome outcome, FollowUpEvaluation currentEvaluation) implements ActionGateDecision {
         public Accepted {
             Objects.requireNonNull(outcome, "Outcome is required");
@@ -39,16 +43,30 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
         public boolean isAccepted() {
             return true;
         }
+
+        @Override
+        public Optional<RecommendationOutcome> rawOutcome() {
+            return Optional.of(outcome);
+        }
     }
 
-    record Rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation currentEvaluation) implements ActionGateDecision {
+    record Rejected(
+            ActionGateRejectionReason reason,
+            String diagnosticMessage,
+            FollowUpEvaluation currentEvaluation,
+            RecommendationOutcome rejectedOutcome
+    ) implements ActionGateDecision {
         public Rejected {
             Objects.requireNonNull(reason, "Rejection reason is required");
             Objects.requireNonNull(diagnosticMessage, "Diagnostic message is required");
         }
 
+        public Rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation currentEvaluation) {
+            this(reason, diagnosticMessage, currentEvaluation, null);
+        }
+
         public Rejected(ActionGateRejectionReason reason, String diagnosticMessage) {
-            this(reason, diagnosticMessage, null);
+            this(reason, diagnosticMessage, null, null);
         }
 
         @Override
@@ -65,6 +83,11 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
         public Optional<String> diagnostic() {
             return Optional.of(diagnosticMessage);
         }
+
+        @Override
+        public Optional<RecommendationOutcome> rawOutcome() {
+            return Optional.ofNullable(rejectedOutcome);
+        }
     }
 
     static ActionGateDecision accepted(RecommendationOutcome outcome) {
@@ -76,10 +99,14 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
     }
 
     static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage) {
-        return new Rejected(reason, diagnosticMessage, null);
+        return new Rejected(reason, diagnosticMessage, null, null);
     }
 
     static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation) {
-        return new Rejected(reason, diagnosticMessage, evaluation);
+        return new Rejected(reason, diagnosticMessage, evaluation, null);
+    }
+
+    static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation, RecommendationOutcome rawOutcome) {
+        return new Rejected(reason, diagnosticMessage, evaluation, rawOutcome);
     }
 }

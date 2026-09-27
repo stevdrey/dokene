@@ -423,6 +423,17 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void rejectedDecisionRetainsRawOutcomeForDownstreamDiagnostics() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.GENERAL_CHECK_IN));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DISALLOWED_ACTION);
+        assertThat(decision.rawOutcome()).contains(sampleAction);
+    }
+
+    @Test
     void rejectsNullOutcome() {
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 

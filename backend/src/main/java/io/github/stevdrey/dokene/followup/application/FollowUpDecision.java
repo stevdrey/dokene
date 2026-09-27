@@ -75,6 +75,10 @@ public record FollowUpDecision(
         return gateDecision.isAccepted() ? Optional.ofNullable(recommendation) : Optional.empty();
     }
 
+    public Optional<RecommendationOutcome> rawOutcome() {
+        return gateDecision.rawOutcome();
+    }
+
     public boolean hasActionRecommendation() {
         return gateDecision.isAccepted() && recommendation instanceof ActionRecommendation;
     }

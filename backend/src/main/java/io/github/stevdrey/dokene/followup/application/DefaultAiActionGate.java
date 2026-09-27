@@ -60,7 +60,7 @@ public class DefaultAiActionGate implements AiActionGate {
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
             Clock clock,
-            Optional<AiActionGateAuditListener> auditListener) {
+            AiActionGateAuditListener auditListener) {
         this.customers = Objects.requireNonNull(customers, "Customer repository is required");
         this.contacts = Objects.requireNonNull(contacts, "Contact policy repository is required");
         this.policies = Objects.requireNonNull(policies, "Follow-up policy repository is required");
@@ -69,8 +69,7 @@ public class DefaultAiActionGate implements AiActionGate {
         this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.evaluator = new FollowUpPolicyEvaluator(clock);
-        this.auditListener = Objects.requireNonNull(auditListener, "Audit listener optional is required")
-                .orElseGet(AiActionGateAuditListener::logging);
+        this.auditListener = Objects.requireNonNull(auditListener, "Audit listener is required");
     }
 
     public DefaultAiActionGate(
@@ -81,19 +80,7 @@ public class DefaultAiActionGate implements AiActionGate {
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
             Clock clock) {
-        this(customers, contacts, policies, purchases, authorization, contexts, clock, Optional.empty());
-    }
-
-    public DefaultAiActionGate(
-            CustomerRepository customers,
-            ContactPolicyRepository contacts,
-            FollowUpPolicyRepository policies,
-            PurchaseRepository purchases,
-            TenantAuthorizationService authorization,
-            TenantContextProvider contexts,
-            Clock clock,
-            AiActionGateAuditListener auditListener) {
-        this(customers, contacts, policies, purchases, authorization, contexts, clock, Optional.ofNullable(auditListener));
+        this(customers, contacts, policies, purchases, authorization, contexts, clock, AiActionGateAuditListener.logging());
     }
 
     @Override
@@ -108,7 +95,7 @@ public class DefaultAiActionGate implements AiActionGate {
         if (tenantContextOpt.isEmpty()) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT");
             return ActionGateDecision.rejected(ActionGateRejectionReason.NO_TENANT_CONTEXT,
-                    "Active authenticated tenant context is required");
+                    "Active authenticated tenant context is required", null, outcome);
         }
         TenantContext tenantContext = tenantContextOpt.get();
 
@@ -116,7 +103,7 @@ public class DefaultAiActionGate implements AiActionGate {
         if (!authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "MISSING_FOLLOWUP_EVALUATE_PERMISSION");
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
-                    "Caller lacks required permission FOLLOWUP_EVALUATE");
+                    "Caller lacks required permission FOLLOWUP_EVALUATE", null, outcome);
         }
 
         // 3. Customer Existence and Resource Ownership
@@ -124,13 +111,13 @@ public class DefaultAiActionGate implements AiActionGate {
         if (customerOpt.isEmpty()) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT");
             return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_NOT_FOUND,
-                    "Customer not found within current tenant boundary");
+                    "Customer not found within current tenant boundary", null, outcome);
         }
         Customer customer = customerOpt.get();
         if (!authorization.hasResourceAccess(TenantPermission.FOLLOWUP_EVALUATE, customer)) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "RESOURCE_ACCESS_DENIED");
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
-                    "Caller not authorized to access customer resource");
+                    "Caller not authorized to access customer resource", null, outcome);
         }
 
         // Authoritative evaluation of current policies, consent, and purchases
@@ -146,14 +133,14 @@ public class DefaultAiActionGate implements AiActionGate {
         if (customer.status() == CustomerStatus.ARCHIVED) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
             return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
-                    "Customer is archived", currentEvaluation);
+                    "Customer is archived", currentEvaluation, outcome);
         }
 
         // 5. Outcome Null Check
         if (outcome == null) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME");
             return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                    "Recommendation outcome cannot be null", currentEvaluation);
+                    "Recommendation outcome cannot be null", currentEvaluation, null);
         }
 
         // 6. Explicit Model Refusal
@@ -167,7 +154,7 @@ public class DefaultAiActionGate implements AiActionGate {
             if (contactPolicy.doNotContact()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
-                        "Customer has active do-not-contact restriction", currentEvaluation);
+                        "Customer has active do-not-contact restriction", currentEvaluation, outcome);
             }
             boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
                     .anyMatch(consent -> consent.contactId().equals(phone.id())
@@ -176,7 +163,7 @@ public class DefaultAiActionGate implements AiActionGate {
             if (!eligibleContact) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
-                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation);
+                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome);
             }
 
             // 8. Stale State Detection & Baseline Customer Binding
@@ -187,7 +174,7 @@ public class DefaultAiActionGate implements AiActionGate {
                 if (!Objects.equals(baseline.customerId(), customerId)) {
                     emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
                     return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                            "Assembly baseline customer does not match target customer", currentEvaluation);
+                            "Assembly baseline customer does not match target customer", currentEvaluation, outcome);
                 }
 
                 boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
@@ -200,7 +187,7 @@ public class DefaultAiActionGate implements AiActionGate {
                 if (stale) {
                     emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
                     return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
-                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation);
+                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome);
                 }
             }
 
@@ -209,7 +196,7 @@ public class DefaultAiActionGate implements AiActionGate {
                     && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE,
-                        "Customer is not currently due or overdue for follow-up", currentEvaluation);
+                        "Customer is not currently due or overdue for follow-up", currentEvaluation, outcome);
             }
 
             // 10. Semantic action allowlist
@@ -221,14 +208,14 @@ public class DefaultAiActionGate implements AiActionGate {
             if (allowedActions == null || !allowedActions.contains(actionRec.action())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
-                        "Semantic action is not permitted for current context", currentEvaluation);
+                        "Semantic action is not permitted for current context", currentEvaluation, outcome);
             }
 
             // 11. Semantic template intent allowlist and compatibility
             if (!isCompatibleIntent(actionRec.action(), actionRec.templateIntent())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
-                        "Semantic template intent is incompatible with recommended action", currentEvaluation);
+                        "Semantic template intent is incompatible with recommended action", currentEvaluation, outcome);
             }
 
             return ActionGateDecision.accepted(actionRec, currentEvaluation);
@@ -236,7 +223,7 @@ public class DefaultAiActionGate implements AiActionGate {
 
         emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "UNKNOWN_OUTCOME_TYPE");
         return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                "Unknown recommendation outcome type", currentEvaluation);
+                "Unknown recommendation outcome type", currentEvaluation, outcome);
     }
 
     private void emitRejection(Optional<TenantContext> tenantContextOpt, CustomerId customerId,
