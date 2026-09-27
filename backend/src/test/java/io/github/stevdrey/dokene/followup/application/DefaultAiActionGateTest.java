@@ -147,6 +147,7 @@ class DefaultAiActionGateTest {
         lastPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
                 lastPurchaseTime, "Purchase 1", now.minusSeconds(86400));
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
 
         dueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
                 activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, lastPurchaseTime);
@@ -349,7 +350,7 @@ class DefaultAiActionGateTest {
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
                 "Test Customer", "Notes", List.of());
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
-                notDueEvaluation, new RecommendationContext(trusted, untrusted), null);
+                notDueEvaluation, new RecommendationContext(trusted, untrusted), List.of());
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -372,7 +373,8 @@ class DefaultAiActionGateTest {
 
     @Test
     void rejectsActionRecommendationWhenAssemblyContextIsMissing() {
-        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(dueEvaluation, null, lastPurchase.id());
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation, null, List.of(PurchaseBaseline.from(lastPurchase)));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -615,12 +617,16 @@ class DefaultAiActionGateTest {
     }
 
     @Test
-    void rejectsAssemblyConstructionWhenEvaluationHasPurchaseHistoryAndPurchaseIdIsNull() {
+    void rejectsAssemblyConstructionWhenEvaluationHasPurchaseHistoryAndPurchaseBaselineIsEmpty() {
         RecommendationContext context = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context();
 
-        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(dueEvaluation, context, null))
+        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(dueEvaluation, context, (List<PurchaseBaseline>) null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Last purchase ID is required when baseline contains purchase history");
+                .hasMessageContaining("Purchase baseline is required when baseline contains purchase history");
+
+        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(dueEvaluation, context, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Purchase baseline is required when baseline contains purchase history");
     }
 
     @Test
@@ -678,6 +684,150 @@ class DefaultAiActionGateTest {
         ));
     }
 
+    @Test
+    void rejectsWhenNonLatestPurchaseInBaselineWasCorrectedInFlight() {
+        Purchase secondPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
+                List.of(latestBaseline, secondBaseline));
+
+        Purchase correctedSecondPurchase = Purchase.restore(
+                secondPurchase.id(), tenantId, customerId,
+                secondPurchase.purchasedAt(), "Corrected description",
+                PurchaseStatus.VALID, secondPurchase.createdAt(), now.minusSeconds(10),
+                null, secondPurchase.version() + 1);
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(correctedSecondPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
+                        && Objects.equals(event.customerId(), customerId)
+        ));
+    }
+
+    @Test
+    void rejectsWhenNonLatestPurchaseInBaselineWasVoidedInFlight() {
+        Purchase secondPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
+                List.of(latestBaseline, secondBaseline));
+
+        Purchase voidedSecondPurchase = Purchase.restore(
+                secondPurchase.id(), tenantId, customerId,
+                secondPurchase.purchasedAt(), secondPurchase.description(),
+                PurchaseStatus.VOID, secondPurchase.createdAt(), now.minusSeconds(10),
+                now.minusSeconds(10), secondPurchase.version() + 1);
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(voidedSecondPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
+                        && Objects.equals(event.customerId(), customerId)
+        ));
+    }
+
+    @Test
+    void rejectsWhenNonLatestPurchaseInBaselineWasDeletedInFlight() {
+        Purchase secondPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
+                List.of(latestBaseline, secondBaseline));
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.empty());
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
+                        && Objects.equals(event.customerId(), customerId)
+        ));
+    }
+
+    @Test
+    void rejectsWhenNonLatestPurchaseTimestampChangedInFlight() {
+        Purchase secondPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
+                List.of(latestBaseline, secondBaseline));
+
+        Purchase modifiedSecondPurchase = Purchase.restore(
+                secondPurchase.id(), tenantId, customerId,
+                secondPurchase.purchasedAt().minusSeconds(10), secondPurchase.description(),
+                PurchaseStatus.VALID, secondPurchase.createdAt(), now.minusSeconds(10),
+                null, secondPurchase.version());
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(modifiedSecondPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
+                        && Objects.equals(event.customerId(), customerId)
+        ));
+    }
+
+    @Test
+    void acceptsValidRecommendationWhenMultiplePurchasesInBaselineAreUnchanged() {
+        Purchase secondPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
+                List.of(latestBaseline, secondBaseline));
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(secondPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isTrue();
+        assertThat(decision.rejectionReason()).isEmpty();
+        verify(auditListener, never()).onSecurityRejection(any());
+    }
+
     private void verifyRejection(CustomerId customerId, ActionGateRejectionReason reason) {
         verify(auditListener).onSecurityRejection(argThat(event ->
                 Objects.equals(event.customerId(), customerId) && event.reason() == reason));
@@ -688,9 +838,11 @@ class DefaultAiActionGateTest {
     }
 
     private RecommendationContextAssembler.Assembly assembly(FollowUpEvaluation evaluation, List<SemanticAction> allowedActions, PurchaseId purchaseId) {
+        List<PurchaseBaseline> baselines = purchaseId == null ? List.of() :
+                (evaluation.lastPurchaseAt() != null ? List.of(new PurchaseBaseline(purchaseId, 0L, evaluation.lastPurchaseAt())) : List.of());
         if (evaluation.nextFollowUpDate() == null
                 || (evaluation.status() != FollowUpStatus.DUE && evaluation.status() != FollowUpStatus.OVERDUE)) {
-            return new RecommendationContextAssembler.Assembly(evaluation, null, purchaseId);
+            return new RecommendationContextAssembler.Assembly(evaluation, null, baselines);
         }
         List<TrustedFollowUpReason> trustedReasons = new java.util.ArrayList<>();
         for (FollowUpReason r : evaluation.reasons()) {
@@ -707,6 +859,6 @@ class DefaultAiActionGateTest {
                 purchaseTimes, allowedActions);
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
                 "Test Customer", "Some notes", List.of("Purchase description"));
-        return new RecommendationContextAssembler.Assembly(evaluation, new RecommendationContext(trusted, untrusted), purchaseId);
+        return new RecommendationContextAssembler.Assembly(evaluation, new RecommendationContext(trusted, untrusted), baselines);
     }
 }

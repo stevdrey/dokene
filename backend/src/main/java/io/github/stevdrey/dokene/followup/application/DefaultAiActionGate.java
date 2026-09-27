@@ -19,6 +19,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
+import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -210,7 +211,7 @@ public class DefaultAiActionGate implements AiActionGate {
             // 8. Require complete assembly baseline and context for action recommendations
             if (assembly == null || assembly.evaluation() == null
                     || assembly.context() == null || assembly.context().trusted() == null
-                    || (assembly.evaluation().lastPurchaseAt() != null && assembly.lastPurchaseId() == null)) {
+                    || (assembly.evaluation().lastPurchaseAt() != null && assembly.purchases().isEmpty())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "MISSING_ASSEMBLY_BASELINE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
                         "Action recommendations require a complete assembly baseline and context", currentEvaluation, outcome);
@@ -234,13 +235,28 @@ public class DefaultAiActionGate implements AiActionGate {
 
             // 10. Stale State Detection
             FollowUpEvaluation baseline = assembly.evaluation();
+            PurchaseId baselineLastPurchaseId = assembly.lastPurchaseId();
             boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
-                    || !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId)
+                    || !Objects.equals(baselineLastPurchaseId, currentLastPurchaseId)
                     || baseline.status() != currentEvaluation.status()
                     || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
                     || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
                     || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
                     || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
+
+            if (!stale) {
+                for (PurchaseBaseline pb : assembly.purchases()) {
+                    Optional<Purchase> currentPurchaseOpt = purchases.findById(customer.tenantId(), customer.id(), pb.id());
+                    if (currentPurchaseOpt.isEmpty()
+                            || currentPurchaseOpt.get().status() != PurchaseStatus.VALID
+                            || currentPurchaseOpt.get().version() != pb.version()
+                            || !Objects.equals(currentPurchaseOpt.get().purchasedAt(), pb.purchasedAt())) {
+                        stale = true;
+                        break;
+                    }
+                }
+            }
+
             if (stale) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,

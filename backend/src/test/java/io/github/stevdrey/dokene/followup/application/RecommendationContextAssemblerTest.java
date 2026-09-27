@@ -72,6 +72,11 @@ class RecommendationContextAssemblerTest {
         var second = assembler.assemble(customerId);
 
         assertThat(first).isEqualTo(second);
+        assertThat(first.purchases()).hasSize(2);
+        assertThat(first.purchases().get(0).purchasedAt()).isEqualTo(now.minusSeconds(1));
+        assertThat(first.purchases().get(0).version()).isEqualTo(0L);
+        assertThat(first.purchases().get(1).purchasedAt()).isEqualTo(now.minusSeconds(2));
+        assertThat(first.purchases().get(1).version()).isEqualTo(0L);
         assertThat(first.context().untrusted().notes()).isEqualTo(attack);
         assertThat(first.context().untrusted().purchaseDescriptions()).containsExactly(attack, "second");
         assertThat(first.context().trusted().purchaseDates()).containsExactly(
@@ -90,7 +95,9 @@ class RecommendationContextAssemblerTest {
         when(customers.get(customerId)).thenReturn(customer(null));
         when(purchases.list(customerId, PurchaseStatus.VALID, null, 5))
                 .thenReturn(new PurchasePage(List.of(), null));
-        assertThat(assembler.assemble(customerId).context().trusted().purchaseDates()).isEmpty();
+        var noHistoryAssembly = assembler.assemble(customerId);
+        assertThat(noHistoryAssembly.context().trusted().purchaseDates()).isEmpty();
+        assertThat(noHistoryAssembly.purchases()).isEmpty();
 
         String oversized = "secret".repeat(100);
         when(customers.get(customerId)).thenReturn(customer(oversized));

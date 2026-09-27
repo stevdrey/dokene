@@ -39,6 +39,7 @@ class FollowUpRecommendationServiceTest {
     private final LocalDate tenantDate = LocalDate.of(2026, 9, 25);
     private final Instant lastPurchase = Instant.parse("2026-08-01T12:00:00Z");
     private final PurchaseId purchaseId = new PurchaseId(UUID.randomUUID());
+    private final List<PurchaseBaseline> purchases = List.of(new PurchaseBaseline(purchaseId, 0L, lastPurchase));
     private final Duration timeout = Duration.ofSeconds(3);
     private final RecommendationContextAssembler assembler = mock();
     private final AiActionGate gate = mock();
@@ -54,7 +55,7 @@ class FollowUpRecommendationServiceTest {
 
         for (var outcome : List.of(action, refusal)) {
             DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(outcome);
-            var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchaseId);
+            var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
             when(assembler.assemble(due.customerId())).thenReturn(assembly);
             when(gate.evaluate(due.customerId(), assembly, outcome)).thenReturn(ActionGateDecision.accepted(outcome, due));
 
@@ -79,7 +80,7 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
         FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE);
 
-        when(assembler.assemble(ineligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(ineligible, null, null));
+        when(assembler.assemble(ineligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(ineligible, null, List.of()));
         FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler, gate).recommend(ineligible.customerId(), timeout);
 
         assertThat(decision.evaluation()).isSameAs(ineligible);
@@ -100,7 +101,7 @@ class FollowUpRecommendationServiceTest {
         for (DeterministicFakeAiProvider fake : List.of(
                 DeterministicFakeAiProvider.malformedOutput(),
                 DeterministicFakeAiProvider.failure(AiFailureCategory.TIMEOUT))) {
-            when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context(), purchaseId));
+            when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context(), purchases));
             assertThatThrownBy(() -> new FollowUpRecommendationService(fake, assembler, gate).recommend(due.customerId(), timeout))
                     .isInstanceOf(AiProviderException.class);
         }
@@ -114,7 +115,7 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
         FollowUpEvaluation forged = evaluation(FollowUpStatus.DUE);
         FollowUpEvaluation authoritative = evaluation(FollowUpStatus.DUE);
-        var assembly = new RecommendationContextAssembler.Assembly(authoritative, context(), purchaseId);
+        var assembly = new RecommendationContextAssembler.Assembly(authoritative, context(), purchases);
 
         when(assembler.assemble(forged.customerId())).thenReturn(assembly);
         when(gate.evaluate(forged.customerId(), assembly, action)).thenReturn(ActionGateDecision.accepted(action, authoritative));
@@ -130,7 +131,7 @@ class FollowUpRecommendationServiceTest {
         FollowUpEvaluation forgedEligible = evaluation(FollowUpStatus.DUE);
         FollowUpEvaluation authoritativeIneligible = evaluation(FollowUpStatus.INELIGIBLE);
 
-        when(assembler.assemble(forgedEligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(authoritativeIneligible, null, null));
+        when(assembler.assemble(forgedEligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(authoritativeIneligible, null, List.of()));
 
         FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler, gate).recommend(forgedEligible, timeout);
         assertThat(directDecision.evaluation()).isSameAs(authoritativeIneligible);
@@ -146,7 +147,7 @@ class FollowUpRecommendationServiceTest {
                 RecommendationConfidence.of(0.8), DraftVariables.empty());
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
         FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
-        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchaseId);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
 
         when(assembler.assemble(due.customerId())).thenReturn(assembly);
         when(gate.evaluate(due.customerId(), assembly, action)).thenReturn(
@@ -169,7 +170,7 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
         FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
         FollowUpEvaluation freshIneligible = evaluation(FollowUpStatus.NOT_YET_DUE);
-        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchaseId);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
 
         when(assembler.assemble(due.customerId())).thenReturn(assembly);
         when(gate.evaluate(due.customerId(), assembly, action)).thenReturn(
@@ -195,7 +196,7 @@ class FollowUpRecommendationServiceTest {
 
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(rawAction);
         FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
-        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchaseId);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
 
         when(assembler.assemble(due.customerId())).thenReturn(assembly);
         when(gate.evaluate(due.customerId(), assembly, rawAction)).thenReturn(ActionGateDecision.accepted(normalizedAction, due));
@@ -215,7 +216,7 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
         FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
         FollowUpEvaluation freshIneligible = evaluation(FollowUpStatus.INELIGIBLE);
-        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchaseId);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
 
         when(assembler.assemble(due.customerId())).thenReturn(assembly);
         when(gate.evaluate(due.customerId(), assembly, action)).thenReturn(
