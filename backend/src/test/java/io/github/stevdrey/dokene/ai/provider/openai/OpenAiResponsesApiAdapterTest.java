@@ -168,6 +168,7 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(capturedRequestBody.get()).contains("<trusted_facts>");
         assertThat(capturedRequestBody.get()).contains("<untrusted_customer_data>");
         assertThat(capturedRequestBody.get()).contains("Acme Corp");
+        assertThat(capturedRequestBody.get()).contains("\"store\":false");
     }
 
     @Test
@@ -383,12 +384,12 @@ class OpenAiResponsesApiAdapterTest {
 
     @Test
     void rejectsActionOutsideAllowedActions() {
-        // WIN_BACK is a valid SemanticAction, but NOT in sampleRequest allowedActions
+        // RELATED_PRODUCT_OFFER is a valid SemanticAction enum value, but NOT in sampleRequest allowedActions
         String outcomeJson = """
                 {
                   "recommendation": {
                     "outcome": "ACTION",
-                    "action": "WIN_BACK",
+                    "action": "RELATED_PRODUCT_OFFER",
                     "templateIntent": "GENERAL_FOLLOW_UP",
                     "rationale": "Attempting action not in allowed list",
                     "confidence": 0.85,
@@ -486,6 +487,21 @@ class OpenAiResponsesApiAdapterTest {
                 .satisfies(ex -> {
                     AiProviderException ape = (AiProviderException) ex;
                     assertThat(ape.category()).isEqualTo(AiFailureCategory.TIMEOUT);
+                });
+    }
+
+    @Test
+    void handlesHttp409AsUnavailable() {
+        responseStatusCode.set(409);
+        responseBody.set("{\"error\": {\"message\": \"Conflict: resource state concurrent change\"}}");
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> {
+                    AiProviderException ape = (AiProviderException) ex;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
                 });
     }
 

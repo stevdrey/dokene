@@ -184,7 +184,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             Duration latency = Duration.between(start, Instant.now());
             AiFailureCategory category = e.statusCode() == 429 ? AiFailureCategory.THROTTLED
                     : e.statusCode() == 408 ? AiFailureCategory.TIMEOUT
-                    : e.statusCode() >= 500 ? AiFailureCategory.UNAVAILABLE
+                    : (e.statusCode() == 409 || e.statusCode() >= 500) ? AiFailureCategory.UNAVAILABLE
                     : AiFailureCategory.REJECTED_REQUEST;
             throw new AiProviderException(category,
                     failureMetadata(modelId, null, latency, null, category));
@@ -248,6 +248,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .instructions(SYSTEM_INSTRUCTIONS)
                 .input(input)
                 .text(textConfig)
+                .store(false)
                 .build();
     }
 
