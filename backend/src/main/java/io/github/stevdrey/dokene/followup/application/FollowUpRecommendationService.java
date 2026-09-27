@@ -2,28 +2,59 @@ package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
+import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
+import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
+import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Duration;
 import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
  * Composes an authorized deterministic evaluation with optional advisory AI output,
  * strictly validated by the deterministic {@link AiActionGate}.
  */
+@Service
 public final class FollowUpRecommendationService {
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration MAX_TIMEOUT = Duration.ofSeconds(30);
+
     private final AiProvider provider;
     private final RecommendationContextAssembler assembler;
     private final AiActionGate gate;
+    private final TenantAuthorizationService authorization;
+    private final TenantContextProvider contexts;
+    private final FollowUpService followUps;
 
-    public FollowUpRecommendationService(AiProvider provider, RecommendationContextAssembler assembler,
-            AiActionGate gate) {
+    @Autowired
+    public FollowUpRecommendationService(
+            AiProvider provider,
+            RecommendationContextAssembler assembler,
+            AiActionGate gate,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            FollowUpService followUps) {
         this.provider = Objects.requireNonNull(provider, "AI provider is required");
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
         this.gate = Objects.requireNonNull(gate, "AI action gate is required");
+        this.authorization = authorization;
+        this.contexts = contexts;
+        this.followUps = followUps;
+    }
+
+    public FollowUpRecommendationService(
+            AiProvider provider,
+            RecommendationContextAssembler assembler,
+            AiActionGate gate) {
+        this(provider, assembler, gate, null, null, null);
     }
 
     public FollowUpDecision recommend(CustomerId customerId, Duration timeout) {
@@ -50,5 +81,74 @@ public final class FollowUpRecommendationService {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         Objects.requireNonNull(timeout, "Timeout is required");
         return recommend(evaluation.customerId(), timeout);
+    }
+
+    /**
+     * Safe orchestration method for customer recommendation requests.
+     * Validates tenant authorization, verifies optimistic policy version if supplied,
+     * normalizes AI provider errors without unhandled exceptions, and maps
+     * into a typed {@link FollowUpRecommendationResult}.
+     */
+    public FollowUpRecommendationResult recommendSafe(
+            CustomerId customerId,
+            Duration requestedTimeout,
+            Long expectedVersion) {
+        Objects.requireNonNull(customerId, "Customer ID is required");
+        if (contexts != null) {
+            contexts.requireCurrent();
+        }
+        if (authorization != null) {
+            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
+        }
+
+        long policyVersion = 0L;
+        if (followUps != null) {
+            var policy = followUps.customerPolicy(customerId);
+            policyVersion = policy.version();
+            if (expectedVersion != null && expectedVersion != policyVersion) {
+                throw new FollowUpConflictException();
+            }
+        }
+
+        Duration effectiveTimeout = resolveTimeout(requestedTimeout);
+
+        try {
+            FollowUpDecision decision = recommend(customerId, effectiveTimeout);
+            FollowUpEvaluation evaluation = decision.evaluation();
+
+            if (decision.gateDecision().isAccepted()) {
+                if (decision.recommendation() instanceof ActionRecommendation action) {
+                    return FollowUpRecommendationResult.available(evaluation, action, policyVersion);
+                } else if (decision.recommendation() instanceof NoRecommendation refusal) {
+                    return FollowUpRecommendationResult.refusal(evaluation, refusal.reason(), policyVersion);
+                }
+            }
+
+            // Gate rejection or deterministic ineligibility
+            if (decision.rejectionReason().isPresent()
+                    && decision.rejectionReason().get() == ActionGateRejectionReason.STALE_STATE) {
+                return FollowUpRecommendationResult.staleState(evaluation, policyVersion);
+            }
+            ActionGateRejectionReason reason = decision.rejectionReason()
+                    .orElse(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
+            return FollowUpRecommendationResult.ineligible(evaluation, reason, policyVersion);
+
+        } catch (AiProviderException ex) {
+            FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
+            return FollowUpRecommendationResult.aiUnavailable(eval, ex.category().name(), policyVersion);
+        } catch (RecommendationContextException ex) {
+            FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
+            return FollowUpRecommendationResult.ineligible(
+                    eval,
+                    ActionGateRejectionReason.NO_CONTACT_CONSENT,
+                    policyVersion);
+        }
+    }
+
+    private Duration resolveTimeout(Duration requested) {
+        if (requested == null || requested.isNegative() || requested.isZero()) {
+            return DEFAULT_TIMEOUT;
+        }
+        return requested.compareTo(MAX_TIMEOUT) > 0 ? MAX_TIMEOUT : requested;
     }
 }

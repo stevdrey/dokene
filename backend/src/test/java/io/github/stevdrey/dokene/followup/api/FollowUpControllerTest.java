@@ -36,17 +36,31 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.DraftVariables;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
+import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.followup.application.FollowUpConflictException;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationService;
+import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
+import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 class FollowUpControllerTest {
 
     private FollowUpService service;
+    private FollowUpRecommendationService recommendations;
     private MockMvc mvc;
     private final UUID customerId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
         service = mock();
-        mvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service))
+        recommendations = mock();
+        mvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations))
                 .setControllerAdvice(new FollowUpExceptionHandler()).build();
     }
 
@@ -197,5 +211,129 @@ class FollowUpControllerTest {
                 .header("Idempotency-Key", "dismiss-key-1"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("ETag", "\"3\""));
+    }
+
+    @Test
+    void requestRecommendationReturnsAvailableWithEtag() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        ActionRecommendation action = new ActionRecommendation(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Cadence reached",
+                RecommendationConfidence.of(0.85),
+                DraftVariables.empty());
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(2L)))
+                .thenReturn(FollowUpRecommendationResult.available(evaluation, action, 2L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .header("If-Match", "\"2\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"timeoutMs\":5000}"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"2\""))
+                .andExpect(jsonPath("$.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.recommendation.action").value("REPEAT_PURCHASE_FOLLOW_UP"))
+                .andExpect(jsonPath("$.recommendation.rationale").value("Cadence reached"))
+                .andExpect(jsonPath("$.evaluation.reasons[0]").value("DUE_TODAY"));
+    }
+
+    @Test
+    void requestRecommendationReturnsRefusal() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenReturn(FollowUpRecommendationResult.refusal(evaluation, NoRecommendationReason.UNCERTAIN_INTENT, 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.status").value("NO_RECOMMENDATION"))
+                .andExpect(jsonPath("$.refusalReason").value("UNCERTAIN_INTENT"));
+    }
+
+    @Test
+    void requestRecommendationReturnsAiUnavailableWithEvaluation() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(1L)))
+                .thenReturn(FollowUpRecommendationResult.aiUnavailable(evaluation, "TIMEOUT", 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .header("If-Match", "\"1\""))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.status").value("AI_UNAVAILABLE"))
+                .andExpect(jsonPath("$.unavailableReason").value("TIMEOUT"))
+                .andExpect(jsonPath("$.evaluation.status").value("DUE"));
+    }
+
+    @Test
+    void requestRecommendationReturnsIneligible() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.INELIGIBLE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenReturn(FollowUpRecommendationResult.ineligible(evaluation, null, 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INELIGIBLE"))
+                .andExpect(jsonPath("$.evaluation.status").value("INELIGIBLE"));
+    }
+
+    @Test
+    void requestRecommendationReturnsStaleState() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(1L)))
+                .thenReturn(FollowUpRecommendationResult.staleState(evaluation, 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .header("If-Match", "\"1\""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("STALE_STATE"))
+                .andExpect(jsonPath("$.rejectionReason").value("STALE_STATE"));
+    }
+
+    @Test
+    void requestRecommendationRejectsMalformedEtag() throws Exception {
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .header("If-Match", "\"bad\""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void requestRecommendationReturnsConflictOnVersionMismatch() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(1L)))
+                .thenThrow(new FollowUpConflictException());
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .header("If-Match", "\"1\""))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void requestRecommendationSupportsAliasPath() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenReturn(FollowUpRecommendationResult.refusal(evaluation, NoRecommendationReason.UNCERTAIN_INTENT, 1L));
+
+        mvc.perform(post("/api/customers/{id}/follow-up-recommendation", customerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NO_RECOMMENDATION"));
+    }
+
+    private FollowUpEvaluation testEvaluation(FollowUpStatus status) {
+        boolean eligible = status == FollowUpStatus.DUE;
+        LocalDate tenantDate = LocalDate.of(2026, 9, 25);
+        Instant lastPurchase = Instant.parse("2026-08-01T12:00:00Z");
+        return new FollowUpEvaluation(new CustomerId(customerId),
+                status, List.of(eligible ? FollowUpReason.DUE_TODAY : FollowUpReason.DO_NOT_CONTACT),
+                Instant.parse("2026-09-25T12:00:00Z"), tenantDate, ZoneId.of("America/Costa_Rica"),
+                eligible ? tenantDate : null,
+                eligible ? FollowUpTimingSource.LAST_PURCHASE : FollowUpTimingSource.NONE,
+                eligible ? 30 : 0, eligible ? lastPurchase : null);
     }
 }

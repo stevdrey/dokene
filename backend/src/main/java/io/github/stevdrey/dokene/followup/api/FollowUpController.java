@@ -26,6 +26,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueCursor;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
 import io.github.stevdrey.dokene.followup.domain.FollowUpQueueItem;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.followup.application.ActionGateRejectionReason;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationService;
+import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
+import java.time.Duration;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,9 +42,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class FollowUpController {
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9._:-]{1,128}");
     private final FollowUpService followUps;
+    private final FollowUpRecommendationService recommendations;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
+        this.followUps = followUps;
+        this.recommendations = recommendations;
+    }
 
     public FollowUpController(FollowUpService followUps) {
-        this.followUps = followUps;
+        this(followUps, null);
     }
 
     @GetMapping("/follow-up-policy")
@@ -138,6 +153,54 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @PostMapping({"/customers/{customerId}/recommendation", "/customers/{customerId}/follow-up-recommendation"})
+    public ResponseEntity<RecommendationResponse> requestRecommendation(
+            @PathVariable UUID customerId,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody(required = false) RecommendationRequest request) {
+        if (recommendations == null) {
+            throw new IllegalStateException("Recommendation service is not configured");
+        }
+        Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
+        Duration timeout = request != null && request.timeoutMs() != null
+                ? Duration.ofMillis(request.timeoutMs())
+                : null;
+        var result = recommendations.recommendSafe(new CustomerId(customerId), timeout, expectedVersion);
+        return ResponseEntity.ok()
+                .eTag(etag(result.policyVersion()))
+                .body(response(result));
+    }
+
+    private RecommendationResponse response(FollowUpRecommendationResult result) {
+        EvaluationResponse evalResponse = result.evaluation() != null ? response(result.evaluation()) : null;
+        ActionRecommendationResponse actionResponse = null;
+        if (result.recommendation() != null) {
+            var action = result.recommendation();
+            var vars = action.draftVariables() != null
+                    ? action.draftVariables().entries().stream()
+                            .map(e -> new DraftVariableResponse(e.key(), e.value()))
+                            .toList()
+                    : List.<DraftVariableResponse>of();
+            actionResponse = new ActionRecommendationResponse(
+                    action.action(),
+                    action.templateIntent(),
+                    action.rationale(),
+                    action.confidence().value(),
+                    vars);
+        }
+        UUID cId = result.evaluation() != null
+                ? result.evaluation().customerId().value()
+                : null;
+        return new RecommendationResponse(
+                result.status(),
+                cId,
+                evalResponse,
+                actionResponse,
+                result.refusalReason(),
+                result.rejectionReason(),
+                result.unavailableReason());
+    }
+
     private TenantPolicyResponse response(TenantFollowUpPolicy policy) {
         return new TenantPolicyResponse(policy.cadenceDays(), policy.zoneId().getId());
     }
@@ -210,4 +273,20 @@ public class FollowUpController {
                                     LocalDate lastManualFollowUpDate, LocalDate lastDismissedDate,
                                     Instant evaluatedAt) { }
     public record FollowUpQueuePageResponse(List<QueueItemResponse> items, String nextCursor) { }
+    public record RecommendationRequest(Integer timeoutMs) { }
+    public record DraftVariableResponse(String key, String value) { }
+    public record ActionRecommendationResponse(
+            SemanticAction action,
+            SemanticTemplateIntent templateIntent,
+            String rationale,
+            double confidence,
+            List<DraftVariableResponse> draftVariables) { }
+    public record RecommendationResponse(
+            RecommendationStatus status,
+            UUID customerId,
+            EvaluationResponse evaluation,
+            ActionRecommendationResponse recommendation,
+            NoRecommendationReason refusalReason,
+            ActionGateRejectionReason rejectionReason,
+            String unavailableReason) { }
 }

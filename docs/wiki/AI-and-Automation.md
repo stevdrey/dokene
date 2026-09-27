@@ -103,6 +103,29 @@ Under [ADR 0017: Deterministic AI Action Gate for Recommendations and Drafts](..
 
 The gate produces a sealed `ActionGateDecision` (`Accepted` or `Rejected` with typed `ActionGateRejectionReason`). When rejected, `FollowUpDecision` hides action recommendations (`advisoryRecommendation()` returns empty, `hasActionRecommendation()` is false). The evaluation executes with zero external side effects and records privacy-safe security observability metrics via `AiActionGateAuditListener` (strictly excluding customer notes, prompt text, or PII).
 
+## Next Best Action Recommendation Orchestration & API
+
+Recommendation orchestration is coordinated by `FollowUpRecommendationService` and exposed via tenant-scoped REST endpoints:
+- `POST /api/customers/{customerId}/recommendation`
+- `POST /api/customers/{customerId}/follow-up-recommendation` (canonical alias)
+
+### Headers & Optimistic Locking
+- Requires authenticated tenant context and `TenantPermission.FOLLOWUP_EVALUATE` (returns `403 Forbidden` if denied).
+- Supports optional `If-Match: "<version>"` or `If-Match: <version>`. If the customer policy version does not match, returns `409 Conflict`.
+- Successful responses return `ETag: "<version>"` matching the evaluated customer policy version.
+
+### Response Statuses & Semantics
+The response body returns a top-level `status` enum (`RecommendationStatus`):
+- `AVAILABLE`: Valid action recommendation approved through `AiActionGate`. Contains advisory action, template intent, rationale, and draft variables.
+- `NO_RECOMMENDATION`: AI provider evaluated the context and determined no follow-up action is needed at this time.
+- `STALE_STATE`: Customer purchase history or cadence state drifted between context assembly and gate evaluation.
+- `INELIGIBLE`: Customer is not currently due/overdue, has no WhatsApp consent/opt-out, or is archived.
+- `AI_UNAVAILABLE`: Provider call timed out, threw an exception, or failed schema validation. Degrades gracefully with zero raw provider error payloads or stack traces exposed to clients.
+
+### Invariants
+- **Zero Business Side Effects**: Orchestration is strictly read-only decision support. It never modifies customer policy versions, dismissals, manual follow-up dates, or due queue state.
+- **Separation of Due Reasons vs. AI Rationale**: Authoritative deterministic triggers (`evaluation.reasons`, such as `DUE_TODAY` or `OVERDUE`) remain cleanly separated from advisory AI explanations (`recommendation.rationale`).
+
 
 ## Trust boundaries
 
