@@ -36,13 +36,16 @@ import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -82,6 +85,7 @@ class DefaultAiActionGateTest {
     private final TenantAuthorizationService authorization = mock();
     private final TenantContextProvider contexts = mock();
     private final TenantMembershipRepository memberships = mock();
+    private final TenantRepository tenants = mock();
     private final AiActionGateAuditListener auditListener = mock();
 
     private DefaultAiActionGate gate;
@@ -105,11 +109,14 @@ class DefaultAiActionGateTest {
     @BeforeEach
     void setUp() {
         gate = new DefaultAiActionGate(customers, contacts, policies, purchases,
-                authorization, contexts, memberships, clock, auditListener);
+                authorization, contexts, memberships, tenants, clock, auditListener);
 
         tenantContext = new TenantContext(tenantId, new IdentityId(UUID.randomUUID()),
                 new TenantMembershipId(UUID.randomUUID()), TenantRole.OPERATOR);
         when(contexts.current()).thenReturn(Optional.of(tenantContext));
+
+        Tenant activeTenant = Tenant.create(tenantId, "Test Tenant", now.minusSeconds(86400));
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(activeTenant));
 
         TenantMembership activeMembership = TenantMembership.createActive(
                 tenantContext.membershipId(), tenantId, tenantContext.identityId(),
@@ -527,7 +534,7 @@ class DefaultAiActionGateTest {
         List<AiActionGateAuditListener.SecurityRejectionEvent> events = new ArrayList<>();
         AiActionGateAuditListener capturingListener = events::add;
         DefaultAiActionGate capturingGate = new DefaultAiActionGate(customers, contacts, policies, purchases,
-                authorization, contexts, memberships, clock, capturingListener);
+                authorization, contexts, memberships, tenants, clock, capturingListener);
 
         when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
                 .thenReturn(AuthorizationDecision.deny("Role OPERATOR lacks permission FOLLOWUP_EVALUATE"));
@@ -614,6 +621,61 @@ class DefaultAiActionGateTest {
         assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(dueEvaluation, context, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Last purchase ID is required when baseline contains purchase history");
+    }
+
+    @Test
+    void rejectsWhenTenantSuspendedInFlight() {
+        Tenant suspendedTenant = Tenant.create(tenantId, "Suspended Tenant", now.minusSeconds(86400));
+        suspendedTenant.suspend(now.minusSeconds(3600));
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(suspendedTenant));
+
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.UNAUTHORIZED);
+        assertThat(decision.diagnostic()).contains("Tenant is not active");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.UNAUTHORIZED
+                        && event.diagnosticCode().equals("Tenant is not active (status: SUSPENDED)")
+                        && event.tenantId().equals(tenantId)
+        ));
+    }
+
+    @Test
+    void rejectsWhenTenantArchivedInFlight() {
+        Tenant archivedTenant = Tenant.create(tenantId, "Archived Tenant", now.minusSeconds(86400));
+        archivedTenant.archive(now.minusSeconds(3600));
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(archivedTenant));
+
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.UNAUTHORIZED);
+        assertThat(decision.diagnostic()).contains("Tenant is not active");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.UNAUTHORIZED
+                        && event.diagnosticCode().equals("Tenant is not active (status: ARCHIVED)")
+                        && event.tenantId().equals(tenantId)
+        ));
+    }
+
+    @Test
+    void rejectsWhenTenantNotFoundInFlight() {
+        when(tenants.findById(tenantId)).thenReturn(Optional.empty());
+
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.UNAUTHORIZED);
+        assertThat(decision.diagnostic()).contains("Tenant is not active");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.UNAUTHORIZED
+                        && event.diagnosticCode().equals("Tenant not found")
+                        && event.tenantId().equals(tenantId)
+        ));
     }
 
     private void verifyRejection(CustomerId customerId, ActionGateRejectionReason reason) {

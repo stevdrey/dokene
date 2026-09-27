@@ -23,11 +23,14 @@ import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -51,6 +54,7 @@ public class DefaultAiActionGate implements AiActionGate {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final TenantMembershipRepository memberships;
+    private final TenantRepository tenants;
     private final FollowUpPolicyEvaluator evaluator;
     private final Clock clock;
     private final AiActionGateAuditListener auditListener;
@@ -64,6 +68,7 @@ public class DefaultAiActionGate implements AiActionGate {
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
             TenantMembershipRepository memberships,
+            TenantRepository tenants,
             Clock clock,
             AiActionGateAuditListener auditListener) {
         this.customers = Objects.requireNonNull(customers, "Customer repository is required");
@@ -73,6 +78,7 @@ public class DefaultAiActionGate implements AiActionGate {
         this.authorization = Objects.requireNonNull(authorization, "Authorization service is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
         this.memberships = Objects.requireNonNull(memberships, "Tenant membership repository is required");
+        this.tenants = Objects.requireNonNull(tenants, "Tenant repository is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.evaluator = new FollowUpPolicyEvaluator(clock);
         this.auditListener = Objects.requireNonNull(auditListener, "Audit listener is required");
@@ -86,8 +92,9 @@ public class DefaultAiActionGate implements AiActionGate {
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
             TenantMembershipRepository memberships,
+            TenantRepository tenants,
             Clock clock) {
-        this(customers, contacts, policies, purchases, authorization, contexts, memberships, clock, AiActionGateAuditListener.logging());
+        this(customers, contacts, policies, purchases, authorization, contexts, memberships, tenants, clock, AiActionGateAuditListener.logging());
     }
 
     @Override
@@ -105,6 +112,17 @@ public class DefaultAiActionGate implements AiActionGate {
                     "Active authenticated tenant context is required", null, outcome);
         }
         TenantContext cachedContext = tenantContextOpt.get();
+
+        // Authoritative tenant status re-resolution at gate evaluation time
+        Optional<Tenant> tenantOpt = tenants.findById(cachedContext.tenantId());
+        if (tenantOpt.isEmpty() || tenantOpt.get().status() != TenantStatus.ACTIVE) {
+            String diagnosticCode = tenantOpt
+                    .map(t -> "Tenant is not active (status: " + t.status() + ")")
+                    .orElse("Tenant not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
+            return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Tenant is not active", null, outcome);
+        }
 
         // Authoritative membership re-resolution at gate evaluation time
         Optional<TenantMembership> membershipOpt = memberships.findByTenantIdAndIdentityId(

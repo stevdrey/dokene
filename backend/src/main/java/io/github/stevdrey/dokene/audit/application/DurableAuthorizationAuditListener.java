@@ -6,6 +6,7 @@ import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,8 @@ public class DurableAuthorizationAuditListener implements AuthorizationAuditList
         }
         return switch (reason) {
             case "No active tenant context" -> AuditDenialReason.NO_TENANT_CONTEXT;
+            case "Tenant not found" -> AuditDenialReason.NO_TENANT_CONTEXT;
+            case "Tenant membership not found" -> AuditDenialReason.INACTIVE_MEMBERSHIP;
             case "Tenant context has no role assigned" -> AuditDenialReason.MISSING_ROLE;
             case "Requested permission is required" -> AuditDenialReason.MISSING_PERMISSION;
             case "Resource tenant ID is required" -> AuditDenialReason.MISSING_RESOURCE_TENANT;
@@ -46,6 +49,10 @@ public class DurableAuthorizationAuditListener implements AuthorizationAuditList
     private static Map<String, AuditDenialReason> buildDynamicReasons() {
         // Construct the exact allowlist once per listener, never format candidate messages per denial.
         Map<String, AuditDenialReason> reasons = new HashMap<>();
+        for (TenantStatus status : TenantStatus.values()) {
+            reasons.put("Tenant is not active (status: %s)".formatted(status),
+                    AuditDenialReason.NO_TENANT_CONTEXT);
+        }
         for (TenantMembershipStatus status : TenantMembershipStatus.values()) {
             reasons.put("Tenant membership is not active (status: %s)".formatted(status),
                     AuditDenialReason.INACTIVE_MEMBERSHIP);
