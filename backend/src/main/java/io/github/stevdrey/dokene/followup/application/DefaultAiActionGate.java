@@ -1,0 +1,243 @@
+package io.github.stevdrey.dokene.followup.application;
+
+import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
+import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
+import io.github.stevdrey.dokene.customer.application.CustomerRepository;
+import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
+import io.github.stevdrey.dokene.customer.domain.ContactChannel;
+import io.github.stevdrey.dokene.customer.domain.ContactPolicy;
+import io.github.stevdrey.dokene.customer.domain.Customer;
+import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
+import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
+import io.github.stevdrey.dokene.followup.domain.FollowUpPolicyEvaluator;
+import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
+import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
+import io.github.stevdrey.dokene.purchase.domain.Purchase;
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Deterministic application-owned enforcement of ADR 0004 for Phase 2 recommendation and draft results.
+ * Revalidates authoritative tenant context, customer status, consent, follow-up eligibility,
+ * staleness, and allowlists before accepting any advisory AI outcome.
+ */
+@Service
+public class DefaultAiActionGate implements AiActionGate {
+
+    private final CustomerRepository customers;
+    private final ContactPolicyRepository contacts;
+    private final FollowUpPolicyRepository policies;
+    private final PurchaseRepository purchases;
+    private final TenantAuthorizationService authorization;
+    private final TenantContextProvider contexts;
+    private final FollowUpPolicyEvaluator evaluator;
+    private final AiActionGateAuditListener auditListener;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DefaultAiActionGate(
+            CustomerRepository customers,
+            ContactPolicyRepository contacts,
+            FollowUpPolicyRepository policies,
+            PurchaseRepository purchases,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            Clock clock,
+            Optional<AiActionGateAuditListener> auditListener) {
+        this.customers = Objects.requireNonNull(customers, "Customer repository is required");
+        this.contacts = Objects.requireNonNull(contacts, "Contact policy repository is required");
+        this.policies = Objects.requireNonNull(policies, "Follow-up policy repository is required");
+        this.purchases = Objects.requireNonNull(purchases, "Purchase repository is required");
+        this.authorization = Objects.requireNonNull(authorization, "Authorization service is required");
+        this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
+        Objects.requireNonNull(clock, "Clock is required");
+        this.evaluator = new FollowUpPolicyEvaluator(clock);
+        this.auditListener = Objects.requireNonNull(auditListener, "Audit listener optional is required")
+                .orElseGet(AiActionGateAuditListener::logging);
+    }
+
+    public DefaultAiActionGate(
+            CustomerRepository customers,
+            ContactPolicyRepository contacts,
+            FollowUpPolicyRepository policies,
+            PurchaseRepository purchases,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            Clock clock) {
+        this(customers, contacts, policies, purchases, authorization, contexts, clock, Optional.empty());
+    }
+
+    public DefaultAiActionGate(
+            CustomerRepository customers,
+            ContactPolicyRepository contacts,
+            FollowUpPolicyRepository policies,
+            PurchaseRepository purchases,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            Clock clock,
+            AiActionGateAuditListener auditListener) {
+        this(customers, contacts, policies, purchases, authorization, contexts, clock, Optional.ofNullable(auditListener));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ActionGateDecision evaluate(CustomerId customerId,
+                                        RecommendationContextAssembler.Assembly assembly,
+                                        RecommendationOutcome outcome) {
+        Objects.requireNonNull(customerId, "Customer ID is required");
+
+        // 1. Authenticated TenantContext
+        Optional<TenantContext> tenantContextOpt = contexts.current();
+        if (tenantContextOpt.isEmpty()) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.NO_TENANT_CONTEXT,
+                    "Active authenticated tenant context is required");
+        }
+        TenantContext tenantContext = tenantContextOpt.get();
+
+        // 2. Caller Authorization
+        if (!authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.UNAUTHORIZED, "MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller lacks required permission FOLLOWUP_EVALUATE");
+        }
+
+        // 3. Customer Existence and Resource Ownership
+        Optional<Customer> customerOpt = customers.findById(tenantContext.tenantId(), customerId);
+        if (customerOpt.isEmpty()) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_NOT_FOUND,
+                    "Customer not found within current tenant boundary");
+        }
+        Customer customer = customerOpt.get();
+        if (!authorization.hasResourceAccess(TenantPermission.FOLLOWUP_EVALUATE, customer)) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.UNAUTHORIZED, "RESOURCE_ACCESS_DENIED");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller not authorized to access customer resource");
+        }
+
+        // 4. Customer Active State
+        if (customer.status() == CustomerStatus.ARCHIVED) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
+                    "Customer is archived");
+        }
+
+        // 5. Current Consent and Do-Not-Contact State
+        ContactPolicy contactPolicy = contacts.find(customer);
+        if (contactPolicy.doNotContact()) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
+                    "Customer has active do-not-contact restriction");
+        }
+        boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
+                .anyMatch(consent -> consent.contactId().equals(phone.id())
+                        && consent.channel() == ContactChannel.WHATSAPP
+                        && consent.status() == ConsentStatus.GRANTED));
+        if (!eligibleContact) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
+                    "Customer lacks granted contact consent for WhatsApp");
+        }
+
+        // 6. Current Follow-Up Evaluation
+        var tenantPolicy = policies.tenantPolicy(customer.tenantId());
+        var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
+        Instant lastPurchase = purchases.lastValid(customer.tenantId(), customer.id())
+                .map(Purchase::purchasedAt).orElse(null);
+        FollowUpEvaluation currentEvaluation = evaluator.evaluate(customer, contactPolicy, tenantPolicy, customerPolicy, lastPurchase);
+
+        // 7. Stale State Detection (compared against baseline assembly, if provided)
+        if (assembly != null && assembly.evaluation() != null) {
+            FollowUpEvaluation baseline = assembly.evaluation();
+            boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
+                    || baseline.status() != currentEvaluation.status()
+                    || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
+                    || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
+                    || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
+                    || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
+            if (stale) {
+                auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                        "Authoritative state changed between context assembly and result acceptance");
+            }
+        }
+
+        // 8. Follow-Up Due State Enforcement
+        if (!currentEvaluation.eligible() || (currentEvaluation.status() != FollowUpStatus.DUE
+                && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE,
+                    "Customer is not currently due or overdue for follow-up");
+        }
+
+        // 9. Recommendation Outcome Validation
+        if (outcome == null) {
+            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                    "Recommendation outcome cannot be null");
+        }
+
+        if (outcome instanceof NoRecommendation) {
+            // Model refusal is accepted when caller and customer state are valid
+            return ActionGateDecision.accepted(outcome);
+        }
+
+        if (outcome instanceof ActionRecommendation actionRec) {
+            // 8a. Semantic action allowlist
+            List<SemanticAction> allowedActions = assembly != null && assembly.context() != null
+                    && assembly.context().trusted() != null
+                    ? assembly.context().trusted().allowedActions()
+                    : List.of(SemanticAction.values());
+
+            if (allowedActions == null || !allowedActions.contains(actionRec.action())) {
+                auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
+                        "Semantic action is not permitted for current context");
+            }
+
+            // 8b. Semantic template intent allowlist and compatibility
+            if (!isCompatibleIntent(actionRec.action(), actionRec.templateIntent())) {
+                auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
+                        "Semantic template intent is incompatible with recommended action");
+            }
+
+            return ActionGateDecision.accepted(actionRec);
+        }
+
+        auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "UNKNOWN_OUTCOME_TYPE");
+        return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                "Unknown recommendation outcome type");
+    }
+
+    private boolean isCompatibleIntent(SemanticAction action, SemanticTemplateIntent intent) {
+        if (action == null || intent == null) {
+            return false;
+        }
+        return switch (action) {
+            case REPEAT_PURCHASE_FOLLOW_UP -> intent == SemanticTemplateIntent.REPEAT_PURCHASE
+                    || intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
+            case GENERAL_CHECK_IN -> intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
+            case RELATED_PRODUCT_OFFER -> intent == SemanticTemplateIntent.RELATED_PRODUCT
+                    || intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
+            case DORMANT_REENGAGEMENT -> intent == SemanticTemplateIntent.DORMANT_CUSTOMER
+                    || intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
+            case SEASONAL_GREETING -> intent == SemanticTemplateIntent.SEASONAL_EVENT
+                    || intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
+        };
+    }
+}

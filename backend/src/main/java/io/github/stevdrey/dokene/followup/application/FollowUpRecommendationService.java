@@ -8,15 +8,22 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import java.time.Duration;
 import java.util.Objects;
+import org.springframework.stereotype.Service;
 
-/** Composes an authorized deterministic evaluation with optional advisory AI output. */
+/**
+ * Composes an authorized deterministic evaluation with optional advisory AI output,
+ * strictly validated by the deterministic {@link AiActionGate}.
+ */
 public final class FollowUpRecommendationService {
     private final AiProvider provider;
     private final RecommendationContextAssembler assembler;
+    private final AiActionGate gate;
 
-    public FollowUpRecommendationService(AiProvider provider, RecommendationContextAssembler assembler) {
+    public FollowUpRecommendationService(AiProvider provider, RecommendationContextAssembler assembler,
+            AiActionGate gate) {
         this.provider = Objects.requireNonNull(provider, "AI provider is required");
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
+        this.gate = Objects.requireNonNull(gate, "AI action gate is required");
     }
 
     public FollowUpDecision recommend(CustomerId customerId, Duration timeout) {
@@ -30,7 +37,12 @@ public final class FollowUpRecommendationService {
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
         RecommendationOutcome outcome = provider.recommend(request).outcome();
-        return new FollowUpDecision(evaluation, outcome);
+
+        ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
+        if (gateDecision.isAccepted()) {
+            return new FollowUpDecision(evaluation, outcome, gateDecision);
+        }
+        return FollowUpDecision.rejected(evaluation, gateDecision);
     }
 
     public FollowUpDecision recommend(FollowUpEvaluation evaluation, Duration timeout) {

@@ -57,6 +57,33 @@ class FollowUpDecisionTest {
         assertThat(decision.evaluation().eligible()).isTrue();
         assertThat(decision.hasActionRecommendation()).isTrue();
         assertThat(decision.advisoryRecommendation()).contains(sampleAction);
+        assertThat(decision.gateDecision().isAccepted()).isTrue();
+    }
+
+    @Test
+    void rejectedGateDecisionHidesActionRecommendationAndExposesReason() {
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision rejectedGate = ActionGateDecision.rejected(
+                ActionGateRejectionReason.STALE_STATE, "State changed");
+
+        FollowUpDecision decision = FollowUpDecision.rejected(due, rejectedGate);
+
+        assertThat(decision.evaluation()).isSameAs(due);
+        assertThat(decision.hasActionRecommendation()).isFalse();
+        assertThat(decision.advisoryRecommendation()).isEmpty();
+        assertThat(decision.gateDecision().isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void cannotAssociateActionRecommendationWithRejectedGateDecision() {
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision rejectedGate = ActionGateDecision.rejected(
+                ActionGateRejectionReason.DISALLOWED_ACTION, "Action not allowed");
+
+        assertThatThrownBy(() -> new FollowUpDecision(due, sampleAction, rejectedGate))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Cannot associate an action recommendation with a rejected gate decision");
     }
 
     @Test
@@ -99,6 +126,9 @@ class FollowUpDecisionTest {
         assertThat(decision.evaluation().eligible()).isFalse();
         assertThat(decision.hasActionRecommendation()).isFalse();
         assertThat(decision.advisoryRecommendation()).isEmpty();
+        assertThat(decision.gateDecision().isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
+
         assertThatThrownBy(() -> FollowUpDecision.ineligible(
                 evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY)))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -115,6 +145,7 @@ class FollowUpDecisionTest {
             assertThat(decision.evaluation()).isSameAs(evaluation);
             assertThat(decision.hasActionRecommendation()).isFalse();
             assertThat(decision.advisoryRecommendation()).contains(sampleRefusal);
+            assertThat(decision.gateDecision().isAccepted()).isTrue();
         }
     }
 

@@ -28,6 +28,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -37,6 +39,7 @@ class FollowUpRecommendationServiceTest {
     private final Instant lastPurchase = Instant.parse("2026-08-01T12:00:00Z");
     private final Duration timeout = Duration.ofSeconds(3);
     private final RecommendationContextAssembler assembler = mock();
+    private final AiActionGate gate = mock();
 
     @Test
     void eligibleEvaluationUsesFakeForActionAndRefusal() {
@@ -49,39 +52,44 @@ class FollowUpRecommendationServiceTest {
 
         for (var outcome : List.of(action, refusal)) {
             DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(outcome);
-            when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
+            var assembly = new RecommendationContextAssembler.Assembly(due, context());
+            when(assembler.assemble(due.customerId())).thenReturn(assembly);
+            when(gate.evaluate(due.customerId(), assembly, outcome)).thenReturn(ActionGateDecision.accepted(outcome));
 
-            FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(due.customerId(), timeout);
+            FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler, gate).recommend(due.customerId(), timeout);
             assertThat(decision.evaluation()).isSameAs(due);
             assertThat(decision.advisoryRecommendation()).contains(outcome);
+            assertThat(decision.gateDecision().isAccepted()).isTrue();
             assertThat(fake.lastRequest().operation()).isEqualTo(AiOperation.NEXT_BEST_ACTION);
             assertThat(fake.lastRequest().context().trusted().tenantDate()).isEqualTo(tenantDate);
             assertThat(fake.lastRequest().context().trusted().effectiveCadenceDays()).isEqualTo(30);
             assertThat(fake.lastRequest().context().trusted().purchaseDates()).containsExactly(lastPurchase);
             assertThat(fake.lastRequest().timeout()).isEqualTo(timeout);
 
-            FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(due, timeout);
+            FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler, gate).recommend(due, timeout);
             assertThat(directDecision.evaluation()).isSameAs(due);
             assertThat(directDecision.advisoryRecommendation()).contains(outcome);
         }
     }
 
     @Test
-    void ineligibleEvaluationNeverCallsProvider() {
+    void ineligibleEvaluationNeverCallsProviderOrGate() {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
         FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE);
 
         when(assembler.assemble(ineligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(ineligible, null));
-        FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler).recommend(ineligible.customerId(), timeout);
+        FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler, gate).recommend(ineligible.customerId(), timeout);
 
         assertThat(decision.evaluation()).isSameAs(ineligible);
         assertThat(decision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
+        verifyNoInteractions(gate);
 
-        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(ineligible, timeout);
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler, gate).recommend(ineligible, timeout);
         assertThat(directDecision.evaluation()).isSameAs(ineligible);
         assertThat(directDecision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
+        verifyNoInteractions(gate);
     }
 
     @Test
@@ -91,7 +99,7 @@ class FollowUpRecommendationServiceTest {
                 DeterministicFakeAiProvider.malformedOutput(),
                 DeterministicFakeAiProvider.failure(AiFailureCategory.TIMEOUT))) {
             when(assembler.assemble(due.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(due, context()));
-            assertThatThrownBy(() -> new FollowUpRecommendationService(fake, assembler).recommend(due.customerId(), timeout))
+            assertThatThrownBy(() -> new FollowUpRecommendationService(fake, assembler, gate).recommend(due.customerId(), timeout))
                     .isInstanceOf(AiProviderException.class);
         }
     }
@@ -104,10 +112,12 @@ class FollowUpRecommendationServiceTest {
         DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
         FollowUpEvaluation forged = evaluation(FollowUpStatus.DUE);
         FollowUpEvaluation authoritative = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(authoritative, context());
 
-        when(assembler.assemble(forged.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(authoritative, context()));
+        when(assembler.assemble(forged.customerId())).thenReturn(assembly);
+        when(gate.evaluate(forged.customerId(), assembly, action)).thenReturn(ActionGateDecision.accepted(action));
 
-        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(forged, timeout);
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler, gate).recommend(forged, timeout);
         assertThat(directDecision.evaluation()).isSameAs(authoritative);
         assertThat(directDecision.advisoryRecommendation()).contains(action);
     }
@@ -120,10 +130,33 @@ class FollowUpRecommendationServiceTest {
 
         when(assembler.assemble(forgedEligible.customerId())).thenReturn(new RecommendationContextAssembler.Assembly(authoritativeIneligible, null));
 
-        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler).recommend(forgedEligible, timeout);
+        FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler, gate).recommend(forgedEligible, timeout);
         assertThat(directDecision.evaluation()).isSameAs(authoritativeIneligible);
         assertThat(directDecision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
+        verifyNoInteractions(gate);
+    }
+
+    @Test
+    void gateRejectionReturnsRejectedDecisionWithTypedReason() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context());
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(gate.evaluate(due.customerId(), assembly, action)).thenReturn(
+                ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE, "State changed"));
+
+        FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler, gate).recommend(due.customerId(), timeout);
+
+        assertThat(decision.evaluation()).isSameAs(due);
+        assertThat(decision.hasActionRecommendation()).isFalse();
+        assertThat(decision.advisoryRecommendation()).isEmpty();
+        assertThat(decision.gateDecision().isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
     }
 
     private RecommendationContext context() {
