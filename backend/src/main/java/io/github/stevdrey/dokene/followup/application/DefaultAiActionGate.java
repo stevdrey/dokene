@@ -100,8 +100,10 @@ public class DefaultAiActionGate implements AiActionGate {
         TenantContext tenantContext = tenantContextOpt.get();
 
         // 2. Caller Authorization
-        if (!authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE).isAllowed()) {
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+        var authDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
+        if (!authDecision.isAllowed()) {
+            String diagnosticCode = authDecision.rejectionReason().orElse("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller lacks required permission FOLLOWUP_EVALUATE", null, outcome);
         }
@@ -114,8 +116,10 @@ public class DefaultAiActionGate implements AiActionGate {
                     "Customer not found within current tenant boundary", null, outcome);
         }
         Customer customer = customerOpt.get();
-        if (!authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE, customer).isAllowed()) {
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "RESOURCE_ACCESS_DENIED");
+        var resourceDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE, customer);
+        if (!resourceDecision.isAllowed()) {
+            String diagnosticCode = resourceDecision.rejectionReason().orElse("RESOURCE_ACCESS_DENIED");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller not authorized to access customer resource", null, outcome);
         }
@@ -159,11 +163,12 @@ public class DefaultAiActionGate implements AiActionGate {
         }
 
         if (outcome instanceof ActionRecommendation actionRec) {
-            // 8. Require assembly baseline for action recommendations
-            if (assembly == null || assembly.evaluation() == null) {
+            // 8. Require complete assembly baseline and context for action recommendations
+            if (assembly == null || assembly.evaluation() == null
+                    || assembly.context() == null || assembly.context().trusted() == null) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "MISSING_ASSEMBLY_BASELINE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                        "Action recommendations require a valid assembly baseline", currentEvaluation, outcome);
+                        "Action recommendations require a complete assembly baseline and context", currentEvaluation, outcome);
             }
 
             // 9. Consent and Do-Not-Contact State (strictly for action recommendations)
@@ -205,19 +210,15 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Customer is not currently due or overdue for follow-up", currentEvaluation, outcome);
             }
 
-            // 10. Semantic action allowlist
-            List<SemanticAction> allowedActions = assembly != null && assembly.context() != null
-                    && assembly.context().trusted() != null
-                    ? assembly.context().trusted().allowedActions()
-                    : List.of(SemanticAction.values());
-
+            // 12. Semantic action allowlist
+            List<SemanticAction> allowedActions = assembly.context().trusted().allowedActions();
             if (allowedActions == null || !allowedActions.contains(actionRec.action())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
                         "Semantic action is not permitted for current context", currentEvaluation, outcome);
             }
 
-            // 11. Semantic template intent allowlist and compatibility
+            // 13. Semantic template intent allowlist and compatibility
             if (!isCompatibleIntent(actionRec.action(), actionRec.templateIntent())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,

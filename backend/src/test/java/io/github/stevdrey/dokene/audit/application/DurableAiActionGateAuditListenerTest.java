@@ -23,7 +23,7 @@ class DurableAiActionGateAuditListenerTest {
     @ParameterizedTest
     @CsvSource({
             "NO_TENANT_CONTEXT, NO_TENANT_CONTEXT",
-            "UNAUTHORIZED, MISSING_PERMISSION",
+            "UNAUTHORIZED, INSUFFICIENT_PERMISSION",
             "CUSTOMER_NOT_FOUND, CROSS_TENANT_RESOURCE",
             "CUSTOMER_ARCHIVED, INSUFFICIENT_PERMISSION",
             "DO_NOT_CONTACT, INSUFFICIENT_PERMISSION",
@@ -44,6 +44,35 @@ class DurableAiActionGateAuditListenerTest {
                 new CustomerId(UUID.randomUUID()),
                 reason,
                 "DIAGNOSTIC_CODE",
+                Instant.now());
+
+        listener.onSecurityRejection(event);
+
+        verify(recorder).authorizationDenied(TenantPermission.FOLLOWUP_EVALUATE, expected);
+        verifyNoMoreInteractions(recorder);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "Role OPERATOR lacks permission FOLLOWUP_EVALUATE, INSUFFICIENT_PERMISSION",
+            "Role VIEWER lacks permission FOLLOWUP_EVALUATE, INSUFFICIENT_PERMISSION",
+            "Tenant membership is not active (status: SUSPENDED), INACTIVE_MEMBERSHIP",
+            "Tenant membership is not active (status: INVITED), INACTIVE_MEMBERSHIP",
+            "Requested permission is required, MISSING_PERMISSION",
+            "Tenant context has no role assigned, MISSING_ROLE",
+            "Resource tenant does not match active tenant context, CROSS_TENANT_RESOURCE",
+            "Resource tenant ID is required, MISSING_RESOURCE_TENANT"
+    })
+    void mapsUnauthorizedDiagnosticCodesToDurableAuditTaxonomy(String diagnosticCode, AuditDenialReason expected) {
+        AuditRecorder recorder = mock(AuditRecorder.class);
+        DurableAiActionGateAuditListener listener = new DurableAiActionGateAuditListener(recorder);
+
+        SecurityRejectionEvent event = new SecurityRejectionEvent(
+                new TenantId(UUID.randomUUID()),
+                new IdentityId(UUID.randomUUID()),
+                new CustomerId(UUID.randomUUID()),
+                ActionGateRejectionReason.UNAUTHORIZED,
+                diagnosticCode,
                 Instant.now());
 
         listener.onSecurityRejection(event);

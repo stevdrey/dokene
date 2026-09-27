@@ -119,6 +119,51 @@ class FollowUpDecisionTest {
     }
 
     @Test
+    void rejectsAcceptedGateDecisionWhenCustomerMismatchesEvaluation() {
+        FollowUpEvaluation customerAEval = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision.Accepted customerAGate = new ActionGateDecision.Accepted(sampleAction, customerAEval);
+
+        CustomerId customerB = new CustomerId(UUID.randomUUID());
+        FollowUpEvaluation customerBEval = new FollowUpEvaluation(
+                customerB, FollowUpStatus.DUE, List.of(FollowUpReason.DUE_TODAY),
+                evaluatedAt, tenantDate, zoneId, tenantDate, FollowUpTimingSource.LAST_PURCHASE, 30, evaluatedAt.minusSeconds(30L * 86400));
+
+        assertThatThrownBy(() -> new FollowUpDecision(customerBEval, sampleAction, customerAGate))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Decision evaluation customer ID must match the gate decision customer ID");
+        assertThatThrownBy(() -> FollowUpDecision.accepted(customerBEval, customerAGate))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Decision evaluation customer ID must match the gate decision customer ID");
+    }
+
+    @Test
+    void rejectsAcceptedGateDecisionWhenEvaluationStateMismatches() {
+        FollowUpEvaluation originalEval = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction, originalEval);
+
+        FollowUpEvaluation alteredEval = evaluation(FollowUpStatus.OVERDUE, FollowUpReason.OVERDUE);
+
+        assertThatThrownBy(() -> new FollowUpDecision(alteredEval, sampleAction, acceptedGate))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Decision evaluation must match the accepted gate decision evaluation");
+        assertThatThrownBy(() -> FollowUpDecision.accepted(alteredEval, acceptedGate))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Decision evaluation must match the accepted gate decision evaluation");
+    }
+
+    @Test
+    void acceptedFactoryDerivesEvaluationDirectlyFromGateDecision() {
+        FollowUpEvaluation evaluation = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction, evaluation);
+
+        FollowUpDecision decision = FollowUpDecision.accepted(acceptedGate);
+
+        assertThat(decision.evaluation()).isEqualTo(evaluation);
+        assertThat(decision.recommendation()).isEqualTo(sampleAction);
+        assertThat(decision.gateDecision()).isSameAs(acceptedGate);
+    }
+
+    @Test
     void rejectsNullEvaluationAndMissingFactoryRecommendations() {
         ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction);
         assertThatThrownBy(() -> new FollowUpDecision(null, sampleAction, acceptedGate))

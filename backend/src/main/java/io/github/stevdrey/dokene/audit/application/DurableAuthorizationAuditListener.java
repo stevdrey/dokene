@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class DurableAuthorizationAuditListener implements AuthorizationAuditListener {
     private final AuditRecorder recorder;
-    private final Map<String, AuditDenialReason> dynamicReasons = buildDynamicReasons();
+    private static final Map<String, AuditDenialReason> DYNAMIC_REASONS = buildDynamicReasons();
 
     public DurableAuthorizationAuditListener(AuditRecorder recorder) {
         this.recorder = recorder;
@@ -25,18 +25,25 @@ public class DurableAuthorizationAuditListener implements AuthorizationAuditList
         recorder.authorizationDenied(event.requiredPermission(), reason(event.reason()));
     }
 
-    private AuditDenialReason reason(String reason) {
+    static AuditDenialReason mapReason(String reason) {
+        if (reason == null) {
+            return AuditDenialReason.UNSPECIFIED;
+        }
         return switch (reason) {
             case "No active tenant context" -> AuditDenialReason.NO_TENANT_CONTEXT;
             case "Tenant context has no role assigned" -> AuditDenialReason.MISSING_ROLE;
             case "Requested permission is required" -> AuditDenialReason.MISSING_PERMISSION;
             case "Resource tenant ID is required" -> AuditDenialReason.MISSING_RESOURCE_TENANT;
             case "Resource tenant does not match active tenant context" -> AuditDenialReason.CROSS_TENANT_RESOURCE;
-            default -> dynamicReasons.getOrDefault(reason, AuditDenialReason.UNSPECIFIED);
+            default -> DYNAMIC_REASONS.getOrDefault(reason, AuditDenialReason.UNSPECIFIED);
         };
     }
 
-    private Map<String, AuditDenialReason> buildDynamicReasons() {
+    private AuditDenialReason reason(String reason) {
+        return mapReason(reason);
+    }
+
+    private static Map<String, AuditDenialReason> buildDynamicReasons() {
         // Construct the exact allowlist once per listener, never format candidate messages per denial.
         Map<String, AuditDenialReason> reasons = new HashMap<>();
         for (TenantMembershipStatus status : TenantMembershipStatus.values()) {

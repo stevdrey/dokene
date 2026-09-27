@@ -37,14 +37,17 @@ public class DurableAiActionGateAuditListener implements AiActionGateAuditListen
                 event.timestamp());
 
         // 2. Persist denial to the durable append-only audit trail
-        AuditDenialReason denialReason = mapDenialReason(event.reason());
+        AuditDenialReason denialReason = mapDenialReason(event);
         recorder.authorizationDenied(TenantPermission.FOLLOWUP_EVALUATE, denialReason);
     }
 
-    private AuditDenialReason mapDenialReason(ActionGateRejectionReason reason) {
-        return switch (reason) {
+    private AuditDenialReason mapDenialReason(SecurityRejectionEvent event) {
+        return switch (event.reason()) {
             case NO_TENANT_CONTEXT -> AuditDenialReason.NO_TENANT_CONTEXT;
-            case UNAUTHORIZED -> AuditDenialReason.MISSING_PERMISSION;
+            case UNAUTHORIZED -> {
+                AuditDenialReason mapped = DurableAuthorizationAuditListener.mapReason(event.diagnosticCode());
+                yield mapped == AuditDenialReason.UNSPECIFIED ? AuditDenialReason.INSUFFICIENT_PERMISSION : mapped;
+            }
             case CUSTOMER_NOT_FOUND -> AuditDenialReason.CROSS_TENANT_RESOURCE;
             case CUSTOMER_ARCHIVED, DO_NOT_CONTACT, NO_CONTACT_CONSENT -> AuditDenialReason.INSUFFICIENT_PERMISSION;
             case STALE_STATE, FOLLOW_UP_INELIGIBLE, DISALLOWED_ACTION, DISALLOWED_TEMPLATE_INTENT, INVALID_RECOMMENDATION -> AuditDenialReason.INSUFFICIENT_PERMISSION;

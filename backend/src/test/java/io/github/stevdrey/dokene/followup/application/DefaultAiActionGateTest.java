@@ -322,7 +322,15 @@ class DefaultAiActionGateTest {
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());
         FollowUpEvaluation notDueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
                 activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, null);
-        RecommendationContextAssembler.Assembly assembly = assembly(notDueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        // Assembly provided with matching notDueEvaluation and a context containing allowed actions
+        RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
+                tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, tenantDate, true, List.of(), List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
+                "Test Customer", "Notes", List.of());
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                notDueEvaluation, new RecommendationContext(trusted, untrusted), null);
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -334,6 +342,20 @@ class DefaultAiActionGateTest {
     @Test
     void rejectsActionRecommendationWhenAssemblyBaselineIsMissing() {
         ActionGateDecision decision = gate.evaluate(customerId, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "MISSING_ASSEMBLY_BASELINE".equals(event.diagnosticCode())));
+    }
+
+    @Test
+    void rejectsActionRecommendationWhenAssemblyContextIsMissing() {
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(dueEvaluation, null);
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
@@ -496,7 +518,7 @@ class DefaultAiActionGateTest {
                 authorization, contexts, clock, capturingListener);
 
         when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
-                .thenReturn(AuthorizationDecision.deny("Denied"));
+                .thenReturn(AuthorizationDecision.deny("Role OPERATOR lacks permission FOLLOWUP_EVALUATE"));
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
         capturingGate.evaluate(customerId, assembly, sampleAction);
@@ -507,7 +529,7 @@ class DefaultAiActionGateTest {
         assertThat(event.actorId()).isNotNull();
         assertThat(event.customerId()).isEqualTo(customerId);
         assertThat(event.reason()).isEqualTo(ActionGateRejectionReason.UNAUTHORIZED);
-        assertThat(event.diagnosticCode()).isEqualTo("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+        assertThat(event.diagnosticCode()).isEqualTo("Role OPERATOR lacks permission FOLLOWUP_EVALUATE");
         assertThat(event.timestamp()).isEqualTo(now);
     }
 

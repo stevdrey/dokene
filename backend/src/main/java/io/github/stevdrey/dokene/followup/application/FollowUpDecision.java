@@ -26,10 +26,25 @@ public record FollowUpDecision(
                 throw new RecommendationValidationException("recommendation",
                         "Recommendation outcome must match the gate-approved outcome");
             }
+            if (gateDecision.currentEvaluation() != null) {
+                if (!Objects.equals(evaluation.customerId(), gateDecision.currentEvaluation().customerId())) {
+                    throw new RecommendationValidationException("evaluation",
+                            "Decision evaluation customer ID must match the gate decision customer ID");
+                }
+                if (!Objects.equals(evaluation, gateDecision.currentEvaluation())) {
+                    throw new RecommendationValidationException("evaluation",
+                            "Decision evaluation must match the accepted gate decision evaluation");
+                }
+            }
         } else {
             if (recommendation != null) {
                 throw new RecommendationValidationException("gateDecision",
                         "Cannot associate a recommendation outcome with a rejected gate decision");
+            }
+            if (gateDecision.currentEvaluation() != null
+                    && !Objects.equals(evaluation.customerId(), gateDecision.currentEvaluation().customerId())) {
+                throw new RecommendationValidationException("evaluation",
+                        "Decision evaluation customer ID must match the gate decision customer ID");
             }
         }
         if (!evaluation.eligible() && recommendation instanceof ActionRecommendation) {
@@ -50,10 +65,19 @@ public record FollowUpDecision(
     public static FollowUpDecision gated(FollowUpEvaluation evaluation, ActionGateDecision gateDecision) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         Objects.requireNonNull(gateDecision, "Gate decision is required");
+        FollowUpEvaluation effective = gateDecision.currentEvaluation() != null ? gateDecision.currentEvaluation() : evaluation;
         if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
-            return new FollowUpDecision(evaluation, accepted.outcome(), gateDecision);
+            return new FollowUpDecision(effective, accepted.outcome(), gateDecision);
         }
-        return new FollowUpDecision(evaluation, null, gateDecision);
+        return new FollowUpDecision(effective, null, gateDecision);
+    }
+
+    public static FollowUpDecision accepted(ActionGateDecision.Accepted gateDecision) {
+        Objects.requireNonNull(gateDecision, "Gate decision is required");
+        if (gateDecision.currentEvaluation() == null) {
+            throw new IllegalArgumentException("Accepted gate decision must carry an evaluation");
+        }
+        return new FollowUpDecision(gateDecision.currentEvaluation(), gateDecision.outcome(), gateDecision);
     }
 
     public static FollowUpDecision accepted(FollowUpEvaluation evaluation, ActionGateDecision.Accepted gateDecision) {
