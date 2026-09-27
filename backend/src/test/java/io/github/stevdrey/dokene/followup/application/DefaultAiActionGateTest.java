@@ -314,12 +314,50 @@ class DefaultAiActionGateTest {
     void rejectsWhenFollowUpIsNotDueInAuthoritativeState() {
         // Customer has no purchases -> INELIGIBLE with NO_PURCHASE_HISTORY
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());
+        FollowUpEvaluation notDueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
+                activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, null);
+        RecommendationContextAssembler.Assembly assembly = assembly(notDueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
-        ActionGateDecision decision = gate.evaluate(customerId, sampleAction);
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
         verifyRejection(customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
+    }
+
+    @Test
+    void rejectsActionRecommendationWhenAssemblyBaselineIsMissing() {
+        ActionGateDecision decision = gate.evaluate(customerId, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "MISSING_ASSEMBLY_BASELINE".equals(event.diagnosticCode())));
+    }
+
+    @Test
+    void rejectsRefusalWhenAssemblyCustomerIdDoesNotMatchTargetCustomer() {
+        CustomerId otherCustomer = new CustomerId(UUID.randomUUID());
+        Customer otherCustomerEntity = Customer.create(otherCustomer, tenantId, "Other Customer", "Notes", List.of(primaryPhone), now.minusSeconds(86400));
+        ContactPolicy otherContactPolicy = new ContactPolicy(otherCustomer, 1L, false, null, null, validContactPolicy.consents());
+        CustomerFollowUpPolicy otherCustomerPolicy = new CustomerFollowUpPolicy(tenantId, otherCustomer, 30, null, null, null, 1L);
+        FollowUpEvaluation otherEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
+                otherCustomerEntity, otherContactPolicy, tenantPolicy, otherCustomerPolicy, lastPurchaseTime);
+        RecommendationContextAssembler.Assembly assembly = assembly(otherEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Signal unclear", RecommendationConfidence.of(0.4));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, refusal);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "CUSTOMER_ID_MISMATCH".equals(event.diagnosticCode())));
     }
 
     @Test
@@ -472,15 +510,27 @@ class DefaultAiActionGateTest {
     }
 
     private RecommendationContextAssembler.Assembly assembly(FollowUpEvaluation evaluation, List<SemanticAction> allowedActions) {
-        return assembly(evaluation, allowedActions, lastPurchase != null ? lastPurchase.id() : null);
+        return assembly(evaluation, allowedActions, evaluation.lastPurchaseAt() != null && lastPurchase != null ? lastPurchase.id() : null);
     }
 
     private RecommendationContextAssembler.Assembly assembly(FollowUpEvaluation evaluation, List<SemanticAction> allowedActions, PurchaseId purchaseId) {
+        if (evaluation.nextFollowUpDate() == null
+                || (evaluation.status() != FollowUpStatus.DUE && evaluation.status() != FollowUpStatus.OVERDUE)) {
+            return new RecommendationContextAssembler.Assembly(evaluation, null, purchaseId);
+        }
+        List<TrustedFollowUpReason> trustedReasons = new java.util.ArrayList<>();
+        for (FollowUpReason r : evaluation.reasons()) {
+            try {
+                trustedReasons.add(TrustedFollowUpReason.valueOf(r.name()));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        List<Instant> purchaseTimes = evaluation.lastPurchaseAt() != null ? List.of(evaluation.lastPurchaseAt()) : List.of();
         RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
                 evaluation.tenantDate(), evaluation.status().name(),
-                evaluation.reasons().stream().map(r -> TrustedFollowUpReason.valueOf(r.name())).toList(),
+                trustedReasons,
                 evaluation.effectiveCadenceDays(), evaluation.nextFollowUpDate(), true,
-                List.of(lastPurchaseTime), allowedActions);
+                purchaseTimes, allowedActions);
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
                 "Test Customer", "Some notes", List.of("Purchase description"));
         return new RecommendationContextAssembler.Assembly(evaluation, new RecommendationContext(trusted, untrusted), purchaseId);

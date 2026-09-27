@@ -143,14 +143,30 @@ public class DefaultAiActionGate implements AiActionGate {
                     "Recommendation outcome cannot be null", currentEvaluation, null);
         }
 
-        // 6. Explicit Model Refusal
+        // 6. Baseline Customer Binding (validates customer ID for any outcome when an assembly baseline is supplied)
+        if (assembly != null && assembly.evaluation() != null) {
+            if (!Objects.equals(assembly.evaluation().customerId(), customerId)) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        "Assembly baseline customer does not match target customer", currentEvaluation, outcome);
+            }
+        }
+
+        // 7. Explicit Model Refusal
         if (outcome instanceof NoRecommendation) {
-            // Model refusal is accepted once tenant context, caller authorization, and customer active state succeed
+            // Model refusal is accepted once tenant context, caller authorization, customer active state, and baseline customer binding succeed
             return ActionGateDecision.accepted(outcome, currentEvaluation);
         }
 
         if (outcome instanceof ActionRecommendation actionRec) {
-            // 7. Consent and Do-Not-Contact State (strictly for action recommendations)
+            // 8. Require assembly baseline for action recommendations
+            if (assembly == null || assembly.evaluation() == null) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "MISSING_ASSEMBLY_BASELINE");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        "Action recommendations require a valid assembly baseline", currentEvaluation, outcome);
+            }
+
+            // 9. Consent and Do-Not-Contact State (strictly for action recommendations)
             if (contactPolicy.doNotContact()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
@@ -166,32 +182,22 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome);
             }
 
-            // 8. Stale State Detection & Baseline Customer Binding
-            if (assembly != null && assembly.evaluation() != null) {
-                FollowUpEvaluation baseline = assembly.evaluation();
-
-                // Bind baseline customer to requested customer
-                if (!Objects.equals(baseline.customerId(), customerId)) {
-                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
-                    return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                            "Assembly baseline customer does not match target customer", currentEvaluation, outcome);
-                }
-
-                boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
-                        || (assembly.lastPurchaseId() != null && !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId))
-                        || baseline.status() != currentEvaluation.status()
-                        || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
-                        || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
-                        || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
-                        || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
-                if (stale) {
-                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
-                    return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
-                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome);
-                }
+            // 10. Stale State Detection
+            FollowUpEvaluation baseline = assembly.evaluation();
+            boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
+                    || (assembly.lastPurchaseId() != null && !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId))
+                    || baseline.status() != currentEvaluation.status()
+                    || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
+                    || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
+                    || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
+                    || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
+            if (stale) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                    "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome);
             }
 
-            // 9. Follow-Up Due State Enforcement
+            // 11. Follow-Up Due State Enforcement
             if (!currentEvaluation.eligible() || (currentEvaluation.status() != FollowUpStatus.DUE
                     && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
