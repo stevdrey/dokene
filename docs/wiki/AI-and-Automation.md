@@ -91,6 +91,19 @@ Side effect
 
 The model may recommend `REPEAT_PURCHASE`, but application code determines whether that action exists, is allowed for the tenant, is valid for the recipient, and may be sent now.
 
+Under [ADR 0017: Deterministic AI Action Gate for Recommendations and Drafts](../adr/0017-deterministic-ai-action-gate.md), the `AiActionGate` (`DefaultAiActionGate` in `io.github.stevdrey.dokene.followup.application`) operationalizes this gate deterministically before any recommendation or draft is accepted or exposed to operators:
+
+1. **Active Tenant Context**: Ensures an authenticated tenant context exists; rejects with `NO_TENANT_CONTEXT` if missing.
+2. **Caller Authorization**: Verifies caller permission `TenantPermission.FOLLOWUP_EVALUATE`; rejects with `UNAUTHORIZED` if absent.
+3. **Customer Existence & Status**: Looks up customer in active tenant; rejects with `CUSTOMER_NOT_FOUND` if absent or `CUSTOMER_ARCHIVED` if inactive.
+4. **Contact Policy & Consent**: Verifies WhatsApp channel consent and opt-out state; rejects with `DO_NOT_CONTACT` or `NO_CONTACT_CONSENT`.
+5. **Fresh Eligibility & Due Status**: Evaluates authoritative follow-up status; rejects with `FOLLOW_UP_INELIGIBLE` if not `DUE` or `OVERDUE`.
+6. **Stale State Detection**: Compares against the baseline assembly state (`lastPurchaseId`, `lastPurchaseTime`, `effectiveCadenceDays`); rejects with `STALE_STATE` if drift occurred since context assembly.
+7. **Semantic Action & Template Intent Allowlists**: Revalidates allowed actions and intent compatibility; rejects with `DISALLOWED_ACTION` or `DISALLOWED_TEMPLATE_INTENT`.
+
+The gate produces a sealed `ActionGateDecision` (`Accepted` or `Rejected` with typed `ActionGateRejectionReason`). When rejected, `FollowUpDecision` hides action recommendations (`advisoryRecommendation()` returns empty, `hasActionRecommendation()` is false). The evaluation executes with zero external side effects and records privacy-safe security observability metrics via `AiActionGateAuditListener` (strictly excluding customer notes, prompt text, or PII).
+
+
 ## Trust boundaries
 
 Treat these as untrusted input to the model and to the application:
