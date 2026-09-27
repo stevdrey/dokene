@@ -582,6 +582,57 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(requestCounter.get()).isEqualTo(1);
     }
 
+    @Test
+    void rejectsDirectOutcomeWithoutRootRecommendationEnvelope() {
+        String directOutcomeJson = """
+                {
+                  "outcome": "ACTION",
+                  "action": "GENERAL_FOLLOW_UP",
+                  "templateIntent": "GENERAL_FOLLOW_UP",
+                  "rationale": "Direct outcome missing recommendation envelope",
+                  "confidence": 0.90
+                }
+                """;
+
+        responseBody.set(buildWireResponse("resp_direct", "gpt-6-luna", directOutcomeJson, 50, 20));
+        responseStatusCode.set(200);
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> {
+                    AiProviderException ape = (AiProviderException) ex;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.metadata()).isNotNull();
+                    assertThat(ape.metadata().providerRequestId()).isEqualTo("resp_direct");
+                });
+    }
+
+    @Test
+    void treatsNegativeTokenCountsAsAbsentWithoutEscapingException() {
+        String outcomeJson = """
+                {
+                  "recommendation": {
+                    "outcome": "NO_RECOMMENDATION",
+                    "reason": "INSUFFICIENT_HISTORY",
+                    "rationale": "Testing negative token normalization",
+                    "confidence": 0.95
+                  }
+                }
+                """;
+
+        responseBody.set(buildWireResponse("resp_neg_tokens", "gpt-6-luna", outcomeJson, -1, 50));
+        responseStatusCode.set(200);
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        AiRecommendationResponse response = adapter.recommend(sampleRequest);
+
+        assertThat(response).isNotNull();
+        assertThat(response.metadata()).isNotNull();
+        assertThat(response.metadata().usage()).isNull();
+    }
+
     private static String buildWireResponse(String id, String model, String structuredOutputText,
                                             long inputTokens, long outputTokens) {
         return buildWireResponseWithStatus(id, model, "completed", structuredOutputText, inputTokens, outputTokens);

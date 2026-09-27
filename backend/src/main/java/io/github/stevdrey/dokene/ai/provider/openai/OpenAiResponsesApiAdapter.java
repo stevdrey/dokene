@@ -40,6 +40,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Adapter implementing {@link AiProvider} using the OpenAI Java SDK and the Responses API
@@ -50,6 +52,7 @@ import java.util.stream.Collectors;
 public final class OpenAiResponsesApiAdapter implements AiProvider {
     private static final String PROVIDER_ID = "openai";
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9._:/-]{1,128}");
+    private static final ObjectMapper OBJECT_MAPPER = tools.jackson.databind.json.JsonMapper.builder().build();
 
     private static final String SYSTEM_INSTRUCTIONS = """
             You are the Next Best Action decision support assistant for Dokene follow-up customer relationship management.
@@ -120,6 +123,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
 
             RecommendationOutcome outcome;
             try {
+                validateRootEnvelope(outputText);
                 outcome = RecommendationJsonSchema.parseOutcome(outputText);
             } catch (IllegalArgumentException e) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
@@ -301,12 +305,40 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .collect(Collectors.joining());
     }
 
+    private void validateRootEnvelope(String json) {
+        try {
+            JsonNode rootNode = OBJECT_MAPPER.readTree(json);
+            if (rootNode == null || !rootNode.isObject()) {
+                throw new IllegalArgumentException("JSON payload must be an object");
+            }
+            if (!rootNode.has(RecommendationJsonSchema.ROOT_PROPERTY)) {
+                throw new IllegalArgumentException("Missing required root envelope '" + RecommendationJsonSchema.ROOT_PROPERTY + "'");
+            }
+            for (String fieldName : rootNode.propertyNames()) {
+                if (!RecommendationJsonSchema.ROOT_PROPERTY.equals(fieldName)) {
+                    throw new IllegalArgumentException("Unexpected property '" + fieldName + "' in schema envelope");
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid structured output JSON payload", e);
+        }
+    }
+
     private AiTokenUsage extractUsage(Response response) {
         if (response == null) {
             return null;
         }
         return response.usage()
-                .map(u -> new AiTokenUsage(u.inputTokens(), u.outputTokens()))
+                .filter(u -> u.inputTokens() >= 0 && u.outputTokens() >= 0)
+                .map(u -> {
+                    try {
+                        return new AiTokenUsage(u.inputTokens(), u.outputTokens());
+                    } catch (IllegalArgumentException e) {
+                        return null;
+                    }
+                })
                 .orElse(null);
     }
 
