@@ -18,11 +18,14 @@ class OpenAiConfigurationTest {
         runner.withPropertyValues(
                 "dokene.ai.provider=openai",
                 "dokene.ai.openai.api-key=test-api-key",
-                "dokene.ai.openai.model=gpt-6-luna"
+                "dokene.ai.openai.model=gpt-6-luna",
+                "dokene.ai.openai.max-retries=0"
         ).run(context -> {
             assertThat(context).hasSingleBean(OpenAIClient.class);
             assertThat(context).hasSingleBean(AiProvider.class);
             assertThat(context.getBean(AiProvider.class)).isInstanceOf(OpenAiResponsesApiAdapter.class);
+            OpenAiProviderProperties props = context.getBean(OpenAiProviderProperties.class);
+            assertThat(props.maxRetries()).isEqualTo(0);
         });
     }
 

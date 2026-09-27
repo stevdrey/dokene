@@ -12,10 +12,12 @@ public record OpenAiProviderProperties(
         String apiKey,
         String model,
         String baseUrl,
-        Duration timeout
+        Duration timeout,
+        Integer maxRetries
 ) {
     public static final String DEFAULT_MODEL = "gpt-6-luna";
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(15);
+    public static final int DEFAULT_MAX_RETRIES = 0;
 
     public OpenAiProviderProperties {
         if (model == null || model.isBlank()) {
@@ -23,6 +25,9 @@ public record OpenAiProviderProperties(
         }
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             timeout = DEFAULT_TIMEOUT;
+        }
+        if (maxRetries == null || maxRetries < 0) {
+            maxRetries = DEFAULT_MAX_RETRIES;
         }
     }
 }

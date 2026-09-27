@@ -31,6 +31,7 @@ public class OpenAiConfiguration {
         if (properties.timeout() != null) {
             builder.timeout(properties.timeout());
         }
+        builder.maxRetries(properties.maxRetries());
         return builder.build();
     }
 

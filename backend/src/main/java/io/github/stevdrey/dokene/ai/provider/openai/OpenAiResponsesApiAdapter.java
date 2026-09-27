@@ -98,18 +98,18 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                                 latency, extractUsage(response), AiFailureCategory.CANCELLED));
             }
 
-            if (response.status().isPresent()) {
-                ResponseStatus status = response.status().get();
-                if (!ResponseStatus.COMPLETED.equals(status)) {
-                    AiFailureCategory category = ResponseStatus.CANCELLED.equals(status)
-                            ? AiFailureCategory.CANCELLED
-                            : ResponseStatus.INCOMPLETE.equals(status)
-                            ? AiFailureCategory.INVALID_STRUCTURED_RESPONSE
-                            : AiFailureCategory.UNAVAILABLE;
-                    throw new AiProviderException(category,
-                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), category));
-                }
+            ResponseStatus status = response != null && response.status().isPresent()
+                    ? response.status().get()
+                    : null;
+            if (!ResponseStatus.COMPLETED.equals(status)) {
+                AiFailureCategory category = ResponseStatus.CANCELLED.equals(status)
+                        ? AiFailureCategory.CANCELLED
+                        : (status == null || ResponseStatus.INCOMPLETE.equals(status))
+                        ? AiFailureCategory.INVALID_STRUCTURED_RESPONSE
+                        : AiFailureCategory.UNAVAILABLE;
+                throw new AiProviderException(category,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), category));
             }
 
             String outputText = extractOutputText(response);

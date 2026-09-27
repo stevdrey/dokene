@@ -43,6 +43,7 @@ class OpenAiResponsesApiAdapterTest {
     private final AtomicReference<Duration> responseDelay = new AtomicReference<>(Duration.ZERO);
     private final AtomicReference<String> capturedRequestBody = new AtomicReference<>();
     private final AtomicReference<String> capturedAuthHeader = new AtomicReference<>();
+    private final AtomicInteger requestCounter = new AtomicInteger(0);
 
     private final RecommendationContext sampleContext = new RecommendationContext(
             new RecommendationContext.TrustedFacts(
@@ -66,10 +67,12 @@ class OpenAiResponsesApiAdapterTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        requestCounter.set(0);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         port = server.getAddress().getPort();
 
         server.createContext("/v1/responses", exchange -> {
+            requestCounter.incrementAndGet();
             capturedAuthHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
             capturedRequestBody.set(new String(requestBytes, StandardCharsets.UTF_8));
@@ -107,12 +110,14 @@ class OpenAiResponsesApiAdapterTest {
                 "test-api-key",
                 model,
                 "http://127.0.0.1:" + port + "/v1",
-                defaultTimeout
+                defaultTimeout,
+                0
         );
         OpenAIClient client = OpenAIOkHttpClient.builder()
                 .apiKey(properties.apiKey())
                 .baseUrl(properties.baseUrl())
                 .timeout(properties.timeout())
+                .maxRetries(properties.maxRetries())
                 .build();
         return new OpenAiResponsesApiAdapter(client, properties);
     }
@@ -520,6 +525,47 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(sentBody).contains("Widget &lt;script&gt;alert(1)&lt;/script&gt;");
     }
 
+    @Test
+    void rejectsResponseWithMissingStatus() {
+        String outcomeJson = """
+                {
+                  "recommendation": {
+                    "outcome": "NO_RECOMMENDATION",
+                    "reason": "RECENTLY_CONTACTED",
+                    "rationale": "Contacted recently",
+                    "confidence": 0.95
+                  }
+                }
+                """;
+
+        responseBody.set(buildWireResponseWithStatus("resp_no_status", "gpt-6-luna", null, outcomeJson, 20, 10));
+        responseStatusCode.set(200);
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> {
+                    AiProviderException ape = (AiProviderException) ex;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.metadata().providerRequestId()).isEqualTo("resp_no_status");
+                });
+    }
+
+    @Test
+    void doesNotRetryOnServerErrorWhenMaxRetriesIsZero() {
+        responseStatusCode.set(500);
+        responseBody.set("{\"error\": {\"message\": \"server error\"}}");
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(5));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> assertThat(((AiProviderException) ex).category()).isEqualTo(AiFailureCategory.UNAVAILABLE));
+
+        assertThat(requestCounter.get()).isEqualTo(1);
+    }
+
     private static String buildWireResponse(String id, String model, String structuredOutputText,
                                             long inputTokens, long outputTokens) {
         return buildWireResponseWithStatus(id, model, "completed", structuredOutputText, inputTokens, outputTokens);
@@ -534,19 +580,22 @@ class OpenAiResponsesApiAdapterTest {
                 .replace("\n", "\\n")
                 .replace("\r", "");
 
+        String statusField = status != null ? "\"status\": \"%s\",".formatted(status) : "";
+        String msgStatusField = status != null ? "\"status\": \"%s\",".formatted(status) : "";
+
         return """
                 {
                   "id": "%s",
                   "object": "response",
                   "created_at": 1727376000,
                   "model": "%s",
-                  "status": "%s",
+                  %s
                   "output": [
                     {
                       "type": "message",
                       "id": "msg_001",
                       "role": "assistant",
-                      "status": "%s",
+                      %s
                       "content": [
                         {
                           "type": "output_text",
@@ -561,6 +610,6 @@ class OpenAiResponsesApiAdapterTest {
                     "total_tokens": %d
                   }
                 }
-                """.formatted(id, model, status, status, escapedText, inputTokens, outputTokens, inputTokens + outputTokens);
+                """.formatted(id, model, statusField, msgStatusField, escapedText, inputTokens, outputTokens, inputTokens + outputTokens);
     }
 }
