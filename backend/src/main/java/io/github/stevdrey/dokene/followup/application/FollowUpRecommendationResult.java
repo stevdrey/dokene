@@ -95,6 +95,21 @@ public record FollowUpRecommendationResult(
 
     public static FollowUpRecommendationResult aiUnavailable(
             FollowUpEvaluation evaluation,
+            ActionGateRejectionReason rejectionReason,
+            long policyVersion) {
+        Objects.requireNonNull(rejectionReason, "Rejection reason is required");
+        return new FollowUpRecommendationResult(
+                RecommendationStatus.AI_UNAVAILABLE,
+                evaluation,
+                null,
+                null,
+                rejectionReason,
+                rejectionReason.name(),
+                policyVersion);
+    }
+
+    public static FollowUpRecommendationResult aiUnavailable(
+            FollowUpEvaluation evaluation,
             String unavailableReason,
             long policyVersion) {
         Objects.requireNonNull(unavailableReason, "Unavailable reason is required");

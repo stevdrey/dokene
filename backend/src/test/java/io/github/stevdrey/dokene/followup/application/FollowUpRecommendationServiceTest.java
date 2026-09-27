@@ -506,6 +506,40 @@ class FollowUpRecommendationServiceTest {
         assertThat(result.refusalReason()).isEqualTo(NoRecommendationReason.UNCERTAIN_INTENT);
     }
 
+    @Test
+    void recommendSafeClassifiesModelPolicyRejectionsAsAiUnavailable() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        for (ActionGateRejectionReason modelRejection : List.of(
+                ActionGateRejectionReason.DISALLOWED_ACTION,
+                ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
+                ActionGateRejectionReason.INVALID_RECOMMENDATION)) {
+            when(gate.evaluate(due.customerId(), assembly, action)).thenReturn(
+                    ActionGateDecision.rejected(modelRejection, "Model policy violation", due));
+
+            FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, 1L);
+
+            assertThat(result.status()).isEqualTo(RecommendationStatus.AI_UNAVAILABLE);
+            assertThat(result.evaluation()).isSameAs(due);
+            assertThat(result.evaluation().eligible()).isTrue();
+            assertThat(result.gateRejection()).contains(modelRejection);
+            assertThat(result.providerFailure()).contains(modelRejection.name());
+            assertThat(result.advisoryRecommendation()).isEmpty();
+        }
+    }
+
     private RecommendationContext context() {
         return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
                 List.of(TrustedFollowUpReason.DUE_TODAY), 30, tenantDate, true, List.of(lastPurchase),

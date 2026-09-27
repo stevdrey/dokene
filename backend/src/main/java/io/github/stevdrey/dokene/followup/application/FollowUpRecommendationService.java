@@ -154,6 +154,11 @@ public final class FollowUpRecommendationService {
                 if (reason == ActionGateRejectionReason.STALE_STATE) {
                     return FollowUpRecommendationResult.staleState(evaluation, freshVersion);
                 }
+                if (reason == ActionGateRejectionReason.DISALLOWED_ACTION
+                        || reason == ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT
+                        || reason == ActionGateRejectionReason.INVALID_RECOMMENDATION) {
+                    return FollowUpRecommendationResult.aiUnavailable(evaluation, reason, freshVersion);
+                }
                 return FollowUpRecommendationResult.ineligible(evaluation, reason, freshVersion);
             }
             return FollowUpRecommendationResult.ineligible(
