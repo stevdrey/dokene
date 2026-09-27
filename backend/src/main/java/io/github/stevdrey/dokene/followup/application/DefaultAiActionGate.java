@@ -18,9 +18,12 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpPolicyEvaluator;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
+import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
@@ -45,6 +48,7 @@ public class DefaultAiActionGate implements AiActionGate {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final FollowUpPolicyEvaluator evaluator;
+    private final Clock clock;
     private final AiActionGateAuditListener auditListener;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -63,7 +67,7 @@ public class DefaultAiActionGate implements AiActionGate {
         this.purchases = Objects.requireNonNull(purchases, "Purchase repository is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization service is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
-        Objects.requireNonNull(clock, "Clock is required");
+        this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.evaluator = new FollowUpPolicyEvaluator(clock);
         this.auditListener = Objects.requireNonNull(auditListener, "Audit listener optional is required")
                 .orElseGet(AiActionGateAuditListener::logging);
@@ -102,7 +106,7 @@ public class DefaultAiActionGate implements AiActionGate {
         // 1. Authenticated TenantContext
         Optional<TenantContext> tenantContextOpt = contexts.current();
         if (tenantContextOpt.isEmpty()) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT");
             return ActionGateDecision.rejected(ActionGateRejectionReason.NO_TENANT_CONTEXT,
                     "Active authenticated tenant context is required");
         }
@@ -110,7 +114,7 @@ public class DefaultAiActionGate implements AiActionGate {
 
         // 2. Caller Authorization
         if (!authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.UNAUTHORIZED, "MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "MISSING_FOLLOWUP_EVALUATE_PERMISSION");
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller lacks required permission FOLLOWUP_EVALUATE");
         }
@@ -118,20 +122,20 @@ public class DefaultAiActionGate implements AiActionGate {
         // 3. Customer Existence and Resource Ownership
         Optional<Customer> customerOpt = customers.findById(tenantContext.tenantId(), customerId);
         if (customerOpt.isEmpty()) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT");
             return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_NOT_FOUND,
                     "Customer not found within current tenant boundary");
         }
         Customer customer = customerOpt.get();
         if (!authorization.hasResourceAccess(TenantPermission.FOLLOWUP_EVALUATE, customer)) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.UNAUTHORIZED, "RESOURCE_ACCESS_DENIED");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "RESOURCE_ACCESS_DENIED");
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller not authorized to access customer resource");
         }
 
         // 4. Customer Active State
         if (customer.status() == CustomerStatus.ARCHIVED) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
             return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
                     "Customer is archived");
         }
@@ -139,7 +143,7 @@ public class DefaultAiActionGate implements AiActionGate {
         // 5. Current Consent and Do-Not-Contact State
         ContactPolicy contactPolicy = contacts.find(customer);
         if (contactPolicy.doNotContact()) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
             return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
                     "Customer has active do-not-contact restriction");
         }
@@ -148,80 +152,98 @@ public class DefaultAiActionGate implements AiActionGate {
                         && consent.channel() == ContactChannel.WHATSAPP
                         && consent.status() == ConsentStatus.GRANTED));
         if (!eligibleContact) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
             return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
                     "Customer lacks granted contact consent for WhatsApp");
         }
 
-        // 6. Current Follow-Up Evaluation
+        // 6. Current Follow-Up Evaluation & Latest Purchase Identity
         var tenantPolicy = policies.tenantPolicy(customer.tenantId());
         var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
-        Instant lastPurchase = purchases.lastValid(customer.tenantId(), customer.id())
-                .map(Purchase::purchasedAt).orElse(null);
+        Optional<Purchase> lastPurchaseOpt = purchases.lastValid(customer.tenantId(), customer.id());
+        Instant lastPurchase = lastPurchaseOpt.map(Purchase::purchasedAt).orElse(null);
+        PurchaseId currentLastPurchaseId = lastPurchaseOpt.map(Purchase::id).orElse(null);
         FollowUpEvaluation currentEvaluation = evaluator.evaluate(customer, contactPolicy, tenantPolicy, customerPolicy, lastPurchase);
 
         // 7. Stale State Detection (compared against baseline assembly, if provided)
         if (assembly != null && assembly.evaluation() != null) {
             FollowUpEvaluation baseline = assembly.evaluation();
+
+            // Bind baseline customer to requested customer
+            if (!Objects.equals(baseline.customerId(), customerId)) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        "Assembly baseline customer does not match target customer", currentEvaluation);
+            }
+
             boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
+                    || (assembly.lastPurchaseId() != null && !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId))
                     || baseline.status() != currentEvaluation.status()
                     || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
                     || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
                     || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
                     || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
             if (stale) {
-                auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
-                        "Authoritative state changed between context assembly and result acceptance");
+                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation);
             }
         }
 
-        // 8. Follow-Up Due State Enforcement
-        if (!currentEvaluation.eligible() || (currentEvaluation.status() != FollowUpStatus.DUE
-                && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
-            return ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE,
-                    "Customer is not currently due or overdue for follow-up");
-        }
-
-        // 9. Recommendation Outcome Validation
+        // 8. Recommendation Outcome Validation
         if (outcome == null) {
-            auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME");
             return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                    "Recommendation outcome cannot be null");
+                    "Recommendation outcome cannot be null", currentEvaluation);
         }
 
         if (outcome instanceof NoRecommendation) {
-            // Model refusal is accepted when caller and customer state are valid
-            return ActionGateDecision.accepted(outcome);
+            // Model refusal is accepted once tenant, caller, and customer active checks succeed
+            return ActionGateDecision.accepted(outcome, currentEvaluation);
         }
 
         if (outcome instanceof ActionRecommendation actionRec) {
-            // 8a. Semantic action allowlist
+            // 8a. Follow-Up Due State Enforcement (strictly for ActionRecommendation)
+            if (!currentEvaluation.eligible() || (currentEvaluation.status() != FollowUpStatus.DUE
+                    && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE,
+                        "Customer is not currently due or overdue for follow-up", currentEvaluation);
+            }
+
+            // 8b. Semantic action allowlist
             List<SemanticAction> allowedActions = assembly != null && assembly.context() != null
                     && assembly.context().trusted() != null
                     ? assembly.context().trusted().allowedActions()
                     : List.of(SemanticAction.values());
 
             if (allowedActions == null || !allowedActions.contains(actionRec.action())) {
-                auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST");
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
-                        "Semantic action is not permitted for current context");
+                        "Semantic action is not permitted for current context", currentEvaluation);
             }
 
-            // 8b. Semantic template intent allowlist and compatibility
+            // 8c. Semantic template intent allowlist and compatibility
             if (!isCompatibleIntent(actionRec.action(), actionRec.templateIntent())) {
-                auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
-                        "Semantic template intent is incompatible with recommended action");
+                        "Semantic template intent is incompatible with recommended action", currentEvaluation);
             }
 
-            return ActionGateDecision.accepted(actionRec);
+            return ActionGateDecision.accepted(actionRec, currentEvaluation);
         }
 
-        auditListener.onSecurityRejection(customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "UNKNOWN_OUTCOME_TYPE");
+        emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "UNKNOWN_OUTCOME_TYPE");
         return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                "Unknown recommendation outcome type");
+                "Unknown recommendation outcome type", currentEvaluation);
+    }
+
+    private void emitRejection(Optional<TenantContext> tenantContextOpt, CustomerId customerId,
+            ActionGateRejectionReason reason, String diagnosticCode) {
+        TenantId tenantId = tenantContextOpt.map(TenantContext::tenantId).orElse(null);
+        IdentityId actorId = tenantContextOpt.map(TenantContext::identityId).orElse(null);
+        auditListener.onSecurityRejection(new AiActionGateAuditListener.SecurityRejectionEvent(
+                tenantId, actorId, customerId, reason, diagnosticCode, clock.instant()));
     }
 
     private boolean isCompatibleIntent(SemanticAction action, SemanticTemplateIntent intent) {

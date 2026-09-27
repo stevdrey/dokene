@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
+import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
 import java.time.Instant;
 import java.util.Arrays;
@@ -72,7 +73,8 @@ public class RecommendationContextAssembler {
                 Arrays.asList(SemanticAction.values()));
         var untrusted = new RecommendationContext.UntrustedText(customer.displayName(), customer.notes(),
                 recent.stream().map(purchase -> purchase.description()).toList());
-        return new Assembly(evaluation, new RecommendationContext(trusted, untrusted));
+        PurchaseId lastPurchaseId = recent.isEmpty() ? null : recent.getFirst().id();
+        return new Assembly(evaluation, new RecommendationContext(trusted, untrusted), lastPurchaseId);
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -81,5 +83,9 @@ public class RecommendationContextAssembler {
         return assemble(evaluation.customerId());
     }
 
-    public record Assembly(FollowUpEvaluation evaluation, RecommendationContext context) { }
+    public record Assembly(FollowUpEvaluation evaluation, RecommendationContext context, PurchaseId lastPurchaseId) {
+        public Assembly(FollowUpEvaluation evaluation, RecommendationContext context) {
+            this(evaluation, context, null);
+        }
+    }
 }

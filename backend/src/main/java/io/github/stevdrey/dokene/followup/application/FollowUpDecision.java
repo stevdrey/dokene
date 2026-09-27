@@ -21,9 +21,13 @@ public record FollowUpDecision(
     public FollowUpDecision {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         Objects.requireNonNull(gateDecision, "Gate decision is required");
-        if (gateDecision instanceof ActionGateDecision.Rejected && recommendation instanceof ActionRecommendation) {
+        if (gateDecision instanceof ActionGateDecision.Rejected && recommendation != null) {
             throw new RecommendationValidationException("gateDecision",
-                    "Cannot associate an action recommendation with a rejected gate decision");
+                    "Cannot associate a recommendation outcome with a rejected gate decision");
+        }
+        if (!gateDecision.isAccepted() && recommendation != null) {
+            throw new RecommendationValidationException("gateDecision",
+                    "Recommendation outcome requires an accepted gate decision");
         }
         if (!evaluation.eligible() && recommendation instanceof ActionRecommendation) {
             throw new RecommendationValidationException("eligible",
@@ -31,38 +35,28 @@ public record FollowUpDecision(
         }
     }
 
-    public FollowUpDecision(FollowUpEvaluation evaluation, RecommendationOutcome recommendation) {
-        this(evaluation, recommendation,
-                recommendation != null
-                        ? ActionGateDecision.accepted(recommendation)
-                        : (evaluation != null && evaluation.eligible()
-                                ? ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION, "No recommendation provided")
-                                : ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "Customer is ineligible for follow-up")));
-    }
-
     public static FollowUpDecision ineligible(FollowUpEvaluation evaluation) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         if (evaluation.eligible()) {
-            throw new IllegalArgumentException("Customer is deterministically eligible; use recommended() or noRecommendation()");
+            throw new IllegalArgumentException("Customer is deterministically eligible");
         }
         return new FollowUpDecision(evaluation, null,
-                ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "Customer is deterministically ineligible"));
+                ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "Customer is deterministically ineligible", evaluation));
     }
 
-    public static FollowUpDecision recommended(FollowUpEvaluation evaluation, ActionRecommendation recommendation) {
+    public static FollowUpDecision gated(FollowUpEvaluation evaluation, ActionGateDecision gateDecision) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
-        Objects.requireNonNull(recommendation, "Recommendation is required");
-        if (!evaluation.eligible()) {
-            throw new RecommendationValidationException("eligible",
-                    "Cannot recommend action for deterministically ineligible customer");
+        Objects.requireNonNull(gateDecision, "Gate decision is required");
+        if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
+            return new FollowUpDecision(evaluation, accepted.outcome(), gateDecision);
         }
-        return new FollowUpDecision(evaluation, recommendation, ActionGateDecision.accepted(recommendation));
+        return new FollowUpDecision(evaluation, null, gateDecision);
     }
 
-    public static FollowUpDecision noRecommendation(FollowUpEvaluation evaluation, NoRecommendation noRecommendation) {
+    public static FollowUpDecision accepted(FollowUpEvaluation evaluation, ActionGateDecision.Accepted gateDecision) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
-        Objects.requireNonNull(noRecommendation, "No-recommendation outcome is required");
-        return new FollowUpDecision(evaluation, noRecommendation, ActionGateDecision.accepted(noRecommendation));
+        Objects.requireNonNull(gateDecision, "Gate decision is required");
+        return new FollowUpDecision(evaluation, gateDecision.outcome(), gateDecision);
     }
 
     public static FollowUpDecision rejected(FollowUpEvaluation evaluation, ActionGateDecision gateDecision) {

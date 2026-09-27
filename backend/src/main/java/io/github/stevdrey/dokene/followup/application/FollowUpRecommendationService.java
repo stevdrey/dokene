@@ -39,10 +39,11 @@ public final class FollowUpRecommendationService {
         RecommendationOutcome outcome = provider.recommend(request).outcome();
 
         ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
+        FollowUpEvaluation effectiveEvaluation = gateDecision.evaluation().orElse(evaluation);
         if (gateDecision.isAccepted()) {
-            return new FollowUpDecision(evaluation, outcome, gateDecision);
+            return new FollowUpDecision(effectiveEvaluation, outcome, gateDecision);
         }
-        return FollowUpDecision.rejected(evaluation, gateDecision);
+        return FollowUpDecision.rejected(effectiveEvaluation, gateDecision);
     }
 
     public FollowUpDecision recommend(FollowUpEvaluation evaluation, Duration timeout) {

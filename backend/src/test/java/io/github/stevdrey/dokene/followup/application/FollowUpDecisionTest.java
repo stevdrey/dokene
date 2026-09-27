@@ -42,10 +42,11 @@ class FollowUpDecisionTest {
             RecommendationConfidence.of(0.95));
 
     @Test
-    void recommendedDecisionPreservesEvaluationAndAdvisoryAction() {
+    void gatedDecisionPreservesEvaluationAndAdvisoryAction() {
         FollowUpEvaluation evaluation = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction);
 
-        FollowUpDecision decision = FollowUpDecision.recommended(evaluation, sampleAction);
+        FollowUpDecision decision = FollowUpDecision.accepted(evaluation, acceptedGate);
 
         assertThat(decision.evaluation()).isSameAs(evaluation);
         assertThat(decision.evaluation().customerId()).isEqualTo(customerId);
@@ -83,24 +84,26 @@ class FollowUpDecisionTest {
 
         assertThatThrownBy(() -> new FollowUpDecision(due, sampleAction, rejectedGate))
                 .isInstanceOf(RecommendationValidationException.class)
-                .hasMessageContaining("Cannot associate an action recommendation with a rejected gate decision");
+                .hasMessageContaining("Cannot associate a recommendation outcome with a rejected gate decision");
     }
 
     @Test
     void rejectsActionForIneligibleEvaluationThroughFactoryAndConstructor() {
         FollowUpEvaluation evaluation = evaluation(FollowUpStatus.NOT_YET_DUE, FollowUpReason.CADENCE_NOT_DUE);
+        ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction);
 
-        assertThatThrownBy(() -> FollowUpDecision.recommended(evaluation, sampleAction))
+        assertThatThrownBy(() -> FollowUpDecision.accepted(evaluation, acceptedGate))
                 .isInstanceOf(RecommendationValidationException.class)
-                .hasMessageContaining("Cannot recommend action for deterministically ineligible customer");
-        assertThatThrownBy(() -> new FollowUpDecision(evaluation, sampleAction))
+                .hasMessageContaining("Cannot associate an action recommendation with a deterministically ineligible customer");
+        assertThatThrownBy(() -> new FollowUpDecision(evaluation, sampleAction, acceptedGate))
                 .isInstanceOf(RecommendationValidationException.class)
                 .hasMessageContaining("Cannot associate an action recommendation with a deterministically ineligible customer");
     }
 
     @Test
     void rejectsNullEvaluationAndMissingFactoryRecommendations() {
-        assertThatThrownBy(() -> new FollowUpDecision(null, sampleAction))
+        ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction);
+        assertThatThrownBy(() -> new FollowUpDecision(null, sampleAction, acceptedGate))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Evaluation is required");
         assertThatThrownBy(() -> FollowUpDecision.ineligible(null))
@@ -108,12 +111,12 @@ class FollowUpDecisionTest {
                 .hasMessageContaining("Evaluation is required");
 
         FollowUpEvaluation due = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
-        assertThatThrownBy(() -> FollowUpDecision.recommended(due, null))
+        assertThatThrownBy(() -> FollowUpDecision.accepted(due, null))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("Recommendation is required");
-        assertThatThrownBy(() -> FollowUpDecision.noRecommendation(due, null))
+                .hasMessageContaining("Gate decision is required");
+        assertThatThrownBy(() -> FollowUpDecision.rejected(due, null))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("No-recommendation outcome is required");
+                .hasMessageContaining("Gate decision is required");
     }
 
     @Test
@@ -136,12 +139,13 @@ class FollowUpDecisionTest {
     }
 
     @Test
-    void noRecommendationFactoryKeepsRefusalSeparateFromEligibility() {
+    void gatedRefusalKeepsRefusalWithAcceptedGateDecision() {
         FollowUpEvaluation due = evaluation(FollowUpStatus.OVERDUE, FollowUpReason.OVERDUE);
         FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE, FollowUpReason.DO_NOT_CONTACT);
+        ActionGateDecision.Accepted acceptedRefusal = new ActionGateDecision.Accepted(sampleRefusal);
 
         for (FollowUpEvaluation evaluation : List.of(due, ineligible)) {
-            FollowUpDecision decision = FollowUpDecision.noRecommendation(evaluation, sampleRefusal);
+            FollowUpDecision decision = FollowUpDecision.accepted(evaluation, acceptedRefusal);
             assertThat(decision.evaluation()).isSameAs(evaluation);
             assertThat(decision.hasActionRecommendation()).isFalse();
             assertThat(decision.advisoryRecommendation()).contains(sampleRefusal);

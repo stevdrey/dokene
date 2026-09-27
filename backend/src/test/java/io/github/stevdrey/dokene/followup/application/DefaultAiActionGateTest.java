@@ -47,11 +47,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Objects;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -135,7 +137,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
-        verify(auditListener, never()).onSecurityRejection(any(), any(), any());
+        verify(auditListener, never()).onSecurityRejection(any());
     }
 
     @Test
@@ -148,7 +150,21 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
-        verify(auditListener, never()).onSecurityRejection(any(), any(), any());
+        verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void preservesRefusalWhenCustomerNotDue() {
+        // Customer has no purchases -> NOT_YET_DUE or INELIGIBLE, but refusal is preserved
+        when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.INSUFFICIENT_HISTORY,
+                "No purchase history", RecommendationConfidence.of(0.9));
+
+        ActionGateDecision decision = gate.evaluate(customerId, refusal);
+
+        assertThat(decision.isAccepted()).isTrue();
+        assertThat(decision.rejectionReason()).isEmpty();
+        verify(auditListener, never()).onSecurityRejection(any());
     }
 
     @Test
@@ -160,7 +176,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.NO_TENANT_CONTEXT);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.NO_TENANT_CONTEXT), any());
+        verifyRejection(customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT);
     }
 
     @Test
@@ -172,7 +188,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.UNAUTHORIZED);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.UNAUTHORIZED), any());
+        verifyRejection(customerId, ActionGateRejectionReason.UNAUTHORIZED);
     }
 
     @Test
@@ -184,7 +200,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.CUSTOMER_NOT_FOUND);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.CUSTOMER_NOT_FOUND), any());
+        verifyRejection(customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND);
     }
 
     @Test
@@ -196,7 +212,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.UNAUTHORIZED);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.UNAUTHORIZED), any());
+        verifyRejection(customerId, ActionGateRejectionReason.UNAUTHORIZED);
     }
 
     @Test
@@ -211,7 +227,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.CUSTOMER_ARCHIVED);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.CUSTOMER_ARCHIVED), any());
+        verifyRejection(customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED);
     }
 
     @Test
@@ -226,7 +242,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DO_NOT_CONTACT);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.DO_NOT_CONTACT), any());
+        verifyRejection(customerId, ActionGateRejectionReason.DO_NOT_CONTACT);
     }
 
     @Test
@@ -242,7 +258,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.NO_CONTACT_CONSENT);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.NO_CONTACT_CONSENT), any());
+        verifyRejection(customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT);
     }
 
     @Test
@@ -254,7 +270,27 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE), any());
+        verifyRejection(customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
+    }
+
+    @Test
+    void rejectsWhenAssemblyCustomerIdDoesNotMatchTargetCustomer() {
+        CustomerId otherCustomer = new CustomerId(UUID.randomUUID());
+        Customer otherCustomerEntity = Customer.create(otherCustomer, tenantId, "Other Customer", "Notes", List.of(primaryPhone), now.minusSeconds(86400));
+        ContactPolicy otherContactPolicy = new ContactPolicy(otherCustomer, 1L, false, null, null, validContactPolicy.consents());
+        CustomerFollowUpPolicy otherCustomerPolicy = new CustomerFollowUpPolicy(tenantId, otherCustomer, 30, null, null, null, 1L);
+        FollowUpEvaluation otherEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
+                otherCustomerEntity, otherContactPolicy, tenantPolicy, otherCustomerPolicy, lastPurchaseTime);
+        RecommendationContextAssembler.Assembly assembly = assembly(otherEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "CUSTOMER_ID_MISMATCH".equals(event.diagnosticCode())));
     }
 
     @Test
@@ -271,7 +307,25 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.STALE_STATE), any());
+        verifyRejection(customerId, ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void rejectsStaleStateWhenPurchaseIdChangedEvenWithSameTimestamp() {
+        PurchaseId originalPurchaseId = lastPurchase.id();
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation,
+                List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP), originalPurchaseId);
+
+        // New purchase with SAME timestamp but different PurchaseId
+        Purchase tiedPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime, "Tied timestamp purchase", now);
+        when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(tiedPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verifyRejection(customerId, ActionGateRejectionReason.STALE_STATE);
     }
 
     @Test
@@ -286,7 +340,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.STALE_STATE), any());
+        verifyRejection(customerId, ActionGateRejectionReason.STALE_STATE);
     }
 
     @Test
@@ -298,7 +352,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DISALLOWED_ACTION);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.DISALLOWED_ACTION), any());
+        verifyRejection(customerId, ActionGateRejectionReason.DISALLOWED_ACTION);
     }
 
     @Test
@@ -316,7 +370,7 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT), any());
+        verifyRejection(customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT);
     }
 
     @Test
@@ -327,17 +381,13 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
-        verify(auditListener).onSecurityRejection(eq(customerId), eq(ActionGateRejectionReason.INVALID_RECOMMENDATION), any());
+        verifyRejection(customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION);
     }
 
     @Test
     void auditListenerExcludesCustomerNotesPromptsOrPII() {
-        List<String> loggedDiagnostics = new ArrayList<>();
-        AiActionGateAuditListener capturingListener = (id, reason, code) -> {
-            loggedDiagnostics.add(code);
-            // Verify safe identifiers only
-            assertThat(code).matches("^[A-Z0-9_]{1,64}$");
-        };
+        List<AiActionGateAuditListener.SecurityRejectionEvent> events = new ArrayList<>();
+        AiActionGateAuditListener capturingListener = events::add;
         DefaultAiActionGate capturingGate = new DefaultAiActionGate(customers, contacts, policies, purchases,
                 authorization, contexts, clock, capturingListener);
 
@@ -346,10 +396,26 @@ class DefaultAiActionGateTest {
 
         capturingGate.evaluate(customerId, assembly, sampleAction);
 
-        assertThat(loggedDiagnostics).containsExactly("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+        assertThat(events).hasSize(1);
+        var event = events.getFirst();
+        assertThat(event.tenantId()).isEqualTo(tenantId);
+        assertThat(event.actorId()).isNotNull();
+        assertThat(event.customerId()).isEqualTo(customerId);
+        assertThat(event.reason()).isEqualTo(ActionGateRejectionReason.UNAUTHORIZED);
+        assertThat(event.diagnosticCode()).isEqualTo("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+        assertThat(event.timestamp()).isEqualTo(now);
+    }
+
+    private void verifyRejection(CustomerId customerId, ActionGateRejectionReason reason) {
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId) && event.reason() == reason));
     }
 
     private RecommendationContextAssembler.Assembly assembly(FollowUpEvaluation evaluation, List<SemanticAction> allowedActions) {
+        return assembly(evaluation, allowedActions, lastPurchase != null ? lastPurchase.id() : null);
+    }
+
+    private RecommendationContextAssembler.Assembly assembly(FollowUpEvaluation evaluation, List<SemanticAction> allowedActions, PurchaseId purchaseId) {
         RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
                 evaluation.tenantDate(), evaluation.status().name(),
                 evaluation.reasons().stream().map(r -> TrustedFollowUpReason.valueOf(r.name())).toList(),
@@ -357,6 +423,6 @@ class DefaultAiActionGateTest {
                 List.of(lastPurchaseTime), allowedActions);
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
                 "Test Customer", "Some notes", List.of("Purchase description"));
-        return new RecommendationContextAssembler.Assembly(evaluation, new RecommendationContext(trusted, untrusted));
+        return new RecommendationContextAssembler.Assembly(evaluation, new RecommendationContext(trusted, untrusted), purchaseId);
     }
 }
