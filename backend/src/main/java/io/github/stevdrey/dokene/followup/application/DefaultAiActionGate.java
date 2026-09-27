@@ -100,7 +100,7 @@ public class DefaultAiActionGate implements AiActionGate {
         TenantContext tenantContext = tenantContextOpt.get();
 
         // 2. Caller Authorization
-        if (!authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)) {
+        if (!authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE).isAllowed()) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "MISSING_FOLLOWUP_EVALUATE_PERMISSION");
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller lacks required permission FOLLOWUP_EVALUATE", null, outcome);
@@ -114,7 +114,7 @@ public class DefaultAiActionGate implements AiActionGate {
                     "Customer not found within current tenant boundary", null, outcome);
         }
         Customer customer = customerOpt.get();
-        if (!authorization.hasResourceAccess(TenantPermission.FOLLOWUP_EVALUATE, customer)) {
+        if (!authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE, customer).isAllowed()) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, "RESOURCE_ACCESS_DENIED");
             return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller not authorized to access customer resource", null, outcome);

@@ -31,6 +31,7 @@ import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
+import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -80,6 +81,7 @@ class DefaultAiActionGateTest {
 
     private DefaultAiActionGate gate;
 
+    private TenantContext tenantContext;
     private Customer activeCustomer;
     private CustomerPhone primaryPhone;
     private ContactPolicy validContactPolicy;
@@ -100,16 +102,18 @@ class DefaultAiActionGateTest {
         gate = new DefaultAiActionGate(customers, contacts, policies, purchases,
                 authorization, contexts, clock, auditListener);
 
-        TenantContext tenantContext = new TenantContext(tenantId, new IdentityId(UUID.randomUUID()),
+        tenantContext = new TenantContext(tenantId, new IdentityId(UUID.randomUUID()),
                 new TenantMembershipId(UUID.randomUUID()), TenantRole.OPERATOR);
         when(contexts.current()).thenReturn(Optional.of(tenantContext));
-        when(authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)).thenReturn(true);
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
+                .thenReturn(AuthorizationDecision.allow());
 
         primaryPhone = CustomerPhone.create("+50688888888", true);
         activeCustomer = Customer.create(customerId, tenantId, "Test Customer",
                 "Some internal notes", List.of(primaryPhone), now.minusSeconds(86400));
         when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(activeCustomer));
-        when(authorization.hasResourceAccess(eq(TenantPermission.FOLLOWUP_EVALUATE), any(Customer.class))).thenReturn(true);
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE), any(Customer.class)))
+                .thenReturn(AuthorizationDecision.allow());
 
         ContactConsent whatsappConsent = new ContactConsent(primaryPhone.id(), ContactChannel.WHATSAPP,
                 ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, now.minusSeconds(86400));
@@ -221,7 +225,8 @@ class DefaultAiActionGateTest {
 
     @Test
     void rejectsWhenCallerLacksAuthorization() {
-        when(authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)).thenReturn(false);
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
+                .thenReturn(AuthorizationDecision.deny("Denied"));
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
@@ -245,7 +250,8 @@ class DefaultAiActionGateTest {
 
     @Test
     void rejectsWhenCallerLacksResourceAccessToCustomer() {
-        when(authorization.hasResourceAccess(TenantPermission.FOLLOWUP_EVALUATE, activeCustomer)).thenReturn(false);
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE), eq(activeCustomer)))
+                .thenReturn(AuthorizationDecision.deny("Resource access denied"));
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
@@ -489,7 +495,8 @@ class DefaultAiActionGateTest {
         DefaultAiActionGate capturingGate = new DefaultAiActionGate(customers, contacts, policies, purchases,
                 authorization, contexts, clock, capturingListener);
 
-        when(authorization.hasPermission(TenantPermission.FOLLOWUP_EVALUATE)).thenReturn(false);
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
+                .thenReturn(AuthorizationDecision.deny("Denied"));
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
         capturingGate.evaluate(customerId, assembly, sampleAction);
