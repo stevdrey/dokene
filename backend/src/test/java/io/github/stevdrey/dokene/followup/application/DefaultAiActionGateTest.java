@@ -622,11 +622,11 @@ class DefaultAiActionGateTest {
 
         assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(dueEvaluation, context, (List<PurchaseBaseline>) null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Purchase baseline is required when baseline contains purchase history");
+                .hasMessageContaining("Purchase baseline must match provider context");
 
         assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(dueEvaluation, context, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Purchase baseline is required when baseline contains purchase history");
+                .hasMessageContaining("Purchase baseline must match provider context");
     }
 
     @Test
@@ -690,11 +690,12 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
         PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
         PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, secondBaseline);
 
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
                 dueEvaluation,
-                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
-                List.of(latestBaseline, secondBaseline));
+                multiPurchaseContext(baselines),
+                baselines);
 
         Purchase correctedSecondPurchase = Purchase.restore(
                 secondPurchase.id(), tenantId, customerId,
@@ -722,11 +723,12 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
         PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
         PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, secondBaseline);
 
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
                 dueEvaluation,
-                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
-                List.of(latestBaseline, secondBaseline));
+                multiPurchaseContext(baselines),
+                baselines);
 
         Purchase voidedSecondPurchase = Purchase.restore(
                 secondPurchase.id(), tenantId, customerId,
@@ -754,11 +756,12 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
         PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
         PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, secondBaseline);
 
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
                 dueEvaluation,
-                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
-                List.of(latestBaseline, secondBaseline));
+                multiPurchaseContext(baselines),
+                baselines);
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.empty());
@@ -780,11 +783,12 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
         PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
         PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, secondBaseline);
 
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
                 dueEvaluation,
-                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
-                List.of(latestBaseline, secondBaseline));
+                multiPurchaseContext(baselines),
+                baselines);
 
         Purchase modifiedSecondPurchase = Purchase.restore(
                 secondPurchase.id(), tenantId, customerId,
@@ -812,11 +816,12 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime.minusSeconds(3600), "Purchase 2", now.minusSeconds(86400));
         PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
         PurchaseBaseline secondBaseline = PurchaseBaseline.from(secondPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, secondBaseline);
 
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
                 dueEvaluation,
-                assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)).context(),
-                List.of(latestBaseline, secondBaseline));
+                multiPurchaseContext(baselines),
+                baselines);
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(secondPurchase));
@@ -826,6 +831,17 @@ class DefaultAiActionGateTest {
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
         verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    private RecommendationContext multiPurchaseContext(List<PurchaseBaseline> baselines) {
+        List<Instant> dates = baselines.stream().map(PurchaseBaseline::purchasedAt).toList();
+        List<String> descriptions = baselines.stream().map(b -> "Purchase " + b.id().value()).toList();
+        RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
+                tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, tenantDate, true, dates, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
+                "Test Customer", "Notes", descriptions);
+        return new RecommendationContext(trusted, untrusted);
     }
 
     private void verifyRejection(CustomerId customerId, ActionGateRejectionReason reason) {

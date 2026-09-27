@@ -93,6 +93,24 @@ public class RecommendationContextAssembler {
         public Assembly {
             Objects.requireNonNull(evaluation, "Evaluation is required");
             purchases = purchases == null ? List.of() : List.copyOf(purchases);
+
+            if (purchases.stream().map(PurchaseBaseline::id).distinct().count() != purchases.size()) {
+                throw new IllegalArgumentException("Purchase baseline IDs must be unique");
+            }
+
+            if (context != null) {
+                var contextDates = context.trusted() != null ? context.trusted().purchaseDates() : List.<Instant>of();
+                if (contextDates.size() != purchases.size()) {
+                    throw new IllegalArgumentException("Purchase baseline must match provider context");
+                }
+                var baselineDates = purchases.stream()
+                        .map(PurchaseBaseline::purchasedAt)
+                        .toList();
+                if (!contextDates.equals(baselineDates)) {
+                    throw new IllegalArgumentException("Purchase baseline must match provider context");
+                }
+            }
+
             if (context != null && evaluation.lastPurchaseAt() != null && purchases.isEmpty()) {
                 throw new IllegalArgumentException("Purchase baseline is required when baseline contains purchase history");
             }

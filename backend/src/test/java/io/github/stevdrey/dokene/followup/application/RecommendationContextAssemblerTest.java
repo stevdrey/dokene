@@ -2,6 +2,8 @@ package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
@@ -232,6 +234,101 @@ class RecommendationContextAssemblerTest {
         assertThat(assembly.evaluation()).isSameAs(authoritativeNotDue);
         assertThat(assembly.context()).isNull();
         verifyNoInteractions(customers, contacts, purchases);
+    }
+
+    @Test
+    void rejectsAssemblyWhenBaselineCountDoesNotMatchContextPurchases() {
+        RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
+                LocalDate.of(2026, 9, 25), "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, LocalDate.of(2026, 9, 25), true,
+                List.of(now.minusSeconds(1), now.minusSeconds(2), now.minusSeconds(3)),
+                List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
+                "Customer", "Notes", List.of("P1", "P2", "P3"));
+        RecommendationContext context = new RecommendationContext(trusted, untrusted);
+        FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+
+        PurchaseBaseline baseline1 = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(1));
+
+        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(evaluation, context, List.of(baseline1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Purchase baseline must match provider context");
+    }
+
+    @Test
+    void rejectsAssemblyWhenBaselineTimestampsDoNotMatchContextPurchases() {
+        RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
+                LocalDate.of(2026, 9, 25), "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, LocalDate.of(2026, 9, 25), true,
+                List.of(now.minusSeconds(1), now.minusSeconds(2)),
+                List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
+                "Customer", "Notes", List.of("P1", "P2"));
+        RecommendationContext context = new RecommendationContext(trusted, untrusted);
+        FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+
+        PurchaseBaseline baselineA = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(1));
+        PurchaseBaseline baselineC = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(3));
+
+        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(evaluation, context, List.of(baselineA, baselineC)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Purchase baseline must match provider context");
+    }
+
+    @Test
+    void rejectsAssemblyWhenBaselineOrderMismatchesContextPurchases() {
+        RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
+                LocalDate.of(2026, 9, 25), "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, LocalDate.of(2026, 9, 25), true,
+                List.of(now.minusSeconds(1), now.minusSeconds(2)),
+                List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
+                "Customer", "Notes", List.of("P1", "P2"));
+        RecommendationContext context = new RecommendationContext(trusted, untrusted);
+        FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+
+        PurchaseBaseline baseline1 = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(1));
+        PurchaseBaseline baseline2 = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(2));
+
+        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(evaluation, context, List.of(baseline2, baseline1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Purchase baseline must match provider context");
+    }
+
+    @Test
+    void rejectsAssemblyWhenDuplicatePurchaseIdsInBaseline() {
+        PurchaseId duplicateId = new PurchaseId(UUID.randomUUID());
+        PurchaseBaseline baseline1 = new PurchaseBaseline(duplicateId, 0L, now.minusSeconds(1));
+        PurchaseBaseline baseline2 = new PurchaseBaseline(duplicateId, 0L, now.minusSeconds(2));
+        FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+
+        assertThatThrownBy(() -> new RecommendationContextAssembler.Assembly(evaluation, null, List.of(baseline1, baseline2)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Purchase baseline IDs must be unique");
+    }
+
+    @Test
+    void acceptsAssemblyWhenBaselineMatchesContextPurchasesExactly() {
+        RecommendationContext.TrustedFacts trusted = new RecommendationContext.TrustedFacts(
+                LocalDate.of(2026, 9, 25), "DUE",
+                List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, LocalDate.of(2026, 9, 25), true,
+                List.of(now.minusSeconds(1), now.minusSeconds(2)),
+                List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
+                "Customer", "Notes", List.of("P1", "P2"));
+        RecommendationContext context = new RecommendationContext(trusted, untrusted);
+        FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+
+        PurchaseBaseline baseline1 = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(1));
+        PurchaseBaseline baseline2 = new PurchaseBaseline(new PurchaseId(UUID.randomUUID()), 0L, now.minusSeconds(2));
+
+        var assembly = new RecommendationContextAssembler.Assembly(evaluation, context, List.of(baseline1, baseline2));
+        assertThat(assembly.purchases()).containsExactly(baseline1, baseline2);
+        assertThat(assembly.lastPurchaseId()).isEqualTo(baseline1.id());
     }
 
     private Customer customer(String notes) {
