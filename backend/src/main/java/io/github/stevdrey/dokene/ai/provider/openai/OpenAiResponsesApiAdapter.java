@@ -17,6 +17,7 @@ import com.openai.models.ChatModel;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.ResponseFormatTextJsonSchemaConfig;
+import com.openai.models.responses.ResponseStatus;
 import com.openai.models.responses.ResponseTextConfig;
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
@@ -27,8 +28,10 @@ import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
 import io.github.stevdrey.dokene.ai.application.AiTokenUsage;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
+import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationJsonSchema;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
+import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.time.Instant;
@@ -89,6 +92,26 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             response = client.responses().create(params, requestOptions);
             Duration latency = Duration.between(start, Instant.now());
 
+            if (Thread.currentThread().isInterrupted()) {
+                throw new AiProviderException(AiFailureCategory.CANCELLED,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.CANCELLED));
+            }
+
+            if (response.status().isPresent()) {
+                ResponseStatus status = response.status().get();
+                if (!ResponseStatus.COMPLETED.equals(status)) {
+                    AiFailureCategory category = ResponseStatus.CANCELLED.equals(status)
+                            ? AiFailureCategory.CANCELLED
+                            : ResponseStatus.INCOMPLETE.equals(status)
+                            ? AiFailureCategory.INVALID_STRUCTURED_RESPONSE
+                            : AiFailureCategory.UNAVAILABLE;
+                    throw new AiProviderException(category,
+                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                    latency, extractUsage(response), category));
+                }
+            }
+
             String outputText = extractOutputText(response);
             if (outputText.isBlank()) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
@@ -96,7 +119,23 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                                 latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
             }
 
-            RecommendationOutcome outcome = RecommendationJsonSchema.parseOutcome(outputText);
+            RecommendationOutcome outcome;
+            try {
+                outcome = RecommendationJsonSchema.parseOutcome(outputText);
+            } catch (IllegalArgumentException e) {
+                throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+            }
+
+            if (outcome instanceof ActionRecommendation actionRec) {
+                if (!request.context().trusted().allowedActions().contains(actionRec.action())) {
+                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
+                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                }
+            }
+
             AiInvocationMetadata metadata = new AiInvocationMetadata(
                     PROVIDER_ID,
                     resolveModelId(response, modelId),
@@ -125,12 +164,26 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                     failureMetadata(modelId, null, latency, null, AiFailureCategory.UNAVAILABLE));
         } catch (OpenAIIoException e) {
             Duration latency = Duration.between(start, Instant.now());
-            AiFailureCategory category = isTimeout(e) ? AiFailureCategory.TIMEOUT : AiFailureCategory.UNAVAILABLE;
-            throw new AiProviderException(category,
-                    failureMetadata(modelId, null, latency, null, category));
+            if (Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt();
+                throw new AiProviderException(AiFailureCategory.CANCELLED,
+                        failureMetadata(modelId, null, latency, null, AiFailureCategory.CANCELLED));
+            }
+            if (isTimeout(e)) {
+                throw new AiProviderException(AiFailureCategory.TIMEOUT,
+                        failureMetadata(modelId, null, latency, null, AiFailureCategory.TIMEOUT));
+            }
+            if (hasInterruptedException(e)) {
+                Thread.currentThread().interrupt();
+                throw new AiProviderException(AiFailureCategory.CANCELLED,
+                        failureMetadata(modelId, null, latency, null, AiFailureCategory.CANCELLED));
+            }
+            throw new AiProviderException(AiFailureCategory.UNAVAILABLE,
+                    failureMetadata(modelId, null, latency, null, AiFailureCategory.UNAVAILABLE));
         } catch (OpenAIServiceException e) {
             Duration latency = Duration.between(start, Instant.now());
             AiFailureCategory category = e.statusCode() == 429 ? AiFailureCategory.THROTTLED
+                    : e.statusCode() == 408 ? AiFailureCategory.TIMEOUT
                     : e.statusCode() >= 500 ? AiFailureCategory.UNAVAILABLE
                     : AiFailureCategory.REJECTED_REQUEST;
             throw new AiProviderException(category,
@@ -142,22 +195,32 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                     failureMetadata(modelId, null, latency, null, category));
         } catch (Exception e) {
             Duration latency = Duration.between(start, Instant.now());
-            if (e instanceof InterruptedException || Thread.currentThread().isInterrupted()
+            if (Thread.currentThread().isInterrupted() || e instanceof InterruptedException
                     || e instanceof CancellationException) {
                 Thread.currentThread().interrupt();
                 throw new AiProviderException(AiFailureCategory.CANCELLED,
-                        failureMetadata(modelId, null, latency, null, AiFailureCategory.CANCELLED));
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.CANCELLED));
             }
             if (isTimeout(e)) {
                 throw new AiProviderException(AiFailureCategory.TIMEOUT,
-                        failureMetadata(modelId, null, latency, null, AiFailureCategory.TIMEOUT));
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.TIMEOUT));
+            }
+            if (hasInterruptedException(e)) {
+                Thread.currentThread().interrupt();
+                throw new AiProviderException(AiFailureCategory.CANCELLED,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.CANCELLED));
             }
             if (e instanceof IllegalArgumentException) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
-                        failureMetadata(modelId, null, latency, null, AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
             }
             throw new AiProviderException(AiFailureCategory.UNAVAILABLE,
-                    failureMetadata(modelId, null, latency, null, AiFailureCategory.UNAVAILABLE));
+                    failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                            latency, extractUsage(response), AiFailureCategory.UNAVAILABLE));
         }
     }
 
@@ -204,19 +267,26 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
         sb.append("</trusted_facts>\n\n");
 
         sb.append("<untrusted_customer_data>\n");
-        sb.append("Customer Name: ").append(untrusted.displayName()).append("\n");
+        sb.append("Customer Name: ").append(sanitizeUntrusted(untrusted.displayName())).append("\n");
         if (untrusted.notes() != null && !untrusted.notes().isBlank()) {
-            sb.append("Customer Notes: ").append(untrusted.notes()).append("\n");
+            sb.append("Customer Notes: ").append(sanitizeUntrusted(untrusted.notes())).append("\n");
         }
         sb.append("Purchases (newest to oldest):\n");
         for (int i = 0; i < trusted.purchaseDates().size(); i++) {
             sb.append("- Date: ").append(trusted.purchaseDates().get(i))
-                    .append(" | Description: ").append(untrusted.purchaseDescriptions().get(i))
+                    .append(" | Description: ").append(sanitizeUntrusted(untrusted.purchaseDescriptions().get(i)))
                     .append("\n");
         }
         sb.append("</untrusted_customer_data>\n");
 
         return sb.toString();
+    }
+
+    private String sanitizeUntrusted(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private String extractOutputText(Response response) {
@@ -298,6 +368,23 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             String msg = curr.getMessage();
             if (msg != null && (msg.toLowerCase().contains("timeout") || msg.toLowerCase().contains("timed out"))) {
                 return true;
+            }
+            curr = curr.getCause();
+        }
+        return false;
+    }
+
+    private boolean hasInterruptedException(Throwable t) {
+        Throwable curr = t;
+        while (curr != null) {
+            if (curr instanceof InterruptedException) {
+                return true;
+            }
+            if (curr instanceof InterruptedIOException && !(curr instanceof SocketTimeoutException)) {
+                String msg = curr.getMessage();
+                if (msg == null || (!msg.toLowerCase().contains("timeout") && !msg.toLowerCase().contains("timed out"))) {
+                    return true;
+                }
             }
             curr = curr.getCause();
         }
