@@ -21,13 +21,16 @@ public record FollowUpDecision(
     public FollowUpDecision {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         Objects.requireNonNull(gateDecision, "Gate decision is required");
-        if (gateDecision instanceof ActionGateDecision.Rejected && recommendation != null) {
-            throw new RecommendationValidationException("gateDecision",
-                    "Cannot associate a recommendation outcome with a rejected gate decision");
-        }
-        if (!gateDecision.isAccepted() && recommendation != null) {
-            throw new RecommendationValidationException("gateDecision",
-                    "Recommendation outcome requires an accepted gate decision");
+        if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
+            if (!Objects.equals(recommendation, accepted.outcome())) {
+                throw new RecommendationValidationException("recommendation",
+                        "Recommendation outcome must match the gate-approved outcome");
+            }
+        } else {
+            if (recommendation != null) {
+                throw new RecommendationValidationException("gateDecision",
+                        "Cannot associate a recommendation outcome with a rejected gate decision");
+            }
         }
         if (!evaluation.eligible() && recommendation instanceof ActionRecommendation) {
             throw new RecommendationValidationException("eligible",

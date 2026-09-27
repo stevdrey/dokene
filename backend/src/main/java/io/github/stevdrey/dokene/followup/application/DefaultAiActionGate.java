@@ -133,77 +133,78 @@ public class DefaultAiActionGate implements AiActionGate {
                     "Caller not authorized to access customer resource");
         }
 
-        // 4. Customer Active State
-        if (customer.status() == CustomerStatus.ARCHIVED) {
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
-            return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
-                    "Customer is archived");
-        }
-
-        // 5. Current Consent and Do-Not-Contact State
-        ContactPolicy contactPolicy = contacts.find(customer);
-        if (contactPolicy.doNotContact()) {
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
-            return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
-                    "Customer has active do-not-contact restriction");
-        }
-        boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
-                .anyMatch(consent -> consent.contactId().equals(phone.id())
-                        && consent.channel() == ContactChannel.WHATSAPP
-                        && consent.status() == ConsentStatus.GRANTED));
-        if (!eligibleContact) {
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
-            return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
-                    "Customer lacks granted contact consent for WhatsApp");
-        }
-
-        // 6. Current Follow-Up Evaluation & Latest Purchase Identity
+        // Authoritative evaluation of current policies, consent, and purchases
         var tenantPolicy = policies.tenantPolicy(customer.tenantId());
         var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
+        ContactPolicy contactPolicy = contacts.find(customer);
         Optional<Purchase> lastPurchaseOpt = purchases.lastValid(customer.tenantId(), customer.id());
         Instant lastPurchase = lastPurchaseOpt.map(Purchase::purchasedAt).orElse(null);
         PurchaseId currentLastPurchaseId = lastPurchaseOpt.map(Purchase::id).orElse(null);
         FollowUpEvaluation currentEvaluation = evaluator.evaluate(customer, contactPolicy, tenantPolicy, customerPolicy, lastPurchase);
 
-        // 7. Stale State Detection (compared against baseline assembly, if provided)
-        if (assembly != null && assembly.evaluation() != null) {
-            FollowUpEvaluation baseline = assembly.evaluation();
-
-            // Bind baseline customer to requested customer
-            if (!Objects.equals(baseline.customerId(), customerId)) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
-                return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                        "Assembly baseline customer does not match target customer", currentEvaluation);
-            }
-
-            boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
-                    || (assembly.lastPurchaseId() != null && !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId))
-                    || baseline.status() != currentEvaluation.status()
-                    || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
-                    || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
-                    || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
-                    || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
-            if (stale) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
-                return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
-                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation);
-            }
+        // 4. Customer Active State
+        if (customer.status() == CustomerStatus.ARCHIVED) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
+            return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
+                    "Customer is archived", currentEvaluation);
         }
 
-        // 8. Recommendation Outcome Validation
+        // 5. Outcome Null Check
         if (outcome == null) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME");
             return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
                     "Recommendation outcome cannot be null", currentEvaluation);
         }
 
+        // 6. Explicit Model Refusal
         if (outcome instanceof NoRecommendation) {
-            // Model refusal is accepted once tenant, caller, and customer active checks succeed
+            // Model refusal is accepted once tenant context, caller authorization, and customer active state succeed
             return ActionGateDecision.accepted(outcome, currentEvaluation);
         }
 
         if (outcome instanceof ActionRecommendation actionRec) {
-            // 8a. Follow-Up Due State Enforcement (strictly for ActionRecommendation)
+            // 7. Consent and Do-Not-Contact State (strictly for action recommendations)
+            if (contactPolicy.doNotContact()) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
+                        "Customer has active do-not-contact restriction", currentEvaluation);
+            }
+            boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
+                    .anyMatch(consent -> consent.contactId().equals(phone.id())
+                            && consent.channel() == ContactChannel.WHATSAPP
+                            && consent.status() == ConsentStatus.GRANTED));
+            if (!eligibleContact) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
+                return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
+                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation);
+            }
+
+            // 8. Stale State Detection & Baseline Customer Binding
+            if (assembly != null && assembly.evaluation() != null) {
+                FollowUpEvaluation baseline = assembly.evaluation();
+
+                // Bind baseline customer to requested customer
+                if (!Objects.equals(baseline.customerId(), customerId)) {
+                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
+                    return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                            "Assembly baseline customer does not match target customer", currentEvaluation);
+                }
+
+                boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
+                        || (assembly.lastPurchaseId() != null && !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId))
+                        || baseline.status() != currentEvaluation.status()
+                        || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
+                        || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
+                        || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
+                        || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
+                if (stale) {
+                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
+                    return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation);
+                }
+            }
+
+            // 9. Follow-Up Due State Enforcement
             if (!currentEvaluation.eligible() || (currentEvaluation.status() != FollowUpStatus.DUE
                     && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
@@ -211,7 +212,7 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Customer is not currently due or overdue for follow-up", currentEvaluation);
             }
 
-            // 8b. Semantic action allowlist
+            // 10. Semantic action allowlist
             List<SemanticAction> allowedActions = assembly != null && assembly.context() != null
                     && assembly.context().trusted() != null
                     ? assembly.context().trusted().allowedActions()
@@ -223,7 +224,7 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Semantic action is not permitted for current context", currentEvaluation);
             }
 
-            // 8c. Semantic template intent allowlist and compatibility
+            // 11. Semantic template intent allowlist and compatibility
             if (!isCompatibleIntent(actionRec.action(), actionRec.templateIntent())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,

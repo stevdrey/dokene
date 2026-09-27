@@ -168,6 +168,46 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void acceptsRefusalEvenWhenCustomerLacksContactConsentOrHasDnc() {
+        ContactPolicy dncPolicy = new ContactPolicy(customerId, 1L, true,
+                ContactIntentSource.CUSTOMER_WRITTEN, now.minusSeconds(100),
+                List.of());
+        when(contacts.find(activeCustomer)).thenReturn(dncPolicy);
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Signal unclear", RecommendationConfidence.of(0.4));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, refusal);
+
+        assertThat(decision.isAccepted()).isTrue();
+        assertThat(decision.rejectionReason()).isEmpty();
+        assertThat(decision.evaluation()).isPresent();
+        assertThat(decision.evaluation().get().status()).isEqualTo(FollowUpStatus.INELIGIBLE);
+        assertThat(decision.evaluation().get().reasons()).contains(FollowUpReason.DO_NOT_CONTACT);
+        verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void acceptsRefusalEvenWhenStateIsStale() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        // A new purchase was recorded while AI was thinking
+        Instant newerPurchaseTime = now.minusSeconds(3600);
+        Purchase newerPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                newerPurchaseTime, "Purchase 2", now);
+        when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(newerPurchase));
+
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Signal unclear", RecommendationConfidence.of(0.4));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, refusal);
+
+        assertThat(decision.isAccepted()).isTrue();
+        assertThat(decision.rejectionReason()).isEmpty();
+        verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
     void rejectsWhenTenantContextIsMissing() {
         when(contexts.current()).thenReturn(Optional.empty());
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
@@ -227,6 +267,9 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.CUSTOMER_ARCHIVED);
+        assertThat(decision.evaluation()).isPresent();
+        assertThat(decision.evaluation().get().status()).isEqualTo(FollowUpStatus.INELIGIBLE);
+        assertThat(decision.evaluation().get().reasons()).contains(FollowUpReason.CUSTOMER_ARCHIVED);
         verifyRejection(customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED);
     }
 
@@ -242,6 +285,9 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DO_NOT_CONTACT);
+        assertThat(decision.evaluation()).isPresent();
+        assertThat(decision.evaluation().get().status()).isEqualTo(FollowUpStatus.INELIGIBLE);
+        assertThat(decision.evaluation().get().reasons()).contains(FollowUpReason.DO_NOT_CONTACT);
         verifyRejection(customerId, ActionGateRejectionReason.DO_NOT_CONTACT);
     }
 
@@ -258,6 +304,9 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+        assertThat(decision.evaluation()).isPresent();
+        assertThat(decision.evaluation().get().status()).isEqualTo(FollowUpStatus.INELIGIBLE);
+        assertThat(decision.evaluation().get().reasons()).contains(FollowUpReason.NO_ELIGIBLE_CONTACT);
         verifyRejection(customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT);
     }
 

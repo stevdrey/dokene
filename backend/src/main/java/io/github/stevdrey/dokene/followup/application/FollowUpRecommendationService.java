@@ -40,8 +40,8 @@ public final class FollowUpRecommendationService {
 
         ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
         FollowUpEvaluation effectiveEvaluation = gateDecision.evaluation().orElse(evaluation);
-        if (gateDecision.isAccepted()) {
-            return new FollowUpDecision(effectiveEvaluation, outcome, gateDecision);
+        if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
+            return FollowUpDecision.accepted(effectiveEvaluation, accepted);
         }
         return FollowUpDecision.rejected(effectiveEvaluation, gateDecision);
     }

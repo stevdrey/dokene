@@ -88,6 +88,23 @@ class FollowUpDecisionTest {
     }
 
     @Test
+    void cannotAssociateMismatchedOutcomeWithAcceptedGateDecision() {
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE, FollowUpReason.DUE_TODAY);
+        ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction);
+
+        ActionRecommendation differentAction = new ActionRecommendation(
+                SemanticAction.GENERAL_CHECK_IN,
+                SemanticTemplateIntent.GENERAL_FOLLOW_UP,
+                "Different rationale",
+                RecommendationConfidence.of(0.7),
+                DraftVariables.empty());
+
+        assertThatThrownBy(() -> new FollowUpDecision(due, differentAction, acceptedGate))
+                .isInstanceOf(RecommendationValidationException.class)
+                .hasMessageContaining("Recommendation outcome must match the gate-approved outcome");
+    }
+
+    @Test
     void rejectsActionForIneligibleEvaluationThroughFactoryAndConstructor() {
         FollowUpEvaluation evaluation = evaluation(FollowUpStatus.NOT_YET_DUE, FollowUpReason.CADENCE_NOT_DUE);
         ActionGateDecision.Accepted acceptedGate = new ActionGateDecision.Accepted(sampleAction);

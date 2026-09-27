@@ -182,6 +182,52 @@ class FollowUpRecommendationServiceTest {
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
     }
 
+    @Test
+    void serviceUsesGateApprovedOutcomeWhenGateNormalizesOrSubstitutes() {
+        ActionRecommendation rawAction = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Raw model rationale",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        ActionRecommendation normalizedAction = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Approved safe rationale",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(rawAction);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context());
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(gate.evaluate(due.customerId(), assembly, rawAction)).thenReturn(ActionGateDecision.accepted(normalizedAction));
+
+        FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler, gate).recommend(due.customerId(), timeout);
+
+        assertThat(decision.evaluation()).isSameAs(due);
+        assertThat(decision.advisoryRecommendation()).contains(normalizedAction);
+        assertThat(decision.advisoryRecommendation()).get().isNotEqualTo(rawAction);
+    }
+
+    @Test
+    void gateRejectionReturnsFreshEvaluationWhenCustomerLosesConsentInFlight() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        FollowUpEvaluation freshIneligible = evaluation(FollowUpStatus.INELIGIBLE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context());
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(gate.evaluate(due.customerId(), assembly, action)).thenReturn(
+                ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT, "Consent revoked", freshIneligible));
+
+        FollowUpDecision decision = new FollowUpRecommendationService(fake, assembler, gate).recommend(due.customerId(), timeout);
+
+        assertThat(decision.evaluation()).isSameAs(freshIneligible);
+        assertThat(decision.evaluation().eligible()).isFalse();
+        assertThat(decision.hasActionRecommendation()).isFalse();
+        assertThat(decision.advisoryRecommendation()).isEmpty();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+    }
+
     private RecommendationContext context() {
         return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
                 List.of(TrustedFollowUpReason.DUE_TODAY), 30, tenantDate, true, List.of(lastPurchase),
