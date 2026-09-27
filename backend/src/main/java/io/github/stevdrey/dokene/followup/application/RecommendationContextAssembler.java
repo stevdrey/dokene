@@ -42,7 +42,7 @@ public class RecommendationContextAssembler {
         Objects.requireNonNull(customerId, "Customer ID is required");
         FollowUpEvaluation evaluation = followUps.evaluate(customerId);
         if (!evaluation.eligible()) {
-            return new Assembly(evaluation, null);
+            return new Assembly(evaluation, null, null);
         }
         Customer customer = customers.get(customerId);
         boolean contactEligible = customer.phones().stream().anyMatch(phone ->
@@ -56,7 +56,7 @@ public class RecommendationContextAssembler {
         if (!Objects.equals(evaluation.lastPurchaseAt(), latestPurchase)) {
             evaluation = followUps.evaluate(customerId);
             if (!evaluation.eligible()) {
-                return new Assembly(evaluation, null);
+                return new Assembly(evaluation, null, null);
             }
             recent = purchases.list(customerId, PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES)
                     .purchases();
@@ -84,8 +84,11 @@ public class RecommendationContextAssembler {
     }
 
     public record Assembly(FollowUpEvaluation evaluation, RecommendationContext context, PurchaseId lastPurchaseId) {
-        public Assembly(FollowUpEvaluation evaluation, RecommendationContext context) {
-            this(evaluation, context, null);
+        public Assembly {
+            Objects.requireNonNull(evaluation, "Evaluation is required");
+            if (context != null && evaluation.lastPurchaseAt() != null && lastPurchaseId == null) {
+                throw new IllegalArgumentException("Last purchase ID is required when baseline contains purchase history");
+            }
         }
     }
 }

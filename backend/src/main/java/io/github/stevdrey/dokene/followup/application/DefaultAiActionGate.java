@@ -24,6 +24,9 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
@@ -47,6 +50,7 @@ public class DefaultAiActionGate implements AiActionGate {
     private final PurchaseRepository purchases;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
+    private final TenantMembershipRepository memberships;
     private final FollowUpPolicyEvaluator evaluator;
     private final Clock clock;
     private final AiActionGateAuditListener auditListener;
@@ -59,6 +63,7 @@ public class DefaultAiActionGate implements AiActionGate {
             PurchaseRepository purchases,
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
+            TenantMembershipRepository memberships,
             Clock clock,
             AiActionGateAuditListener auditListener) {
         this.customers = Objects.requireNonNull(customers, "Customer repository is required");
@@ -67,6 +72,7 @@ public class DefaultAiActionGate implements AiActionGate {
         this.purchases = Objects.requireNonNull(purchases, "Purchase repository is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization service is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
+        this.memberships = Objects.requireNonNull(memberships, "Tenant membership repository is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.evaluator = new FollowUpPolicyEvaluator(clock);
         this.auditListener = Objects.requireNonNull(auditListener, "Audit listener is required");
@@ -79,8 +85,9 @@ public class DefaultAiActionGate implements AiActionGate {
             PurchaseRepository purchases,
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
+            TenantMembershipRepository memberships,
             Clock clock) {
-        this(customers, contacts, policies, purchases, authorization, contexts, clock, AiActionGateAuditListener.logging());
+        this(customers, contacts, policies, purchases, authorization, contexts, memberships, clock, AiActionGateAuditListener.logging());
     }
 
     @Override
@@ -97,7 +104,26 @@ public class DefaultAiActionGate implements AiActionGate {
             return ActionGateDecision.rejected(ActionGateRejectionReason.NO_TENANT_CONTEXT,
                     "Active authenticated tenant context is required", null, outcome);
         }
-        TenantContext tenantContext = tenantContextOpt.get();
+        TenantContext cachedContext = tenantContextOpt.get();
+
+        // Authoritative membership re-resolution at gate evaluation time
+        Optional<TenantMembership> membershipOpt = memberships.findByTenantIdAndIdentityId(
+                cachedContext.tenantId(), cachedContext.identityId());
+        if (membershipOpt.isEmpty() || membershipOpt.get().status() != TenantMembershipStatus.ACTIVE) {
+            String diagnosticCode = membershipOpt
+                    .map(m -> "Tenant membership is not active (status: " + m.status() + ")")
+                    .orElse("Tenant membership not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
+            return ActionGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller membership is not active within current tenant", null, outcome);
+        }
+        TenantMembership currentMembership = membershipOpt.get();
+        TenantContext tenantContext = new TenantContext(
+                cachedContext.tenantId(),
+                cachedContext.identityId(),
+                currentMembership.id(),
+                currentMembership.role(),
+                currentMembership.status());
 
         // 2. Caller Authorization
         var authDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
@@ -165,7 +191,8 @@ public class DefaultAiActionGate implements AiActionGate {
         if (outcome instanceof ActionRecommendation actionRec) {
             // 8. Require complete assembly baseline and context for action recommendations
             if (assembly == null || assembly.evaluation() == null
-                    || assembly.context() == null || assembly.context().trusted() == null) {
+                    || assembly.context() == null || assembly.context().trusted() == null
+                    || (assembly.evaluation().lastPurchaseAt() != null && assembly.lastPurchaseId() == null)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "MISSING_ASSEMBLY_BASELINE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
                         "Action recommendations require a complete assembly baseline and context", currentEvaluation, outcome);
@@ -190,7 +217,7 @@ public class DefaultAiActionGate implements AiActionGate {
             // 10. Stale State Detection
             FollowUpEvaluation baseline = assembly.evaluation();
             boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
-                    || (assembly.lastPurchaseId() != null && !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId))
+                    || !Objects.equals(assembly.lastPurchaseId(), currentLastPurchaseId)
                     || baseline.status() != currentEvaluation.status()
                     || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
                     || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()

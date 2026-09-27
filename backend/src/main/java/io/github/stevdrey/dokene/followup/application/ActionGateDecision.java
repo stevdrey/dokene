@@ -33,10 +33,7 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
     record Accepted(RecommendationOutcome outcome, FollowUpEvaluation currentEvaluation) implements ActionGateDecision {
         public Accepted {
             Objects.requireNonNull(outcome, "Outcome is required");
-        }
-
-        public Accepted(RecommendationOutcome outcome) {
-            this(outcome, null);
+            Objects.requireNonNull(currentEvaluation, "Current evaluation is required");
         }
 
         @Override
@@ -88,10 +85,6 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
         public Optional<RecommendationOutcome> rawOutcome() {
             return Optional.ofNullable(rejectedOutcome);
         }
-    }
-
-    static ActionGateDecision accepted(RecommendationOutcome outcome) {
-        return new Accepted(outcome, null);
     }
 
     static ActionGateDecision accepted(RecommendationOutcome outcome, FollowUpEvaluation evaluation) {
