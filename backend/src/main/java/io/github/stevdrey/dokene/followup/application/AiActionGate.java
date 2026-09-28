@@ -24,4 +24,12 @@ public interface AiActionGate {
     default ActionGateDecision evaluate(CustomerId customerId, RecommendationOutcome outcome) {
         return evaluate(customerId, null, outcome);
     }
+
+    /**
+     * Revalidates caller authorization and tenant active status for customer operations.
+     *
+     * @param customerId target customer identifier
+     */
+    default void revalidateAuthorization(CustomerId customerId) {
+    }
 }

@@ -32,6 +32,7 @@ import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -59,6 +60,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -161,7 +163,30 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
+        assertThat(decision.policyVersion()).isEqualTo(customerPolicy.version());
         verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void revalidateAuthorizationSucceedsWhenAuthorized() {
+        assertThatCode(() -> gate.revalidateAuthorization(customerId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void revalidateAuthorizationThrowsWhenTenantSuspended() {
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(Tenant.restore(tenantId, "Suspended", TenantStatus.SUSPENDED, now, now, 1L)));
+        assertThatThrownBy(() -> gate.revalidateAuthorization(customerId))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Tenant is not active");
+    }
+
+    @Test
+    void revalidateAuthorizationThrowsWhenMembershipRevoked() {
+        when(memberships.findByTenantIdAndIdentityId(tenantId, tenantContext.identityId()))
+                .thenReturn(Optional.of(TenantMembership.restore(TenantMembershipId.random(), tenantId, tenantContext.identityId(), TenantRole.OPERATOR, TenantMembershipStatus.REVOKED, now, now, 1L)));
+        assertThatThrownBy(() -> gate.revalidateAuthorization(customerId))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Caller membership is not active within current tenant");
     }
 
     @Test

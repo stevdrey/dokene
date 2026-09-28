@@ -75,6 +75,16 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
     }
 
     @Override
+    public Duration defaultTimeout() {
+        return properties.timeout();
+    }
+
+    @Override
+    public Duration maxTimeout() {
+        return properties.timeout();
+    }
+
+    @Override
     public AiRecommendationResponse recommend(AiRecommendationRequest request) {
         Objects.requireNonNull(request, "Recommendation request is required");
 
@@ -89,8 +99,12 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
         Response response = null;
         try {
             ResponseCreateParams params = buildResponseCreateParams(request.context(), modelId);
+            Duration effectiveTimeout = request.timeout();
+            if (effectiveTimeout == null || effectiveTimeout.compareTo(properties.timeout()) > 0) {
+                effectiveTimeout = properties.timeout();
+            }
             RequestOptions requestOptions = RequestOptions.builder()
-                    .timeout(request.timeout())
+                    .timeout(effectiveTimeout)
                     .build();
 
             response = client.responses().create(params, requestOptions);

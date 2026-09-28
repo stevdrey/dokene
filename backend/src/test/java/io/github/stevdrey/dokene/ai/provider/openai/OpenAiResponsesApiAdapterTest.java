@@ -247,6 +247,13 @@ class OpenAiResponsesApiAdapterTest {
     }
 
     @Test
+    void adapterExposesConfiguredTimeoutAsDefaultAndMax() {
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(8));
+        assertThat(adapter.defaultTimeout()).isEqualTo(Duration.ofSeconds(8));
+        assertThat(adapter.maxTimeout()).isEqualTo(Duration.ofSeconds(8));
+    }
+
+    @Test
     void handlesHttp429AsThrottled() {
         responseStatusCode.set(429);
         responseBody.set("""

@@ -128,7 +128,13 @@ public final class FollowUpRecommendationService {
         try {
             FollowUpDecision decision = recommend(customerId, effectiveTimeout);
             FollowUpEvaluation evaluation = decision.evaluation();
-            long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            long gateVersion = decision.gateDecision().policyVersion();
+            long currentVersion = resolvePolicyVersion(customerId, policyVersion);
+            long freshVersion = gateVersion > 0L ? gateVersion : currentVersion;
+
+            if (gateVersion > 0L && currentVersion != gateVersion) {
+                return FollowUpRecommendationResult.staleState(evaluation, currentVersion);
+            }
 
             if (decision.gateDecision().isAccepted()) {
                 if (decision.recommendation() instanceof ActionRecommendation action) {
@@ -165,10 +171,16 @@ public final class FollowUpRecommendationService {
                     evaluation, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, freshVersion);
 
         } catch (AiProviderException ex) {
+            if (gate != null) {
+                gate.revalidateAuthorization(customerId);
+            }
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
             long freshVersion = resolvePolicyVersion(customerId, policyVersion);
             return FollowUpRecommendationResult.aiUnavailable(eval, ex.category().name(), freshVersion);
         } catch (RecommendationContextException ex) {
+            if (gate != null) {
+                gate.revalidateAuthorization(customerId);
+            }
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
             long freshVersion = resolvePolicyVersion(customerId, policyVersion);
             return FollowUpRecommendationResult.aiUnavailable(
@@ -205,9 +217,11 @@ public final class FollowUpRecommendationService {
     }
 
     private Duration resolveTimeout(Duration requested) {
+        Duration defaultTimeout = provider != null ? provider.defaultTimeout() : DEFAULT_TIMEOUT;
+        Duration maxTimeout = provider != null ? provider.maxTimeout() : MAX_TIMEOUT;
         if (requested == null || requested.isNegative() || requested.isZero()) {
-            return DEFAULT_TIMEOUT;
+            return defaultTimeout;
         }
-        return requested.compareTo(MAX_TIMEOUT) > 0 ? MAX_TIMEOUT : requested;
+        return requested.compareTo(maxTimeout) > 0 ? maxTimeout : requested;
     }
 }

@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -365,7 +366,8 @@ class FollowUpRecommendationServiceTest {
         assertThat(result.advisoryRecommendation()).isEmpty();
         assertThat(result.providerFailure()).contains("TIMEOUT");
         assertThat(result.policyVersion()).isEqualTo(5L);
-        verifyNoInteractions(gate);
+        verify(gate).revalidateAuthorization(due.customerId());
+        verify(gate, never()).evaluate(any(), any(), any());
     }
 
     @Test
@@ -425,7 +427,8 @@ class FollowUpRecommendationServiceTest {
         assertThat(result.evaluation().eligible()).isTrue();
         assertThat(result.providerFailure()).contains("CONTEXT_TOO_LARGE");
         assertThat(result.policyVersion()).isEqualTo(2L);
-        verifyNoInteractions(gate);
+        verify(gate).revalidateAuthorization(due.customerId());
+        verify(gate, never()).evaluate(any(), any(), any());
     }
 
     @Test
@@ -538,6 +541,132 @@ class FollowUpRecommendationServiceTest {
             assertThat(result.providerFailure()).contains(modelRejection.name());
             assertThat(result.advisoryRecommendation()).isEmpty();
         }
+    }
+
+    @Test
+    void recommendSafeRevalidatesAuthorizationOnProviderFailureAndThrowsWhenUnauthorized() {
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L));
+
+        DeterministicFakeAiProvider failingProvider = DeterministicFakeAiProvider.failure(
+                AiFailureCategory.UNAVAILABLE);
+
+        org.mockito.Mockito.doThrow(new TenantAccessDeniedException("Revoked in flight"))
+                .when(gate).revalidateAuthorization(due.customerId());
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                failingProvider, assembler, gate, authorization, contexts, followUps);
+
+        assertThatThrownBy(() -> service.recommendSafe(due.customerId(), timeout, 1L))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Revoked in flight");
+
+        verify(gate).revalidateAuthorization(due.customerId());
+    }
+
+    @Test
+    void recommendSafeBindsGateEvaluatedPolicyVersion() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 2L));
+
+        when(gate.evaluate(due.customerId(), assembly, action))
+                .thenReturn(ActionGateDecision.accepted(action, due, 2L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, 2L);
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
+        assertThat(result.policyVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void recommendSafeReturnsStaleStateWhenPolicyVersionChangedConcurrentlyAfterGate() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Purchase cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        // Initial version is 1L, but after gate evaluates with 1L, the database policy version is 2L
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 2L));
+
+        when(gate.evaluate(due.customerId(), assembly, action))
+                .thenReturn(ActionGateDecision.accepted(action, due, 1L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, 1L);
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.STALE_STATE);
+        assertThat(result.policyVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void recommendSafeHonorsCustomProviderTimeoutLimits() {
+        java.util.concurrent.atomic.AtomicReference<Duration> observedTimeout = new java.util.concurrent.atomic.AtomicReference<>();
+        io.github.stevdrey.dokene.ai.application.AiProvider customTimeoutProvider = new io.github.stevdrey.dokene.ai.application.AiProvider() {
+            @Override
+            public io.github.stevdrey.dokene.ai.application.AiRecommendationResponse recommend(
+                    io.github.stevdrey.dokene.ai.application.AiRecommendationRequest request) {
+                observedTimeout.set(request.timeout());
+                return DeterministicFakeAiProvider.success(new ActionRecommendation(
+                        SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                        SemanticTemplateIntent.REPEAT_PURCHASE, "Cadence reached",
+                        RecommendationConfidence.of(0.8), DraftVariables.empty())).recommend(request);
+            }
+
+            @Override
+            public Duration defaultTimeout() {
+                return Duration.ofSeconds(5);
+            }
+
+            @Override
+            public Duration maxTimeout() {
+                return Duration.ofSeconds(7);
+            }
+        };
+
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L));
+        when(gate.evaluate(any(), any(), any()))
+                .thenReturn(ActionGateDecision.accepted(new ActionRecommendation(
+                        SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                        SemanticTemplateIntent.REPEAT_PURCHASE, "Cadence reached",
+                        RecommendationConfidence.of(0.8), DraftVariables.empty()), due, 1L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                customTimeoutProvider, assembler, gate, authorization, contexts, followUps);
+
+        // 1. Without requested timeout -> uses provider defaultTimeout (5s)
+        service.recommendSafe(due.customerId(), null, 1L);
+        assertThat(observedTimeout.get()).isEqualTo(Duration.ofSeconds(5));
+
+        // 2. With requested timeout exceeding max (30s) -> capped at provider maxTimeout (7s)
+        service.recommendSafe(due.customerId(), Duration.ofSeconds(30), 1L);
+        assertThat(observedTimeout.get()).isEqualTo(Duration.ofSeconds(7));
     }
 
     private RecommendationContext context() {

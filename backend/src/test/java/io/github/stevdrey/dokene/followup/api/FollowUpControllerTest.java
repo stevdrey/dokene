@@ -344,6 +344,30 @@ class FollowUpControllerTest {
                 .andExpect(jsonPath("$.refusal.confidence").value(0.65));
     }
 
+    @Test
+    void requestRecommendationReturnsTooManyRequestsWhenRateLimited() throws Exception {
+        var limiter = mock(io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter.class);
+        var contexts = mock(io.github.stevdrey.dokene.tenant.application.TenantContextProvider.class);
+        TenantId tenantId = TenantId.random();
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        var context = new io.github.stevdrey.dokene.tenant.application.TenantContext(
+                tenantId, actorId, io.github.stevdrey.dokene.tenant.domain.TenantMembershipId.random(),
+                io.github.stevdrey.dokene.tenant.domain.TenantRole.OPERATOR,
+                io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus.ACTIVE);
+        when(contexts.requireCurrent()).thenReturn(context);
+
+        org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.followup.application.RecommendationRateLimitExceededException(
+                "Rate limit exceeded", java.time.Duration.ofSeconds(5)))
+                .when(limiter).acquire(tenantId, actorId);
+
+        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, contexts, limiter))
+                .setControllerAdvice(new FollowUpExceptionHandler()).build();
+
+        customMvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "5"));
+    }
+
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {
         boolean eligible = status == FollowUpStatus.DUE;
         LocalDate tenantDate = LocalDate.of(2026, 9, 25);

@@ -37,21 +37,36 @@ import java.time.Duration;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter;
+
 @RestController
 @RequestMapping("/api")
 public class FollowUpController {
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9._:-]{1,128}");
     private final FollowUpService followUps;
     private final FollowUpRecommendationService recommendations;
+    private final TenantContextProvider contexts;
+    private final FollowUpRecommendationRateLimiter rateLimiter;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
+    public FollowUpController(
+            FollowUpService followUps,
+            FollowUpRecommendationService recommendations,
+            TenantContextProvider contexts,
+            FollowUpRecommendationRateLimiter rateLimiter) {
         this.followUps = followUps;
         this.recommendations = recommendations;
+        this.contexts = contexts;
+        this.rateLimiter = rateLimiter;
+    }
+
+    public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
+        this(followUps, recommendations, null, null);
     }
 
     public FollowUpController(FollowUpService followUps) {
-        this(followUps, null);
+        this(followUps, null, null, null);
     }
 
     @GetMapping("/follow-up-policy")
@@ -160,6 +175,10 @@ public class FollowUpController {
             @RequestBody(required = false) RecommendationRequest request) {
         if (recommendations == null) {
             throw new IllegalStateException("Recommendation service is not configured");
+        }
+        if (rateLimiter != null && contexts != null) {
+            var tenantContext = contexts.requireCurrent();
+            rateLimiter.acquire(tenantContext.tenantId(), tenantContext.identityId());
         }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
         Duration timeout = request != null && request.timeoutMs() != null

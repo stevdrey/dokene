@@ -12,6 +12,9 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import io.github.stevdrey.dokene.followup.application.RecommendationRateLimitExceededException;
+import org.springframework.http.HttpHeaders;
+
 @RestControllerAdvice(assignableTypes = FollowUpController.class)
 public class FollowUpExceptionHandler {
     @ExceptionHandler({IllegalArgumentException.class, DateTimeException.class, HttpMessageNotReadableException.class,
@@ -33,5 +36,12 @@ public class FollowUpExceptionHandler {
     @ExceptionHandler(TenantAccessDeniedException.class)
     ResponseEntity<Void> forbidden() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
+    @ExceptionHandler(RecommendationRateLimitExceededException.class)
+    ResponseEntity<Void> rateLimited(RecommendationRateLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+                .build();
     }
 }
