@@ -29,6 +29,22 @@ class DefaultFollowUpRecommendationRateLimiterTest {
     }
 
     @Test
+    void constructorBindsConfiguredPropertiesCorrectly() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-28T10:00:00Z"));
+        RecommendationRateLimitProperties properties = new RecommendationRateLimitProperties(
+                1, 1, Duration.ofSeconds(10));
+        DefaultFollowUpRecommendationRateLimiter limiter = new DefaultFollowUpRecommendationRateLimiter(
+                properties, clock);
+
+        TenantId tenantId = TenantId.random();
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+
+        limiter.acquire(tenantId, actorId);
+        assertThatThrownBy(() -> limiter.acquire(tenantId, actorId))
+                .isInstanceOf(RecommendationRateLimitExceededException.class);
+    }
+
+    @Test
     void acquireRejectsWhenActorQuotaExceeded() {
         MutableClock clock = new MutableClock(Instant.parse("2026-09-28T10:00:00Z"));
         DefaultFollowUpRecommendationRateLimiter limiter = new DefaultFollowUpRecommendationRateLimiter(

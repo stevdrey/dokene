@@ -234,8 +234,9 @@ application validates eligibility and authorization before invocation and gates 
 of the provider result.
 
 Configuration is externalized through `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`), with
-default model set to `gpt-6-luna`. Local development and normal CI testing default to `fake` provider mode
-without requiring an external API key or outbound internet connectivity. Raw prompts, customer text, and API keys
+default model set to `gpt-6-luna`. For local development and offline testing, fake provider mode
+must be explicitly configured via `dokene.ai.provider=fake`, allowing execution without requiring
+an external API key or outbound internet connectivity. Raw prompts, customer text, and API keys
 are strictly excluded from diagnostic metadata and logs.
 
 ## Deterministic rules before AI

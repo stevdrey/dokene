@@ -7,8 +7,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Provides a fallback {@link DefaultFakeAiProvider} when {@code dokene.ai.provider}
- * is set to {@code fake} or when no other {@link AiProvider} bean is defined.
+ * Configures {@link DefaultFakeAiProvider} when {@code dokene.ai.provider}
+ * is explicitly set to {@code fake} and no other {@link AiProvider} bean is defined.
  */
 @Configuration(proxyBeanMethods = false)
 public class FakeAiConfiguration {

@@ -10,6 +10,7 @@ import java.util.Deque;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,7 @@ public class DefaultFollowUpRecommendationRateLimiter implements FollowUpRecomme
     private final ConcurrentHashMap<String, Deque<Instant>> actorRequests = new ConcurrentHashMap<>();
     private final AtomicReference<Instant> lastEviction = new AtomicReference<>(Instant.EPOCH);
 
+    @Autowired
     public DefaultFollowUpRecommendationRateLimiter(
             RecommendationRateLimitProperties properties,
             Clock clock) {

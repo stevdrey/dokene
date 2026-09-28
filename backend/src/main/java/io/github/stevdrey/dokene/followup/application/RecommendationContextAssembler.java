@@ -41,14 +41,14 @@ public class RecommendationContextAssembler {
     public Assembly assemble(CustomerId customerId) {
         Objects.requireNonNull(customerId, "Customer ID is required");
         FollowUpEvaluation evaluation = followUps.evaluate(customerId);
-        long policyVersion = 0L;
+        Long policyVersion = null;
         try {
             var policy = followUps.customerPolicy(customerId);
             if (policy != null) {
                 policyVersion = policy.version();
             }
         } catch (Exception ignored) {
-            // Keep default 0L
+            // Keep null when policy unavailable
         }
         if (!evaluation.eligible()) {
             return new Assembly(evaluation, null, List.of(), policyVersion);
@@ -98,10 +98,10 @@ public class RecommendationContextAssembler {
             FollowUpEvaluation evaluation,
             RecommendationContext context,
             List<PurchaseBaseline> purchases,
-            long policyVersion
+            Long policyVersion
     ) {
         public Assembly(FollowUpEvaluation evaluation, RecommendationContext context, List<PurchaseBaseline> purchases) {
-            this(evaluation, context, purchases, 0L);
+            this(evaluation, context, purchases, null);
         }
         public Assembly {
             Objects.requireNonNull(evaluation, "Evaluation is required");

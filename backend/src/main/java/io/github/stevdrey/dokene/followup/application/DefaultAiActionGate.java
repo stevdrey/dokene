@@ -206,7 +206,14 @@ public class DefaultAiActionGate implements AiActionGate {
 
         // 7. Explicit Model Refusal
         if (outcome instanceof NoRecommendation) {
-            // Model refusal is accepted once tenant context, caller authorization, customer active state, and baseline customer binding succeed
+            if (assembly != null && assembly.evaluation() != null) {
+                if (isAssemblyStale(assembly, customer, currentEvaluation, currentLastPurchaseId)) {
+                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
+                    return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                            "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
+                }
+            }
+            // Model refusal is accepted once tenant context, caller authorization, customer active state, and baseline consistency succeed
             return ActionGateDecision.accepted(outcome, currentEvaluation, evaluatedVersion);
         }
 
@@ -236,34 +243,11 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome, evaluatedVersion);
             }
 
-            // 10. Stale State Detection
-            FollowUpEvaluation baseline = assembly.evaluation();
-            PurchaseId baselineLastPurchaseId = assembly.lastPurchaseId();
-            boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
-                    || !Objects.equals(baselineLastPurchaseId, currentLastPurchaseId)
-                    || baseline.status() != currentEvaluation.status()
-                    || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
-                    || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
-                    || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
-                    || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
-
-            if (!stale) {
-                for (PurchaseBaseline pb : assembly.purchases()) {
-                    Optional<Purchase> currentPurchaseOpt = purchases.findById(customer.tenantId(), customer.id(), pb.id());
-                    if (currentPurchaseOpt.isEmpty()
-                            || currentPurchaseOpt.get().status() != PurchaseStatus.VALID
-                            || currentPurchaseOpt.get().version() != pb.version()
-                            || !Objects.equals(currentPurchaseOpt.get().purchasedAt(), pb.purchasedAt())) {
-                        stale = true;
-                        break;
-                    }
-                }
-            }
-
-            if (stale) {
+            // 10. Stale State Detection (for action recommendations)
+            if (isAssemblyStale(assembly, customer, currentEvaluation, currentLastPurchaseId)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
-                    "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
+                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 11. Follow-Up Due State Enforcement
@@ -378,5 +362,34 @@ public class DefaultAiActionGate implements AiActionGate {
             case SEASONAL_GREETING -> intent == SemanticTemplateIntent.SEASONAL_EVENT
                     || intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
         };
+    }
+
+    private boolean isAssemblyStale(
+            RecommendationContextAssembler.Assembly assembly,
+            Customer customer,
+            FollowUpEvaluation currentEvaluation,
+            PurchaseId currentLastPurchaseId) {
+        FollowUpEvaluation baseline = assembly.evaluation();
+        PurchaseId baselineLastPurchaseId = assembly.lastPurchaseId();
+        if (!Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
+                || !Objects.equals(baselineLastPurchaseId, currentLastPurchaseId)
+                || baseline.status() != currentEvaluation.status()
+                || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
+                || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
+                || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
+                || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate())) {
+            return true;
+        }
+
+        for (PurchaseBaseline pb : assembly.purchases()) {
+            Optional<Purchase> currentPurchaseOpt = purchases.findById(customer.tenantId(), customer.id(), pb.id());
+            if (currentPurchaseOpt.isEmpty()
+                    || currentPurchaseOpt.get().status() != PurchaseStatus.VALID
+                    || currentPurchaseOpt.get().version() != pb.version()
+                    || !Objects.equals(currentPurchaseOpt.get().purchasedAt(), pb.purchasedAt())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

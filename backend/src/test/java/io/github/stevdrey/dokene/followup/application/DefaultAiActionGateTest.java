@@ -222,7 +222,9 @@ class DefaultAiActionGateTest {
                 ContactIntentSource.CUSTOMER_WRITTEN, now.minusSeconds(100),
                 List.of());
         when(contacts.find(activeCustomer)).thenReturn(dncPolicy);
-        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        FollowUpEvaluation dncEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
+                activeCustomer, dncPolicy, tenantPolicy, customerPolicy, lastPurchaseTime);
+        RecommendationContextAssembler.Assembly assembly = assembly(dncEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
         NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
                 "Signal unclear", RecommendationConfidence.of(0.4));
 
@@ -237,7 +239,7 @@ class DefaultAiActionGateTest {
     }
 
     @Test
-    void acceptsRefusalEvenWhenStateIsStale() {
+    void rejectsRefusalWhenStateIsStale() {
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
         // A new purchase was recorded while AI was thinking
@@ -251,9 +253,9 @@ class DefaultAiActionGateTest {
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, refusal);
 
-        assertThat(decision.isAccepted()).isTrue();
-        assertThat(decision.rejectionReason()).isEmpty();
-        verify(auditListener, never()).onSecurityRejection(any());
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(any());
     }
 
     @Test

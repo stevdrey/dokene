@@ -55,7 +55,7 @@ public record FollowUpDecision(
         }
     }
 
-    public static FollowUpDecision ineligible(FollowUpEvaluation evaluation, long policyVersion) {
+    public static FollowUpDecision ineligible(FollowUpEvaluation evaluation, Long policyVersion) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         if (evaluation.eligible()) {
             throw new IllegalArgumentException("Customer is deterministically eligible");
@@ -65,7 +65,7 @@ public record FollowUpDecision(
     }
 
     public static FollowUpDecision ineligible(FollowUpEvaluation evaluation) {
-        return ineligible(evaluation, 0L);
+        return ineligible(evaluation, (Long) null);
     }
 
     public static FollowUpDecision gated(FollowUpEvaluation evaluation, ActionGateDecision gateDecision) {

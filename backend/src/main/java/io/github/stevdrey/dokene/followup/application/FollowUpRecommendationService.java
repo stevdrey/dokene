@@ -145,15 +145,15 @@ public final class FollowUpRecommendationService {
         try {
             FollowUpDecision decision = recommend(customerId, effectiveTimeout);
             FollowUpEvaluation evaluation = decision.evaluation();
-            long gateVersion = decision.gateDecision().policyVersion();
+            Long gateVersion = decision.gateDecision().policyVersion();
             long currentVersion = resolvePolicyVersion(customerId, policyVersion);
-            long freshVersion = gateVersion > 0L ? gateVersion : currentVersion;
+            long freshVersion = gateVersion != null ? gateVersion : currentVersion;
 
-            if (expectedVersion != null && gateVersion > 0L && expectedVersion != gateVersion) {
+            if (expectedVersion != null && gateVersion != null && !expectedVersion.equals(gateVersion)) {
                 throw new FollowUpConflictException();
             }
 
-            if (gateVersion > 0L && currentVersion != gateVersion) {
+            if (gateVersion != null && currentVersion != gateVersion.longValue()) {
                 return FollowUpRecommendationResult.staleState(evaluation, currentVersion);
             }
 
@@ -195,10 +195,14 @@ public final class FollowUpRecommendationService {
             if (gate != null) {
                 gate.revalidateAuthorization(customerId);
             }
-            FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
-            long freshVersion = resolvePolicyVersion(customerId, policyVersion);
-            if (expectedVersion != null && freshVersion > 0L && expectedVersion != freshVersion) {
+            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
+            FollowUpEvaluation eval = snapshot.evaluation();
+            long freshVersion = snapshot.policyVersion();
+            if (expectedVersion != null && expectedVersion != freshVersion) {
                 throw new FollowUpConflictException();
+            }
+            if (freshVersion != policyVersion) {
+                return FollowUpRecommendationResult.staleState(eval, freshVersion);
             }
             if (eval != null && !eval.eligible()) {
                 ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
@@ -209,10 +213,14 @@ public final class FollowUpRecommendationService {
             if (gate != null) {
                 gate.revalidateAuthorization(customerId);
             }
-            FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
-            long freshVersion = resolvePolicyVersion(customerId, policyVersion);
-            if (expectedVersion != null && freshVersion > 0L && expectedVersion != freshVersion) {
+            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
+            FollowUpEvaluation eval = snapshot.evaluation();
+            long freshVersion = snapshot.policyVersion();
+            if (expectedVersion != null && expectedVersion != freshVersion) {
                 throw new FollowUpConflictException();
+            }
+            if (freshVersion != policyVersion) {
+                return FollowUpRecommendationResult.staleState(eval, freshVersion);
             }
             if (eval != null && !eval.eligible()) {
                 ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
@@ -223,6 +231,25 @@ public final class FollowUpRecommendationService {
                     "CONTEXT_" + ex.reason().name(),
                     freshVersion);
         }
+    }
+
+    private FollowUpService.FollowUpEvaluationSnapshot resolveFallbackSnapshot(
+            CustomerId customerId,
+            long policyVersion) {
+        if (followUps == null) {
+            return new FollowUpService.FollowUpEvaluationSnapshot(null, policyVersion);
+        }
+        try {
+            FollowUpService.FollowUpEvaluationSnapshot snapshot = followUps.evaluateSnapshot(customerId);
+            if (snapshot != null) {
+                return snapshot;
+            }
+        } catch (Exception ignored) {
+            // fall back to separate calls if evaluateSnapshot throws in unconfigured mocks
+        }
+        FollowUpEvaluation eval = followUps.evaluate(customerId);
+        long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+        return new FollowUpService.FollowUpEvaluationSnapshot(eval, freshVersion);
     }
 
     private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {

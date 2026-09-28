@@ -845,6 +845,101 @@ class FollowUpRecommendationServiceTest {
         verify(limiter).acquire(tenantId, actorId);
     }
 
+    @Test
+    void recommendSafeTreatsPolicyVersionZeroAsValidSnapshotAndEnforcesIfMatch() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Initial cadence",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases, 0L);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(gate.evaluate(due.customerId(), assembly, action))
+                .thenReturn(ActionGateDecision.accepted(action, due, 0L));
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 0L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        // Matching version 0 succeeds
+        FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, 0L);
+        assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
+        assertThat(result.policyVersion()).isEqualTo(0L);
+
+        // Mismatched expected version 1 throws FollowUpConflictException
+        assertThatThrownBy(() -> service.recommendSafe(due.customerId(), timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void recommendSafeReturnsStaleStateWhenVersionZeroPolicyChangesConcurrently() {
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Initial cadence",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases, 0L);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(gate.evaluate(due.customerId(), assembly, action))
+                .thenReturn(ActionGateDecision.accepted(action, due, 0L));
+        // First call at method entry returns 0L, second call during currentVersion resolution returns 1L
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 0L))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, null);
+        assertThat(result.status()).isEqualTo(RecommendationStatus.STALE_STATE);
+        assertThat(result.policyVersion()).isEqualTo(1L);
+    }
+
+    @Test
+    void recommendSafeDetectsVersionChangeDuringAiProviderFailureAndReturnsStaleState() {
+        DeterministicFakeAiProvider failingProvider = DeterministicFakeAiProvider.failure(
+                AiFailureCategory.UNAVAILABLE);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases, 1L);
+
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        // Entry returns 1L, evaluateSnapshot returns modified version 2L
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L));
+        when(followUps.evaluateSnapshot(due.customerId()))
+                .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(due, 2L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                failingProvider, assembler, gate, authorization, contexts, followUps);
+
+        FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, null);
+        assertThat(result.status()).isEqualTo(RecommendationStatus.STALE_STATE);
+        assertThat(result.policyVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void recommendSafeDetectsVersionChangeDuringRecommendationContextExceptionAndReturnsStaleState() {
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+
+        when(assembler.assemble(due.customerId())).thenThrow(
+                new RecommendationContextException(RecommendationContextException.Reason.TOO_LARGE));
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L));
+        when(followUps.evaluateSnapshot(due.customerId()))
+                .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(due, 2L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, null);
+        assertThat(result.status()).isEqualTo(RecommendationStatus.STALE_STATE);
+        assertThat(result.policyVersion()).isEqualTo(2L);
+    }
+
     private RecommendationContext context() {
         return new RecommendationContext(new RecommendationContext.TrustedFacts(tenantDate, "DUE",
                 List.of(TrustedFollowUpReason.DUE_TODAY), 30, tenantDate, true, List.of(lastPurchase),
