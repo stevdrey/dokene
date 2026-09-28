@@ -346,52 +346,29 @@ class FollowUpControllerTest {
 
     @Test
     void requestRecommendationReturnsTooManyRequestsWhenRateLimited() throws Exception {
-        var limiter = mock(io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter.class);
-        var contexts = mock(io.github.stevdrey.dokene.tenant.application.TenantContextProvider.class);
-        TenantId tenantId = TenantId.random();
-        IdentityId actorId = new IdentityId(UUID.randomUUID());
-        var context = new io.github.stevdrey.dokene.tenant.application.TenantContext(
-                tenantId, actorId, io.github.stevdrey.dokene.tenant.domain.TenantMembershipId.random(),
-                io.github.stevdrey.dokene.tenant.domain.TenantRole.OPERATOR,
-                io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus.ACTIVE);
-        when(contexts.requireCurrent()).thenReturn(context);
+        when(recommendations.recommendSafe(eq(new CustomerId(customerId)), any(), any()))
+                .thenThrow(new io.github.stevdrey.dokene.followup.application.RecommendationRateLimitExceededException(
+                        "Rate limit exceeded", java.time.Duration.ofSeconds(5)));
 
-        org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.followup.application.RecommendationRateLimitExceededException(
-                "Rate limit exceeded", java.time.Duration.ofSeconds(5)))
-                .when(limiter).acquire(tenantId, actorId);
-
-        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, contexts, limiter))
-                .setControllerAdvice(new FollowUpExceptionHandler()).build();
-
-        customMvc.perform(post("/api/customers/{id}/recommendation", customerId))
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", "5"));
     }
 
     @Test
-    void requestRecommendationRejectsUnauthorizedCallerWithoutConsumingRateLimitQuota() throws Exception {
-        var limiter = mock(io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter.class);
-        var contexts = mock(io.github.stevdrey.dokene.tenant.application.TenantContextProvider.class);
+    void requestRecommendationRejectsUnauthorizedCallerWithoutInvokingService() throws Exception {
         var authorization = mock(io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService.class);
-        TenantId tenantId = TenantId.random();
-        IdentityId actorId = new IdentityId(UUID.randomUUID());
-        var context = new io.github.stevdrey.dokene.tenant.application.TenantContext(
-                tenantId, actorId, io.github.stevdrey.dokene.tenant.domain.TenantMembershipId.random(),
-                io.github.stevdrey.dokene.tenant.domain.TenantRole.VIEWER,
-                io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus.ACTIVE);
-        when(contexts.requireCurrent()).thenReturn(context);
-
         org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("Forbidden"))
                 .when(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.FOLLOWUP_EVALUATE);
 
-        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, contexts, limiter, authorization))
+        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, null, null, authorization))
                 .setControllerAdvice(new FollowUpExceptionHandler()).build();
 
         customMvc.perform(post("/api/customers/{id}/recommendation", customerId))
                 .andExpect(status().isForbidden());
 
         verify(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.FOLLOWUP_EVALUATE);
-        verifyNoInteractions(limiter);
+        verifyNoInteractions(recommendations);
     }
 
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {

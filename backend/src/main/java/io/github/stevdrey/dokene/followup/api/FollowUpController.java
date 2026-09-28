@@ -192,10 +192,6 @@ public class FollowUpController {
         if (authorization != null) {
             authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
-        if (rateLimiter != null && contexts != null) {
-            var tenantContext = contexts.requireCurrent();
-            rateLimiter.acquire(tenantContext.tenantId(), tenantContext.identityId());
-        }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
         Duration timeout = request != null && request.timeoutMs() != null
                 ? Duration.ofMillis(request.timeoutMs())

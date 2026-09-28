@@ -19,6 +19,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -761,6 +762,87 @@ class FollowUpRecommendationServiceTest {
         assertThat(result.status()).isEqualTo(RecommendationStatus.INELIGIBLE);
         assertThat(result.rejectionReason()).isEqualTo(ActionGateRejectionReason.DO_NOT_CONTACT);
         assertThat(result.policyVersion()).isEqualTo(1L);
+    }
+
+    @Test
+    void recommendSafeThrowsConflictWhenPolicyChangesDuringAiProviderFailure() {
+        DeterministicFakeAiProvider failingProvider = DeterministicFakeAiProvider.failure(
+                AiFailureCategory.TIMEOUT);
+
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases, 1L);
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 2L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                failingProvider, assembler, gate, authorization, contexts, followUps);
+
+        assertThatThrownBy(() -> service.recommendSafe(due.customerId(), timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void recommendSafeThrowsConflictWhenPolicyChangesDuringRecommendationContextException() {
+        ActionRecommendation dummyAction = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(dummyAction);
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        when(assembler.assemble(due.customerId())).thenThrow(
+                new RecommendationContextException(RecommendationContextException.Reason.UNSUPPORTED));
+        when(followUps.customerPolicy(due.customerId()))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 1L))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), due.customerId(), 30, null, null, null, 2L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        assertThatThrownBy(() -> service.recommendSafe(due.customerId(), timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void recommendChargesQuotaOnlyWhenInvokingProvider() {
+        FollowUpRecommendationRateLimiter limiter = mock(FollowUpRecommendationRateLimiter.class);
+        ActionRecommendation action = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Cadence reached",
+                RecommendationConfidence.of(0.8), DraftVariables.empty());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(action);
+
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases, 1L);
+        when(assembler.assemble(due.customerId())).thenReturn(assembly);
+        when(gate.evaluate(due.customerId(), assembly, action))
+                .thenReturn(ActionGateDecision.accepted(action, due, 1L));
+
+        TenantId tenantId = TenantId.random();
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        var context = new io.github.stevdrey.dokene.tenant.application.TenantContext(
+                tenantId, actorId, io.github.stevdrey.dokene.tenant.domain.TenantMembershipId.random(),
+                io.github.stevdrey.dokene.tenant.domain.TenantRole.OPERATOR,
+                io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus.ACTIVE);
+        when(contexts.requireCurrent()).thenReturn(context);
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps, limiter);
+
+        // 1. Ineligible assembly does NOT charge quota
+        CustomerId ineligibleCustomerId = new CustomerId(UUID.randomUUID());
+        FollowUpEvaluation ineligible = new FollowUpEvaluation(ineligibleCustomerId,
+                FollowUpStatus.INELIGIBLE, List.of(FollowUpReason.DO_NOT_CONTACT),
+                Instant.parse("2026-09-25T12:00:00Z"), tenantDate, ZoneId.of("America/Costa_Rica"),
+                null, FollowUpTimingSource.NONE, 0, null);
+        var ineligibleAssembly = new RecommendationContextAssembler.Assembly(ineligible, null, List.of(), 1L);
+        when(assembler.assemble(ineligibleCustomerId)).thenReturn(ineligibleAssembly);
+
+        service.recommend(ineligibleCustomerId, timeout);
+        verifyNoInteractions(limiter);
+
+        // 2. Eligible assembly DOES charge quota before provider call
+        service.recommend(due.customerId(), timeout);
+        verify(limiter).acquire(tenantId, actorId);
     }
 
     private RecommendationContext context() {

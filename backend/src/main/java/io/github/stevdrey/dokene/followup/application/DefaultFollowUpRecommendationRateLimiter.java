@@ -9,6 +9,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 @EnableConfigurationProperties(RecommendationRateLimitProperties.class)
 public class DefaultFollowUpRecommendationRateLimiter implements FollowUpRecommendationRateLimiter {
     private static final Duration WINDOW_DURATION = Duration.ofMinutes(1);
+    private static final Duration EVICTION_INTERVAL = Duration.ofMinutes(1);
 
     private final int tenantPermitsPerMinute;
     private final int actorPermitsPerMinute;
@@ -28,6 +30,7 @@ public class DefaultFollowUpRecommendationRateLimiter implements FollowUpRecomme
 
     private final ConcurrentHashMap<TenantId, Deque<Instant>> tenantRequests = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Deque<Instant>> actorRequests = new ConcurrentHashMap<>();
+    private final AtomicReference<Instant> lastEviction = new AtomicReference<>(Instant.EPOCH);
 
     public DefaultFollowUpRecommendationRateLimiter(
             RecommendationRateLimitProperties properties,
@@ -61,6 +64,8 @@ public class DefaultFollowUpRecommendationRateLimiter implements FollowUpRecomme
         Objects.requireNonNull(identityId, "Identity ID is required");
 
         Instant now = clock.instant();
+        maybeEvictExpired(now);
+
         Instant windowStart = now.minus(WINDOW_DURATION);
 
         checkAndRecord(tenantRequests, tenantId, tenantPermitsPerMinute, now, windowStart,
@@ -74,6 +79,44 @@ public class DefaultFollowUpRecommendationRateLimiter implements FollowUpRecomme
             rollback(tenantRequests, tenantId, now);
             throw ex;
         }
+    }
+
+    public void evictExpiredBuckets() {
+        evictExpired(clock.instant());
+    }
+
+    private void maybeEvictExpired(Instant now) {
+        Instant last = lastEviction.get();
+        if (now.isAfter(last.plus(EVICTION_INTERVAL))) {
+            if (lastEviction.compareAndSet(last, now)) {
+                evictExpired(now);
+            }
+        }
+    }
+
+    void evictExpired(Instant now) {
+        Instant windowStart = now.minus(WINDOW_DURATION);
+        evictFromMap(tenantRequests, windowStart);
+        evictFromMap(actorRequests, windowStart);
+    }
+
+    private <K> void evictFromMap(ConcurrentHashMap<K, Deque<Instant>> map, Instant windowStart) {
+        map.forEach((key, deque) -> {
+            map.computeIfPresent(key, (k, d) -> {
+                while (!d.isEmpty() && d.peekFirst().isBefore(windowStart)) {
+                    d.pollFirst();
+                }
+                return d.isEmpty() ? null : d;
+            });
+        });
+    }
+
+    boolean hasTenantBucket(TenantId tenantId) {
+        return tenantRequests.containsKey(tenantId);
+    }
+
+    boolean hasActorBucket(TenantId tenantId, IdentityId identityId) {
+        return actorRequests.containsKey(tenantId.value() + ":" + identityId.value());
     }
 
     private <K> void checkAndRecord(
@@ -91,7 +134,12 @@ public class DefaultFollowUpRecommendationRateLimiter implements FollowUpRecomme
                 deque.pollFirst();
             }
             if (deque.size() >= maxPermits) {
-                throw new RecommendationRateLimitExceededException(errorMessage, retryAfter);
+                Instant oldest = deque.peekFirst();
+                Duration delay = Duration.between(now, oldest.plus(WINDOW_DURATION));
+                if (delay.isNegative() || delay.isZero()) {
+                    delay = Duration.ofSeconds(1);
+                }
+                throw new RecommendationRateLimitExceededException(errorMessage, delay);
             }
             deque.addLast(now);
             return deque;

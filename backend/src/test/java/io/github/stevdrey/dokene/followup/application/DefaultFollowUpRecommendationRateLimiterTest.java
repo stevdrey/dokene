@@ -84,6 +84,51 @@ class DefaultFollowUpRecommendationRateLimiterTest {
         assertThatCode(() -> limiter.acquire(tenantId, actorId)).doesNotThrowAnyException();
     }
 
+    @Test
+    void acquireRejectionDerivesDynamicRetryAfterFromOldestRetainedTimestamp() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-28T10:00:00Z"));
+        DefaultFollowUpRecommendationRateLimiter limiter = new DefaultFollowUpRecommendationRateLimiter(
+                1, 1, Duration.ofSeconds(5), clock);
+
+        TenantId tenantId = TenantId.random();
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+
+        limiter.acquire(tenantId, actorId);
+
+        // Advance 20 seconds; window remaining until T+60s is 40 seconds
+        clock.advance(Duration.ofSeconds(20));
+
+        assertThatThrownBy(() -> limiter.acquire(tenantId, actorId))
+                .isInstanceOf(RecommendationRateLimitExceededException.class)
+                .satisfies(ex -> {
+                    RecommendationRateLimitExceededException rateLimitEx = (RecommendationRateLimitExceededException) ex;
+                    assertThat(rateLimitEx.retryAfter()).isEqualTo(Duration.ofSeconds(40));
+                    assertThat(rateLimitEx.retryAfterSeconds()).isEqualTo(40);
+                });
+    }
+
+    @Test
+    void evictExpiredBucketsRemovesInactiveTenantAndActorEntries() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-28T10:00:00Z"));
+        DefaultFollowUpRecommendationRateLimiter limiter = new DefaultFollowUpRecommendationRateLimiter(
+                2, 2, Duration.ofSeconds(5), clock);
+
+        TenantId tenant1 = TenantId.random();
+        IdentityId actor1 = new IdentityId(UUID.randomUUID());
+
+        limiter.acquire(tenant1, actor1);
+        assertThat(limiter.hasTenantBucket(tenant1)).isTrue();
+        assertThat(limiter.hasActorBucket(tenant1, actor1)).isTrue();
+
+        // Advance clock past the 1-minute window
+        clock.advance(Duration.ofSeconds(61));
+
+        limiter.evictExpiredBuckets();
+
+        assertThat(limiter.hasTenantBucket(tenant1)).isFalse();
+        assertThat(limiter.hasActorBucket(tenant1, actor1)).isFalse();
+    }
+
     private static class MutableClock extends Clock {
         private Instant current;
         private final ZoneId zone = ZoneId.of("UTC");

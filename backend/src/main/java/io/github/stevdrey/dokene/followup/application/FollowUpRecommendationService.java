@@ -36,6 +36,7 @@ public final class FollowUpRecommendationService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final FollowUpService followUps;
+    private final FollowUpRecommendationRateLimiter rateLimiter;
 
     @Autowired
     public FollowUpRecommendationService(
@@ -44,20 +45,32 @@ public final class FollowUpRecommendationService {
             AiActionGate gate,
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
-            FollowUpService followUps) {
+            FollowUpService followUps,
+            FollowUpRecommendationRateLimiter rateLimiter) {
         this.provider = Objects.requireNonNull(provider, "AI provider is required");
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
         this.gate = Objects.requireNonNull(gate, "AI action gate is required");
         this.authorization = authorization;
         this.contexts = contexts;
         this.followUps = followUps;
+        this.rateLimiter = rateLimiter;
+    }
+
+    public FollowUpRecommendationService(
+            AiProvider provider,
+            RecommendationContextAssembler assembler,
+            AiActionGate gate,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            FollowUpService followUps) {
+        this(provider, assembler, gate, authorization, contexts, followUps, null);
     }
 
     public FollowUpRecommendationService(
             AiProvider provider,
             RecommendationContextAssembler assembler,
             AiActionGate gate) {
-        this(provider, assembler, gate, null, null, null);
+        this(provider, assembler, gate, null, null, null, null);
     }
 
     public FollowUpDecision recommend(CustomerId customerId, Duration timeout) {
@@ -67,6 +80,10 @@ public final class FollowUpRecommendationService {
         var evaluation = assembly.evaluation();
         if (!evaluation.eligible()) {
             return FollowUpDecision.ineligible(evaluation, assembly.policyVersion());
+        }
+        if (rateLimiter != null && contexts != null) {
+            var tenantContext = contexts.requireCurrent();
+            rateLimiter.acquire(tenantContext.tenantId(), tenantContext.identityId());
         }
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
@@ -180,6 +197,9 @@ public final class FollowUpRecommendationService {
             }
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
             long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            if (expectedVersion != null && freshVersion > 0L && expectedVersion != freshVersion) {
+                throw new FollowUpConflictException();
+            }
             if (eval != null && !eval.eligible()) {
                 ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
                 return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
@@ -191,6 +211,9 @@ public final class FollowUpRecommendationService {
             }
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
             long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            if (expectedVersion != null && freshVersion > 0L && expectedVersion != freshVersion) {
+                throw new FollowUpConflictException();
+            }
             if (eval != null && !eval.eligible()) {
                 ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
                 return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
