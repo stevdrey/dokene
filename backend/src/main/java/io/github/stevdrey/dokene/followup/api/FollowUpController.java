@@ -193,9 +193,13 @@ public class FollowUpController {
             authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
-        Duration timeout = request != null && request.timeoutMs() != null
-                ? Duration.ofMillis(request.timeoutMs())
-                : null;
+        Duration timeout = null;
+        if (request != null && request.timeoutMs() != null) {
+            if (request.timeoutMs() <= 0) {
+                throw new IllegalArgumentException("Timeout must be positive");
+            }
+            timeout = Duration.ofMillis(request.timeoutMs());
+        }
         var result = recommendations.recommendSafe(new CustomerId(customerId), timeout, expectedVersion);
         return ResponseEntity.ok()
                 .eTag(etag(result.policyVersion()))

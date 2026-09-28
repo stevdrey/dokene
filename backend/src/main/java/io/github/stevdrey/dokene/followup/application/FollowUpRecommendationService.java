@@ -79,6 +79,9 @@ public final class FollowUpRecommendationService {
         var assembly = assembler.assemble(customerId);
         var evaluation = assembly.evaluation();
         if (!evaluation.eligible()) {
+            if (gate != null) {
+                gate.revalidateAuthorization(customerId);
+            }
             return FollowUpDecision.ineligible(evaluation, assembly.policyVersion());
         }
         if (rateLimiter != null && contexts != null) {
@@ -131,16 +134,18 @@ public final class FollowUpRecommendationService {
             authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
 
+        Duration effectiveTimeout = resolveTimeout(requestedTimeout);
+
         long policyVersion = 0L;
         if (followUps != null) {
             var policy = followUps.customerPolicy(customerId);
-            policyVersion = policy.version();
-            if (expectedVersion != null && expectedVersion != policyVersion) {
-                throw new FollowUpConflictException();
+            if (policy != null) {
+                policyVersion = policy.version();
+                if (expectedVersion != null && expectedVersion != policyVersion) {
+                    throw new FollowUpConflictException();
+                }
             }
         }
-
-        Duration effectiveTimeout = resolveTimeout(requestedTimeout);
 
         try {
             FollowUpDecision decision = recommend(customerId, effectiveTimeout);
@@ -179,6 +184,10 @@ public final class FollowUpRecommendationService {
                     throw new CustomerNotFoundException();
                 }
                 if (reason == ActionGateRejectionReason.STALE_STATE) {
+                    if (evaluation != null && !evaluation.eligible()) {
+                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                        return FollowUpRecommendationResult.ineligible(evaluation, ineligibilityReason, freshVersion);
+                    }
                     return FollowUpRecommendationResult.staleState(evaluation, freshVersion);
                 }
                 if (reason == ActionGateRejectionReason.DISALLOWED_ACTION
@@ -281,8 +290,11 @@ public final class FollowUpRecommendationService {
     private Duration resolveTimeout(Duration requested) {
         Duration defaultTimeout = provider != null ? provider.defaultTimeout() : DEFAULT_TIMEOUT;
         Duration maxTimeout = provider != null ? provider.maxTimeout() : MAX_TIMEOUT;
-        if (requested == null || requested.isNegative() || requested.isZero()) {
+        if (requested == null) {
             return defaultTimeout;
+        }
+        if (requested.isNegative() || requested.isZero()) {
+            throw new IllegalArgumentException("Timeout must be positive");
         }
         return requested.compareTo(maxTimeout) > 0 ? maxTimeout : requested;
     }

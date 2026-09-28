@@ -19,7 +19,10 @@ public class RecommendationRateLimitExceededException extends RuntimeException {
     }
 
     public long retryAfterSeconds() {
-        long seconds = retryAfter.toSeconds();
-        return seconds > 0 ? seconds : 1;
+        if (retryAfter.isNegative() || retryAfter.isZero()) {
+            return 1;
+        }
+        long seconds = retryAfter.getSeconds();
+        return retryAfter.getNano() > 0 ? seconds + 1 : (seconds > 0 ? seconds : 1);
     }
 }

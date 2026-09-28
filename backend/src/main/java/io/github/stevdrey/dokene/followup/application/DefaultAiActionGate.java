@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
@@ -16,6 +17,7 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.followup.domain.FollowUpPolicyEvaluator;
+import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
@@ -364,6 +366,21 @@ public class DefaultAiActionGate implements AiActionGate {
         };
     }
 
+    private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {
+        if (evaluation != null && evaluation.reasons() != null) {
+            if (evaluation.reasons().contains(FollowUpReason.DO_NOT_CONTACT)) {
+                return ActionGateRejectionReason.DO_NOT_CONTACT;
+            }
+            if (evaluation.reasons().contains(FollowUpReason.NO_ELIGIBLE_CONTACT)) {
+                return ActionGateRejectionReason.NO_CONTACT_CONSENT;
+            }
+            if (evaluation.reasons().contains(FollowUpReason.CUSTOMER_ARCHIVED)) {
+                return ActionGateRejectionReason.CUSTOMER_ARCHIVED;
+            }
+        }
+        return ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE;
+    }
+
     private boolean isAssemblyStale(
             RecommendationContextAssembler.Assembly assembly,
             Customer customer,
@@ -381,12 +398,20 @@ public class DefaultAiActionGate implements AiActionGate {
             return true;
         }
 
-        for (PurchaseBaseline pb : assembly.purchases()) {
-            Optional<Purchase> currentPurchaseOpt = purchases.findById(customer.tenantId(), customer.id(), pb.id());
-            if (currentPurchaseOpt.isEmpty()
-                    || currentPurchaseOpt.get().status() != PurchaseStatus.VALID
-                    || currentPurchaseOpt.get().version() != pb.version()
-                    || !Objects.equals(currentPurchaseOpt.get().purchasedAt(), pb.purchasedAt())) {
+        List<Purchase> currentPurchases = purchases.list(
+                customer.tenantId(), customer.id(), PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES);
+        List<PurchaseBaseline> baselinePurchases = assembly.purchases();
+        if (currentPurchases.size() != baselinePurchases.size()) {
+            return true;
+        }
+
+        for (int i = 0; i < currentPurchases.size(); i++) {
+            Purchase current = currentPurchases.get(i);
+            PurchaseBaseline pb = baselinePurchases.get(i);
+            if (!Objects.equals(current.id(), pb.id())
+                    || current.version() != pb.version()
+                    || !Objects.equals(current.purchasedAt(), pb.purchasedAt())
+                    || current.status() != PurchaseStatus.VALID) {
                 return true;
             }
         }

@@ -371,6 +371,21 @@ class FollowUpControllerTest {
         verifyNoInteractions(recommendations);
     }
 
+    @Test
+    void requestRecommendationRejectsNonpositiveTimeoutWithBadRequest() throws Exception {
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content("{\"timeoutMs\": 0}"))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content("{\"timeoutMs\": -100}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(recommendations);
+    }
+
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {
         boolean eligible = status == FollowUpStatus.DUE;
         LocalDate tenantDate = LocalDate.of(2026, 9, 25);

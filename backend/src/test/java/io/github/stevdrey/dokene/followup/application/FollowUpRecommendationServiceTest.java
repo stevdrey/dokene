@@ -32,8 +32,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -100,13 +103,15 @@ class FollowUpRecommendationServiceTest {
         assertThat(decision.evaluation()).isSameAs(ineligible);
         assertThat(decision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
-        verifyNoInteractions(gate);
+        verify(gate).revalidateAuthorization(ineligible.customerId());
+        verify(gate, never()).evaluate(any(), any(), any());
 
         FollowUpDecision directDecision = new FollowUpRecommendationService(fake, assembler, gate).recommend(ineligible, timeout);
         assertThat(directDecision.evaluation()).isSameAs(ineligible);
         assertThat(directDecision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
-        verifyNoInteractions(gate);
+        verify(gate, times(2)).revalidateAuthorization(ineligible.customerId());
+        verify(gate, never()).evaluate(any(), any(), any());
     }
 
     @Test
@@ -151,7 +156,8 @@ class FollowUpRecommendationServiceTest {
         assertThat(directDecision.evaluation()).isSameAs(authoritativeIneligible);
         assertThat(directDecision.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
-        verifyNoInteractions(gate);
+        verify(gate).revalidateAuthorization(forgedEligible.customerId());
+        verify(gate, never()).evaluate(any(), any(), any());
     }
 
     @Test
@@ -317,7 +323,8 @@ class FollowUpRecommendationServiceTest {
         assertThat(result.evaluation()).isSameAs(ineligible);
         assertThat(result.advisoryRecommendation()).isEmpty();
         assertThat(fake.invocationCount()).isZero();
-        verifyNoInteractions(gate);
+        verify(gate).revalidateAuthorization(ineligible.customerId());
+        verify(gate, never()).evaluate(any(), any(), any());
     }
 
     @Test
@@ -938,6 +945,73 @@ class FollowUpRecommendationServiceTest {
         FollowUpRecommendationResult result = service.recommendSafe(due.customerId(), timeout, null);
         assertThat(result.status()).isEqualTo(RecommendationStatus.STALE_STATE);
         assertThat(result.policyVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void recommendSafeRejectsNonpositiveTimeoutWithIllegalArgumentException() {
+        CustomerId cid = new CustomerId(UUID.randomUUID());
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        assertThatThrownBy(() -> service.recommendSafe(cid, Duration.ZERO, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("positive");
+
+        assertThatThrownBy(() -> service.recommendSafe(cid, Duration.ofSeconds(-5), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("positive");
+    }
+
+    @Test
+    void recommendSafeMapsStaleRefusalWithIneligibleEvaluationToIneligible() {
+        CustomerId cid = new CustomerId(UUID.randomUUID());
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Signal unclear", RecommendationConfidence.of(0.4));
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.success(refusal);
+
+        FollowUpEvaluation due = evaluation(FollowUpStatus.DUE);
+        var assembly = new RecommendationContextAssembler.Assembly(due, context(), purchases, 1L);
+        when(assembler.assemble(cid)).thenReturn(assembly);
+
+        // While in flight, customer became ineligible (e.g. DNC or NO_CONSENT)
+        FollowUpEvaluation dncEvaluation = new FollowUpEvaluation(
+                cid, FollowUpStatus.INELIGIBLE, List.of(FollowUpReason.DO_NOT_CONTACT),
+                Instant.parse("2026-09-25T12:00:00Z"), tenantDate, ZoneId.of("America/Costa_Rica"),
+                null, FollowUpTimingSource.NONE, 0, null);
+
+        ActionGateDecision staleDecision = ActionGateDecision.rejected(
+                ActionGateRejectionReason.STALE_STATE, "State changed in flight",
+                dncEvaluation, refusal, 2L);
+        when(gate.evaluate(eq(cid), eq(assembly), eq(refusal))).thenReturn(staleDecision);
+        when(followUps.customerPolicy(cid))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), cid, 30, null, null, null, 2L));
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(
+                fake, assembler, gate, authorization, contexts, followUps);
+
+        FollowUpRecommendationResult result = service.recommendSafe(cid, timeout, null);
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.INELIGIBLE);
+        assertThat(result.rejectionReason()).isEqualTo(ActionGateRejectionReason.DO_NOT_CONTACT);
+        assertThat(result.policyVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void recommendRevalidatesAuthorizationBeforeIneligibleShortCircuit() {
+        DeterministicFakeAiProvider fake = DeterministicFakeAiProvider.failure(AiFailureCategory.UNAVAILABLE);
+        FollowUpEvaluation ineligible = evaluation(FollowUpStatus.INELIGIBLE);
+        when(assembler.assemble(ineligible.customerId()))
+                .thenReturn(new RecommendationContextAssembler.Assembly(ineligible, null, List.of()));
+
+        doThrow(new TenantAccessDeniedException("Membership revoked"))
+                .when(gate).revalidateAuthorization(ineligible.customerId());
+
+        FollowUpRecommendationService service = new FollowUpRecommendationService(fake, assembler, gate);
+
+        assertThatThrownBy(() -> service.recommend(ineligible.customerId(), timeout))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Membership revoked");
     }
 
     private RecommendationContext context() {

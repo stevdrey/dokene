@@ -63,6 +63,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -150,6 +151,8 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime, "Purchase 1", now.minusSeconds(86400));
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenAnswer(inv -> lastPurchase != null ? List.of(lastPurchase) : List.of());
 
         dueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
                 activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, lastPurchaseTime);
@@ -367,6 +370,8 @@ class DefaultAiActionGateTest {
     void rejectsWhenFollowUpIsNotDueInAuthoritativeState() {
         // Customer has no purchases -> INELIGIBLE with NO_PURCHASE_HISTORY
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of());
         FollowUpEvaluation notDueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
                 activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, null);
 
@@ -732,6 +737,8 @@ class DefaultAiActionGateTest {
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(correctedSecondPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, correctedSecondPurchase));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -825,6 +832,8 @@ class DefaultAiActionGateTest {
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(modifiedSecondPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, modifiedSecondPurchase));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -852,12 +861,48 @@ class DefaultAiActionGateTest {
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(secondPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, secondPurchase));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
         verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void rejectsWhenBackdatedPurchaseWasInsertedBehindLatestRecordInFlight() {
+        Purchase olderPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(7200), "Older Purchase", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline olderBaseline = PurchaseBaseline.from(olderPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, olderBaseline);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                multiPurchaseContext(baselines),
+                baselines);
+
+        // A valid backdated purchase inserted between lastPurchase and olderPurchase
+        Purchase insertedMiddlePurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Inserted Middle Purchase", now.minusSeconds(10));
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, olderPurchase.id())).thenReturn(Optional.of(olderPurchase));
+        // The authoritative context purchases now include the inserted purchase
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, insertedMiddlePurchase, olderPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
+                        && Objects.equals(event.customerId(), customerId)
+        ));
     }
 
     private RecommendationContext multiPurchaseContext(List<PurchaseBaseline> baselines) {

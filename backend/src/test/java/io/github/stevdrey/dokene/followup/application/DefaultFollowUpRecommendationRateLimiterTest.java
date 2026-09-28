@@ -124,6 +124,21 @@ class DefaultFollowUpRecommendationRateLimiterTest {
     }
 
     @Test
+    void retryAfterSecondsRoundsUpWhenFractionalSecondsRemain() {
+        RecommendationRateLimitExceededException ex1 =
+                new RecommendationRateLimitExceededException("Limit reached", Duration.ofMillis(40900));
+        assertThat(ex1.retryAfterSeconds()).isEqualTo(41);
+
+        RecommendationRateLimitExceededException ex2 =
+                new RecommendationRateLimitExceededException("Limit reached", Duration.ofMillis(40000));
+        assertThat(ex2.retryAfterSeconds()).isEqualTo(40);
+
+        RecommendationRateLimitExceededException ex3 =
+                new RecommendationRateLimitExceededException("Limit reached", Duration.ofMillis(100));
+        assertThat(ex3.retryAfterSeconds()).isEqualTo(1);
+    }
+
+    @Test
     void evictExpiredBucketsRemovesInactiveTenantAndActorEntries() {
         MutableClock clock = new MutableClock(Instant.parse("2026-09-28T10:00:00Z"));
         DefaultFollowUpRecommendationRateLimiter limiter = new DefaultFollowUpRecommendationRateLimiter(
