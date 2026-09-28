@@ -30,10 +30,18 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
         return Optional.empty();
     }
 
-    record Accepted(RecommendationOutcome outcome, FollowUpEvaluation currentEvaluation) implements ActionGateDecision {
+    default Long policyVersion() {
+        return null;
+    }
+
+    record Accepted(RecommendationOutcome outcome, FollowUpEvaluation currentEvaluation, Long policyVersion) implements ActionGateDecision {
         public Accepted {
             Objects.requireNonNull(outcome, "Outcome is required");
             Objects.requireNonNull(currentEvaluation, "Current evaluation is required");
+        }
+
+        public Accepted(RecommendationOutcome outcome, FollowUpEvaluation currentEvaluation) {
+            this(outcome, currentEvaluation, null);
         }
 
         @Override
@@ -51,19 +59,28 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
             ActionGateRejectionReason reason,
             String diagnosticMessage,
             FollowUpEvaluation currentEvaluation,
-            RecommendationOutcome rejectedOutcome
+            RecommendationOutcome rejectedOutcome,
+            Long policyVersion
     ) implements ActionGateDecision {
         public Rejected {
             Objects.requireNonNull(reason, "Rejection reason is required");
             Objects.requireNonNull(diagnosticMessage, "Diagnostic message is required");
         }
 
+        public Rejected(
+                ActionGateRejectionReason reason,
+                String diagnosticMessage,
+                FollowUpEvaluation currentEvaluation,
+                RecommendationOutcome rejectedOutcome) {
+            this(reason, diagnosticMessage, currentEvaluation, rejectedOutcome, null);
+        }
+
         public Rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation currentEvaluation) {
-            this(reason, diagnosticMessage, currentEvaluation, null);
+            this(reason, diagnosticMessage, currentEvaluation, null, null);
         }
 
         public Rejected(ActionGateRejectionReason reason, String diagnosticMessage) {
-            this(reason, diagnosticMessage, null, null);
+            this(reason, diagnosticMessage, null, null, null);
         }
 
         @Override
@@ -88,18 +105,30 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
     }
 
     static ActionGateDecision accepted(RecommendationOutcome outcome, FollowUpEvaluation evaluation) {
-        return new Accepted(outcome, evaluation);
+        return new Accepted(outcome, evaluation, null);
+    }
+
+    static ActionGateDecision accepted(RecommendationOutcome outcome, FollowUpEvaluation evaluation, Long policyVersion) {
+        return new Accepted(outcome, evaluation, policyVersion);
     }
 
     static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage) {
-        return new Rejected(reason, diagnosticMessage, null, null);
+        return new Rejected(reason, diagnosticMessage, null, null, null);
     }
 
     static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation) {
-        return new Rejected(reason, diagnosticMessage, evaluation, null);
+        return new Rejected(reason, diagnosticMessage, evaluation, null, null);
     }
 
     static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation, RecommendationOutcome rawOutcome) {
-        return new Rejected(reason, diagnosticMessage, evaluation, rawOutcome);
+        return new Rejected(reason, diagnosticMessage, evaluation, rawOutcome, null);
+    }
+
+    static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation, Long policyVersion) {
+        return new Rejected(reason, diagnosticMessage, evaluation, null, policyVersion);
+    }
+
+    static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation, RecommendationOutcome rawOutcome, Long policyVersion) {
+        return new Rejected(reason, diagnosticMessage, evaluation, rawOutcome, policyVersion);
     }
 }

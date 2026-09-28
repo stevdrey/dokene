@@ -1,11 +1,13 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
+import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
 import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.ContactChannel;
@@ -15,11 +17,13 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.followup.domain.FollowUpPolicyEvaluator;
+import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -172,6 +176,7 @@ public class DefaultAiActionGate implements AiActionGate {
         // Authoritative evaluation of current policies, consent, and purchases
         var tenantPolicy = policies.tenantPolicy(customer.tenantId());
         var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
+        long evaluatedVersion = customerPolicy.version();
         ContactPolicy contactPolicy = contacts.find(customer);
         Optional<Purchase> lastPurchaseOpt = purchases.lastValid(customer.tenantId(), customer.id());
         Instant lastPurchase = lastPurchaseOpt.map(Purchase::purchasedAt).orElse(null);
@@ -182,14 +187,14 @@ public class DefaultAiActionGate implements AiActionGate {
         if (customer.status() == CustomerStatus.ARCHIVED) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED");
             return ActionGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
-                    "Customer is archived", currentEvaluation, outcome);
+                    "Customer is archived", currentEvaluation, outcome, evaluatedVersion);
         }
 
         // 5. Outcome Null Check
         if (outcome == null) {
             emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME");
             return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                    "Recommendation outcome cannot be null", currentEvaluation, null);
+                    "Recommendation outcome cannot be null", currentEvaluation, null, evaluatedVersion);
         }
 
         // 6. Baseline Customer Binding (validates customer ID for any outcome when an assembly baseline is supplied)
@@ -197,14 +202,21 @@ public class DefaultAiActionGate implements AiActionGate {
             if (!Objects.equals(assembly.evaluation().customerId(), customerId)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                        "Assembly baseline customer does not match target customer", currentEvaluation, outcome);
+                        "Assembly baseline customer does not match target customer", currentEvaluation, outcome, evaluatedVersion);
             }
         }
 
         // 7. Explicit Model Refusal
         if (outcome instanceof NoRecommendation) {
-            // Model refusal is accepted once tenant context, caller authorization, customer active state, and baseline customer binding succeed
-            return ActionGateDecision.accepted(outcome, currentEvaluation);
+            if (assembly != null && assembly.evaluation() != null) {
+                if (isAssemblyStale(assembly, customer, currentEvaluation, currentLastPurchaseId)) {
+                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
+                    return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                            "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
+                }
+            }
+            // Model refusal is accepted once tenant context, caller authorization, customer active state, and baseline consistency succeed
+            return ActionGateDecision.accepted(outcome, currentEvaluation, evaluatedVersion);
         }
 
         if (outcome instanceof ActionRecommendation actionRec) {
@@ -214,14 +226,14 @@ public class DefaultAiActionGate implements AiActionGate {
                     || (assembly.evaluation().lastPurchaseAt() != null && assembly.purchases().isEmpty())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "MISSING_ASSEMBLY_BASELINE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                        "Action recommendations require a complete assembly baseline and context", currentEvaluation, outcome);
+                        "Action recommendations require a complete assembly baseline and context", currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 9. Consent and Do-Not-Contact State (strictly for action recommendations)
             if (contactPolicy.doNotContact()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
-                        "Customer has active do-not-contact restriction", currentEvaluation, outcome);
+                        "Customer has active do-not-contact restriction", currentEvaluation, outcome, evaluatedVersion);
             }
             boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
                     .anyMatch(consent -> consent.contactId().equals(phone.id())
@@ -230,37 +242,14 @@ public class DefaultAiActionGate implements AiActionGate {
             if (!eligibleContact) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
-                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome);
+                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome, evaluatedVersion);
             }
 
-            // 10. Stale State Detection
-            FollowUpEvaluation baseline = assembly.evaluation();
-            PurchaseId baselineLastPurchaseId = assembly.lastPurchaseId();
-            boolean stale = !Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
-                    || !Objects.equals(baselineLastPurchaseId, currentLastPurchaseId)
-                    || baseline.status() != currentEvaluation.status()
-                    || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
-                    || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
-                    || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
-                    || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate());
-
-            if (!stale) {
-                for (PurchaseBaseline pb : assembly.purchases()) {
-                    Optional<Purchase> currentPurchaseOpt = purchases.findById(customer.tenantId(), customer.id(), pb.id());
-                    if (currentPurchaseOpt.isEmpty()
-                            || currentPurchaseOpt.get().status() != PurchaseStatus.VALID
-                            || currentPurchaseOpt.get().version() != pb.version()
-                            || !Objects.equals(currentPurchaseOpt.get().purchasedAt(), pb.purchasedAt())) {
-                        stale = true;
-                        break;
-                    }
-                }
-            }
-
-            if (stale) {
+            // 10. Stale State Detection (for action recommendations)
+            if (isAssemblyStale(assembly, customer, currentEvaluation, currentLastPurchaseId)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
-                    "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome);
+                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 11. Follow-Up Due State Enforcement
@@ -268,7 +257,7 @@ public class DefaultAiActionGate implements AiActionGate {
                     && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE,
-                        "Customer is not currently due or overdue for follow-up", currentEvaluation, outcome);
+                        "Customer is not currently due or overdue for follow-up", currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 12. Semantic action allowlist
@@ -276,22 +265,80 @@ public class DefaultAiActionGate implements AiActionGate {
             if (allowedActions == null || !allowedActions.contains(actionRec.action())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
-                        "Semantic action is not permitted for current context", currentEvaluation, outcome);
+                        "Semantic action is not permitted for current context", currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 13. Semantic template intent allowlist and compatibility
             if (!isCompatibleIntent(actionRec.action(), actionRec.templateIntent())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
-                        "Semantic template intent is incompatible with recommended action", currentEvaluation, outcome);
+                        "Semantic template intent is incompatible with recommended action", currentEvaluation, outcome, evaluatedVersion);
             }
 
-            return ActionGateDecision.accepted(actionRec, currentEvaluation);
+            return ActionGateDecision.accepted(actionRec, currentEvaluation, evaluatedVersion);
         }
 
         emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "UNKNOWN_OUTCOME_TYPE");
         return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                "Unknown recommendation outcome type", currentEvaluation, outcome);
+                "Unknown recommendation outcome type", currentEvaluation, outcome, evaluatedVersion);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void revalidateAuthorization(CustomerId customerId) {
+        Objects.requireNonNull(customerId, "Customer ID is required");
+        Optional<TenantContext> tenantContextOpt = contexts.current();
+        if (tenantContextOpt.isEmpty()) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT");
+            throw new TenantAccessDeniedException("Active authenticated tenant context is required");
+        }
+        TenantContext cachedContext = tenantContextOpt.get();
+
+        Optional<Tenant> tenantOpt = tenants.findById(cachedContext.tenantId());
+        if (tenantOpt.isEmpty() || tenantOpt.get().status() != TenantStatus.ACTIVE) {
+            String diagnosticCode = tenantOpt
+                    .map(t -> "Tenant is not active (status: " + t.status() + ")")
+                    .orElse("Tenant not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
+            throw new TenantAccessDeniedException("Tenant is not active");
+        }
+
+        Optional<TenantMembership> membershipOpt = memberships.findByTenantIdAndIdentityId(
+                cachedContext.tenantId(), cachedContext.identityId());
+        if (membershipOpt.isEmpty() || membershipOpt.get().status() != TenantMembershipStatus.ACTIVE) {
+            String diagnosticCode = membershipOpt
+                    .map(m -> "Tenant membership is not active (status: " + m.status() + ")")
+                    .orElse("Tenant membership not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
+            throw new TenantAccessDeniedException("Caller membership is not active within current tenant");
+        }
+        TenantMembership currentMembership = membershipOpt.get();
+        TenantContext tenantContext = new TenantContext(
+                cachedContext.tenantId(),
+                cachedContext.identityId(),
+                currentMembership.id(),
+                currentMembership.role(),
+                currentMembership.status());
+
+        var authDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
+        if (!authDecision.isAllowed()) {
+            String diagnosticCode = authDecision.rejectionReason().orElse("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
+            throw new TenantAccessDeniedException("Caller lacks required permission FOLLOWUP_EVALUATE");
+        }
+
+        Optional<Customer> customerOpt = customers.findById(tenantContext.tenantId(), customerId);
+        if (customerOpt.isEmpty()) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT");
+            throw new CustomerNotFoundException();
+        }
+        Customer customer = customerOpt.get();
+        var resourceDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE, customer);
+        if (!resourceDecision.isAllowed()) {
+            String diagnosticCode = resourceDecision.rejectionReason().orElse("RESOURCE_ACCESS_DENIED");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode);
+            throw new TenantAccessDeniedException("Caller not authorized to access customer resource");
+        }
     }
 
     private void emitRejection(Optional<TenantContext> tenantContextOpt, CustomerId customerId,
@@ -317,5 +364,57 @@ public class DefaultAiActionGate implements AiActionGate {
             case SEASONAL_GREETING -> intent == SemanticTemplateIntent.SEASONAL_EVENT
                     || intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP;
         };
+    }
+
+    private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {
+        if (evaluation != null && evaluation.reasons() != null) {
+            if (evaluation.reasons().contains(FollowUpReason.DO_NOT_CONTACT)) {
+                return ActionGateRejectionReason.DO_NOT_CONTACT;
+            }
+            if (evaluation.reasons().contains(FollowUpReason.NO_ELIGIBLE_CONTACT)) {
+                return ActionGateRejectionReason.NO_CONTACT_CONSENT;
+            }
+            if (evaluation.reasons().contains(FollowUpReason.CUSTOMER_ARCHIVED)) {
+                return ActionGateRejectionReason.CUSTOMER_ARCHIVED;
+            }
+        }
+        return ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE;
+    }
+
+    private boolean isAssemblyStale(
+            RecommendationContextAssembler.Assembly assembly,
+            Customer customer,
+            FollowUpEvaluation currentEvaluation,
+            PurchaseId currentLastPurchaseId) {
+        FollowUpEvaluation baseline = assembly.evaluation();
+        PurchaseId baselineLastPurchaseId = assembly.lastPurchaseId();
+        if (!Objects.equals(baseline.lastPurchaseAt(), currentEvaluation.lastPurchaseAt())
+                || !Objects.equals(baselineLastPurchaseId, currentLastPurchaseId)
+                || baseline.status() != currentEvaluation.status()
+                || !Objects.equals(baseline.reasons(), currentEvaluation.reasons())
+                || baseline.effectiveCadenceDays() != currentEvaluation.effectiveCadenceDays()
+                || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
+                || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate())) {
+            return true;
+        }
+
+        List<Purchase> currentPurchases = purchases.list(
+                customer.tenantId(), customer.id(), PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES);
+        List<PurchaseBaseline> baselinePurchases = assembly.purchases();
+        if (currentPurchases.size() != baselinePurchases.size()) {
+            return true;
+        }
+
+        for (int i = 0; i < currentPurchases.size(); i++) {
+            Purchase current = currentPurchases.get(i);
+            PurchaseBaseline pb = baselinePurchases.get(i);
+            if (!Objects.equals(current.id(), pb.id())
+                    || current.version() != pb.version()
+                    || !Objects.equals(current.purchasedAt(), pb.purchasedAt())
+                    || current.status() != PurchaseStatus.VALID) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -26,17 +26,60 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueCursor;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
 import io.github.stevdrey.dokene.followup.domain.FollowUpQueueItem;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.followup.application.ActionGateRejectionReason;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationService;
+import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
+import java.time.Duration;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter;
 
 @RestController
 @RequestMapping("/api")
 public class FollowUpController {
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9._:-]{1,128}");
     private final FollowUpService followUps;
+    private final FollowUpRecommendationService recommendations;
+    private final TenantContextProvider contexts;
+    private final FollowUpRecommendationRateLimiter rateLimiter;
+    private final TenantAuthorizationService authorization;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FollowUpController(
+            FollowUpService followUps,
+            FollowUpRecommendationService recommendations,
+            TenantContextProvider contexts,
+            FollowUpRecommendationRateLimiter rateLimiter,
+            TenantAuthorizationService authorization) {
+        this.followUps = followUps;
+        this.recommendations = recommendations;
+        this.contexts = contexts;
+        this.rateLimiter = rateLimiter;
+        this.authorization = authorization;
+    }
+
+    public FollowUpController(
+            FollowUpService followUps,
+            FollowUpRecommendationService recommendations,
+            TenantContextProvider contexts,
+            FollowUpRecommendationRateLimiter rateLimiter) {
+        this(followUps, recommendations, contexts, rateLimiter, null);
+    }
+
+    public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
+        this(followUps, recommendations, null, null);
+    }
 
     public FollowUpController(FollowUpService followUps) {
-        this.followUps = followUps;
+        this(followUps, null, null, null);
     }
 
     @GetMapping("/follow-up-policy")
@@ -138,6 +181,69 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @PostMapping({"/customers/{customerId}/recommendation", "/customers/{customerId}/follow-up-recommendation"})
+    public ResponseEntity<RecommendationResponse> requestRecommendation(
+            @PathVariable UUID customerId,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody(required = false) RecommendationRequest request) {
+        if (recommendations == null) {
+            throw new IllegalStateException("Recommendation service is not configured");
+        }
+        if (authorization != null) {
+            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
+        }
+        Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
+        Duration timeout = null;
+        if (request != null && request.timeoutMs() != null) {
+            if (request.timeoutMs() <= 0) {
+                throw new IllegalArgumentException("Timeout must be positive");
+            }
+            timeout = Duration.ofMillis(request.timeoutMs());
+        }
+        var result = recommendations.recommendSafe(new CustomerId(customerId), timeout, expectedVersion);
+        return ResponseEntity.ok()
+                .eTag(etag(result.policyVersion()))
+                .body(response(result));
+    }
+
+    private RecommendationResponse response(FollowUpRecommendationResult result) {
+        EvaluationResponse evalResponse = result.evaluation() != null ? response(result.evaluation()) : null;
+        ActionRecommendationResponse actionResponse = null;
+        if (result.recommendation() != null) {
+            var action = result.recommendation();
+            var vars = action.draftVariables() != null
+                    ? action.draftVariables().entries().stream()
+                            .map(e -> new DraftVariableResponse(e.key(), e.value()))
+                            .toList()
+                    : List.<DraftVariableResponse>of();
+            actionResponse = new ActionRecommendationResponse(
+                    action.action(),
+                    action.templateIntent(),
+                    action.rationale(),
+                    action.confidence().value(),
+                    vars);
+        }
+        RefusalResponse refusalResponse = null;
+        if (result.refusal() != null) {
+            refusalResponse = new RefusalResponse(
+                    result.refusal().reason(),
+                    result.refusal().rationale(),
+                    result.refusal().confidence().value());
+        }
+        UUID cId = result.evaluation() != null
+                ? result.evaluation().customerId().value()
+                : null;
+        return new RecommendationResponse(
+                result.status(),
+                cId,
+                evalResponse,
+                actionResponse,
+                refusalResponse,
+                result.refusalReason(),
+                result.rejectionReason(),
+                result.unavailableReason());
+    }
+
     private TenantPolicyResponse response(TenantFollowUpPolicy policy) {
         return new TenantPolicyResponse(policy.cadenceDays(), policy.zoneId().getId());
     }
@@ -210,4 +316,25 @@ public class FollowUpController {
                                     LocalDate lastManualFollowUpDate, LocalDate lastDismissedDate,
                                     Instant evaluatedAt) { }
     public record FollowUpQueuePageResponse(List<QueueItemResponse> items, String nextCursor) { }
+    public record RecommendationRequest(Integer timeoutMs) { }
+    public record DraftVariableResponse(String key, String value) { }
+    public record ActionRecommendationResponse(
+            SemanticAction action,
+            SemanticTemplateIntent templateIntent,
+            String rationale,
+            double confidence,
+            List<DraftVariableResponse> draftVariables) { }
+    public record RefusalResponse(
+            NoRecommendationReason reason,
+            String rationale,
+            double confidence) { }
+    public record RecommendationResponse(
+            RecommendationStatus status,
+            UUID customerId,
+            EvaluationResponse evaluation,
+            ActionRecommendationResponse recommendation,
+            RefusalResponse refusal,
+            NoRecommendationReason refusalReason,
+            ActionGateRejectionReason rejectionReason,
+            String unavailableReason) { }
 }

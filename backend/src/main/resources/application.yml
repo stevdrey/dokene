@@ -28,7 +28,11 @@ spring:
 
 dokene:
   ai:
-    provider: ${DOKENE_AI_PROVIDER:fake}
+    provider: ${DOKENE_AI_PROVIDER:}
+    rate-limit:
+      tenant-permits-per-minute: ${DOKENE_AI_RATE_LIMIT_TENANT_PERMITS:60}
+      actor-permits-per-minute: ${DOKENE_AI_RATE_LIMIT_ACTOR_PERMITS:20}
+      retry-after: ${DOKENE_AI_RATE_LIMIT_RETRY_AFTER:5s}
     openai:
       api-key: ${DOKENE_AI_OPENAI_API_KEY:}
       model: ${DOKENE_AI_OPENAI_MODEL:gpt-6-luna}

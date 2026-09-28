@@ -32,6 +32,7 @@ import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -59,8 +60,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -148,6 +151,8 @@ class DefaultAiActionGateTest {
                 lastPurchaseTime, "Purchase 1", now.minusSeconds(86400));
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenAnswer(inv -> lastPurchase != null ? List.of(lastPurchase) : List.of());
 
         dueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
                 activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, lastPurchaseTime);
@@ -161,7 +166,30 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
+        assertThat(decision.policyVersion()).isEqualTo(customerPolicy.version());
         verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void revalidateAuthorizationSucceedsWhenAuthorized() {
+        assertThatCode(() -> gate.revalidateAuthorization(customerId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void revalidateAuthorizationThrowsWhenTenantSuspended() {
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(Tenant.restore(tenantId, "Suspended", TenantStatus.SUSPENDED, now, now, 1L)));
+        assertThatThrownBy(() -> gate.revalidateAuthorization(customerId))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Tenant is not active");
+    }
+
+    @Test
+    void revalidateAuthorizationThrowsWhenMembershipRevoked() {
+        when(memberships.findByTenantIdAndIdentityId(tenantId, tenantContext.identityId()))
+                .thenReturn(Optional.of(TenantMembership.restore(TenantMembershipId.random(), tenantId, tenantContext.identityId(), TenantRole.OPERATOR, TenantMembershipStatus.REVOKED, now, now, 1L)));
+        assertThatThrownBy(() -> gate.revalidateAuthorization(customerId))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Caller membership is not active within current tenant");
     }
 
     @Test
@@ -197,7 +225,9 @@ class DefaultAiActionGateTest {
                 ContactIntentSource.CUSTOMER_WRITTEN, now.minusSeconds(100),
                 List.of());
         when(contacts.find(activeCustomer)).thenReturn(dncPolicy);
-        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        FollowUpEvaluation dncEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
+                activeCustomer, dncPolicy, tenantPolicy, customerPolicy, lastPurchaseTime);
+        RecommendationContextAssembler.Assembly assembly = assembly(dncEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
         NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
                 "Signal unclear", RecommendationConfidence.of(0.4));
 
@@ -212,7 +242,7 @@ class DefaultAiActionGateTest {
     }
 
     @Test
-    void acceptsRefusalEvenWhenStateIsStale() {
+    void rejectsRefusalWhenStateIsStale() {
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
 
         // A new purchase was recorded while AI was thinking
@@ -226,9 +256,9 @@ class DefaultAiActionGateTest {
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, refusal);
 
-        assertThat(decision.isAccepted()).isTrue();
-        assertThat(decision.rejectionReason()).isEmpty();
-        verify(auditListener, never()).onSecurityRejection(any());
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(any());
     }
 
     @Test
@@ -340,6 +370,8 @@ class DefaultAiActionGateTest {
     void rejectsWhenFollowUpIsNotDueInAuthoritativeState() {
         // Customer has no purchases -> INELIGIBLE with NO_PURCHASE_HISTORY
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of());
         FollowUpEvaluation notDueEvaluation = new FollowUpPolicyEvaluator(clock).evaluate(
                 activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, null);
 
@@ -705,6 +737,8 @@ class DefaultAiActionGateTest {
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(correctedSecondPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, correctedSecondPurchase));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -798,6 +832,8 @@ class DefaultAiActionGateTest {
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(modifiedSecondPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, modifiedSecondPurchase));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
@@ -825,12 +861,48 @@ class DefaultAiActionGateTest {
 
         when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
         when(purchases.findById(tenantId, customerId, secondPurchase.id())).thenReturn(Optional.of(secondPurchase));
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, secondPurchase));
 
         ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
 
         assertThat(decision.isAccepted()).isTrue();
         assertThat(decision.rejectionReason()).isEmpty();
         verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void rejectsWhenBackdatedPurchaseWasInsertedBehindLatestRecordInFlight() {
+        Purchase olderPurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(7200), "Older Purchase", now.minusSeconds(86400));
+        PurchaseBaseline latestBaseline = PurchaseBaseline.from(lastPurchase);
+        PurchaseBaseline olderBaseline = PurchaseBaseline.from(olderPurchase);
+        List<PurchaseBaseline> baselines = List.of(latestBaseline, olderBaseline);
+
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation,
+                multiPurchaseContext(baselines),
+                baselines);
+
+        // A valid backdated purchase inserted between lastPurchase and olderPurchase
+        Purchase insertedMiddlePurchase = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                lastPurchaseTime.minusSeconds(3600), "Inserted Middle Purchase", now.minusSeconds(10));
+
+        when(purchases.findById(tenantId, customerId, lastPurchase.id())).thenReturn(Optional.of(lastPurchase));
+        when(purchases.findById(tenantId, customerId, olderPurchase.id())).thenReturn(Optional.of(olderPurchase));
+        // The authoritative context purchases now include the inserted purchase
+        when(purchases.list(eq(tenantId), eq(customerId), eq(PurchaseStatus.VALID), any(), anyInt()))
+                .thenReturn(List.of(lastPurchase, insertedMiddlePurchase, olderPurchase));
+
+        ActionGateDecision decision = gate.evaluate(customerId, assembly, sampleAction);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
+                        && Objects.equals(event.customerId(), customerId)
+        ));
     }
 
     private RecommendationContext multiPurchaseContext(List<PurchaseBaseline> baselines) {

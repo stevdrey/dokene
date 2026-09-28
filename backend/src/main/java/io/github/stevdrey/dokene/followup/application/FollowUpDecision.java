@@ -55,13 +55,17 @@ public record FollowUpDecision(
         }
     }
 
-    public static FollowUpDecision ineligible(FollowUpEvaluation evaluation) {
+    public static FollowUpDecision ineligible(FollowUpEvaluation evaluation, Long policyVersion) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         if (evaluation.eligible()) {
             throw new IllegalArgumentException("Customer is deterministically eligible");
         }
         return new FollowUpDecision(evaluation, null,
-                ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "Customer is deterministically ineligible", evaluation));
+                ActionGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "Customer is deterministically ineligible", evaluation, policyVersion));
+    }
+
+    public static FollowUpDecision ineligible(FollowUpEvaluation evaluation) {
+        return ineligible(evaluation, (Long) null);
     }
 
     public static FollowUpDecision gated(FollowUpEvaluation evaluation, ActionGateDecision gateDecision) {

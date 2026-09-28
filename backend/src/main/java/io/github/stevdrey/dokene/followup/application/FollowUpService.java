@@ -53,14 +53,24 @@ public class FollowUpService {
         evaluator = new FollowUpPolicyEvaluator(clock);
     }
 
+    public record FollowUpEvaluationSnapshot(FollowUpEvaluation evaluation, long policyVersion) {
+    }
+
     @Transactional(readOnly = true)
-    public FollowUpEvaluation evaluate(CustomerId customerId) {
+    public FollowUpEvaluationSnapshot evaluateSnapshot(CustomerId customerId) {
         Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_EVALUATE);
         var tenantPolicy = policies.tenantPolicy(customer.tenantId());
         var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
         var lastPurchase = purchases.lastValid(customer.tenantId(), customer.id())
                 .map(purchase -> purchase.purchasedAt()).orElse(null);
-        return evaluator.evaluate(customer, contacts.find(customer), tenantPolicy, customerPolicy, lastPurchase);
+        FollowUpEvaluation evaluation = evaluator.evaluate(
+                customer, contacts.find(customer), tenantPolicy, customerPolicy, lastPurchase);
+        return new FollowUpEvaluationSnapshot(evaluation, customerPolicy.version());
+    }
+
+    @Transactional(readOnly = true)
+    public FollowUpEvaluation evaluate(CustomerId customerId) {
+        return evaluateSnapshot(customerId).evaluation();
     }
 
     @Transactional(readOnly = true)

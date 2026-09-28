@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.ai.application;
 
+import java.time.Duration;
+
 /**
  * Provider-neutral outbound port. The caller assembles context and enforces authorization and policy.
  * Implementations must validate structured output, honor the request timeout, preserve interruption,
@@ -8,4 +10,12 @@ package io.github.stevdrey.dokene.ai.application;
  */
 public interface AiProvider {
     AiRecommendationResponse recommend(AiRecommendationRequest request);
+
+    default Duration defaultTimeout() {
+        return Duration.ofSeconds(15);
+    }
+
+    default Duration maxTimeout() {
+        return Duration.ofSeconds(30);
+    }
 }

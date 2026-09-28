@@ -41,8 +41,17 @@ public class RecommendationContextAssembler {
     public Assembly assemble(CustomerId customerId) {
         Objects.requireNonNull(customerId, "Customer ID is required");
         FollowUpEvaluation evaluation = followUps.evaluate(customerId);
+        Long policyVersion = null;
+        try {
+            var policy = followUps.customerPolicy(customerId);
+            if (policy != null) {
+                policyVersion = policy.version();
+            }
+        } catch (Exception ignored) {
+            // Keep null when policy unavailable
+        }
         if (!evaluation.eligible()) {
-            return new Assembly(evaluation, null, List.of());
+            return new Assembly(evaluation, null, List.of(), policyVersion);
         }
         Customer customer = customers.get(customerId);
         boolean contactEligible = customer.phones().stream().anyMatch(phone ->
@@ -56,7 +65,7 @@ public class RecommendationContextAssembler {
         if (!Objects.equals(evaluation.lastPurchaseAt(), latestPurchase)) {
             evaluation = followUps.evaluate(customerId);
             if (!evaluation.eligible()) {
-                return new Assembly(evaluation, null, List.of());
+                return new Assembly(evaluation, null, List.of(), policyVersion);
             }
             recent = purchases.list(customerId, PurchaseStatus.VALID, null, RecommendationContext.MAX_PURCHASES)
                     .purchases();
@@ -76,7 +85,7 @@ public class RecommendationContextAssembler {
         List<PurchaseBaseline> purchaseBaselines = recent.stream()
                 .map(PurchaseBaseline::from)
                 .toList();
-        return new Assembly(evaluation, new RecommendationContext(trusted, untrusted), purchaseBaselines);
+        return new Assembly(evaluation, new RecommendationContext(trusted, untrusted), purchaseBaselines, policyVersion);
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -88,8 +97,12 @@ public class RecommendationContextAssembler {
     public record Assembly(
             FollowUpEvaluation evaluation,
             RecommendationContext context,
-            List<PurchaseBaseline> purchases
+            List<PurchaseBaseline> purchases,
+            Long policyVersion
     ) {
+        public Assembly(FollowUpEvaluation evaluation, RecommendationContext context, List<PurchaseBaseline> purchases) {
+            this(evaluation, context, purchases, null);
+        }
         public Assembly {
             Objects.requireNonNull(evaluation, "Evaluation is required");
             purchases = purchases == null ? List.of() : List.copyOf(purchases);

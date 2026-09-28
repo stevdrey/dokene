@@ -6,6 +6,7 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
@@ -61,7 +62,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-@SpringBootTest
+import static org.mockito.Mockito.verify;
+import io.github.stevdrey.dokene.ai.domain.SemanticAction;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
+import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationService;
+import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import java.time.Duration;
+
+@SpringBootTest(properties = "dokene.ai.provider=fake")
 class FollowUpManagementIntegrationTest {
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws Exception {
@@ -69,6 +80,7 @@ class FollowUpManagementIntegrationTest {
     }
 
     @Autowired FollowUpService followUps;
+    @Autowired FollowUpRecommendationService recommendations;
     @Autowired FollowUpPolicyRepository policies;
     @Autowired ContactPolicyService contacts;
     @Autowired PurchaseService purchases;
@@ -82,6 +94,7 @@ class FollowUpManagementIntegrationTest {
     @Autowired PlatformTransactionManager transactionManager;
     @MockitoSpyBean AuditRecorder auditRecorder;
 
+    private Tenant tenantA;
     private TenantContext contextA;
     private TenantContext contextB;
     private Customer customer;
@@ -89,7 +102,7 @@ class FollowUpManagementIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         Instant now = Instant.now();
-        var tenantA = seedTenant(tenants, "Follow-up A " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, "Follow-up A " + UUID.randomUUID(), now);
         var tenantB = seedTenant(tenants, "Follow-up B " + UUID.randomUUID(), now);
         contextA = context(seedMembership(memberships, contexts, tenantA.id(),
                 new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
@@ -577,6 +590,85 @@ class FollowUpManagementIntegrationTest {
         var item2 = queue2.items().stream()
                 .filter(i -> i.customerId().equals(multiPhoneCustomer.id())).findFirst().orElseThrow();
         assertThat(item2.primaryPhone()).isEqualTo("+50687770001");
+    }
+
+    @Test
+    void recommendationSucceedsAndMutatesNoBusinessState() throws Exception {
+        grantWhatsAppConsent(customer);
+        inContext(contextA, () -> purchases.record(customer.id(), Instant.now().minus(Duration.ofDays(35)), "Previous purchase", "purchase-rec-1"));
+
+        var policyBefore = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
+        long versionBefore = policyBefore.version();
+
+        FollowUpRecommendationResult result = inContext(contextA,
+                () -> recommendations.recommendSafe(customer.id(), null, versionBefore));
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
+        assertThat(result.evaluation().status()).isEqualTo(FollowUpStatus.OVERDUE);
+        assertThat(result.evaluation().reasons()).contains(FollowUpReason.OVERDUE);
+        assertThat(result.advisoryRecommendation()).isPresent();
+        assertThat(result.advisoryRecommendation().get().action()).isEqualTo(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP);
+        assertThat(result.advisoryRecommendation().get().rationale()).isNotBlank();
+        assertThat(result.policyVersion()).isEqualTo(versionBefore);
+
+        // Invariant: zero business side effects
+        var policyAfter = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
+        assertThat(policyAfter.version()).isEqualTo(versionBefore);
+        assertThat(policyAfter.lastManualFollowUpDate()).isNull();
+        assertThat(policyAfter.lastDismissedDate()).isNull();
+
+        var queue = inContext(contextA, () -> followUps.dueQueue(new FollowUpQueueQuery(null, null, 10)));
+        assertThat(queue.items().stream().anyMatch(i -> i.customerId().equals(customer.id()))).isTrue();
+    }
+
+    @Test
+    void recommendationEnforcesTenantIsolation() throws Exception {
+        grantWhatsAppConsent(customer);
+        inContext(contextA, () -> purchases.record(customer.id(), Instant.now().minus(Duration.ofDays(35)), "Shoes", "purchase-rec-2"));
+
+        assertThatThrownBy(() -> inContext(contextB, () -> recommendations.recommendSafe(customer.id(), null, null)))
+                .isInstanceOf(CustomerNotFoundException.class);
+    }
+
+    @Test
+    void recommendationEnforcesAuthorizationDenialForViewer() throws Exception {
+        grantWhatsAppConsent(customer);
+        inContext(contextA, () -> purchases.record(customer.id(), Instant.now().minus(Duration.ofDays(35)), "Shoes", "purchase-rec-3"));
+
+        TenantContext viewerContext = context(seedMembership(memberships, contexts, tenantA.id(),
+                new IdentityId(UUID.randomUUID()), TenantRole.VIEWER, Instant.now()));
+
+        assertThatThrownBy(() -> inContext(viewerContext, () -> recommendations.recommendSafe(customer.id(), null, null)))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        verify(auditRecorder).authorizationDenied(eq(TenantPermission.FOLLOWUP_EVALUATE), any());
+    }
+
+    @Test
+    void recommendationReturnsIneligibleWhenOptedOut() throws Exception {
+        grantWhatsAppConsent(customer);
+        inContext(contextA, () -> purchases.record(customer.id(), Instant.now().minus(Duration.ofDays(35)), "Shoes", "purchase-rec-4"));
+
+        var contactPolicy = inContext(contextA, () -> contacts.get(customer.id()));
+        inContext(contextA, () -> contacts.changeDoNotContact(customer.id(), true, ContactIntentSource.CUSTOMER_WRITTEN, contactPolicy.version()));
+
+        FollowUpRecommendationResult result = inContext(contextA,
+                () -> recommendations.recommendSafe(customer.id(), null, null));
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.INELIGIBLE);
+        assertThat(result.evaluation().eligible()).isFalse();
+        assertThat(result.evaluation().reasons()).contains(FollowUpReason.DO_NOT_CONTACT);
+        assertThat(result.advisoryRecommendation()).isEmpty();
+    }
+
+    @Test
+    void recommendationRejectsVersionMismatchWithConflict() throws Exception {
+        grantWhatsAppConsent(customer);
+        inContext(contextA, () -> purchases.record(customer.id(), Instant.now().minus(Duration.ofDays(35)), "Shoes", "purchase-rec-5"));
+
+        assertThatThrownBy(() -> inContext(contextA,
+                () -> recommendations.recommendSafe(customer.id(), null, 999L)))
+                .isInstanceOf(FollowUpConflictException.class);
     }
 
     private void grantWhatsAppConsent(Customer target) throws Exception {
