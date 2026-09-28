@@ -233,11 +233,13 @@ owns one reusable client, handles provider-specific payloads internally, and pre
 application validates eligibility and authorization before invocation and gates any later action independently
 of the provider result.
 
-Configuration is externalized through `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`), with
-default model set to `gpt-6-luna`. For local development and offline testing, fake provider mode
-must be explicitly configured via `dokene.ai.provider=fake`, allowing execution without requiring
-an external API key or outbound internet connectivity. Raw prompts, customer text, and API keys
-are strictly excluded from diagnostic metadata and logs.
+Configuration is externalized through `dokene.ai.provider` and `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`), with
+default model set to `gpt-6-luna`. When `dokene.ai.provider` is unset or empty, Dokene registers `DisabledAiProvider` as a fallback,
+ensuring the application boots normally and all deterministic customer, purchase, and follow-up queue/manual workflows remain
+fully operational while recommendation requests degrade gracefully to `AI_UNAVAILABLE`. For local development and offline testing,
+fake provider mode must be explicitly configured via `dokene.ai.provider=fake`, allowing execution without requiring
+an external API key or outbound internet connectivity. In production, setting `dokene.ai.provider=openai` enables the real OpenAI adapter.
+Raw prompts, customer text, and API keys are strictly excluded from diagnostic metadata and logs.
 
 ## Deterministic rules before AI
 

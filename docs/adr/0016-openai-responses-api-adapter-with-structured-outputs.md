@@ -66,7 +66,7 @@ Every mapped exception and response produces `AiInvocationMetadata` carrying dia
 ### 6. Externalized Configuration and Secret Handling
 
 Configuration is externalized through `OpenAiProviderProperties` (`@ConfigurationProperties(prefix = "dokene.ai.openai")`):
-- `dokene.ai.provider`: Controls provider selection (`fake` for offline/testing, `openai` for production).
+- `dokene.ai.provider`: Controls provider selection (`openai` for production, `fake` for offline/testing, or unset/empty falling back to `DisabledAiProvider` where the app boots and degrades recommendations to `AI_UNAVAILABLE`).
 - `dokene.ai.openai.api-key`: Sourced from `DOKENE_AI_OPENAI_API_KEY`. Never committed or hardcoded.
 - `dokene.ai.openai.model`: Configurable model name (default: `gpt-6-luna`), avoiding domain coupling to a single model.
 - `dokene.ai.openai.base-url`: Sourced from `DOKENE_AI_OPENAI_BASE_URL` to support proxies or local gateways.

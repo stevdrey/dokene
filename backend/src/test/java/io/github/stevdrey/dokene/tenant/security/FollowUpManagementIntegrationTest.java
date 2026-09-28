@@ -72,7 +72,7 @@ import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Duration;
 
-@SpringBootTest
+@SpringBootTest(properties = "dokene.ai.provider=fake")
 class FollowUpManagementIntegrationTest {
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws Exception {
