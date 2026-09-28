@@ -124,6 +124,10 @@ public sealed interface ActionGateDecision permits ActionGateDecision.Accepted, 
         return new Rejected(reason, diagnosticMessage, evaluation, rawOutcome, 0L);
     }
 
+    static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation, long policyVersion) {
+        return new Rejected(reason, diagnosticMessage, evaluation, null, policyVersion);
+    }
+
     static ActionGateDecision rejected(ActionGateRejectionReason reason, String diagnosticMessage, FollowUpEvaluation evaluation, RecommendationOutcome rawOutcome, long policyVersion) {
         return new Rejected(reason, diagnosticMessage, evaluation, rawOutcome, policyVersion);
     }

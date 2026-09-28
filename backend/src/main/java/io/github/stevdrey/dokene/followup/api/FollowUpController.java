@@ -37,7 +37,9 @@ import java.time.Duration;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter;
 
 @RestController
@@ -48,17 +50,28 @@ public class FollowUpController {
     private final FollowUpRecommendationService recommendations;
     private final TenantContextProvider contexts;
     private final FollowUpRecommendationRateLimiter rateLimiter;
+    private final TenantAuthorizationService authorization;
 
     @org.springframework.beans.factory.annotation.Autowired
     public FollowUpController(
             FollowUpService followUps,
             FollowUpRecommendationService recommendations,
             TenantContextProvider contexts,
-            FollowUpRecommendationRateLimiter rateLimiter) {
+            FollowUpRecommendationRateLimiter rateLimiter,
+            TenantAuthorizationService authorization) {
         this.followUps = followUps;
         this.recommendations = recommendations;
         this.contexts = contexts;
         this.rateLimiter = rateLimiter;
+        this.authorization = authorization;
+    }
+
+    public FollowUpController(
+            FollowUpService followUps,
+            FollowUpRecommendationService recommendations,
+            TenantContextProvider contexts,
+            FollowUpRecommendationRateLimiter rateLimiter) {
+        this(followUps, recommendations, contexts, rateLimiter, null);
     }
 
     public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
@@ -175,6 +188,9 @@ public class FollowUpController {
             @RequestBody(required = false) RecommendationRequest request) {
         if (recommendations == null) {
             throw new IllegalStateException("Recommendation service is not configured");
+        }
+        if (authorization != null) {
+            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
         if (rateLimiter != null && contexts != null) {
             var tenantContext = contexts.requireCurrent();

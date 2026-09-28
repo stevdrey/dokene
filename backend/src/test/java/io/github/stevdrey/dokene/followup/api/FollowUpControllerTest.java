@@ -368,6 +368,32 @@ class FollowUpControllerTest {
                 .andExpect(header().string("Retry-After", "5"));
     }
 
+    @Test
+    void requestRecommendationRejectsUnauthorizedCallerWithoutConsumingRateLimitQuota() throws Exception {
+        var limiter = mock(io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter.class);
+        var contexts = mock(io.github.stevdrey.dokene.tenant.application.TenantContextProvider.class);
+        var authorization = mock(io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService.class);
+        TenantId tenantId = TenantId.random();
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        var context = new io.github.stevdrey.dokene.tenant.application.TenantContext(
+                tenantId, actorId, io.github.stevdrey.dokene.tenant.domain.TenantMembershipId.random(),
+                io.github.stevdrey.dokene.tenant.domain.TenantRole.VIEWER,
+                io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus.ACTIVE);
+        when(contexts.requireCurrent()).thenReturn(context);
+
+        org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.FOLLOWUP_EVALUATE);
+
+        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, contexts, limiter, authorization))
+                .setControllerAdvice(new FollowUpExceptionHandler()).build();
+
+        customMvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isForbidden());
+
+        verify(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.FOLLOWUP_EVALUATE);
+        verifyNoInteractions(limiter);
+    }
+
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {
         boolean eligible = status == FollowUpStatus.DUE;
         LocalDate tenantDate = LocalDate.of(2026, 9, 25);

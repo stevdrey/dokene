@@ -66,7 +66,7 @@ public final class FollowUpRecommendationService {
         var assembly = assembler.assemble(customerId);
         var evaluation = assembly.evaluation();
         if (!evaluation.eligible()) {
-            return FollowUpDecision.ineligible(evaluation);
+            return FollowUpDecision.ineligible(evaluation, assembly.policyVersion());
         }
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
@@ -132,6 +132,10 @@ public final class FollowUpRecommendationService {
             long currentVersion = resolvePolicyVersion(customerId, policyVersion);
             long freshVersion = gateVersion > 0L ? gateVersion : currentVersion;
 
+            if (expectedVersion != null && gateVersion > 0L && expectedVersion != gateVersion) {
+                throw new FollowUpConflictException();
+            }
+
             if (gateVersion > 0L && currentVersion != gateVersion) {
                 return FollowUpRecommendationResult.staleState(evaluation, currentVersion);
             }
@@ -176,6 +180,10 @@ public final class FollowUpRecommendationService {
             }
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
             long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            if (eval != null && !eval.eligible()) {
+                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+                return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
+            }
             return FollowUpRecommendationResult.aiUnavailable(eval, ex.category().name(), freshVersion);
         } catch (RecommendationContextException ex) {
             if (gate != null) {
@@ -183,6 +191,10 @@ public final class FollowUpRecommendationService {
             }
             FollowUpEvaluation eval = followUps != null ? followUps.evaluate(customerId) : null;
             long freshVersion = resolvePolicyVersion(customerId, policyVersion);
+            if (eval != null && !eval.eligible()) {
+                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+                return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
+            }
             return FollowUpRecommendationResult.aiUnavailable(
                     eval,
                     "CONTEXT_" + ex.reason().name(),

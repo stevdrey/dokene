@@ -13,6 +13,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactEligibilityReason;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
+import io.github.stevdrey.dokene.followup.domain.CustomerFollowUpPolicy;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
@@ -329,6 +330,21 @@ class RecommendationContextAssemblerTest {
         var assembly = new RecommendationContextAssembler.Assembly(evaluation, context, List.of(baseline1, baseline2));
         assertThat(assembly.purchases()).containsExactly(baseline1, baseline2);
         assertThat(assembly.lastPurchaseId()).isEqualTo(baseline1.id());
+    }
+
+    @Test
+    void assembleCapturesPolicyVersionForIneligibleCustomer() {
+        FollowUpEvaluation ineligible = new FollowUpEvaluation(customerId, FollowUpStatus.INELIGIBLE,
+                List.of(FollowUpReason.DO_NOT_CONTACT), now, LocalDate.of(2026, 9, 25), ZoneId.of("America/Costa_Rica"),
+                null, FollowUpTimingSource.NONE, 0, null);
+        when(followUps.evaluate(customerId)).thenReturn(ineligible);
+        when(followUps.customerPolicy(customerId))
+                .thenReturn(new CustomerFollowUpPolicy(tenantId, customerId, 30, null, null, null, 7L));
+
+        RecommendationContextAssembler.Assembly assembly = assembler.assemble(customerId);
+
+        assertThat(assembly.evaluation()).isSameAs(ineligible);
+        assertThat(assembly.policyVersion()).isEqualTo(7L);
     }
 
     private Customer customer(String notes) {
