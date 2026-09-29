@@ -113,7 +113,7 @@ class FollowUpDraftServiceTest {
                 RecommendationConfidence.of(0.85));
 
         when(provider.draft(any())).thenReturn(new AiDraftResponse(draft, mockMetadata()));
-        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(draft)))
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(draft), any(), any()))
                 .thenReturn(DraftGateDecision.accepted(draft, evaluation, 1L));
 
         FollowUpDraftResult result = service.draftSafe(
@@ -198,7 +198,7 @@ class FollowUpDraftServiceTest {
                 RecommendationConfidence.of(0.95));
 
         when(provider.draft(any())).thenReturn(new AiDraftResponse(refusal, mockMetadata()));
-        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(refusal)))
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(refusal), any(), any()))
                 .thenReturn(DraftGateDecision.accepted(refusal, evaluation, 1L));
 
         FollowUpDraftResult result = service.draftSafe(customerId, null, null, timeout, null);
@@ -231,7 +231,7 @@ class FollowUpDraftServiceTest {
                 RecommendationConfidence.of(0.8));
 
         when(provider.draft(any())).thenReturn(new AiDraftResponse(draft, mockMetadata()));
-        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(draft)))
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(draft), any(), any()))
                 .thenReturn(DraftGateDecision.rejected(
                         ActionGateRejectionReason.INVALID_RECOMMENDATION,
                         "Hallucinated discount term '50%'",
@@ -266,7 +266,7 @@ class FollowUpDraftServiceTest {
                 RecommendationConfidence.of(0.8));
 
         when(provider.draft(any())).thenReturn(new AiDraftResponse(draft, mockMetadata()));
-        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(draft)))
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(draft), any(), any()))
                 .thenReturn(DraftGateDecision.rejected(
                         ActionGateRejectionReason.STALE_STATE,
                         "State changed during drafting",
@@ -294,6 +294,28 @@ class FollowUpDraftServiceTest {
         when(provider.draft(any())).thenThrow(new AiProviderException(
                 AiFailureCategory.UNAVAILABLE,
                 mockMetadata(io.github.stevdrey.dokene.ai.application.AiCompletionStatus.FAILED)));
+
+        FollowUpDraftResult result = service.draftSafe(customerId, null, null, timeout, null);
+
+        assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
+        assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
+        verify(gate).revalidateDraftAuthorization(customerId);
+    }
+
+    @Test
+    void draftSafe_unsupportedOperationException_mapsToAiUnavailable() {
+        CustomerId customerId = new CustomerId(UUID.randomUUID());
+        FollowUpEvaluation evaluation = dueEvaluation(customerId);
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                evaluation, validContext(), purchases, 1L);
+
+        when(followUps.customerPolicy(customerId)).thenReturn(new CustomerFollowUpPolicy(
+                tenantId, customerId, 30, null, null, null, 1L));
+        when(assembler.assemble(customerId)).thenReturn(assembly);
+        when(followUps.evaluateSnapshot(customerId))
+                .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(evaluation, 1L));
+
+        when(provider.draft(any())).thenThrow(new UnsupportedOperationException("Provider does not support drafting"));
 
         FollowUpDraftResult result = service.draftSafe(customerId, null, null, timeout, null);
 

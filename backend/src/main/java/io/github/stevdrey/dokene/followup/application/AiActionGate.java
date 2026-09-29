@@ -35,10 +35,18 @@ public interface AiActionGate {
      */
     DraftGateDecision evaluateDraft(CustomerId customerId,
                                     RecommendationContextAssembler.Assembly assembly,
-                                    io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome);
+                                    io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome,
+                                    io.github.stevdrey.dokene.ai.domain.SemanticAction expectedAction,
+                                    io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent expectedIntent);
+
+    default DraftGateDecision evaluateDraft(CustomerId customerId,
+                                            RecommendationContextAssembler.Assembly assembly,
+                                            io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome) {
+        return evaluateDraft(customerId, assembly, outcome, null, null);
+    }
 
     default DraftGateDecision evaluateDraft(CustomerId customerId, io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome) {
-        return evaluateDraft(customerId, null, outcome);
+        return evaluateDraft(customerId, null, outcome, null, null);
     }
 
     /**

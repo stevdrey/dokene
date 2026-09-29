@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
@@ -170,7 +171,7 @@ public final class FollowUpDraftService {
             AiDraftResponse response = provider.draft(request);
             DraftOutcome outcome = response.outcome();
 
-            DraftGateDecision gateDecision = gate.evaluateDraft(customerId, assembly, outcome);
+            DraftGateDecision gateDecision = gate.evaluateDraft(customerId, assembly, outcome, action, templateIntent);
             if (gateDecision.rejectionReason().isPresent()) {
                 ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
                 if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
@@ -245,6 +246,24 @@ public final class FollowUpDraftService {
                 return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
             }
             return FollowUpDraftResult.aiUnavailable(eval, ex.category().name(), freshVersion);
+        } catch (UnsupportedOperationException ex) {
+            if (gate != null) {
+                gate.revalidateDraftAuthorization(customerId);
+            }
+            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
+            FollowUpEvaluation eval = snapshot.evaluation();
+            long freshVersion = snapshot.policyVersion();
+            if (expectedVersion != null && expectedVersion != freshVersion) {
+                throw new FollowUpConflictException();
+            }
+            if (freshVersion != policyVersion) {
+                return FollowUpDraftResult.staleState(eval, freshVersion);
+            }
+            if (eval != null && !eval.eligible()) {
+                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+                return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
+            }
+            return FollowUpDraftResult.aiUnavailable(eval, AiFailureCategory.UNAVAILABLE.name(), freshVersion);
         } catch (RecommendationContextException ex) {
             if (gate != null) {
                 gate.revalidateDraftAuthorization(customerId);

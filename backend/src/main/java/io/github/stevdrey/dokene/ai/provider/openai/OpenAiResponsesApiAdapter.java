@@ -468,8 +468,8 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
 
         StringBuilder sb = new StringBuilder();
         sb.append("<trusted_business_facts>\n");
-        sb.append("Business Name: ").append(context.businessFacts().businessName()).append("\n");
-        sb.append("Preferred Locale: ").append(context.businessFacts().preferredLocale()).append("\n");
+        sb.append("Business Name: ").append(sanitizeUntrusted(context.businessFacts().businessName())).append("\n");
+        sb.append("Preferred Locale: ").append(sanitizeUntrusted(context.businessFacts().preferredLocale())).append("\n");
         sb.append("</trusted_business_facts>\n\n");
 
         sb.append("<target_action_and_intent>\n");

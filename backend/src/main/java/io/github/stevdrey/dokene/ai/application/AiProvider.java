@@ -12,7 +12,9 @@ public interface AiProvider {
     AiRecommendationResponse recommend(AiRecommendationRequest request);
 
     default AiDraftResponse draft(AiDraftRequest request) {
-        throw new UnsupportedOperationException("Draft generation not supported by this provider");
+        throw new AiProviderException(
+                AiFailureCategory.UNAVAILABLE,
+                new AiInvocationMetadata("unsupported", "none", "unsupported-draft", Duration.ZERO, null, AiCompletionStatus.FAILED));
     }
 
     default Duration defaultTimeout() {

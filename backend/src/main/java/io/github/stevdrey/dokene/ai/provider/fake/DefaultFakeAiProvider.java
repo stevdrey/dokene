@@ -124,13 +124,14 @@ public final class DefaultFakeAiProvider implements AiProvider {
         vars.put("customer_name", displayName);
         vars.put("business_name", businessName);
         List<String> evidence = new ArrayList<>();
-        evidence.add("Customer name: " + displayName);
-        evidence.add("Business name: " + businessName);
+        evidence.add(boundEvidence("Customer name: " + displayName));
+        evidence.add(boundEvidence("Business name: " + businessName));
 
         if (action == SemanticAction.REPEAT_PURCHASE_FOLLOW_UP && lastProduct != null) {
-            body = "Hola " + displayName + ", te saludamos de " + businessName + ". Esperamos que hayas disfrutado tu compra de " + lastProduct + ". ¿Te gustaría ordenar nuevamente?";
-            vars.put("product", lastProduct);
-            evidence.add("Last purchase: " + lastProduct);
+            String safeProduct = lastProduct.length() > 180 ? lastProduct.substring(0, 180) : lastProduct;
+            body = "Hola " + displayName + ", te saludamos de " + businessName + ". Esperamos que hayas disfrutado tu compra de " + safeProduct + ". ¿Te gustaría ordenar nuevamente?";
+            vars.put("product", safeProduct);
+            evidence.add(boundEvidence("Last purchase: " + safeProduct));
         } else {
             body = "Hola " + displayName + ", te saludamos de " + businessName + ". Queríamos saber cómo te ha ido y si podemos ayudarte en algo.";
         }
@@ -145,5 +146,14 @@ public final class DefaultFakeAiProvider implements AiProvider {
                 List.of(),
                 "Deterministic Latin American Spanish follow-up draft",
                 RecommendationConfidence.of(0.85));
+    }
+
+    private static String boundEvidence(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= MessageDraft.MAX_METADATA_ITEM_LENGTH
+                ? text
+                : text.substring(0, MessageDraft.MAX_METADATA_ITEM_LENGTH);
     }
 }

@@ -388,7 +388,7 @@ class DefaultAiActionGateTest {
                 tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY),
                 30, tenantDate, true, List.of(), List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
-                "Test Customer", "Notes", List.of());
+                "Test Customer", "Some internal notes", List.of());
         RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
                 notDueEvaluation, new RecommendationContext(trusted, untrusted), List.of());
 
@@ -1045,6 +1045,73 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void evaluateDraft_rejectsWhenCustomerTextDrifts() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Test Customer, gracias por tu compra.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        // Customer's notes are modified after assembly was constructed
+        Customer modifiedCustomer = Customer.create(customerId, tenantId, "Test Customer",
+                "New modified notes that don't match assembly context", List.of(primaryPhone), now);
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(modifiedCustomer));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenDraftActionDoesNotMatchExpectedAction() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Test Customer, gracias por tu compra.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft,
+                SemanticAction.GENERAL_CHECK_IN, SemanticTemplateIntent.GENERAL_FOLLOW_UP);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DISALLOWED_ACTION);
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenDraftIntentDoesNotMatchExpectedIntent() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Test Customer, gracias por tu compra.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.GENERAL_FOLLOW_UP);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT);
+    }
+
+    @Test
     void revalidateDraftAuthorization_succeedsWhenAuthorized() {
         assertThatCode(() -> gate.revalidateDraftAuthorization(customerId)).doesNotThrowAnyException();
     }
@@ -1066,7 +1133,7 @@ class DefaultAiActionGateTest {
                 tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY),
                 30, tenantDate, true, dates, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
-                "Test Customer", "Notes", descriptions);
+                "Test Customer", "Some internal notes", descriptions);
         return new RecommendationContext(trusted, untrusted);
     }
 
@@ -1100,7 +1167,7 @@ class DefaultAiActionGateTest {
                 evaluation.effectiveCadenceDays(), evaluation.nextFollowUpDate(), true,
                 purchaseTimes, allowedActions);
         RecommendationContext.UntrustedText untrusted = new RecommendationContext.UntrustedText(
-                "Test Customer", "Some notes", List.of("Purchase description"));
+                "Test Customer", "Some internal notes", List.of("Purchase description"));
         return new RecommendationContextAssembler.Assembly(evaluation, new RecommendationContext(trusted, untrusted), baselines);
     }
 }

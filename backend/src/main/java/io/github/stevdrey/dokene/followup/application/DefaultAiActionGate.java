@@ -351,6 +351,16 @@ public class DefaultAiActionGate implements AiActionGate {
     public DraftGateDecision evaluateDraft(CustomerId customerId,
                                            RecommendationContextAssembler.Assembly assembly,
                                            DraftOutcome outcome) {
+        return evaluateDraft(customerId, assembly, outcome, null, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DraftGateDecision evaluateDraft(CustomerId customerId,
+                                           RecommendationContextAssembler.Assembly assembly,
+                                           DraftOutcome outcome,
+                                           SemanticAction expectedAction,
+                                           SemanticTemplateIntent expectedIntent) {
         Objects.requireNonNull(customerId, "Customer ID is required");
 
         // 1. Authenticated TenantContext
@@ -372,6 +382,7 @@ public class DefaultAiActionGate implements AiActionGate {
             return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Tenant is not active", null, outcome);
         }
+        Tenant tenant = tenantOpt.get();
 
         // Authoritative membership re-resolution
         Optional<TenantMembership> membershipOpt = memberships.findByTenantIdAndIdentityId(
@@ -512,7 +523,21 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Customer is not currently due or overdue for follow-up", currentEvaluation, outcome, evaluatedVersion);
             }
 
-            // 12. Semantic action allowlist
+            // 12. Check expected action match
+            if (expectedAction != null && draft.action() != expectedAction) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_MISMATCH_WITH_REQUEST", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
+                        "Draft action does not match requested action", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // Check expected template intent match
+            if (expectedIntent != null && draft.templateIntent() != expectedIntent) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "TEMPLATE_INTENT_MISMATCH_WITH_REQUEST", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
+                        "Draft template intent does not match requested template intent", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 13. Semantic action allowlist
             List<SemanticAction> allowedActions = assembly.context().trusted().allowedActions();
             if (allowedActions == null || !allowedActions.contains(draft.action())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST", TenantPermission.MESSAGE_DRAFT);
@@ -520,15 +545,15 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Semantic action is not permitted for current context", currentEvaluation, outcome, evaluatedVersion);
             }
 
-            // 13. Semantic template intent allowlist and compatibility
+            // 14. Semantic template intent allowlist and compatibility
             if (!isCompatibleIntent(draft.action(), draft.templateIntent())) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT", TenantPermission.MESSAGE_DRAFT);
                 return DraftGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
                         "Semantic template intent is incompatible with recommended action", currentEvaluation, outcome, evaluatedVersion);
             }
 
-            // 14. Safety and grounding validation
-            String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy);
+            // 15. Safety and grounding validation
+            String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy, tenant);
             var violation = DraftSafetyValidator.validate(draft, allowedContext);
             if (violation.isPresent()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get(), TenantPermission.MESSAGE_DRAFT);
@@ -623,10 +648,17 @@ public class DefaultAiActionGate implements AiActionGate {
     }
 
     private String formatAllowedContext(RecommendationContext context, TenantFollowUpPolicy tenantPolicy) {
+        return formatAllowedContext(context, tenantPolicy, null);
+    }
+
+    private String formatAllowedContext(RecommendationContext context, TenantFollowUpPolicy tenantPolicy, Tenant tenant) {
         if (context == null) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
+        if (tenant != null && tenant.displayName() != null) {
+            sb.append(tenant.displayName()).append(" ");
+        }
         if (context.trusted() != null) {
             sb.append(context.trusted().tenantDate()).append(" ");
             sb.append(context.trusted().followUpStatus()).append(" ");
@@ -695,6 +727,14 @@ public class DefaultAiActionGate implements AiActionGate {
                 || !Objects.equals(baseline.tenantDate(), currentEvaluation.tenantDate())
                 || !Objects.equals(baseline.nextFollowUpDate(), currentEvaluation.nextFollowUpDate())) {
             return true;
+        }
+
+        if (assembly.context() != null && assembly.context().untrusted() != null) {
+            RecommendationContext.UntrustedText untrusted = assembly.context().untrusted();
+            if (!Objects.equals(untrusted.displayName(), customer.displayName())
+                    || !Objects.equals(untrusted.notes(), customer.notes())) {
+                return true;
+            }
         }
 
         List<Purchase> currentPurchases = purchases.list(
