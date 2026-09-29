@@ -38,14 +38,14 @@ public final class DraftSafetyValidator {
             Pattern.compile("(?i)\\b(usd|crc|eur|dólares|dolares|colones|precio|precios)\\b")
     );
 
-    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b\\d+(?:[.,]\\d+)?\\s*%");
+    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b\\d+(?:[.,]\\d+)*(?![\\d])\\s*%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(?i)(?:[\\$₡€£]|\\b(?:usd|crc|eur)\\b)\\s*\\d+(?:[.,]\\d+)?|\\b\\d+(?:[.,]\\d+)?\\s*(?:[\\$₡€£]|\\b(?:usd|crc|eur|colones|dólares|dolares)\\b)"
+            "(?i)(?:[\\$₡€£]|\\b(?:usd|crc|eur)\\b)\\s*\\d+(?:[.,]\\d+)*(?![\\d])|\\b\\d+(?:[.,]\\d+)*(?![\\d])\\s*(?:[\\$₡€£]|\\b(?:usd|crc|eur|colones|dólares|dolares)\\b)"
     );
 
-    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:[.,]\\d+)?");
+    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:[.,]\\d+)*(?![\\d])");
     private static final Pattern PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
-            "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(\\d+(?:[.,]\\d+)?)"
+            "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(\\d+(?:[.,]\\d+)*(?![\\d]))"
     );
 
     private DraftSafetyValidator() {}
@@ -78,7 +78,8 @@ public final class DraftSafetyValidator {
         }
         texts.put("evidence", String.join("\n", draft.evidence()));
 
-        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText);
+        String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
+        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText, offerContext);
         if (violation.isPresent()) {
             return violation;
         }
@@ -91,11 +92,13 @@ public final class DraftSafetyValidator {
      */
     public static Optional<DraftSafetyViolation> validate(NoDraft noDraft, String allowedContextText) {
         Objects.requireNonNull(noDraft, "No-draft outcome is required");
-        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText);
+        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, allowedContextText);
     }
 
-    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText) {
+    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
+            String offerContextText) {
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
+        String offerContextLower = offerContextText != null ? offerContextText.toLowerCase(Locale.ROOT) : "";
         String normalizedContext = normalizeQuantities(contextLower);
 
         // 1. External links or URLs
@@ -163,7 +166,7 @@ public final class DraftSafetyValidator {
 
         // 4. Offer symbols and terms grounding check
         for (String symbol : OFFER_SYMBOLS) {
-            if (combinedDraftText.contains(symbol) && !contextLower.contains(symbol)) {
+            if (combinedDraftText.contains(symbol) && !offerContextLower.contains(symbol)) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_SYMBOL,
                         "Offer symbol '" + symbol + "' in draft is not present in context"));
             }
@@ -174,7 +177,7 @@ public final class DraftSafetyValidator {
             while (draftMatcher.find()) {
                 String word = draftMatcher.group().toLowerCase(Locale.ROOT);
                 Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");
-                if (!specificPattern.matcher(contextLower).find()) {
+                if (!specificPattern.matcher(offerContextLower).find()) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
                             "Offer term '" + word + "' in draft is not present in context"));
                 }
@@ -202,6 +205,10 @@ public final class DraftSafetyValidator {
             String label = trimmed.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
             String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
             List<String> sources = grounding != null ? grounding.sourcesForLabel(label) : null;
+            if (grounding != null && sources == null) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
+                        "Draft evidence item uses an unsupported label: '" + evidenceItem + "'"));
+            }
             boolean grounded = !value.isEmpty() && (sources == null
                     ? contextLower.contains(value)
                     : sources.stream().anyMatch(source -> source.toLowerCase(Locale.ROOT).contains(value)));

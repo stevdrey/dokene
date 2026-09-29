@@ -586,7 +586,9 @@ public class DefaultAiActionGate implements AiActionGate {
             var untrustedText = assembly.context().untrusted();
             var grounding = new DraftGroundingContext(
                     untrustedText.displayName(), untrustedText.notes(), untrustedText.purchaseDescriptions(),
-                    assembly.context().trusted().purchaseDates().stream().map(Object::toString).toList());
+                    assembly.context().trusted().purchaseDates().stream().map(Object::toString).toList(),
+                    assembly.context().trusted().followUpStatus(),
+                    assembly.context().trusted().tenantDate().toString());
             var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
             if (violation.isPresent()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get().code(), TenantPermission.MESSAGE_DRAFT);

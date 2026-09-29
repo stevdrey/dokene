@@ -86,7 +86,8 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                - DO NOT invent discounts, prices, promotions, or financial promises that do not appear in the context.
                - DO NOT invent external links or URLs.
                - DO NOT invent provider template names or template identifiers.
-            5. If safe drafting is not possible, or if critical context is missing, return NO_DRAFT with an appropriate refusal reason.
+            5. Every evidence item must use the format 'Label: Value' with one of these labels only: Compra, Producto, Artículo, Fecha de compra, Nombre, Cliente, Notas, Estado de seguimiento. The value must appear verbatim in the matching context field.
+            6. If safe drafting is not possible, or if critical context is missing, return NO_DRAFT with an appropriate refusal reason.
             """;
 
     private final OpenAIClient client;
@@ -351,7 +352,9 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                         customerContext.untrusted().displayName(),
                         customerContext.untrusted().notes(),
                         customerContext.untrusted().purchaseDescriptions(),
-                        customerContext.trusted().purchaseDates().stream().map(Object::toString).toList());
+                        customerContext.trusted().purchaseDates().stream().map(Object::toString).toList(),
+                        customerContext.trusted().followUpStatus(),
+                        customerContext.trusted().tenantDate().toString());
                 var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
                 if (violation.isPresent()) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,

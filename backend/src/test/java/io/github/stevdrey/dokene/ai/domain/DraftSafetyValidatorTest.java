@@ -425,7 +425,7 @@ class DraftSafetyValidatorTest {
     void bindsEvidenceValueToTheCitedFactType() {
         MessageDraft draft = draftWith("Hola Televisor, gracias por tu compra.", "es-419",
                 List.of("Compra reciente: Televisor"));
-        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"), List.of());
+        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"), List.of(), "DUE", "2026-09-29");
 
         Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
                 "Televisor Café Molido", grounding);
@@ -470,11 +470,53 @@ class DraftSafetyValidatorTest {
     @Test
     void productLabelTakesPrecedenceOverCustomerNameLabel() {
         MessageDraft draft = draftWith("Hola.", "es-419", List.of("Nombre del producto: Televisor"));
-        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"), List.of());
+        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"), List.of(), "DUE", "2026-09-29");
 
         Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
                 "Televisor Café Molido", grounding);
         assertThat(violation).isPresent();
         assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNGROUNDED_EVIDENCE);
+    }
+
+    @Test
+    void rejectsGroupedAmountThatOnlySharesAPrefixWithContext() {
+        MessageDraft draft = draftWith("Hola, te ofrecemos USD 1,000,000.", "es-419", List.of());
+
+        Optional<DraftSafetyViolation> violation =
+                DraftSafetyValidator.validate(draft, "Cliente pagó USD 1,000 antes.");
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+    }
+
+    @Test
+    void offerTermInIdentityFieldDoesNotAuthorizeAnOffer() {
+        MessageDraft draft = draftWith("Hola, el producto es gratis.", "es-419", List.of());
+        var grounding = new DraftGroundingContext("Gratis", "Cliente frecuente", List.of("Café"),
+                List.of(), "DUE", "2026-09-29");
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
+                "Gratis Cliente frecuente Café", grounding);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM);
+    }
+
+    @Test
+    void rejectsUnknownEvidenceLabelsAndAcceptsFollowUpStatus() {
+        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"),
+                List.of(), "OVERDUE", "2026-09-29");
+
+        MessageDraft unknown = draftWith("Hola.", "es-419", List.of("Pedido reciente: Televisor"));
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(unknown,
+                "Televisor Café Molido OVERDUE", grounding);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNGROUNDED_EVIDENCE);
+
+        MessageDraft status = draftWith("Hola.", "es-419", List.of("Estado de seguimiento: OVERDUE"));
+        assertThat(DraftSafetyValidator.validate(status, "Televisor Café Molido OVERDUE", grounding)).isEmpty();
+    }
+
+    @Test
+    void acceptsLongCanonicalBcp47Tags() {
+        assertThat(draftWith("Hola.", "sl-rozaj-biske-1994", List.of()).locale()).isEqualTo("sl-rozaj-biske-1994");
     }
 }

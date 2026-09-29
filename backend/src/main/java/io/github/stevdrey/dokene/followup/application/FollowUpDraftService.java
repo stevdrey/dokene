@@ -160,7 +160,7 @@ public final class FollowUpDraftService {
             if (templateIntent != null) {
                 if (!DraftContext.isCompatibleIntent(action, templateIntent)) {
                     revalidateAuthorization(customerId);
-                    return FollowUpDraftResult.ineligible(evaluation, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, policyVersion);
+                    throw new IllegalArgumentException("Template intent is incompatible with the requested action");
                 }
             } else {
                 templateIntent = resolveDefaultIntent(action);

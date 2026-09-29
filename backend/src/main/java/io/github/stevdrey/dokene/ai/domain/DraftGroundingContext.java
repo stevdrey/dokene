@@ -10,7 +10,7 @@ import java.util.Objects;
  * a purchase citation).
  */
 public record DraftGroundingContext(String customerName, String notes, List<String> purchaseDescriptions,
-        List<String> purchaseDates) {
+        List<String> purchaseDates, String followUpStatus, String tenantDate) {
 
     public DraftGroundingContext {
         purchaseDescriptions = List.copyOf(Objects.requireNonNullElse(purchaseDescriptions, List.of()));
@@ -18,24 +18,37 @@ public record DraftGroundingContext(String customerName, String notes, List<Stri
     }
 
     /**
-     * Returns the authoritative values a lowercase label refers to, or {@code null} when the
-     * label is not a recognised fact type (a recognised type with no data yields an empty list).
+     * Closed evidence label vocabulary (also advertised to the model in the schema and prompt).
+     */
+    public static final String ALLOWED_LABELS_DESCRIPTION =
+            "Compra, Producto, Artículo, Fecha de compra, Nombre, Cliente, Notas, Estado de seguimiento";
+
+    /**
+     * Text that can legitimately authorize an offer, price or discount claim: only free-form
+     * customer notes and purchase descriptions, never identity fields such as names.
+     */
+    String offerBearingText() {
+        StringBuilder sb = new StringBuilder();
+        if (notes != null) {
+            sb.append(notes).append(' ');
+        }
+        purchaseDescriptions.forEach(description -> sb.append(description).append(' '));
+        return sb.toString();
+    }
+
+    /**
+     * Returns the authoritative values a label refers to, or {@code null} when the label is not
+     * part of the closed vocabulary (a recognised type with no data yields an empty list).
      */
     List<String> sourcesForLabel(String label) {
-        String normalized = label.toLowerCase(Locale.ROOT);
-        if (normalized.contains("fecha")) {
-            return purchaseDates;
-        }
-        if (normalized.contains("nota")) {
-            return notes == null ? List.of() : List.of(notes);
-        }
-        if (normalized.contains("compra") || normalized.contains("producto")
-                || normalized.contains("artículo") || normalized.contains("articulo")) {
-            return purchaseDescriptions;
-        }
-        if (normalized.contains("nombre") || normalized.contains("cliente")) {
-            return customerName == null ? List.of() : List.of(customerName);
-        }
-        return null;
+        String normalized = label.toLowerCase(Locale.ROOT).strip();
+        return switch (normalized) {
+            case "fecha de compra" -> purchaseDates;
+            case "notas" -> notes == null ? List.of() : List.of(notes);
+            case "compra", "compra reciente", "producto", "nombre del producto", "artículo", "articulo" -> purchaseDescriptions;
+            case "nombre", "cliente", "nombre del cliente" -> customerName == null ? List.of() : List.of(customerName);
+            case "estado de seguimiento" -> followUpStatus == null ? List.of() : List.of(followUpStatus);
+            default -> null;
+        };
     }
 }

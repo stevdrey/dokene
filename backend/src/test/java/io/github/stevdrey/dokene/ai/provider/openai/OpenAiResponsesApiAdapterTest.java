@@ -657,7 +657,7 @@ class OpenAiResponsesApiAdapterTest {
                     "body": "Hello Acme Corp, your Widget Pro is ready.",
                     "draftVariables": [],
                     "locale": "en-US",
-                    "evidence": ["Purchase: Widget Pro"],
+                    "evidence": ["Compra: Widget Pro"],
                     "warnings": [],
                     "rationale": "Testing locale validation",
                     "confidence": 0.90
@@ -696,7 +696,7 @@ class OpenAiResponsesApiAdapterTest {
                     "body": "Hola Acme Corp, esperamos disfrute su Widget Pro.",
                     "draftVariables": [],
                     "locale": "es-419",
-                    "evidence": ["Purchase: Widget Pro"],
+                    "evidence": ["Compra: Widget Pro"],
                     "warnings": [],
                     "rationale": "Valid grounded Spanish draft",
                     "confidence": 0.90

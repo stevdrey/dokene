@@ -24,7 +24,7 @@ public record MessageDraft(
     public static final int MAX_BODY_LENGTH = 1000;
     public static final int MAX_METADATA_ITEMS = 10;
     public static final int MAX_METADATA_ITEM_LENGTH = 200;
-    public static final int MAX_LOCALE_LENGTH = 16;
+    public static final int MAX_LOCALE_LENGTH = 35;
     public static final String DEFAULT_LOCALE = "es-419";
 
     public MessageDraft {

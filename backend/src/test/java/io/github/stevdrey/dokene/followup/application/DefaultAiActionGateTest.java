@@ -922,7 +922,7 @@ class DefaultAiActionGateTest {
                 "Hola Ana, te contactamos de Test Tenant.",
                 DraftVariables.empty(),
                 "es-419",
-                List.of("Recent: Purchase description"),
+                List.of("Compra: Purchase description"),
                 List.of(),
                 "Follow-up draft",
                 RecommendationConfidence.of(0.9));
