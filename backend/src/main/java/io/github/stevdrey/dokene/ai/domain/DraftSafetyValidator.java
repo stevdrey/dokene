@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 public final class DraftSafetyValidator {
 
     private static final Pattern URL_PATTERN = Pattern.compile(
-            "(?i)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.[a-z]{2,}(?:/\\S*)?\\b)"
+            "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
     );
 
     private static final Pattern PROVIDER_TEMPLATE_PATTERN = Pattern.compile(
@@ -34,7 +34,7 @@ public final class DraftSafetyValidator {
     );
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
-            Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion)\\b"),
+            Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),
             Pattern.compile("(?i)\\b(usd|crc|eur|dólares|dolares|colones|precio|precios)\\b")
     );
 
@@ -91,8 +91,18 @@ public final class DraftSafetyValidator {
      * identifier, offer, and quantity checks applied to draft text.
      */
     public static Optional<DraftSafetyViolation> validate(NoDraft noDraft, String allowedContextText) {
+        return validate(noDraft, allowedContextText, null);
+    }
+
+    /**
+     * As {@link #validate(NoDraft, String)}, grounding offers only in offer-bearing fields when
+     * a {@code grounding} context is supplied.
+     */
+    public static Optional<DraftSafetyViolation> validate(NoDraft noDraft, String allowedContextText,
+            DraftGroundingContext grounding) {
         Objects.requireNonNull(noDraft, "No-draft outcome is required");
-        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, allowedContextText);
+        String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
+        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, offerContext);
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,

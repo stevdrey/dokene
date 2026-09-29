@@ -493,7 +493,8 @@ public class DefaultAiActionGate implements AiActionGate {
             }
             if (outcome instanceof NoDraft noDraft && assembly != null && assembly.context() != null) {
                 var refusalViolation = DraftSafetyValidator.validate(noDraft,
-                        formatAllowedContext(assembly.context(), tenantPolicy, tenant));
+                        formatAllowedContext(assembly.context(), tenantPolicy, tenant),
+                        buildGrounding(assembly.context()));
                 if (refusalViolation.isPresent()) {
                     emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, refusalViolation.get().code(), TenantPermission.MESSAGE_DRAFT);
                     return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
@@ -583,12 +584,7 @@ public class DefaultAiActionGate implements AiActionGate {
 
             // 15. Safety and grounding validation
             String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy, tenant);
-            var untrustedText = assembly.context().untrusted();
-            var grounding = new DraftGroundingContext(
-                    untrustedText.displayName(), untrustedText.notes(), untrustedText.purchaseDescriptions(),
-                    assembly.context().trusted().purchaseDates().stream().map(Object::toString).toList(),
-                    assembly.context().trusted().followUpStatus(),
-                    assembly.context().trusted().tenantDate().toString());
+            var grounding = buildGrounding(assembly.context());
             var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
             if (violation.isPresent()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get().code(), TenantPermission.MESSAGE_DRAFT);
@@ -680,6 +676,15 @@ public class DefaultAiActionGate implements AiActionGate {
         IdentityId actorId = tenantContextOpt.map(TenantContext::identityId).orElse(null);
         auditListener.onSecurityRejection(new AiActionGateAuditListener.SecurityRejectionEvent(
                 tenantId, actorId, customerId, reason, diagnosticCode, clock.instant(), permission));
+    }
+
+    private static DraftGroundingContext buildGrounding(RecommendationContext context) {
+        var untrustedText = context.untrusted();
+        return new DraftGroundingContext(
+                untrustedText.displayName(), untrustedText.notes(), untrustedText.purchaseDescriptions(),
+                context.trusted().purchaseDates().stream().map(Object::toString).toList(),
+                context.trusted().followUpStatus(),
+                context.trusted().tenantDate().toString());
     }
 
     private String formatAllowedContext(RecommendationContext context, TenantFollowUpPolicy tenantPolicy) {

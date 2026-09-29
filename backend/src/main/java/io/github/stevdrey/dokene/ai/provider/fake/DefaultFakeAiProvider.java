@@ -124,14 +124,13 @@ public final class DefaultFakeAiProvider implements AiProvider {
         vars.put("customer_name", displayName);
         vars.put("business_name", businessName);
         List<String> evidence = new ArrayList<>();
-        evidence.add(boundEvidence("Customer name: " + displayName));
-        evidence.add(boundEvidence("Business name: " + businessName));
+        evidence.add(boundEvidence("Nombre: " + displayName));
 
         if (action == SemanticAction.REPEAT_PURCHASE_FOLLOW_UP && lastProduct != null) {
             String safeProduct = lastProduct.length() > 180 ? lastProduct.substring(0, 180) : lastProduct;
             body = "Hola " + displayName + ", te saludamos de " + businessName + ". Esperamos que hayas disfrutado tu compra de " + safeProduct + ". ¿Te gustaría ordenar nuevamente?";
             vars.put("product", safeProduct);
-            evidence.add(boundEvidence("Last purchase: " + safeProduct));
+            evidence.add(boundEvidence("Compra: " + safeProduct));
         } else {
             body = "Hola " + displayName + ", te saludamos de " + businessName + ". Queríamos saber cómo te ha ido y si podemos ayudarte en algo.";
         }

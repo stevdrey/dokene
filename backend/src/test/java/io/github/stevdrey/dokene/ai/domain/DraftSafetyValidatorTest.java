@@ -519,4 +519,39 @@ class DraftSafetyValidatorTest {
     void acceptsLongCanonicalBcp47Tags() {
         assertThat(draftWith("Hola.", "sl-rozaj-biske-1994", List.of()).locale()).isEqualTo("sl-rozaj-biske-1994");
     }
+
+    @Test
+    void rejectsInternationalizedBareDomainsButNotPlainProse() {
+        assertThat(DraftSafetyValidator.containsUrl("Visita café.cr hoy")).isTrue();
+        assertThat(DraftSafetyValidator.containsUrl("Visita tienda.みんな hoy")).isTrue();
+        assertThat(DraftSafetyValidator.containsUrl("Hola. Gracias por tu compra.")).isFalse();
+    }
+
+    @Test
+    void rejectsExpandedPromotionForms() {
+        Optional<DraftSafetyViolation> twoForOne = DraftSafetyValidator.validate(
+                draftWith("Tenemos 2x1 para ti.", "es-419", List.of()), "Customer: Juan.");
+        assertThat(twoForOne).isPresent();
+        assertThat(twoForOne.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM);
+
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Envío gratuito en tu pedido.", "es-419", List.of()), "Customer: Juan.")).isPresent();
+    }
+
+    @Test
+    void refusalOfferIsGroundedOnlyInOfferBearingFields() {
+        var grounding = new DraftGroundingContext("Gratis", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
+        NoDraft refusal = new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, "Todo es gratis para este cliente",
+                RecommendationConfidence.of(0.9));
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(refusal, "Gratis Café", grounding);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM);
+    }
+
+    @Test
+    void acceptsVeryLongCanonicalBcp47Tags() {
+        String tag = "en-Latn-US-u-ca-gregory-nu-latn-x-foo";
+        assertThat(draftWith("Hola.", tag, List.of()).locale()).isEqualTo(tag);
+    }
 }
