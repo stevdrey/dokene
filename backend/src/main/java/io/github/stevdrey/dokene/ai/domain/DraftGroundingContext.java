@@ -29,12 +29,12 @@ public record DraftGroundingContext(String customerName, String notes, List<Stri
         if (normalized.contains("nota")) {
             return notes == null ? List.of() : List.of(notes);
         }
-        if (normalized.contains("nombre") || normalized.contains("cliente")) {
-            return customerName == null ? List.of() : List.of(customerName);
-        }
         if (normalized.contains("compra") || normalized.contains("producto")
                 || normalized.contains("artículo") || normalized.contains("articulo")) {
             return purchaseDescriptions;
+        }
+        if (normalized.contains("nombre") || normalized.contains("cliente")) {
+            return customerName == null ? List.of() : List.of(customerName);
         }
         return null;
     }

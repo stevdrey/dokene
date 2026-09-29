@@ -456,4 +456,25 @@ class DraftSafetyValidatorTest {
     void acceptsFullBcp47LocaleTags() {
         assertThat(draftWith("Hola.", "zh-Hant-TW", List.of()).locale()).isEqualTo("zh-Hant-TW");
     }
+
+    @Test
+    void barepriceIsNotGroundedByUnrelatedDatesInContext() {
+        MessageDraft draft = draftWith("Hola, el precio es 2026.", "es-419", List.of());
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
+                "Fecha 2026-09-29. Preguntó por el precio.");
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+    }
+
+    @Test
+    void productLabelTakesPrecedenceOverCustomerNameLabel() {
+        MessageDraft draft = draftWith("Hola.", "es-419", List.of("Nombre del producto: Televisor"));
+        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"), List.of());
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
+                "Televisor Café Molido", grounding);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNGROUNDED_EVIDENCE);
+    }
 }

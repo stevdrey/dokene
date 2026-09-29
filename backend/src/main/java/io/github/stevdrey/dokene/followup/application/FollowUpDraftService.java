@@ -121,6 +121,12 @@ public final class FollowUpDraftService {
         try {
             var assembly = assembler.assemble(customerId);
             var evaluation = assembly.evaluation();
+            if (assembly.policyVersion() != null) {
+                policyVersion = assembly.policyVersion();
+                if (expectedVersion != null && expectedVersion != policyVersion) {
+                    throw new FollowUpConflictException();
+                }
+            }
 
             if (!evaluation.eligible()) {
                 if (gate != null) {
@@ -135,18 +141,25 @@ public final class FollowUpDraftService {
             SemanticAction action = requestedAction;
             if (action != null) {
                 if (!allowedActions.contains(action)) {
+                    revalidateAuthorization(customerId);
                     return FollowUpDraftResult.ineligible(evaluation, ActionGateRejectionReason.DISALLOWED_ACTION, policyVersion);
                 }
             } else {
-                action = allowedActions.contains(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)
-                        ? SemanticAction.REPEAT_PURCHASE_FOLLOW_UP
-                        : allowedActions.getFirst();
+                boolean hasPurchaseHistory = !assembly.purchases().isEmpty();
+                if (!hasPurchaseHistory && allowedActions.contains(SemanticAction.GENERAL_CHECK_IN)) {
+                    action = SemanticAction.GENERAL_CHECK_IN;
+                } else {
+                    action = allowedActions.contains(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)
+                            ? SemanticAction.REPEAT_PURCHASE_FOLLOW_UP
+                            : allowedActions.getFirst();
+                }
             }
 
             // Determine target template intent
             SemanticTemplateIntent templateIntent = requestedTemplateIntent;
             if (templateIntent != null) {
                 if (!DraftContext.isCompatibleIntent(action, templateIntent)) {
+                    revalidateAuthorization(customerId);
                     return FollowUpDraftResult.ineligible(evaluation, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, policyVersion);
                 }
             } else {
@@ -322,6 +335,12 @@ public final class FollowUpDraftService {
         FollowUpEvaluation eval = followUps.evaluate(customerId);
         long freshVersion = resolvePolicyVersion(customerId, policyVersion);
         return new FollowUpService.FollowUpEvaluationSnapshot(eval, freshVersion);
+    }
+
+    private void revalidateAuthorization(CustomerId customerId) {
+        if (gate != null) {
+            gate.revalidateDraftAuthorization(customerId);
+        }
     }
 
     private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {

@@ -141,7 +141,17 @@ public final class DraftSafetyValidator {
         }
 
         // 3b. Numbers attached to price terms even when the currency marker is omitted
-        Set<String> contextNumbers = extractTokens(NUMBER_PATTERN, normalizedContext);
+        Set<String> contextNumbers = new HashSet<>();
+        Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(normalizedContext);
+        while (contextPriceMatcher.find()) {
+            contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+        }
+        for (String amountToken : contextAmounts) {
+            Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
+            if (numberMatcher.find()) {
+                contextNumbers.add(numberMatcher.group());
+            }
+        }
         Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(combinedDraftText);
         while (priceNumberMatcher.find()) {
             String number = normalizeQuantities(priceNumberMatcher.group(1));
