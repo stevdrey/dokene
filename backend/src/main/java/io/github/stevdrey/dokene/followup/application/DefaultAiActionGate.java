@@ -2,10 +2,15 @@ package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
+import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.domain.NoDraft;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
@@ -341,12 +346,306 @@ public class DefaultAiActionGate implements AiActionGate {
         }
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public DraftGateDecision evaluateDraft(CustomerId customerId,
+                                           RecommendationContextAssembler.Assembly assembly,
+                                           DraftOutcome outcome) {
+        Objects.requireNonNull(customerId, "Customer ID is required");
+
+        // 1. Authenticated TenantContext
+        Optional<TenantContext> tenantContextOpt = contexts.current();
+        if (tenantContextOpt.isEmpty()) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT", TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.NO_TENANT_CONTEXT,
+                    "Active authenticated tenant context is required", null, outcome);
+        }
+        TenantContext cachedContext = tenantContextOpt.get();
+
+        // Authoritative tenant status re-resolution
+        Optional<Tenant> tenantOpt = tenants.findById(cachedContext.tenantId());
+        if (tenantOpt.isEmpty() || tenantOpt.get().status() != TenantStatus.ACTIVE) {
+            String diagnosticCode = tenantOpt
+                    .map(t -> "Tenant is not active (status: " + t.status() + ")")
+                    .orElse("Tenant not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Tenant is not active", null, outcome);
+        }
+
+        // Authoritative membership re-resolution
+        Optional<TenantMembership> membershipOpt = memberships.findByTenantIdAndIdentityId(
+                cachedContext.tenantId(), cachedContext.identityId());
+        if (membershipOpt.isEmpty() || membershipOpt.get().status() != TenantMembershipStatus.ACTIVE) {
+            String diagnosticCode = membershipOpt
+                    .map(m -> "Tenant membership is not active (status: " + m.status() + ")")
+                    .orElse("Tenant membership not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller membership is not active within current tenant", null, outcome);
+        }
+        TenantMembership currentMembership = membershipOpt.get();
+        TenantContext tenantContext = new TenantContext(
+                cachedContext.tenantId(),
+                cachedContext.identityId(),
+                currentMembership.id(),
+                currentMembership.role(),
+                currentMembership.status());
+
+        // 2. Caller Authorization for MESSAGE_DRAFT
+        var authDecision = authorization.evaluate(tenantContext, TenantPermission.MESSAGE_DRAFT);
+        if (!authDecision.isAllowed()) {
+            String diagnosticCode = authDecision.rejectionReason().orElse("MISSING_MESSAGE_DRAFT_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller lacks required permission MESSAGE_DRAFT", null, outcome);
+        }
+
+        // Caller Authorization for FOLLOWUP_EVALUATE
+        var evalAuthDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
+        if (!evalAuthDecision.isAllowed()) {
+            String diagnosticCode = evalAuthDecision.rejectionReason().orElse("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller lacks required permission FOLLOWUP_EVALUATE", null, outcome);
+        }
+
+        // 3. Customer Existence and Resource Ownership
+        Optional<Customer> customerOpt = customers.findById(tenantContext.tenantId(), customerId);
+        if (customerOpt.isEmpty()) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT", TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_NOT_FOUND,
+                    "Customer not found within current tenant boundary", null, outcome);
+        }
+        Customer customer = customerOpt.get();
+        var resourceDecision = authorization.evaluate(tenantContext, TenantPermission.MESSAGE_DRAFT, customer);
+        if (!resourceDecision.isAllowed()) {
+            String diagnosticCode = resourceDecision.rejectionReason().orElse("RESOURCE_ACCESS_DENIED");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
+                    "Caller not authorized to access customer resource", null, outcome);
+        }
+
+        // Authoritative evaluation of current policies, consent, and purchases
+        var tenantPolicy = policies.tenantPolicy(customer.tenantId());
+        var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
+        long evaluatedVersion = customerPolicy.version();
+        ContactPolicy contactPolicy = contacts.find(customer);
+        Optional<Purchase> lastPurchaseOpt = purchases.lastValid(customer.tenantId(), customer.id());
+        Instant lastPurchase = lastPurchaseOpt.map(Purchase::purchasedAt).orElse(null);
+        PurchaseId currentLastPurchaseId = lastPurchaseOpt.map(Purchase::id).orElse(null);
+        FollowUpEvaluation currentEvaluation = evaluator.evaluate(customer, contactPolicy, tenantPolicy, customerPolicy, lastPurchase);
+
+        // 4. Customer Active State
+        if (customer.status() == CustomerStatus.ARCHIVED) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_ARCHIVED, "CUSTOMER_ARCHIVED", TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.CUSTOMER_ARCHIVED,
+                    "Customer is archived", currentEvaluation, outcome, evaluatedVersion);
+        }
+
+        // 5. Outcome Null Check
+        if (outcome == null) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "NULL_OUTCOME", TenantPermission.MESSAGE_DRAFT);
+            return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                    "Draft outcome cannot be null", currentEvaluation, null, evaluatedVersion);
+        }
+
+        // 6. Baseline Customer Binding
+        if (assembly != null && assembly.evaluation() != null) {
+            if (!Objects.equals(assembly.evaluation().customerId(), customerId)) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "CUSTOMER_ID_MISMATCH", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        "Assembly baseline customer does not match target customer", currentEvaluation, outcome, evaluatedVersion);
+            }
+        }
+
+        // 7. Explicit Model Refusal (NoDraft)
+        if (outcome instanceof NoDraft) {
+            if (assembly != null && assembly.evaluation() != null) {
+                if (isAssemblyStale(assembly, customer, currentEvaluation, currentLastPurchaseId)) {
+                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED", TenantPermission.MESSAGE_DRAFT);
+                    return DraftGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                            "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
+                }
+            }
+            return DraftGateDecision.accepted(outcome, currentEvaluation, evaluatedVersion);
+        }
+
+        if (outcome instanceof MessageDraft draft) {
+            // 8. Require complete assembly baseline and context for draft
+            if (assembly == null || assembly.evaluation() == null
+                    || assembly.context() == null || assembly.context().trusted() == null
+                    || (assembly.evaluation().lastPurchaseAt() != null && assembly.purchases().isEmpty())) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "MISSING_ASSEMBLY_BASELINE", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        "Message drafts require a complete assembly baseline and context", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 9. Consent and Do-Not-Contact State
+            if (contactPolicy.doNotContact()) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
+                        "Customer has active do-not-contact restriction", currentEvaluation, outcome, evaluatedVersion);
+            }
+            boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
+                    .anyMatch(consent -> consent.contactId().equals(phone.id())
+                            && consent.channel() == ContactChannel.WHATSAPP
+                            && consent.status() == ConsentStatus.GRANTED));
+            if (!eligibleContact) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
+                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 10. Stale State Detection
+            if (isAssemblyStale(assembly, customer, currentEvaluation, currentLastPurchaseId)) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.STALE_STATE, "AUTHORITATIVE_STATE_CHANGED", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.STALE_STATE,
+                        "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 11. Follow-Up Due State Enforcement
+            if (!currentEvaluation.eligible() || (currentEvaluation.status() != FollowUpStatus.DUE
+                    && currentEvaluation.status() != FollowUpStatus.OVERDUE)) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, "CUSTOMER_NOT_DUE", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE,
+                        "Customer is not currently due or overdue for follow-up", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 12. Semantic action allowlist
+            List<SemanticAction> allowedActions = assembly.context().trusted().allowedActions();
+            if (allowedActions == null || !allowedActions.contains(draft.action())) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_ACTION, "ACTION_NOT_IN_ALLOWLIST", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_ACTION,
+                        "Semantic action is not permitted for current context", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 13. Semantic template intent allowlist and compatibility
+            if (!isCompatibleIntent(draft.action(), draft.templateIntent())) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
+                        "Semantic template intent is incompatible with recommended action", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 14. Safety and grounding validation
+            String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy);
+            var violation = DraftSafetyValidator.validate(draft, allowedContext);
+            if (violation.isPresent()) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get(), TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        violation.get(), currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            return DraftGateDecision.accepted(draft, currentEvaluation, evaluatedVersion);
+        }
+
+        emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "UNKNOWN_OUTCOME_TYPE", TenantPermission.MESSAGE_DRAFT);
+        return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                "Unknown draft outcome type", currentEvaluation, outcome, evaluatedVersion);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void revalidateDraftAuthorization(CustomerId customerId) {
+        Objects.requireNonNull(customerId, "Customer ID is required");
+        Optional<TenantContext> tenantContextOpt = contexts.current();
+        if (tenantContextOpt.isEmpty()) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_TENANT_CONTEXT, "MISSING_TENANT_CONTEXT", TenantPermission.MESSAGE_DRAFT);
+            throw new TenantAccessDeniedException("Active authenticated tenant context is required");
+        }
+        TenantContext cachedContext = tenantContextOpt.get();
+
+        Optional<Tenant> tenantOpt = tenants.findById(cachedContext.tenantId());
+        if (tenantOpt.isEmpty() || tenantOpt.get().status() != TenantStatus.ACTIVE) {
+            String diagnosticCode = tenantOpt
+                    .map(t -> "Tenant is not active (status: " + t.status() + ")")
+                    .orElse("Tenant not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            throw new TenantAccessDeniedException("Tenant is not active");
+        }
+
+        Optional<TenantMembership> membershipOpt = memberships.findByTenantIdAndIdentityId(
+                cachedContext.tenantId(), cachedContext.identityId());
+        if (membershipOpt.isEmpty() || membershipOpt.get().status() != TenantMembershipStatus.ACTIVE) {
+            String diagnosticCode = membershipOpt
+                    .map(m -> "Tenant membership is not active (status: " + m.status() + ")")
+                    .orElse("Tenant membership not found");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            throw new TenantAccessDeniedException("Caller membership is not active within current tenant");
+        }
+        TenantMembership currentMembership = membershipOpt.get();
+        TenantContext tenantContext = new TenantContext(
+                cachedContext.tenantId(),
+                cachedContext.identityId(),
+                currentMembership.id(),
+                currentMembership.role(),
+                currentMembership.status());
+
+        var authDecision = authorization.evaluate(tenantContext, TenantPermission.MESSAGE_DRAFT);
+        if (!authDecision.isAllowed()) {
+            String diagnosticCode = authDecision.rejectionReason().orElse("MISSING_MESSAGE_DRAFT_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            throw new TenantAccessDeniedException("Caller lacks required permission MESSAGE_DRAFT");
+        }
+
+        var evalAuthDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
+        if (!evalAuthDecision.isAllowed()) {
+            String diagnosticCode = evalAuthDecision.rejectionReason().orElse("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            throw new TenantAccessDeniedException("Caller lacks required permission FOLLOWUP_EVALUATE");
+        }
+
+        Optional<Customer> customerOpt = customers.findById(tenantContext.tenantId(), customerId);
+        if (customerOpt.isEmpty()) {
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.CUSTOMER_NOT_FOUND, "CUSTOMER_NOT_FOUND_IN_TENANT", TenantPermission.MESSAGE_DRAFT);
+            throw new CustomerNotFoundException();
+        }
+        Customer customer = customerOpt.get();
+        var resourceDecision = authorization.evaluate(tenantContext, TenantPermission.MESSAGE_DRAFT, customer);
+        if (!resourceDecision.isAllowed()) {
+            String diagnosticCode = resourceDecision.rejectionReason().orElse("RESOURCE_ACCESS_DENIED");
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            throw new TenantAccessDeniedException("Caller not authorized to access customer resource");
+        }
+    }
+
     private void emitRejection(Optional<TenantContext> tenantContextOpt, CustomerId customerId,
             ActionGateRejectionReason reason, String diagnosticCode) {
+        emitRejection(tenantContextOpt, customerId, reason, diagnosticCode, TenantPermission.FOLLOWUP_EVALUATE);
+    }
+
+    private void emitRejection(Optional<TenantContext> tenantContextOpt, CustomerId customerId,
+            ActionGateRejectionReason reason, String diagnosticCode, TenantPermission permission) {
         TenantId tenantId = tenantContextOpt.map(TenantContext::tenantId).orElse(null);
         IdentityId actorId = tenantContextOpt.map(TenantContext::identityId).orElse(null);
         auditListener.onSecurityRejection(new AiActionGateAuditListener.SecurityRejectionEvent(
-                tenantId, actorId, customerId, reason, diagnosticCode, clock.instant()));
+                tenantId, actorId, customerId, reason, diagnosticCode, clock.instant(), permission));
+    }
+
+    private String formatAllowedContext(RecommendationContext context, TenantFollowUpPolicy tenantPolicy) {
+        if (context == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (context.trusted() != null) {
+            sb.append(context.trusted().tenantDate()).append(" ");
+            sb.append(context.trusted().followUpStatus()).append(" ");
+        }
+        if (context.untrusted() != null) {
+            sb.append(context.untrusted().displayName()).append(" ");
+            if (context.untrusted().notes() != null) {
+                sb.append(context.untrusted().notes()).append(" ");
+            }
+            if (context.untrusted().purchaseDescriptions() != null) {
+                for (String desc : context.untrusted().purchaseDescriptions()) {
+                    sb.append(desc).append(" ");
+                }
+            }
+        }
+        if (tenantPolicy != null && tenantPolicy.zoneId() != null) {
+            sb.append(tenantPolicy.zoneId().getId()).append(" ");
+        }
+        return sb.toString();
     }
 
     private boolean isCompatibleIntent(SemanticAction action, SemanticTemplateIntent intent) {

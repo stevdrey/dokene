@@ -38,7 +38,7 @@ public class DurableAiActionGateAuditListener implements AiActionGateAuditListen
 
         // 2. Persist denial to the durable append-only audit trail
         AuditDenialReason denialReason = mapDenialReason(event);
-        recorder.authorizationDenied(TenantPermission.FOLLOWUP_EVALUATE, denialReason);
+        recorder.authorizationDenied(event.permission(), denialReason);
     }
 
     private AuditDenialReason mapDenialReason(SecurityRejectionEvent event) {

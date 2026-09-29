@@ -2,7 +2,11 @@ package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
+import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
 import io.github.stevdrey.dokene.ai.domain.DraftVariables;
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.domain.NoDraft;
+import io.github.stevdrey.dokene.ai.domain.NoDraftReason;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
@@ -129,12 +133,16 @@ class DefaultAiActionGateTest {
 
         when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
                 .thenReturn(AuthorizationDecision.allow());
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.MESSAGE_DRAFT)))
+                .thenReturn(AuthorizationDecision.allow());
 
         primaryPhone = CustomerPhone.create("+50688888888", true);
         activeCustomer = Customer.create(customerId, tenantId, "Test Customer",
                 "Some internal notes", List.of(primaryPhone), now.minusSeconds(86400));
         when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(activeCustomer));
         when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE), any(Customer.class)))
+                .thenReturn(AuthorizationDecision.allow());
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.MESSAGE_DRAFT), any(Customer.class)))
                 .thenReturn(AuthorizationDecision.allow());
 
         ContactConsent whatsappConsent = new ContactConsent(primaryPhone.id(), ContactChannel.WHATSAPP,
@@ -903,6 +911,152 @@ class DefaultAiActionGateTest {
                         && "AUTHORITATIVE_STATE_CHANGED".equals(event.diagnosticCode())
                         && Objects.equals(event.customerId(), customerId)
         ));
+    }
+
+    @Test
+    void evaluateDraft_acceptsValidMessageDraft() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana, te contactamos de Test Tenant.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of("Compra reciente"),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isTrue();
+        assertThat(decision.rawOutcome()).contains(draft);
+        assertThat(decision.policyVersion()).isEqualTo(customerPolicy.version());
+        verify(auditListener, never()).onSecurityRejection(any());
+    }
+
+    @Test
+    void evaluateDraft_acceptsValidNoDraftRefusal() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        NoDraft refusal = new NoDraft(
+                NoDraftReason.INSUFFICIENT_HISTORY,
+                "Only one purchase on record",
+                RecommendationConfidence.of(0.85));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, refusal);
+
+        assertThat(decision.isAccepted()).isTrue();
+        assertThat(decision.rawOutcome()).contains(refusal);
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenMissingMessageDraftPermission() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.MESSAGE_DRAFT)))
+                .thenReturn(AuthorizationDecision.deny("Missing MESSAGE_DRAFT"));
+
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.UNAUTHORIZED);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.UNAUTHORIZED
+                        && event.permission() == TenantPermission.MESSAGE_DRAFT));
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenBaselineStale() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        // Cadence updated from 30 to 45 authoritatively to simulate concurrent modification
+        customerPolicy = new CustomerFollowUpPolicy(tenantId, customerId, 45, null, null, null, 2L);
+        when(policies.customerPolicy(tenantId, customerId)).thenReturn(customerPolicy);
+
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.STALE_STATE);
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.STALE_STATE
+                        && event.permission() == TenantPermission.MESSAGE_DRAFT));
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenProhibitedUrlPresent() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana, visita https://promo.example.com para comprar.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        assertThat(decision.diagnostic().orElse("")).contains("unauthorized external link or URL");
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenHallucinatedDiscountPresent() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana, obtén 50% de descuento en tu próxima compra.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        assertThat(decision.diagnostic().orElse("")).contains("Draft contains hallucinated offer, discount, or price term");
+    }
+
+    @Test
+    void revalidateDraftAuthorization_succeedsWhenAuthorized() {
+        assertThatCode(() -> gate.revalidateDraftAuthorization(customerId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void revalidateDraftAuthorization_throwsWhenMissingMessageDraftPermission() {
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.MESSAGE_DRAFT)))
+                .thenReturn(AuthorizationDecision.deny("Denied"));
+
+        assertThatThrownBy(() -> gate.revalidateDraftAuthorization(customerId))
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .hasMessageContaining("Caller lacks required permission MESSAGE_DRAFT");
     }
 
     private RecommendationContext multiPurchaseContext(List<PurchaseBaseline> baselines) {
