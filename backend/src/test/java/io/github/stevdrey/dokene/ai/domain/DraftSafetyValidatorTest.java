@@ -397,4 +397,63 @@ class DraftSafetyValidatorTest {
         assertThat(violationOffer).isPresent();
         assertThat(violationOffer.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM);
     }
+
+    private static MessageDraft draftWith(String body, String locale, List<String> evidence) {
+        return new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                body,
+                DraftVariables.empty(),
+                locale,
+                evidence,
+                List.of(),
+                "Follow-up",
+                RecommendationConfidence.of(0.85));
+    }
+
+    @Test
+    void rejectsBarePriceNumberWhenContextHasNoSuchAmount() {
+        MessageDraft draft = draftWith("Hola Juan, el precio es 100.", "es-419", List.of());
+
+        Optional<DraftSafetyViolation> violation =
+                DraftSafetyValidator.validate(draft, "Customer: Juan. Preguntó por el precio.");
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+    }
+
+    @Test
+    void bindsEvidenceValueToTheCitedFactType() {
+        MessageDraft draft = draftWith("Hola Televisor, gracias por tu compra.", "es-419",
+                List.of("Compra reciente: Televisor"));
+        var grounding = new DraftGroundingContext("Televisor", null, List.of("Café Molido"), List.of());
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
+                "Televisor Café Molido", grounding);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNGROUNDED_EVIDENCE);
+
+        MessageDraft grounded = draftWith("Hola, gracias por tu compra.", "es-419",
+                List.of("Compra reciente: Café Molido", "Nombre: Televisor"));
+        assertThat(DraftSafetyValidator.validate(grounded, "Televisor Café Molido", grounding)).isEmpty();
+    }
+
+    @Test
+    void validatesNoDraftRationale() {
+        NoDraft refusal = new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "Visita https://phishing.example.com para más detalles",
+                RecommendationConfidence.of(0.9));
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(refusal, "Customer: Juan.");
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+
+        NoDraft safe = new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, "Historial insuficiente",
+                RecommendationConfidence.of(0.9));
+        assertThat(DraftSafetyValidator.validate(safe, "Customer: Juan.")).isEmpty();
+    }
+
+    @Test
+    void acceptsFullBcp47LocaleTags() {
+        assertThat(draftWith("Hola.", "zh-Hant-TW", List.of()).locale()).isEqualTo("zh-Hant-TW");
+    }
 }

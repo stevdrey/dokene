@@ -1,8 +1,9 @@
 package io.github.stevdrey.dokene.ai.domain;
 
-import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,90 +43,81 @@ public final class DraftSafetyValidator {
             "(?i)(?:[\\$₡€£]|\\b(?:usd|crc|eur)\\b)\\s*\\d+(?:[.,]\\d+)?|\\b\\d+(?:[.,]\\d+)?\\s*(?:[\\$₡€£]|\\b(?:usd|crc|eur|colones|dólares|dolares)\\b)"
     );
 
+    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:[.,]\\d+)?");
+    private static final Pattern PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
+            "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(\\d+(?:[.,]\\d+)?)"
+    );
+
     private DraftSafetyValidator() {}
 
     /**
      * Validates a message draft against deterministic safety constraints and context grounding.
+     * Evidence citations are grounded against the flattened context only (no fact-type provenance).
      *
      * @param draft the message draft to validate
      * @param allowedContextText concatenation of all trusted and untrusted text available during assembly
      * @return an empty Optional if the draft is safe, or an Optional containing a typed DraftSafetyViolation
      */
     public static Optional<DraftSafetyViolation> validate(MessageDraft draft, String allowedContextText) {
+        return validate(draft, allowedContextText, null);
+    }
+
+    /**
+     * Validates a message draft; when {@code grounding} is provided, each evidence citation is
+     * bound to the authoritative field its label refers to instead of any context substring.
+     */
+    public static Optional<DraftSafetyViolation> validate(MessageDraft draft, String allowedContextText,
+            DraftGroundingContext grounding) {
         Objects.requireNonNull(draft, "Draft is required");
+        Map<String, String> texts = new LinkedHashMap<>();
+        texts.put("body", draft.body());
+        texts.put("rationale", draft.rationale());
+        texts.put("warning", String.join("\n", draft.warnings()));
+        for (DraftVariableEntry entry : draft.draftVariables().entries()) {
+            texts.put("variable '" + entry.key() + "'", entry.key() + "\n" + entry.value());
+        }
+        texts.put("evidence", String.join("\n", draft.evidence()));
+
+        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText);
+        if (violation.isPresent()) {
+            return violation;
+        }
+        return validateEvidence(draft.evidence(), allowedContextText, grounding);
+    }
+
+    /**
+     * Validates the operator-visible rationale of a model refusal with the same URL, provider
+     * identifier, offer, and quantity checks applied to draft text.
+     */
+    public static Optional<DraftSafetyViolation> validate(NoDraft noDraft, String allowedContextText) {
+        Objects.requireNonNull(noDraft, "No-draft outcome is required");
+        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText);
+    }
+
+    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText) {
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
         String normalizedContext = normalizeQuantities(contextLower);
 
-        // 1. Check for external links or URLs in body, rationale, warnings, draft variables, and evidence
-        if (containsUrl(draft.body())) {
-            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
-                    "Draft body contains unauthorized external link or URL"));
-        }
-        if (containsUrl(draft.rationale())) {
-            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
-                    "Draft rationale contains unauthorized external link or URL"));
-        }
-        for (String warning : draft.warnings()) {
-            if (containsUrl(warning)) {
+        // 1. External links or URLs
+        for (var entry : texts.entrySet()) {
+            if (containsUrl(entry.getValue())) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
-                        "Draft warning contains unauthorized external link or URL"));
-            }
-        }
-        for (DraftVariableEntry entry : draft.draftVariables().entries()) {
-            if (containsUrl(entry.value()) || containsUrl(entry.key())) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
-                        "Draft variable '" + entry.key() + "' contains unauthorized external link or URL"));
-            }
-        }
-        for (String evidenceItem : draft.evidence()) {
-            if (containsUrl(evidenceItem)) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
-                        "Draft evidence contains unauthorized external link or URL"));
+                        "Draft " + entry.getKey() + " contains unauthorized external link or URL"));
             }
         }
 
-        // 2. Check for provider template identifiers in body, rationale, warnings, draft variables, and evidence
-        if (containsProviderTemplate(draft.body())) {
-            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
-                    "Draft body contains unauthorized provider template identifier"));
-        }
-        if (containsProviderTemplate(draft.rationale())) {
-            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
-                    "Draft rationale contains unauthorized provider template identifier"));
-        }
-        for (String warning : draft.warnings()) {
-            if (containsProviderTemplate(warning)) {
+        // 2. Provider template identifiers
+        for (var entry : texts.entrySet()) {
+            if (containsProviderTemplate(entry.getValue())) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
-                        "Draft warning contains unauthorized provider template identifier"));
-            }
-        }
-        for (DraftVariableEntry entry : draft.draftVariables().entries()) {
-            if (containsProviderTemplate(entry.value()) || containsProviderTemplate(entry.key())) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
-                        "Draft variable '" + entry.key() + "' contains unauthorized provider template identifier"));
-            }
-        }
-        for (String evidenceItem : draft.evidence()) {
-            if (containsProviderTemplate(evidenceItem)) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
-                        "Draft evidence contains unauthorized provider template identifier"));
+                        "Draft " + entry.getKey() + " contains unauthorized provider template identifier"));
             }
         }
 
-        // 3. Check for offer keywords, symbols, and currency terms
-        List<String> combinedParts = new ArrayList<>();
-        combinedParts.add(draft.body());
-        if (draft.rationale() != null) {
-            combinedParts.add(draft.rationale());
-        }
-        combinedParts.addAll(draft.warnings());
-        for (DraftVariableEntry entry : draft.draftVariables().entries()) {
-            combinedParts.add(entry.value());
-        }
-        for (String evidenceItem : draft.evidence()) {
-            combinedParts.add(evidenceItem);
-        }
-        String combinedDraftText = String.join(" ", combinedParts).toLowerCase(Locale.ROOT);
+        String combinedDraftText = texts.values().stream()
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.joining(" "))
+                .toLowerCase(Locale.ROOT);
 
         // 3. Token-exact quantity grounding: percentages and monetary amounts
         Set<String> contextPercentages = extractTokens(PERCENTAGE_PATTERN, normalizedContext);
@@ -145,6 +137,17 @@ public final class DraftSafetyValidator {
             if (!contextAmounts.contains(amt)) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                         "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
+            }
+        }
+
+        // 3b. Numbers attached to price terms even when the currency marker is omitted
+        Set<String> contextNumbers = extractTokens(NUMBER_PATTERN, normalizedContext);
+        Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(combinedDraftText);
+        while (priceNumberMatcher.find()) {
+            String number = normalizeQuantities(priceNumberMatcher.group(1));
+            if (!contextNumbers.contains(number)) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                        "Draft contains hallucinated price not grounded in context: '" + number + "'"));
             }
         }
 
@@ -168,21 +171,35 @@ public final class DraftSafetyValidator {
             }
         }
 
-        // 5. Evidence grounding check: factual claims in evidence must appear in context and be structured
-        for (String evidenceItem : draft.evidence()) {
+        return Optional.empty();
+    }
+
+    /**
+     * Evidence must be a structured {@code Label: Value} citation. With a grounding context the
+     * value must match the authoritative field named by the label; unknown labels fall back to
+     * the flattened context.
+     */
+    private static Optional<DraftSafetyViolation> validateEvidence(List<String> evidence, String allowedContextText,
+            DraftGroundingContext grounding) {
+        String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
+        for (String evidenceItem : evidence) {
             String trimmed = evidenceItem.trim();
             int colonIdx = trimmed.indexOf(':');
             if (colonIdx < 0 || colonIdx >= trimmed.length() - 1) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item must be a structured citation with format 'Label: Value': '" + evidenceItem + "'"));
             }
+            String label = trimmed.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
             String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
-            if (value.isEmpty() || !contextLower.contains(value)) {
+            List<String> sources = grounding != null ? grounding.sourcesForLabel(label) : null;
+            boolean grounded = !value.isEmpty() && (sources == null
+                    ? contextLower.contains(value)
+                    : sources.stream().anyMatch(source -> source.toLowerCase(Locale.ROOT).contains(value)));
+            if (!grounded) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item contains factual claim not found in context: '" + evidenceItem + "'"));
             }
         }
-
         return Optional.empty();
     }
 

@@ -3,7 +3,7 @@ package io.github.stevdrey.dokene.ai.domain;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
-import java.util.regex.Pattern;
+import java.util.Locale;
 
 /**
  * Bounded, editable advisory follow-up message draft.
@@ -26,7 +26,6 @@ public record MessageDraft(
     public static final int MAX_METADATA_ITEM_LENGTH = 200;
     public static final int MAX_LOCALE_LENGTH = 16;
     public static final String DEFAULT_LOCALE = "es-419";
-    public static final Pattern LOCALE_PATTERN = Pattern.compile("^[a-z]{2}(-[A-Za-z0-9]+)?$");
 
     public MessageDraft {
         if (action == null) {
@@ -50,7 +49,7 @@ public record MessageDraft(
             locale = DEFAULT_LOCALE;
         } else {
             locale = locale.strip();
-            if (locale.length() > MAX_LOCALE_LENGTH || !LOCALE_PATTERN.matcher(locale).matches()) {
+            if (locale.length() > MAX_LOCALE_LENGTH || !isWellFormedLocale(locale)) {
                 throw new RecommendationValidationException("locale",
                         "Invalid locale format: " + locale);
             }
@@ -92,5 +91,10 @@ public record MessageDraft(
             }
         }
         return List.copyOf(items);
+    }
+
+    private static boolean isWellFormedLocale(String tag) {
+        Locale parsed = Locale.forLanguageTag(tag);
+        return !parsed.getLanguage().isEmpty() && parsed.toLanguageTag().equalsIgnoreCase(tag);
     }
 }

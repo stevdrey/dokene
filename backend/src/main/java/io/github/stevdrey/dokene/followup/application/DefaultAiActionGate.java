@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.followup.application;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
+import io.github.stevdrey.dokene.ai.domain.DraftGroundingContext;
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.NoDraft;
@@ -490,6 +491,15 @@ public class DefaultAiActionGate implements AiActionGate {
                             "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
                 }
             }
+            if (outcome instanceof NoDraft noDraft && assembly != null && assembly.context() != null) {
+                var refusalViolation = DraftSafetyValidator.validate(noDraft,
+                        formatAllowedContext(assembly.context(), tenantPolicy, tenant));
+                if (refusalViolation.isPresent()) {
+                    emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, refusalViolation.get().code(), TenantPermission.MESSAGE_DRAFT);
+                    return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                            refusalViolation.get().description(), currentEvaluation, outcome, evaluatedVersion);
+                }
+            }
             return DraftGateDecision.accepted(outcome, currentEvaluation, evaluatedVersion);
         }
 
@@ -573,7 +583,11 @@ public class DefaultAiActionGate implements AiActionGate {
 
             // 15. Safety and grounding validation
             String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy, tenant);
-            var violation = DraftSafetyValidator.validate(draft, allowedContext);
+            var untrustedText = assembly.context().untrusted();
+            var grounding = new DraftGroundingContext(
+                    untrustedText.displayName(), untrustedText.notes(), untrustedText.purchaseDescriptions(),
+                    assembly.context().trusted().purchaseDates().stream().map(Object::toString).toList());
+            var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
             if (violation.isPresent()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get().code(), TenantPermission.MESSAGE_DRAFT);
                 return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
@@ -681,6 +695,9 @@ public class DefaultAiActionGate implements AiActionGate {
         if (context.trusted() != null) {
             sb.append(context.trusted().tenantDate()).append(" ");
             sb.append(context.trusted().followUpStatus()).append(" ");
+            for (var purchaseDate : context.trusted().purchaseDates()) {
+                sb.append(purchaseDate).append(" ");
+            }
         }
         if (context.untrusted() != null) {
             sb.append(context.untrusted().displayName()).append(" ");

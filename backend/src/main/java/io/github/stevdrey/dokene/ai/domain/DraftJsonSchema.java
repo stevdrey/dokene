@@ -291,8 +291,9 @@ public final class DraftJsonSchema {
         properties.put("evidence", Map.of(
                 "type", "array",
                 "maxItems", MessageDraft.MAX_METADATA_ITEMS,
-                "items", Map.of("type", "string", "maxLength", MessageDraft.MAX_METADATA_ITEM_LENGTH),
-                "description", "Supporting context facts referenced in the draft"
+                "items", Map.of("type", "string", "maxLength", MessageDraft.MAX_METADATA_ITEM_LENGTH,
+                        "pattern", "^[^:\\n]+:\\s*\\S.*$"),
+                "description", "Supporting context facts referenced in the draft. Each item MUST use the format 'Label: Value' (e.g. 'Compra reciente: Café Molido')"
         ));
 
         properties.put("warnings", Map.of(
