@@ -18,14 +18,14 @@ class DraftSafetyValidatorTest {
                 "Hola Juan, esperamos que estés disfrutando tu Café Tostado.",
                 DraftVariables.of(Map.of("customer", "Juan")),
                 "es-419",
-                List.of("Café Tostado comprado hace 30 días"),
+                List.of("Compra reciente: Café Tostado 500g"),
                 List.of(),
                 "Follow-up on recent coffee purchase",
                 RecommendationConfidence.of(0.85)
         );
 
         String context = "Customer: Juan. Purchases: Café Tostado 500g.";
-        Optional<String> violation = DraftSafetyValidator.validate(draft, context);
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
         assertThat(violation).isEmpty();
     }
 
@@ -43,9 +43,10 @@ class DraftSafetyValidatorTest {
                 RecommendationConfidence.of(0.85)
         );
 
-        Optional<String> violation = DraftSafetyValidator.validate(draft, "Customer: Juan.");
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, "Customer: Juan.");
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("unauthorized external link or URL");
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+        assertThat(violation.get().description()).contains("unauthorized external link or URL");
     }
 
     @Test
@@ -62,9 +63,10 @@ class DraftSafetyValidatorTest {
                 RecommendationConfidence.of(0.85)
         );
 
-        Optional<String> violation = DraftSafetyValidator.validate(draft, "Customer: Juan.");
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, "Customer: Juan.");
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("unauthorized external link or URL");
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+        assertThat(violation.get().description()).contains("unauthorized external link or URL");
     }
 
     @Test
@@ -81,9 +83,10 @@ class DraftSafetyValidatorTest {
                 RecommendationConfidence.of(0.85)
         );
 
-        Optional<String> violation = DraftSafetyValidator.validate(draft, "Customer: Juan.");
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, "Customer: Juan.");
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("unauthorized provider template identifier");
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE);
+        assertThat(violation.get().description()).contains("unauthorized provider template identifier");
     }
 
     @Test
@@ -101,9 +104,9 @@ class DraftSafetyValidatorTest {
         );
 
         String contextWithoutDiscount = "Customer: Juan. Purchase: Café Molido.";
-        Optional<String> violation = DraftSafetyValidator.validate(draft, contextWithoutDiscount);
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, contextWithoutDiscount);
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("hallucinated offer, discount, or price term");
+        assertThat(violation.get().description()).contains("hallucinated");
     }
 
     @Test
@@ -121,7 +124,7 @@ class DraftSafetyValidatorTest {
         );
 
         String contextWithDiscount = "Customer: Juan. Notes: Aplicar descuento acordado para cliente habitual.";
-        Optional<String> violation = DraftSafetyValidator.validate(draft, contextWithDiscount);
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, contextWithDiscount);
         assertThat(violation).isEmpty();
     }
 
@@ -199,9 +202,31 @@ class DraftSafetyValidatorTest {
 
         // Context only mentions 5% discount
         String context = "Customer: Juan. Notes: Cliente tiene 5% de descuento asignado.";
-        Optional<String> violation = DraftSafetyValidator.validate(draft, context);
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("not grounded in context: '50%'");
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE);
+        assertThat(violation.get().description()).contains("not grounded in context: '50%'");
+    }
+
+    @Test
+    void rejectsSubstitutedPercentageEvenIfContextHasLongerPercentage() {
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Tienes un 5% de descuento en tu orden.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up",
+                RecommendationConfidence.of(0.85)
+        );
+
+        // Context contains 15%, which substring '5%' should NOT match
+        String context = "Customer: Juan. Notes: Cliente tiene 15% de descuento asignado.";
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE);
     }
 
     @Test
@@ -219,7 +244,7 @@ class DraftSafetyValidatorTest {
         );
 
         String context = "Customer: Juan. Notes: Se le ofrece 15% de descuento.";
-        Optional<String> violation = DraftSafetyValidator.validate(draft, context);
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
         assertThat(violation).isEmpty();
     }
 
@@ -239,9 +264,73 @@ class DraftSafetyValidatorTest {
 
         // Context mentions $100
         String context = "Customer: Juan. Saldo pendiente: $100.";
-        Optional<String> violation = DraftSafetyValidator.validate(draft, context);
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("not grounded in context");
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+        assertThat(violation.get().description()).contains("not grounded in context");
+    }
+
+    @Test
+    void rejectsSubstitutedCurrencyAmountEvenIfContextHasLongerAmount() {
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "El saldo pendiente es de USD 100.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up",
+                RecommendationConfidence.of(0.85)
+        );
+
+        // Context contains USD 1000, which substring 'USD 100' should NOT match
+        String context = "Customer: Juan. Saldo pendiente: USD 1000.";
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+    }
+
+    @Test
+    void rejectsUnrelatedOfferTermEvenIfOtherOfferTermIsInContext() {
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Llévate este producto gratis hoy.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up",
+                RecommendationConfidence.of(0.85)
+        );
+
+        // Context has 'descuento', but draft claims 'gratis'
+        String context = "Customer: Juan. Notes: Aplicar descuento habitual.";
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, context);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM);
+        assertThat(violation.get().description()).contains("'gratis'");
+    }
+
+    @Test
+    void rejectsEvidenceWithoutColon() {
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Juan, gracias por tu compra.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of("Compra reciente Televisor"),
+                List.of(),
+                "Follow-up",
+                RecommendationConfidence.of(0.85)
+        );
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, "Customer: Juan. Purchases: Café Tostado.");
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNGROUNDED_EVIDENCE);
+        assertThat(violation.get().description()).contains("must be a structured citation with format 'Label: Value'");
     }
 
     @Test
@@ -270,8 +359,42 @@ class DraftSafetyValidatorTest {
                 "Follow-up",
                 RecommendationConfidence.of(0.85)
         );
-        Optional<String> violation = DraftSafetyValidator.validate(draftUngroundedEvidence, "Customer: Juan. Compró Café.");
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draftUngroundedEvidence, "Customer: Juan. Compró Café.");
         assertThat(violation).isPresent();
-        assertThat(violation.get()).contains("evidence item contains factual claim not found in context");
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.UNGROUNDED_EVIDENCE);
+        assertThat(violation.get().description()).contains("factual claim not found in context");
+    }
+
+    @Test
+    void rejectsUnsafeOrHallucinatedTextInWarningsOrRationale() {
+        MessageDraft draftUrlInWarning = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Juan, esperamos que estés bien.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of("Warning: check https://unsafe.com"),
+                "Follow-up",
+                RecommendationConfidence.of(0.85)
+        );
+        Optional<DraftSafetyViolation> violationUrl = DraftSafetyValidator.validate(draftUrlInWarning, "Customer: Juan.");
+        assertThat(violationUrl).isPresent();
+        assertThat(violationUrl.get().code()).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+
+        MessageDraft draftOfferInRationale = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Juan, esperamos que estés bien.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Se le aplica descuento acordado",
+                RecommendationConfidence.of(0.85)
+        );
+        Optional<DraftSafetyViolation> violationOffer = DraftSafetyValidator.validate(draftOfferInRationale, "Customer: Juan.");
+        assertThat(violationOffer).isPresent();
+        assertThat(violationOffer.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM);
     }
 }

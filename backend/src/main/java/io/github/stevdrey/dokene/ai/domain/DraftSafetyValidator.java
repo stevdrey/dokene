@@ -1,10 +1,12 @@
 package io.github.stevdrey.dokene.ai.domain;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,46 +49,76 @@ public final class DraftSafetyValidator {
      *
      * @param draft the message draft to validate
      * @param allowedContextText concatenation of all trusted and untrusted text available during assembly
-     * @return an empty Optional if the draft is safe, or an Optional containing a violation description
+     * @return an empty Optional if the draft is safe, or an Optional containing a typed DraftSafetyViolation
      */
-    public static Optional<String> validate(MessageDraft draft, String allowedContextText) {
+    public static Optional<DraftSafetyViolation> validate(MessageDraft draft, String allowedContextText) {
         Objects.requireNonNull(draft, "Draft is required");
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
         String normalizedContext = normalizeQuantities(contextLower);
 
-        // 1. Check for external links or URLs in body, draft variables, and evidence
+        // 1. Check for external links or URLs in body, rationale, warnings, draft variables, and evidence
         if (containsUrl(draft.body())) {
-            return Optional.of("Draft body contains unauthorized external link or URL");
+            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
+                    "Draft body contains unauthorized external link or URL"));
+        }
+        if (containsUrl(draft.rationale())) {
+            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
+                    "Draft rationale contains unauthorized external link or URL"));
+        }
+        for (String warning : draft.warnings()) {
+            if (containsUrl(warning)) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
+                        "Draft warning contains unauthorized external link or URL"));
+            }
         }
         for (DraftVariableEntry entry : draft.draftVariables().entries()) {
             if (containsUrl(entry.value()) || containsUrl(entry.key())) {
-                return Optional.of("Draft variable '" + entry.key() + "' contains unauthorized external link or URL");
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
+                        "Draft variable '" + entry.key() + "' contains unauthorized external link or URL"));
             }
         }
         for (String evidenceItem : draft.evidence()) {
             if (containsUrl(evidenceItem)) {
-                return Optional.of("Draft evidence contains unauthorized external link or URL");
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
+                        "Draft evidence contains unauthorized external link or URL"));
             }
         }
 
-        // 2. Check for provider template identifiers
+        // 2. Check for provider template identifiers in body, rationale, warnings, draft variables, and evidence
         if (containsProviderTemplate(draft.body())) {
-            return Optional.of("Draft body contains unauthorized provider template identifier");
+            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
+                    "Draft body contains unauthorized provider template identifier"));
+        }
+        if (containsProviderTemplate(draft.rationale())) {
+            return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
+                    "Draft rationale contains unauthorized provider template identifier"));
+        }
+        for (String warning : draft.warnings()) {
+            if (containsProviderTemplate(warning)) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
+                        "Draft warning contains unauthorized provider template identifier"));
+            }
         }
         for (DraftVariableEntry entry : draft.draftVariables().entries()) {
             if (containsProviderTemplate(entry.value()) || containsProviderTemplate(entry.key())) {
-                return Optional.of("Draft variable '" + entry.key() + "' contains unauthorized provider template identifier");
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
+                        "Draft variable '" + entry.key() + "' contains unauthorized provider template identifier"));
             }
         }
         for (String evidenceItem : draft.evidence()) {
             if (containsProviderTemplate(evidenceItem)) {
-                return Optional.of("Draft evidence contains unauthorized provider template identifier");
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
+                        "Draft evidence contains unauthorized provider template identifier"));
             }
         }
 
         // 3. Check for offer keywords, symbols, and currency terms
         List<String> combinedParts = new ArrayList<>();
         combinedParts.add(draft.body());
+        if (draft.rationale() != null) {
+            combinedParts.add(draft.rationale());
+        }
+        combinedParts.addAll(draft.warnings());
         for (DraftVariableEntry entry : draft.draftVariables().entries()) {
             combinedParts.add(entry.value());
         }
@@ -95,52 +127,75 @@ public final class DraftSafetyValidator {
         }
         String combinedDraftText = String.join(" ", combinedParts).toLowerCase(Locale.ROOT);
 
+        // 3. Token-exact quantity grounding: percentages and monetary amounts
+        Set<String> contextPercentages = extractTokens(PERCENTAGE_PATTERN, normalizedContext);
+        Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(combinedDraftText);
+        while (draftPctMatcher.find()) {
+            String pct = normalizeQuantities(draftPctMatcher.group());
+            if (!contextPercentages.contains(pct)) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PERCENTAGE,
+                        "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
+            }
+        }
+
+        Set<String> contextAmounts = extractTokens(AMOUNT_PATTERN, normalizedContext);
+        Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(combinedDraftText);
+        while (draftAmtMatcher.find()) {
+            String amt = normalizeQuantities(draftAmtMatcher.group());
+            if (!contextAmounts.contains(amt)) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                        "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
+            }
+        }
+
+        // 4. Offer symbols and terms grounding check
         for (String symbol : OFFER_SYMBOLS) {
             if (combinedDraftText.contains(symbol) && !contextLower.contains(symbol)) {
-                return Optional.of("Draft contains hallucinated offer, discount, or price term: '" + symbol + "'");
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_SYMBOL,
+                        "Offer symbol '" + symbol + "' in draft is not present in context"));
             }
         }
 
         for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
             Matcher draftMatcher = wordPattern.matcher(combinedDraftText);
             while (draftMatcher.find()) {
-                String word = draftMatcher.group();
-                if (!wordPattern.matcher(contextLower).find()) {
-                    return Optional.of("Draft contains hallucinated offer, discount, or price term: '" + word + "'");
+                String word = draftMatcher.group().toLowerCase(Locale.ROOT);
+                Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");
+                if (!specificPattern.matcher(contextLower).find()) {
+                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
+                            "Offer term '" + word + "' in draft is not present in context"));
                 }
             }
         }
 
-        // 4. Exact quantity grounding: percentages and monetary amounts
-        Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(combinedDraftText);
-        while (draftPctMatcher.find()) {
-            String pct = normalizeQuantities(draftPctMatcher.group());
-            if (!normalizedContext.contains(pct)) {
-                return Optional.of("Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'");
-            }
-        }
-
-        Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(combinedDraftText);
-        while (draftAmtMatcher.find()) {
-            String amt = normalizeQuantities(draftAmtMatcher.group());
-            if (!normalizedContext.contains(amt)) {
-                return Optional.of("Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'");
-            }
-        }
-
-        // 5. Evidence grounding check: factual claims in evidence must appear in context
+        // 5. Evidence grounding check: factual claims in evidence must appear in context and be structured
         for (String evidenceItem : draft.evidence()) {
             String trimmed = evidenceItem.trim();
             int colonIdx = trimmed.indexOf(':');
-            if (colonIdx >= 0 && colonIdx < trimmed.length() - 1) {
-                String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
-                if (!value.isEmpty() && !contextLower.contains(value)) {
-                    return Optional.of("Draft evidence item contains factual claim not found in context: '" + evidenceItem + "'");
-                }
+            if (colonIdx < 0 || colonIdx >= trimmed.length() - 1) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
+                        "Draft evidence item must be a structured citation with format 'Label: Value': '" + evidenceItem + "'"));
+            }
+            String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
+            if (value.isEmpty() || !contextLower.contains(value)) {
+                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
+                        "Draft evidence item contains factual claim not found in context: '" + evidenceItem + "'"));
             }
         }
 
         return Optional.empty();
+    }
+
+    private static Set<String> extractTokens(Pattern pattern, String text) {
+        if (text == null || text.isBlank()) {
+            return Set.of();
+        }
+        Set<String> tokens = new HashSet<>();
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            tokens.add(normalizeQuantities(matcher.group()));
+        }
+        return tokens;
     }
 
     private static String normalizeQuantities(String text) {

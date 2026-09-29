@@ -14,6 +14,12 @@ import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
+import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
+import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
+import io.github.stevdrey.dokene.ai.application.DraftContext;
+import io.github.stevdrey.dokene.ai.application.TrustedBusinessFacts;
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.domain.DraftVariables;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
@@ -638,6 +644,85 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(response).isNotNull();
         assertThat(response.metadata()).isNotNull();
         assertThat(response.metadata().usage()).isNull();
+    }
+
+    @Test
+    void draft_rejectsLocaleMismatch() {
+        String draftJson = """
+                {
+                  "draft": {
+                    "outcome": "DRAFT",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "body": "Hello Acme Corp, your Widget Pro is ready.",
+                    "draftVariables": [],
+                    "locale": "en-US",
+                    "evidence": ["Purchase: Widget Pro"],
+                    "warnings": [],
+                    "rationale": "Testing locale validation",
+                    "confidence": 0.90
+                  }
+                }
+                """;
+
+        responseBody.set(buildWireResponse("resp_draft_locale", "gpt-6-luna", draftJson, 50, 50));
+        responseStatusCode.set(200);
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        DraftContext draftContext = new DraftContext(
+                sampleContext,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                new TrustedBusinessFacts("Dokene", "es-419")
+        );
+        AiDraftRequest request = new AiDraftRequest(draftContext, Duration.ofSeconds(5));
+
+        assertThatThrownBy(() -> adapter.draft(request))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(e -> {
+                    AiProviderException ape = (AiProviderException) e;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                });
+    }
+
+    @Test
+    void draft_acceptsMatchingLocale() {
+        String draftJson = """
+                {
+                  "draft": {
+                    "outcome": "DRAFT",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "body": "Hola Acme Corp, esperamos disfrute su Widget Pro.",
+                    "draftVariables": [],
+                    "locale": "es-419",
+                    "evidence": ["Purchase: Widget Pro"],
+                    "warnings": [],
+                    "rationale": "Valid grounded Spanish draft",
+                    "confidence": 0.90
+                  }
+                }
+                """;
+
+        responseBody.set(buildWireResponse("resp_draft_ok", "gpt-6-luna", draftJson, 50, 50));
+        responseStatusCode.set(200);
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        DraftContext draftContext = new DraftContext(
+                sampleContext,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                new TrustedBusinessFacts("Dokene", "es-419")
+        );
+        AiDraftRequest request = new AiDraftRequest(draftContext, Duration.ofSeconds(5));
+
+        AiDraftResponse response = adapter.draft(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.outcome()).isInstanceOf(MessageDraft.class);
+        MessageDraft draft = (MessageDraft) response.outcome();
+        assertThat(draft.locale()).isEqualTo("es-419");
+        assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
     }
 
     private static String buildWireResponse(String id, String model, String structuredOutputText,

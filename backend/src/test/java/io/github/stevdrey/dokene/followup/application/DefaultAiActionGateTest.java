@@ -922,7 +922,7 @@ class DefaultAiActionGateTest {
                 "Hola Ana, te contactamos de Test Tenant.",
                 DraftVariables.empty(),
                 "es-419",
-                List.of("Compra reciente"),
+                List.of("Recent: Purchase description"),
                 List.of(),
                 "Follow-up draft",
                 RecommendationConfidence.of(0.9));
@@ -1021,6 +1021,10 @@ class DefaultAiActionGateTest {
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
         assertThat(decision.diagnostic().orElse("")).contains("unauthorized external link or URL");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "UNAUTHORIZED_URL".equals(event.diagnosticCode())));
     }
 
     @Test
@@ -1029,7 +1033,7 @@ class DefaultAiActionGateTest {
         MessageDraft draft = new MessageDraft(
                 SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
                 SemanticTemplateIntent.REPEAT_PURCHASE,
-                "Hola Ana, obtén 50% de descuento en tu próxima compra.",
+                "Hola Ana, obtén 50% en tu próxima compra.",
                 DraftVariables.empty(),
                 "es-419",
                 List.of(),
@@ -1041,7 +1045,62 @@ class DefaultAiActionGateTest {
 
         assertThat(decision.isAccepted()).isFalse();
         assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
-        assertThat(decision.diagnostic().orElse("")).contains("Draft contains hallucinated offer, discount, or price term");
+        assertThat(decision.diagnostic().orElse("")).contains("not grounded in context: '50%'");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "HALLUCINATED_PERCENTAGE".equals(event.diagnosticCode())));
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenHallucinatedOfferTermPresent() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana, obtén un descuento en tu próxima compra.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        assertThat(decision.diagnostic().orElse("")).contains("Offer term 'descuento' in draft is not present in context");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "HALLUCINATED_OFFER_TERM".equals(event.diagnosticCode())));
+    }
+
+    @Test
+    void evaluateDraft_rejectsWhenDraftLocaleDoesNotMatchExpectedLocale() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hello Test Customer, thank you for your purchase.",
+                DraftVariables.empty(),
+                "en-US",
+                List.of(),
+                List.of(),
+                "Follow-up draft in English",
+                RecommendationConfidence.of(0.9));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE, "es-419");
+
+        assertThat(decision.isAccepted()).isFalse();
+        assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        assertThat(decision.diagnostic().orElse("")).contains("Draft locale does not match requested locale");
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                Objects.equals(event.customerId(), customerId)
+                        && event.reason() == ActionGateRejectionReason.INVALID_RECOMMENDATION
+                        && "LOCALE_MISMATCH".equals(event.diagnosticCode())));
     }
 
     @Test

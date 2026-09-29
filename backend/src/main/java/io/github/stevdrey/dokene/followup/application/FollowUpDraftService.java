@@ -1,6 +1,8 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
+import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
@@ -169,9 +171,15 @@ public final class FollowUpDraftService {
 
             AiDraftRequest request = new AiDraftRequest(draftContext, effectiveTimeout);
             AiDraftResponse response = provider.draft(request);
+            if (response == null || response.metadata() == null
+                    || response.metadata().status() != AiCompletionStatus.SUCCEEDED) {
+                throw new AiProviderException(AiFailureCategory.UNAVAILABLE,
+                        response != null && response.metadata() != null ? response.metadata()
+                                : new AiInvocationMetadata("unknown", "unknown", "unknown", Duration.ZERO, null, AiCompletionStatus.FAILED));
+            }
             DraftOutcome outcome = response.outcome();
 
-            DraftGateDecision gateDecision = gate.evaluateDraft(customerId, assembly, outcome, action, templateIntent);
+            DraftGateDecision gateDecision = gate.evaluateDraft(customerId, assembly, outcome, action, templateIntent, businessFacts.preferredLocale());
             if (gateDecision.rejectionReason().isPresent()) {
                 ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
                 if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {

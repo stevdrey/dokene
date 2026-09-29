@@ -13,5 +13,8 @@ public record AiDraftResponse(
     public AiDraftResponse {
         Objects.requireNonNull(outcome, "Outcome is required");
         Objects.requireNonNull(metadata, "Metadata is required");
+        if (metadata.status() != AiCompletionStatus.SUCCEEDED) {
+            throw new IllegalArgumentException("A draft response must have SUCCEEDED status");
+        }
     }
 }

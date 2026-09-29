@@ -77,7 +77,7 @@ Deterministic validation is enforced by `DraftSafetyValidator` before accepting 
 ### 5. Strict Structured Outputs via JSON Schema
 
 For provider implementations (such as OpenAI Responses API in `OpenAiResponsesApiAdapter`), draft outputs are constrained with strict JSON Schema (`DraftJsonSchema`):
-- Root object `draft` with `outcomeType` discriminator (`MESSAGE_DRAFT` vs `NO_DRAFT`).
+- Root object `draft` with `outcome` discriminator (`DRAFT` vs `NO_DRAFT`).
 - `additionalProperties: false` on all objects.
 - System prompt instructs the model to draft concise Latin American Spanish messages grounded only in provided context.
 

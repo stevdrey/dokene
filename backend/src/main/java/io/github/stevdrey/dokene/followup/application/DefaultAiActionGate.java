@@ -361,6 +361,17 @@ public class DefaultAiActionGate implements AiActionGate {
                                            DraftOutcome outcome,
                                            SemanticAction expectedAction,
                                            SemanticTemplateIntent expectedIntent) {
+        return evaluateDraft(customerId, assembly, outcome, expectedAction, expectedIntent, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DraftGateDecision evaluateDraft(CustomerId customerId,
+                                           RecommendationContextAssembler.Assembly assembly,
+                                           DraftOutcome outcome,
+                                           SemanticAction expectedAction,
+                                           SemanticTemplateIntent expectedIntent,
+                                           String expectedLocale) {
         Objects.requireNonNull(customerId, "Customer ID is required");
 
         // 1. Authenticated TenantContext
@@ -537,6 +548,14 @@ public class DefaultAiActionGate implements AiActionGate {
                         "Draft template intent does not match requested template intent", currentEvaluation, outcome, evaluatedVersion);
             }
 
+            // Check expected locale match
+            if (expectedLocale != null && draft.locale() != null
+                    && !draft.locale().trim().equalsIgnoreCase(expectedLocale.trim())) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, "LOCALE_MISMATCH", TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        "Draft locale does not match requested locale: expected '" + expectedLocale + "', got '" + draft.locale() + "'", currentEvaluation, outcome, evaluatedVersion);
+            }
+
             // 13. Semantic action allowlist
             List<SemanticAction> allowedActions = assembly.context().trusted().allowedActions();
             if (allowedActions == null || !allowedActions.contains(draft.action())) {
@@ -556,9 +575,9 @@ public class DefaultAiActionGate implements AiActionGate {
             String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy, tenant);
             var violation = DraftSafetyValidator.validate(draft, allowedContext);
             if (violation.isPresent()) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get(), TenantPermission.MESSAGE_DRAFT);
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get().code(), TenantPermission.MESSAGE_DRAFT);
                 return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
-                        violation.get(), currentEvaluation, outcome, evaluatedVersion);
+                        violation.get().description(), currentEvaluation, outcome, evaluatedVersion);
             }
 
             return DraftGateDecision.accepted(draft, currentEvaluation, evaluatedVersion);

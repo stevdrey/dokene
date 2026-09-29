@@ -336,6 +336,14 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                                     latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
                 }
 
+                String expectedLocale = request.context().businessFacts() != null
+                        ? request.context().businessFacts().preferredLocale() : "es-419";
+                if (draft.locale() == null || !draft.locale().trim().equalsIgnoreCase(expectedLocale.trim())) {
+                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
+                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                }
+
                 String allowedContext = formatDraftInput(request.context());
                 var violation = DraftSafetyValidator.validate(draft, allowedContext);
                 if (violation.isPresent()) {
