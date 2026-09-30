@@ -251,6 +251,7 @@ public final class DraftJsonSchema {
                 "type", "string",
                 "minLength", 1,
                 "maxLength", MessageDraft.MAX_BODY_LENGTH,
+                "pattern", RecommendationRationale.NON_WHITESPACE_PATTERN,
                 "description", "Concise, grounded follow-up message text (max " + MessageDraft.MAX_BODY_LENGTH + " chars)"
         ));
 

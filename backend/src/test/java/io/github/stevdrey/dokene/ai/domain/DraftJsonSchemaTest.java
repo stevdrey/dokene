@@ -44,6 +44,8 @@ class DraftJsonSchemaTest {
 
         Map<String, Object> draftProps = (Map<String, Object>) draftBranch.get("properties");
         assertThat(draftProps).doesNotContainKey("reason");
+        assertThat(((Map<String, Object>) draftProps.get("body")).get("pattern"))
+                .isEqualTo(RecommendationRationale.NON_WHITESPACE_PATTERN);
 
         // Branch 1: NO_DRAFT
         Map<String, Object> noDraftBranch = anyOf.get(1);

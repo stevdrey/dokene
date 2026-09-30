@@ -594,4 +594,29 @@ class DraftSafetyValidatorTest {
         assertThat(DraftSafetyValidator.containsUrl("Compra: Café Molido")).isFalse();
         assertThat(DraftSafetyValidator.containsUrl("Nota: hola")).isFalse();
     }
+
+    @Test
+    void currencyWordBeforeNumberRequiresGroundedAmount() {
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                draftWith("Obtén pesos 100 de crédito.", "es-419", List.of()), "Aceptamos pesos.");
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+    }
+
+    @Test
+    void monetaryBaselineComesFromOfferBearingFieldsOnly() {
+        var grounding = new DraftGroundingContext("USD 100", "Aceptamos USD", List.of("Café"),
+                List.of(), "DUE", "2026-09-29");
+        MessageDraft draft = draftWith("Crédito de USD 100 para ti.", "es-419", List.of());
+
+        Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft,
+                "USD 100 Aceptamos USD Café", grounding);
+        assertThat(violation).isPresent();
+        assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+
+        var withPriceInNotes = new DraftGroundingContext("Juan", "Ofrecimos USD 100 antes", List.of("Café"),
+                List.of(), "DUE", "2026-09-29");
+        assertThat(DraftSafetyValidator.validate(draft, "Juan Ofrecimos USD 100 antes Café", withPriceInNotes))
+                .isEmpty();
+    }
 }

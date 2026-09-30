@@ -108,6 +108,15 @@ public final class DefaultFakeAiProvider implements AiProvider {
                     RecommendationConfidence.of(0.95));
         }
 
+        String requestedLocale = request.context().businessFacts() != null
+                ? request.context().businessFacts().preferredLocale() : MessageDraft.DEFAULT_LOCALE;
+        if (!MessageDraft.DEFAULT_LOCALE.equalsIgnoreCase(requestedLocale.strip())) {
+            return new NoDraft(
+                    NoDraftReason.UNSUPPORTED_ACTION,
+                    "Fake provider only supports the " + MessageDraft.DEFAULT_LOCALE + " locale",
+                    RecommendationConfidence.of(0.5));
+        }
+
         String displayName = untrusted != null ? untrusted.displayName() : "Cliente";
         String businessName = request.context().businessFacts() != null
                 ? request.context().businessFacts().businessName()

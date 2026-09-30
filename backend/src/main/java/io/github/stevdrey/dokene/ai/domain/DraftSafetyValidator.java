@@ -46,7 +46,7 @@ public final class DraftSafetyValidator {
 
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + "\\s*%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + ")\\b)\\s*" + NUM
+            "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)\\s*" + NUM
                     + "|\\b" + NUM + "\\s*(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
     );
 
@@ -116,7 +116,7 @@ public final class DraftSafetyValidator {
             String offerContextText) {
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
         String offerContextLower = offerContextText != null ? offerContextText.toLowerCase(Locale.ROOT) : "";
-        String normalizedContext = normalizeQuantities(contextLower);
+        String normalizedContext = normalizeQuantities(offerContextLower);
 
         // 1. External links or URLs
         for (var entry : texts.entrySet()) {

@@ -38,6 +38,22 @@ class DefaultFakeAiProviderDraftTest {
         assertThat(isWellFormed(draft.body())).isTrue();
     }
 
+    @Test
+    void returnsExplicitRefusalForUnsupportedLocale() {
+        var trusted = new RecommendationContext.TrustedFacts(
+                LocalDate.of(2026, 9, 28), "DUE", List.of(TrustedFollowUpReason.DUE_TODAY),
+                30, LocalDate.of(2026, 9, 28), true, List.of(Instant.parse("2026-08-01T12:00:00Z")),
+                Arrays.asList(SemanticAction.values()));
+        var untrusted = new RecommendationContext.UntrustedText("Ana", null, List.of("Café"));
+        var context = new DraftContext(new RecommendationContext(trusted, untrusted),
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
+                new TrustedBusinessFacts("Tienda", "pt-BR"));
+
+        var response = new DefaultFakeAiProvider().draft(new AiDraftRequest(context, Duration.ofSeconds(3)));
+
+        assertThat(response.outcome()).isInstanceOf(io.github.stevdrey.dokene.ai.domain.NoDraft.class);
+    }
+
     private static boolean isWellFormed(String text) {
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
