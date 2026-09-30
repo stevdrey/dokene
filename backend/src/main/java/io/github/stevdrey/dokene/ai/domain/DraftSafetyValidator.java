@@ -17,8 +17,14 @@ import java.util.regex.Pattern;
  */
 public final class DraftSafetyValidator {
 
+    /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
+    private static final String NUM = "\\d+(?:[.,]\\d+|[ \\u00a0\\u202f]\\d{3})*(?!\\d)";
+    private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad";
+    private static final String CURRENCY_WORDS =
+            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras";
+
     private static final Pattern URL_PATTERN = Pattern.compile(
-            "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
+            "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
     );
 
     private static final Pattern PROVIDER_TEMPLATE_PATTERN = Pattern.compile(
@@ -35,17 +41,18 @@ public final class DraftSafetyValidator {
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
             Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),
-            Pattern.compile("(?i)\\b(usd|crc|eur|dólares|dolares|colones|precio|precios)\\b")
+            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)\\b")
     );
 
-    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b\\d+(?:[.,]\\d+)*(?![\\d])\\s*%");
+    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + "\\s*%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(?i)(?:[\\$₡€£]|\\b(?:usd|crc|eur)\\b)\\s*\\d+(?:[.,]\\d+)*(?![\\d])|\\b\\d+(?:[.,]\\d+)*(?![\\d])\\s*(?:[\\$₡€£]|\\b(?:usd|crc|eur|colones|dólares|dolares)\\b)"
+            "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + ")\\b)\\s*" + NUM
+                    + "|\\b" + NUM + "\\s*(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
     );
 
-    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:[.,]\\d+)*(?![\\d])");
+    private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
     private static final Pattern PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
-            "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(\\d+(?:[.,]\\d+)*(?![\\d]))"
+            "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
     );
 
     private DraftSafetyValidator() {}
@@ -162,7 +169,7 @@ public final class DraftSafetyValidator {
         for (String amountToken : contextAmounts) {
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
             if (numberMatcher.find()) {
-                contextNumbers.add(numberMatcher.group());
+                contextNumbers.add(normalizeQuantities(numberMatcher.group()));
             }
         }
         Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(combinedDraftText);
@@ -214,14 +221,14 @@ public final class DraftSafetyValidator {
             }
             String label = trimmed.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
             String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
-            List<String> sources = grounding != null ? grounding.sourcesForLabel(label) : null;
-            if (grounding != null && sources == null) {
+            DraftGroundingContext.EvidenceSource source = grounding != null ? grounding.sourceForLabel(label) : null;
+            if (grounding != null && source == null) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item uses an unsupported label: '" + evidenceItem + "'"));
             }
-            boolean grounded = !value.isEmpty() && (sources == null
+            boolean grounded = !value.isEmpty() && (source == null
                     ? contextLower.contains(value)
-                    : sources.stream().anyMatch(source -> source.toLowerCase(Locale.ROOT).contains(value)));
+                    : source.matches(value));
             if (!grounded) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item contains factual claim not found in context: '" + evidenceItem + "'"));
@@ -246,7 +253,7 @@ public final class DraftSafetyValidator {
         if (text == null) {
             return "";
         }
-        return text.replaceAll("\\s+", " ").replace(",", ".");
+        return text.replaceAll("\\s+", " ").replaceAll("(?<=\\d)[ \\u00a0\\u202f](?=\\d{3})", "").replace(",", ".");
     }
 
     public static boolean containsUrl(String text) {

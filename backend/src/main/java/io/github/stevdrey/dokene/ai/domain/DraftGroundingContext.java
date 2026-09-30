@@ -36,18 +36,38 @@ public record DraftGroundingContext(String customerName, String notes, List<Stri
         return sb.toString();
     }
 
+    /** How an evidence value must match the authoritative field it cites. */
+    enum MatchMode { EXACT, WHOLE_WORD, SUBSTRING }
+
+    record EvidenceSource(List<String> values, MatchMode mode) {
+        boolean matches(String lowerCaseValue) {
+            return values.stream().map(v -> v.toLowerCase(Locale.ROOT).strip()).anyMatch(candidate -> switch (mode) {
+                case EXACT -> candidate.equals(lowerCaseValue);
+                case WHOLE_WORD -> java.util.regex.Pattern
+                        .compile("(?<![\\p{L}\\p{N}])" + java.util.regex.Pattern.quote(lowerCaseValue) + "(?![\\p{L}\\p{N}])")
+                        .matcher(candidate).find();
+                case SUBSTRING -> candidate.contains(lowerCaseValue);
+            });
+        }
+    }
+
     /**
-     * Returns the authoritative values a label refers to, or {@code null} when the label is not
-     * part of the closed vocabulary (a recognised type with no data yields an empty list).
+     * Returns the authoritative source a label refers to, or {@code null} when the label is not
+     * part of the closed vocabulary (a recognised type with no data yields an empty source).
+     * Scalar fields (dates, status) require equality, names a whole-word match, and free-form
+     * fields (notes, purchases) a substring match.
      */
-    List<String> sourcesForLabel(String label) {
+    EvidenceSource sourceForLabel(String label) {
         String normalized = label.toLowerCase(Locale.ROOT).strip();
         return switch (normalized) {
-            case "fecha de compra" -> purchaseDates;
-            case "notas" -> notes == null ? List.of() : List.of(notes);
-            case "compra", "compra reciente", "producto", "nombre del producto", "artículo", "articulo" -> purchaseDescriptions;
-            case "nombre", "cliente", "nombre del cliente" -> customerName == null ? List.of() : List.of(customerName);
-            case "estado de seguimiento" -> followUpStatus == null ? List.of() : List.of(followUpStatus);
+            case "fecha de compra" -> new EvidenceSource(purchaseDates, MatchMode.EXACT);
+            case "notas" -> new EvidenceSource(notes == null ? List.of() : List.of(notes), MatchMode.SUBSTRING);
+            case "compra", "compra reciente", "producto", "nombre del producto", "artículo", "articulo" ->
+                    new EvidenceSource(purchaseDescriptions, MatchMode.SUBSTRING);
+            case "nombre", "cliente", "nombre del cliente" ->
+                    new EvidenceSource(customerName == null ? List.of() : List.of(customerName), MatchMode.WHOLE_WORD);
+            case "estado de seguimiento" ->
+                    new EvidenceSource(followUpStatus == null ? List.of() : List.of(followUpStatus), MatchMode.EXACT);
             default -> null;
         };
     }

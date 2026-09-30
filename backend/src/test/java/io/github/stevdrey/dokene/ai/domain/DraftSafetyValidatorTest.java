@@ -554,4 +554,44 @@ class DraftSafetyValidatorTest {
         String tag = "en-Latn-US-u-ca-gregory-nu-latn-x-foo";
         assertThat(draftWith("Hola.", tag, List.of()).locale()).isEqualTo(tag);
     }
+
+    @Test
+    void rejectsSpaceGroupedAmountsThatShareAPrefix() {
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Te damos ₡10 000 hoy.", "es-419", List.of()), "Pagó ₡10 antes.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Te damos USD 1\u00a0000 hoy.", "es-419", List.of()), "Pagó USD 1 antes.")).isPresent();
+    }
+
+    @Test
+    void recognizesAdditionalCurrencies() {
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha 100 pesos de crédito.", "es-419", List.of()), "Customer: Juan.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Te damos MXN 100 hoy.", "es-419", List.of()), "Customer: Juan.")).isPresent();
+    }
+
+    @Test
+    void scalarEvidenceRequiresExactOrWholeWordMatch() {
+        var grounding = new DraftGroundingContext("Mariana Pérez", null, List.of("Café"),
+                List.of("2026-08-01"), "DUE", "2026-09-29");
+
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Hola.", "es-419", List.of("Nombre: Ana")), "Mariana Pérez", grounding)).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Hola.", "es-419", List.of("Nombre: Mariana")), "Mariana Pérez", grounding)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Hola.", "es-419", List.of("Fecha de compra: 2026-08")), "2026-08-01", grounding)).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Hola.", "es-419", List.of("Fecha de compra: 2026-08-01")), "2026-08-01", grounding)).isEmpty();
+    }
+
+    @Test
+    void rejectsNonHierarchicalUriSchemesButNotEvidenceLabels() {
+        assertThat(DraftSafetyValidator.containsUrl("Escribe a mailto:ventas@localhost")).isTrue();
+        assertThat(DraftSafetyValidator.containsUrl("Llama tel:+50655551234")).isTrue();
+        assertThat(DraftSafetyValidator.containsUrl("Envía sms:+50655551234")).isTrue();
+        assertThat(DraftSafetyValidator.containsUrl("Compra: Café Molido")).isFalse();
+        assertThat(DraftSafetyValidator.containsUrl("Nota: hola")).isFalse();
+    }
 }
