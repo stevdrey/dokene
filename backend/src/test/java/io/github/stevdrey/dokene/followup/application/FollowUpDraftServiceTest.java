@@ -86,6 +86,8 @@ class FollowUpDraftServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(provider.defaultTimeout()).thenReturn(Duration.ofSeconds(15));
+        when(provider.maxTimeout()).thenReturn(Duration.ofSeconds(30));
         when(contexts.requireCurrent()).thenReturn(tenantContext);
         when(tenants.findById(tenantId)).thenReturn(Optional.of(Tenant.create(tenantId, "Tienda Café", Instant.now())));
         service = new FollowUpDraftService(provider, assembler, gate, authorization, contexts, followUps, tenants, rateLimiter);
@@ -133,6 +135,24 @@ class FollowUpDraftServiceTest {
         verify(authorization).requirePermission(TenantPermission.MESSAGE_DRAFT);
         verify(authorization).requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         verify(rateLimiter).acquire(tenantId, identityId);
+    }
+
+    @Test
+    void draftSafe_revalidatesAuthorizationBeforeCallingProvider() {
+        CustomerId customerId = new CustomerId(UUID.randomUUID());
+        FollowUpEvaluation evaluation = dueEvaluation(customerId);
+        when(followUps.customerPolicy(customerId)).thenReturn(new CustomerFollowUpPolicy(
+                tenantId, customerId, 30, null, null, null, 1L));
+        when(assembler.assemble(customerId)).thenReturn(new RecommendationContextAssembler.Assembly(
+                evaluation, validContext(), purchases, 1L));
+        org.mockito.Mockito.doThrow(new TenantAccessDeniedException("Membership revoked"))
+                .when(gate).revalidateDraftAuthorization(customerId);
+
+        assertThatThrownBy(() -> service.draftSafe(customerId, null, null, timeout, null))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        verify(provider, never()).draft(any());
+        verify(rateLimiter, never()).acquire(any(), any());
     }
 
     @Test
@@ -300,7 +320,7 @@ class FollowUpDraftServiceTest {
 
         assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
         assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
-        verify(gate).revalidateDraftAuthorization(customerId);
+        verify(gate, org.mockito.Mockito.times(2)).revalidateDraftAuthorization(customerId);
     }
 
     @Test
@@ -324,7 +344,7 @@ class FollowUpDraftServiceTest {
 
         assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
         assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
-        verify(gate).revalidateDraftAuthorization(customerId);
+        verify(gate, org.mockito.Mockito.times(2)).revalidateDraftAuthorization(customerId);
     }
 
     @Test
@@ -346,7 +366,7 @@ class FollowUpDraftServiceTest {
 
         assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
         assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
-        verify(gate).revalidateDraftAuthorization(customerId);
+        verify(gate, org.mockito.Mockito.times(2)).revalidateDraftAuthorization(customerId);
     }
 
     private FollowUpEvaluation dueEvaluation(CustomerId customerId) {

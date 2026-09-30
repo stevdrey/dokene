@@ -491,10 +491,11 @@ public class DefaultAiActionGate implements AiActionGate {
                             "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
                 }
             }
-            if (outcome instanceof NoDraft noDraft && assembly != null && assembly.context() != null) {
+            if (outcome instanceof NoDraft noDraft) {
+                boolean hasContext = assembly != null && assembly.context() != null;
                 var refusalViolation = DraftSafetyValidator.validate(noDraft,
-                        formatAllowedContext(assembly.context(), tenantPolicy, tenant),
-                        buildGrounding(assembly.context()));
+                        hasContext ? formatAllowedContext(assembly.context(), tenantPolicy, tenant) : "",
+                        hasContext ? buildGrounding(assembly.context()) : null);
                 if (refusalViolation.isPresent()) {
                     emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, refusalViolation.get().code(), TenantPermission.MESSAGE_DRAFT);
                     return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,

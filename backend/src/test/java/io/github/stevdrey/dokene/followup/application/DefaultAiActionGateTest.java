@@ -950,6 +950,18 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void evaluateDraft_rejectsUnsafeNoDraftRationaleEvenWithoutAssembly() {
+        NoDraft refusal = new NoDraft(
+                NoDraftReason.INSUFFICIENT_HISTORY,
+                "Visita https://phishing.example.com para más detalles",
+                RecommendationConfidence.of(0.85));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, refusal);
+
+        assertThat(decision.isAccepted()).isFalse();
+    }
+
+    @Test
     void evaluateDraft_rejectsWhenMissingMessageDraftPermission() {
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
         when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.MESSAGE_DRAFT)))

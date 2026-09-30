@@ -127,7 +127,7 @@ public final class DefaultFakeAiProvider implements AiProvider {
         evidence.add(boundEvidence("Nombre: " + displayName));
 
         if (action == SemanticAction.REPEAT_PURCHASE_FOLLOW_UP && lastProduct != null) {
-            String safeProduct = lastProduct.length() > 180 ? lastProduct.substring(0, 180) : lastProduct;
+            String safeProduct = truncateCodePoints(lastProduct, 180);
             body = "Hola " + displayName + ", te saludamos de " + businessName + ". Esperamos que hayas disfrutado tu compra de " + safeProduct + ". ¿Te gustaría ordenar nuevamente?";
             vars.put("product", safeProduct);
             evidence.add(boundEvidence("Compra: " + safeProduct));
@@ -151,8 +151,13 @@ public final class DefaultFakeAiProvider implements AiProvider {
         if (text == null) {
             return "";
         }
-        return text.length() <= MessageDraft.MAX_METADATA_ITEM_LENGTH
-                ? text
-                : text.substring(0, MessageDraft.MAX_METADATA_ITEM_LENGTH);
+        return truncateCodePoints(text, MessageDraft.MAX_METADATA_ITEM_LENGTH);
+    }
+
+    private static String truncateCodePoints(String text, int maxCodePoints) {
+        if (text.codePointCount(0, text.length()) <= maxCodePoints) {
+            return text;
+        }
+        return text.substring(0, text.offsetByCodePoints(0, maxCodePoints));
     }
 }

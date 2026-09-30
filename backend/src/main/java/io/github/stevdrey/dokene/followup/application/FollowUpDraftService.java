@@ -177,6 +177,9 @@ public final class FollowUpDraftService {
             TrustedBusinessFacts businessFacts = new TrustedBusinessFacts(businessName);
             DraftContext draftContext = new DraftContext(assembly.context(), action, templateIntent, businessFacts);
 
+            // Fail closed before customer data crosses the provider boundary
+            revalidateAuthorization(customerId);
+
             // Rate limiter quota
             if (rateLimiter != null && tenantContext != null) {
                 rateLimiter.acquire(tenantContext.tenantId(), tenantContext.identityId());

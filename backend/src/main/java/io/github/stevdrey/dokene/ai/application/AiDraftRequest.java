@@ -14,6 +14,10 @@ public record AiDraftRequest(
     public AiDraftRequest {
         Objects.requireNonNull(operation, "Operation is required");
         Objects.requireNonNull(context, "Draft context is required");
+        Objects.requireNonNull(timeout, "Timeout is required");
+        if (timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("Timeout must be positive");
+        }
     }
 
     public AiDraftRequest(DraftContext context, Duration timeout) {
