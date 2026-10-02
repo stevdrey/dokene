@@ -53,10 +53,12 @@ One event type, `AI_INVOCATION_OUTCOME`, targeting the `CUSTOMER`, with closed m
 |---|---|---|
 | `GENERATED` | `SUCCESS` | `NONE` |
 | `MODEL_REFUSED` | `SUCCESS` | `NONE` |
-| `GATE_REJECTED` | `DENIED` | the exact `ActionGateRejectionReason` |
+| `GATE_REJECTED` | `DENIED` | the exact `ActionGateRejectionReason`, except the tenant-boundary reasons below |
 | `FAILED` | `FAILURE` | failure category or `CONTEXT_*` |
 
-This is the first use of `FAILURE`. Migration `V13` adds the constrained columns `ai_operation`, `ai_outcome`, `ai_detail`, extends `ck_audit_shape`, forbids those columns on every other event type (`ck_audit_ai_columns`) and replaces `dokene.append_audit_event` with a 16-argument signature. No prompt, generated text, note, phone number or provider message has a column to land in. Events are written with `REQUIRES_NEW` because failed and rejected invocations have no business transaction; audit failure keeps the ADR 0006 behaviour (generic 503, no retry). The existing security-rejection audit from ADR 0017 is unchanged; the new event adds the unlossy gate reason. The follow-up module depends only on `AiOutcomeAuditPort`; the audit module implements it (same one-way dependency as the customer/purchase adapters).
+`NO_TENANT_CONTEXT`, `UNAUTHORIZED` and `CUSTOMER_NOT_FOUND` are raised at the authorization/existence boundary, before the requested customer is known to belong to the active tenant. They are counted and logged but **not audited** here: the caller-supplied customer id could be unverified or foreign and must not become an audit target (ADR 0006); the gate's own security-rejection audit already records them. They are not part of the audit vocabulary (`AiAuditDetail`).
+
+This is the first use of `FAILURE`. Migration `V13` adds the constrained columns `ai_operation`, `ai_outcome`, `ai_detail`, extends `ck_audit_shape`, forbids those columns on every other event type (`ck_audit_ai_columns`) and replaces `dokene.append_audit_event` with a 16-argument signature. No prompt, generated text, note, phone number or provider message has a column to land in. Migration `V14` (additive, so an already-applied `V13` is never edited) closes two gaps in the V13 constraint: a CHECK passes when its expression is UNKNOWN, so the three AI columns are now explicitly required to be non-null (`ck_audit_ai_not_null`), and the three tenant-boundary details are rejected by the database (`ck_audit_ai_detail_verified_target`). Events are written with `REQUIRES_NEW` because failed and rejected invocations have no business transaction; audit failure keeps the ADR 0006 behaviour (generic 503, no retry). The existing security-rejection audit from ADR 0017 is unchanged; the new event adds the unlossy gate reason. The follow-up module depends only on `AiOutcomeAuditPort`; the audit module implements it (same one-way dependency as the customer/purchase adapters).
 
 ### 5. Logs and correlation
 

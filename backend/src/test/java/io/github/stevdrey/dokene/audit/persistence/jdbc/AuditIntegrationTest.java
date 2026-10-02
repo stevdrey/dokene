@@ -395,6 +395,40 @@ class AuditIntegrationTest {
     }
 
     @Test
+    void rejectsAiOutcomeRowsWithMissingVocabularyColumnsAtDatabaseBoundary() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        UUID target = UUID.randomUUID();
+        scoped(context, () -> {
+            // a CHECK passes on UNKNOWN, so NULLs must be rejected explicitly (V14)
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    null, "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", null, "NONE")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", "GENERATED", null)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    null, null, null)).isInstanceOf(RuntimeException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
+        });
+    }
+
+    @Test
+    void rejectsTenantBoundaryDetailsThatWouldStoreAnUnverifiedCustomerId() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        scoped(context, () -> {
+            for (String detail : List.of("NO_TENANT_CONTEXT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND")) {
+                assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "DENIED",
+                        UUID.randomUUID(), "NEXT_BEST_ACTION", "GATE_REJECTED", detail))
+                        .isInstanceOf(RuntimeException.class);
+            }
+            // a verified-boundary rejection is still accepted
+            migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "DENIED", UUID.randomUUID(),
+                    "NEXT_BEST_ACTION", "GATE_REJECTED", "STALE_STATE");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isEqualTo(1);
+        });
+    }
+
+    @Test
     void rollsBackRoleAndSuccessEventWhenBusinessTransactionRollsBack() {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);

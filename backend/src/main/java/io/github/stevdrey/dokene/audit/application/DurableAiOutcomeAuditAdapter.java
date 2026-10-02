@@ -55,9 +55,8 @@ public class DurableAiOutcomeAuditAdapter implements AiOutcomeAuditPort {
 
     private static AiAuditDetail detail(ActionGateRejectionReason reason) {
         return switch (reason) {
-            case NO_TENANT_CONTEXT -> AiAuditDetail.NO_TENANT_CONTEXT;
-            case UNAUTHORIZED -> AiAuditDetail.UNAUTHORIZED;
-            case CUSTOMER_NOT_FOUND -> AiAuditDetail.CUSTOMER_NOT_FOUND;
+            case NO_TENANT_CONTEXT, UNAUTHORIZED, CUSTOMER_NOT_FOUND ->
+                    throw new IllegalArgumentException("Tenant-boundary rejections must not be audited with a customer id");
             case CUSTOMER_ARCHIVED -> AiAuditDetail.CUSTOMER_ARCHIVED;
             case DO_NOT_CONTACT -> AiAuditDetail.DO_NOT_CONTACT;
             case NO_CONTACT_CONSENT -> AiAuditDetail.NO_CONTACT_CONSENT;

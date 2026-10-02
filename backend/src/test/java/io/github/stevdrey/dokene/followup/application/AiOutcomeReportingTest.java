@@ -57,6 +57,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -338,17 +340,46 @@ class AiOutcomeReportingTest {
                 .contains("operation=NEXT_BEST_ACTION").contains("outcome=FAILED").contains("detail=UNAVAILABLE"));
     }
 
-    @Test
-    void gateRejectionForMissingTenantContextIsCountedButNotAudited() {
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class,
+            names = {"NO_TENANT_CONTEXT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND"})
+    void tenantBoundaryRejectionsAreCountedAndLoggedButNeverAuditedWithTheUnverifiedCustomerId(
+            ActionGateRejectionReason reason) {
         ActionRecommendation action = action();
         when(provider.recommend(any())).thenReturn(new AiRecommendationResponse(action, success()));
-        when(gate.evaluate(eq(customerId), eq(assembly), eq(action))).thenReturn(ActionGateDecision.rejected(
-                ActionGateRejectionReason.NO_TENANT_CONTEXT, "no tenant"));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action)))
+                .thenReturn(ActionGateDecision.rejected(reason, "boundary"));
 
         assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, null))
-                .isInstanceOf(io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException.class);
+                .isInstanceOf(reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND
+                        ? io.github.stevdrey.dokene.customer.application.CustomerNotFoundException.class
+                        : io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException.class);
 
-        assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:NO_TENANT_CONTEXT");
+        assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(audit.events).isEmpty();
+        assertThat(logs.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+                .contains("outcome=GATE_REJECTED").contains("detail=" + reason.name()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class,
+            names = {"NO_TENANT_CONTEXT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND"})
+    void draftTenantBoundaryRejectionsAreNeverAudited(ActionGateRejectionReason reason) {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        NoDraft noDraft = new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, "No draft", RecommendationConfidence.of(0.5));
+        when(draftProvider.draft(any())).thenReturn(new AiDraftResponse(noDraft, success()));
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(noDraft), any(), any(), any()))
+                .thenReturn(DraftGateDecision.rejected(reason, "boundary"));
+
+        assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, null))
+                .isInstanceOfAny(io.github.stevdrey.dokene.customer.application.CustomerNotFoundException.class,
+                        io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException.class);
+
+        assertThat(telemetry.gateRejections).containsExactly("MESSAGE_DRAFT:" + reason.name());
         assertThat(audit.events).isEmpty();
     }
 

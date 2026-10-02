@@ -174,7 +174,7 @@ Under `dokene.ai.*`: `attempts` and `attempt.duration` (per provider attempt, re
 
 ### Audit and logs
 
-Each terminal invocation records one `AI_INVOCATION_OUTCOME` audit event (`GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED` with the exact reason, or `FAILED` with the category), readable with `AUDIT_READ`. Raw prompts, customer notes, phone numbers, API keys and generated message bodies are never logged or audited. The server-generated correlation id appears in logs, the `X-Request-Id` response header and the provider `X-Client-Request-Id` header, which lets support correlate a user report with a log line and an audit row.
+Each terminal invocation records one `AI_INVOCATION_OUTCOME` audit event (`GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED` with the exact reason (except authorization/not-found rejections, which are counted and logged but not audited because the customer id is unverified at that point), or `FAILED` with the category), readable with `AUDIT_READ`. Raw prompts, customer notes, phone numbers, API keys and generated message bodies are never logged or audited. The server-generated correlation id appears in logs, the `X-Request-Id` response header and the provider `X-Client-Request-Id` header, which lets support correlate a user report with a log line and an audit row.
 
 ## Trust boundaries
 

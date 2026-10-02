@@ -50,9 +50,11 @@ public final class AiOutcomeReporter {
         telemetry.outcome(operation, AiTelemetry.Outcome.GATE_REJECTED);
         telemetry.gateRejected(operation, reason.name());
         logOutcome(operation, "GATE_REJECTED", reason.name());
-        // Without a tenant context there is no tenant to attribute an audit event to; the gate's own
-        // security-rejection audit already records that case.
-        if (reason != ActionGateRejectionReason.NO_TENANT_CONTEXT) {
+        // These reasons are raised at the authorization/existence boundary, before the gate has established that
+        // the requested customer belongs to the active tenant, so the caller-supplied id may be unverified or
+        // foreign. It must not become an audit target (ADR 0006); the gate's own security-rejection audit already
+        // records these cases. Metrics and the log above are closed-vocabulary and stay.
+        if (!isTenantBoundaryRejection(reason)) {
             audit.gateRejected(customerId, operation, reason);
         }
     }
@@ -61,6 +63,14 @@ public final class AiOutcomeReporter {
         telemetry.outcome(operation, AiTelemetry.Outcome.FAILED);
         logOutcome(operation, "FAILED", reason.name());
         audit.failed(customerId, operation, reason);
+    }
+
+    private static boolean isTenantBoundaryRejection(ActionGateRejectionReason reason) {
+        return switch (reason) {
+            case NO_TENANT_CONTEXT, UNAUTHORIZED, CUSTOMER_NOT_FOUND -> true;
+            case CUSTOMER_ARCHIVED, DO_NOT_CONTACT, NO_CONTACT_CONSENT, FOLLOW_UP_INELIGIBLE, STALE_STATE,
+                    DISALLOWED_ACTION, DISALLOWED_TEMPLATE_INTENT, INVALID_RECOMMENDATION -> false;
+        };
     }
 
     private void logOutcome(AiOperation operation, String outcome, String detail) {
