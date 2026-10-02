@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.followup.application;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Instant;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -24,12 +25,25 @@ public interface AiActionGateAuditListener {
             CustomerId customerId,
             ActionGateRejectionReason reason,
             String diagnosticCode,
-            Instant timestamp
+            Instant timestamp,
+            TenantPermission permission
     ) {
         public SecurityRejectionEvent {
             Objects.requireNonNull(reason, "Rejection reason is required");
             Objects.requireNonNull(diagnosticCode, "Diagnostic code is required");
             Objects.requireNonNull(timestamp, "Timestamp is required");
+            permission = permission != null ? permission : TenantPermission.FOLLOWUP_EVALUATE;
+        }
+
+        public SecurityRejectionEvent(
+                TenantId tenantId,
+                IdentityId actorId,
+                CustomerId customerId,
+                ActionGateRejectionReason reason,
+                String diagnosticCode,
+                Instant timestamp
+        ) {
+            this(tenantId, actorId, customerId, reason, diagnosticCode, timestamp, TenantPermission.FOLLOWUP_EVALUATE);
         }
     }
 

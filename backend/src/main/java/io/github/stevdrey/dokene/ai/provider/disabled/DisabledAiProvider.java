@@ -31,4 +31,9 @@ public final class DisabledAiProvider implements AiProvider {
     public AiRecommendationResponse recommend(AiRecommendationRequest request) {
         throw new AiProviderException(AiFailureCategory.UNAVAILABLE, METADATA);
     }
+
+    @Override
+    public io.github.stevdrey.dokene.ai.application.AiDraftResponse draft(io.github.stevdrey.dokene.ai.application.AiDraftRequest request) {
+        throw new AiProviderException(AiFailureCategory.UNAVAILABLE, METADATA);
+    }
 }

@@ -126,6 +126,25 @@ The response body returns a top-level `status` enum (`RecommendationStatus`):
 - **Zero Business Side Effects**: Orchestration is strictly read-only decision support. It never modifies customer policy versions, dismissals, manual follow-up dates, or due queue state.
 - **Separation of Due Reasons vs. AI Rationale**: Authoritative deterministic triggers (`evaluation.reasons`, such as `DUE_TODAY` or `OVERDUE`) remain cleanly separated from advisory AI explanations (`recommendation.rationale`).
 
+## Constrained Follow-Up Message Draft Generation
+
+Following next-best-action evaluation, Dokene supports constrained follow-up message draft generation, governed by [ADR 0018: Constrained Follow-Up Message Draft Generation](../adr/0018-constrained-follow-up-message-draft-generation.md).
+
+### Grounding & Safety Constraints
+- **Dedicated Permission**: Requires `TenantPermission.MESSAGE_DRAFT` in addition to `FOLLOWUP_EVALUATE`.
+- **Zero Fabrication**: Prohibits invented discounts (e.g. percentages or discount terms not in purchase history/notes), prices/currencies, external URLs, and provider template IDs.
+- **Language**: Default wording in Latin American Spanish (`es-419`).
+- **Grounded Facts**: Bound to authoritative tenant business name (`TrustedBusinessFacts`) and validated customer context (`DraftContext`).
+- **Deterministic Gate Check**: Re-runs `evaluateDraft` on `AiActionGate` prior to returning the draft, verifying customer eligibility, absence of stale state, and lack of prohibited terms.
+
+### Draft Generation Endpoints
+- `POST /api/customers/{customerId}/draft`
+- `POST /api/customers/{customerId}/follow-up-draft` (alias)
+
+Supports optional `If-Match: "<version>"` header and returns `ETag: "<version>"` on success. Returns `DraftResponse` with statuses: `AVAILABLE`, `NO_DRAFT`, `INELIGIBLE`, `STALE_STATE`, `AI_UNAVAILABLE`.
+
+### Phase 2 to Phase 3 Handoff
+Draft generation is strictly an advisory decision-support operation. Generated message drafts are returned to human operators in the UI for review. Outbound messaging delivery, WhatsApp Cloud API dispatch, and operator approval state machines (`MESSAGE_APPROVE`, `MESSAGE_SEND`) belong to Phase 3 and are decoupled from draft generation.
 
 ## Trust boundaries
 

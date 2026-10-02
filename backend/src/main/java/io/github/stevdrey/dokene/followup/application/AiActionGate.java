@@ -26,10 +26,51 @@ public interface AiActionGate {
     }
 
     /**
+     * Evaluates a draft outcome against current authoritative application state.
+     *
+     * @param customerId target customer identifier
+     * @param assembly baseline assembly used when the AI provider was invoked, if available
+     * @param outcome advisory draft outcome returned by the AI provider
+     * @return deterministic draft gate decision (Accepted or Rejected with typed reason)
+     */
+    DraftGateDecision evaluateDraft(CustomerId customerId,
+                                    RecommendationContextAssembler.Assembly assembly,
+                                    io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome,
+                                    io.github.stevdrey.dokene.ai.domain.SemanticAction expectedAction,
+                                    io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent expectedIntent,
+                                    String expectedLocale);
+
+    default DraftGateDecision evaluateDraft(CustomerId customerId,
+                                            RecommendationContextAssembler.Assembly assembly,
+                                            io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome,
+                                            io.github.stevdrey.dokene.ai.domain.SemanticAction expectedAction,
+                                            io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent expectedIntent) {
+        return evaluateDraft(customerId, assembly, outcome, expectedAction, expectedIntent, null);
+    }
+
+    default DraftGateDecision evaluateDraft(CustomerId customerId,
+                                            RecommendationContextAssembler.Assembly assembly,
+                                            io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome) {
+        return evaluateDraft(customerId, assembly, outcome, null, null, null);
+    }
+
+    default DraftGateDecision evaluateDraft(CustomerId customerId, io.github.stevdrey.dokene.ai.domain.DraftOutcome outcome) {
+        return evaluateDraft(customerId, null, outcome, null, null);
+    }
+
+    /**
      * Revalidates caller authorization and tenant active status for customer operations.
      *
      * @param customerId target customer identifier
      */
     default void revalidateAuthorization(CustomerId customerId) {
+    }
+
+    /**
+     * Revalidates caller draft authorization and tenant active status for customer operations.
+     *
+     * @param customerId target customer identifier
+     */
+    default void revalidateDraftAuthorization(CustomerId customerId) {
     }
 }

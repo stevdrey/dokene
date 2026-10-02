@@ -11,6 +11,12 @@ import java.time.Duration;
 public interface AiProvider {
     AiRecommendationResponse recommend(AiRecommendationRequest request);
 
+    default AiDraftResponse draft(AiDraftRequest request) {
+        throw new AiProviderException(
+                AiFailureCategory.UNAVAILABLE,
+                new AiInvocationMetadata("unsupported", "none", "unsupported-draft", Duration.ZERO, null, AiCompletionStatus.FAILED));
+    }
+
     default Duration defaultTimeout() {
         return Duration.ofSeconds(15);
     }

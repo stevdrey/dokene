@@ -26,10 +26,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueCursor;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
 import io.github.stevdrey.dokene.followup.domain.FollowUpQueueItem;
+import io.github.stevdrey.dokene.ai.domain.NoDraftReason;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.followup.application.ActionGateRejectionReason;
+import io.github.stevdrey.dokene.followup.application.DraftStatus;
+import io.github.stevdrey.dokene.followup.application.FollowUpDraftResult;
+import io.github.stevdrey.dokene.followup.application.FollowUpDraftService;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationService;
 import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
@@ -48,6 +52,7 @@ public class FollowUpController {
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9._:-]{1,128}");
     private final FollowUpService followUps;
     private final FollowUpRecommendationService recommendations;
+    private final FollowUpDraftService drafts;
     private final TenantContextProvider contexts;
     private final FollowUpRecommendationRateLimiter rateLimiter;
     private final TenantAuthorizationService authorization;
@@ -56,11 +61,13 @@ public class FollowUpController {
     public FollowUpController(
             FollowUpService followUps,
             FollowUpRecommendationService recommendations,
+            FollowUpDraftService drafts,
             TenantContextProvider contexts,
             FollowUpRecommendationRateLimiter rateLimiter,
             TenantAuthorizationService authorization) {
         this.followUps = followUps;
         this.recommendations = recommendations;
+        this.drafts = drafts;
         this.contexts = contexts;
         this.rateLimiter = rateLimiter;
         this.authorization = authorization;
@@ -70,8 +77,21 @@ public class FollowUpController {
             FollowUpService followUps,
             FollowUpRecommendationService recommendations,
             TenantContextProvider contexts,
+            FollowUpRecommendationRateLimiter rateLimiter,
+            TenantAuthorizationService authorization) {
+        this(followUps, recommendations, null, contexts, rateLimiter, authorization);
+    }
+
+    public FollowUpController(
+            FollowUpService followUps,
+            FollowUpRecommendationService recommendations,
+            TenantContextProvider contexts,
             FollowUpRecommendationRateLimiter rateLimiter) {
-        this(followUps, recommendations, contexts, rateLimiter, null);
+        this(followUps, recommendations, null, contexts, rateLimiter, null);
+    }
+
+    public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations, FollowUpDraftService drafts) {
+        this(followUps, recommendations, drafts, null, null, null);
     }
 
     public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
@@ -335,6 +355,108 @@ public class FollowUpController {
             ActionRecommendationResponse recommendation,
             RefusalResponse refusal,
             NoRecommendationReason refusalReason,
+            ActionGateRejectionReason rejectionReason,
+            String unavailableReason) { }
+
+    @PostMapping({"/customers/{customerId}/draft", "/customers/{customerId}/follow-up-draft"})
+    public ResponseEntity<DraftResponse> requestDraft(
+            @PathVariable UUID customerId,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody(required = false) DraftRequest request) {
+        if (drafts == null) {
+            throw new IllegalStateException("Draft service is not configured");
+        }
+        if (authorization != null) {
+            authorization.requirePermission(TenantPermission.MESSAGE_DRAFT);
+            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
+        }
+        Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
+        Duration timeout = null;
+        SemanticAction requestedAction = null;
+        SemanticTemplateIntent requestedTemplateIntent = null;
+        if (request != null) {
+            if (request.timeoutMs() != null) {
+                if (request.timeoutMs() <= 0) {
+                    throw new IllegalArgumentException("Timeout must be positive");
+                }
+                timeout = Duration.ofMillis(request.timeoutMs());
+            }
+            requestedAction = request.action();
+            requestedTemplateIntent = request.templateIntent();
+        }
+        var result = drafts.draftSafe(new CustomerId(customerId), requestedAction, requestedTemplateIntent, timeout, expectedVersion);
+        return ResponseEntity.ok()
+                .eTag(etag(result.policyVersion()))
+                .body(response(result));
+    }
+
+    private DraftResponse response(FollowUpDraftResult result) {
+        EvaluationResponse evalResponse = result.evaluation() != null ? response(result.evaluation()) : null;
+        MessageDraftResponse draftResponse = null;
+        if (result.draft() != null) {
+            var draft = result.draft();
+            var vars = draft.draftVariables() != null
+                    ? draft.draftVariables().entries().stream()
+                            .map(e -> new DraftVariableResponse(e.key(), e.value()))
+                            .toList()
+                    : List.<DraftVariableResponse>of();
+            draftResponse = new MessageDraftResponse(
+                    draft.action(),
+                    draft.templateIntent(),
+                    draft.body(),
+                    vars,
+                    draft.locale(),
+                    draft.evidence(),
+                    draft.warnings(),
+                    draft.rationale(),
+                    draft.confidence().value());
+        }
+        NoDraftResponse refusalResponse = null;
+        if (result.refusal() != null) {
+            refusalResponse = new NoDraftResponse(
+                    result.refusal().reason(),
+                    result.refusal().rationale(),
+                    result.refusal().confidence().value());
+        }
+        UUID cId = result.evaluation() != null
+                ? result.evaluation().customerId().value()
+                : null;
+        return new DraftResponse(
+                result.status(),
+                cId,
+                evalResponse,
+                draftResponse,
+                refusalResponse,
+                result.refusalReason(),
+                result.rejectionReason(),
+                result.unavailableReason());
+    }
+
+    public record DraftRequest(
+            SemanticAction action,
+            SemanticTemplateIntent templateIntent,
+            Integer timeoutMs) { }
+    public record MessageDraftResponse(
+            SemanticAction action,
+            SemanticTemplateIntent templateIntent,
+            String body,
+            List<DraftVariableResponse> draftVariables,
+            String locale,
+            List<String> evidence,
+            List<String> warnings,
+            String rationale,
+            double confidence) { }
+    public record NoDraftResponse(
+            NoDraftReason reason,
+            String rationale,
+            double confidence) { }
+    public record DraftResponse(
+            DraftStatus status,
+            UUID customerId,
+            EvaluationResponse evaluation,
+            MessageDraftResponse draft,
+            NoDraftResponse refusal,
+            NoDraftReason refusalReason,
             ActionGateRejectionReason rejectionReason,
             String unavailableReason) { }
 }

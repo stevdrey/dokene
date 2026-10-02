@@ -47,6 +47,12 @@ import io.github.stevdrey.dokene.followup.application.FollowUpConflictException;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationService;
 import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.domain.NoDraft;
+import io.github.stevdrey.dokene.ai.domain.NoDraftReason;
+import io.github.stevdrey.dokene.followup.application.DraftStatus;
+import io.github.stevdrey.dokene.followup.application.FollowUpDraftResult;
+import io.github.stevdrey.dokene.followup.application.FollowUpDraftService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
@@ -54,6 +60,7 @@ class FollowUpControllerTest {
 
     private FollowUpService service;
     private FollowUpRecommendationService recommendations;
+    private FollowUpDraftService drafts;
     private MockMvc mvc;
     private final UUID customerId = UUID.randomUUID();
 
@@ -61,7 +68,8 @@ class FollowUpControllerTest {
     void setUp() {
         service = mock();
         recommendations = mock();
-        mvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations))
+        drafts = mock();
+        mvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, drafts))
                 .setControllerAdvice(new FollowUpExceptionHandler()).build();
     }
 
@@ -384,6 +392,131 @@ class FollowUpControllerTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(recommendations);
+    }
+
+    @Test
+    void generateDraftReturnsAvailableMessageDraftWithETag() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana, te saludamos de Café.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of("Compra reciente: Café"),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenReturn(FollowUpDraftResult.available(evaluation, draft, 1L));
+
+        mvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.draft.body").value("Hola Ana, te saludamos de Café."))
+                .andExpect(jsonPath("$.draft.locale").value("es-419"))
+                .andExpect(jsonPath("$.draft.action").value("REPEAT_PURCHASE_FOLLOW_UP"))
+                .andExpect(jsonPath("$.draft.templateIntent").value("REPEAT_PURCHASE"));
+    }
+
+    @Test
+    void generateDraftAliasEndpointReturnsDraft() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana, te saludamos de Café.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenReturn(FollowUpDraftResult.available(evaluation, draft, 2L));
+
+        mvc.perform(post("/api/customers/{id}/follow-up-draft", customerId))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"2\""))
+                .andExpect(jsonPath("$.status").value("AVAILABLE"));
+    }
+
+    @Test
+    void generateDraftWithIfMatchHeaderPassesVersion() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        MessageDraft draft = new MessageDraft(
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                "Hola Ana.",
+                DraftVariables.empty(),
+                "es-419",
+                List.of(),
+                List.of(),
+                "Follow-up",
+                RecommendationConfidence.of(0.8));
+
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(5L)))
+                .thenReturn(FollowUpDraftResult.available(evaluation, draft, 5L));
+
+        mvc.perform(post("/api/customers/{id}/draft", customerId)
+                .header("If-Match", "\"5\""))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"5\""));
+
+        verify(drafts).draftSafe(eq(cId), any(), any(), any(), eq(5L));
+    }
+
+    @Test
+    void generateDraftReturnsRefusalWhenModelRefuses() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        NoDraft refusal = new NoDraft(
+                NoDraftReason.SAFETY_VIOLATION,
+                "Prompt injection detected in notes",
+                RecommendationConfidence.of(0.99));
+
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenReturn(FollowUpDraftResult.refusal(evaluation, refusal, 1L));
+
+        mvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NO_DRAFT"))
+                .andExpect(jsonPath("$.refusalReason").value("SAFETY_VIOLATION"))
+                .andExpect(jsonPath("$.refusal.reason").value("SAFETY_VIOLATION"))
+                .andExpect(jsonPath("$.refusal.rationale").value("Prompt injection detected in notes"));
+    }
+
+    @Test
+    void generateDraftReturnsConflictOnStaleVersion() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(1L)))
+                .thenThrow(new FollowUpConflictException());
+
+        mvc.perform(post("/api/customers/{id}/draft", customerId)
+                .header("If-Match", "\"1\""))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void generateDraftRejectsUnauthorizedCallerWithoutInvokingService() throws Exception {
+        var authorization = mock(io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService.class);
+        org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.MESSAGE_DRAFT);
+
+        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, drafts, null, null, authorization))
+                .setControllerAdvice(new FollowUpExceptionHandler()).build();
+
+        customMvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isForbidden());
+
+        verify(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.MESSAGE_DRAFT);
+        verifyNoInteractions(drafts);
     }
 
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {
