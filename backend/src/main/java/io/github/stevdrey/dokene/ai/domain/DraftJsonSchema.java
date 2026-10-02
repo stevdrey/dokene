@@ -300,7 +300,8 @@ public final class DraftJsonSchema {
         properties.put("warnings", Map.of(
                 "type", "array",
                 "maxItems", MessageDraft.MAX_METADATA_ITEMS,
-                "items", Map.of("type", "string", "maxLength", MessageDraft.MAX_METADATA_ITEM_LENGTH),
+                "items", Map.of("type", "string", "minLength", 1, "maxLength", MessageDraft.MAX_METADATA_ITEM_LENGTH,
+                        "pattern", RecommendationRationale.NON_WHITESPACE_PATTERN),
                 "description", "Caveats or warnings noticed during drafting"
         ));
 

@@ -4,6 +4,7 @@ import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.sun.net.httpserver.HttpServer;
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
+import io.github.stevdrey.dokene.ai.domain.NoDraft;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
@@ -683,6 +684,22 @@ class OpenAiResponsesApiAdapterTest {
                     AiProviderException ape = (AiProviderException) e;
                     assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
                 });
+    }
+
+    @Test
+    void draft_refusesUnsupportedLocaleWithoutCallingTheModel() {
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        DraftContext draftContext = new DraftContext(
+                sampleContext,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                new TrustedBusinessFacts("Dokene", "pt-BR")
+        );
+
+        AiDraftResponse response = adapter.draft(new AiDraftRequest(draftContext, Duration.ofSeconds(5)));
+
+        assertThat(response.outcome()).isInstanceOf(NoDraft.class);
+        assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
     }
 
     @Test

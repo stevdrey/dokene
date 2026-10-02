@@ -18,6 +18,8 @@ import java.util.regex.Pattern;
 public final class DraftSafetyValidator {
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
+    /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
+    private static final String SP = "[\\s\\u00a0\\u2007\\u202f\\u2009]*";
     private static final String NUM = "\\d+(?:[.,]\\d+|[ \\u00a0\\u202f]\\d{3})*(?!\\d)";
     private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad";
     private static final String CURRENCY_WORDS =
@@ -44,10 +46,10 @@ public final class DraftSafetyValidator {
             Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)\\b")
     );
 
-    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + "\\s*%");
+    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)\\s*" + NUM
-                    + "|\\b" + NUM + "\\s*(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
+            "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)" + SP + NUM
+                    + "|\\b" + NUM + SP + "(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
     );
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
@@ -253,7 +255,7 @@ public final class DraftSafetyValidator {
         if (text == null) {
             return "";
         }
-        return text.replaceAll("\\s+", " ").replaceAll("(?<=\\d)[ \\u00a0\\u202f](?=\\d{3})", "").replace(",", ".");
+        return text.replaceAll("[\\s\\u00a0\\u2007\\u202f\\u2009]+", " ").replaceAll("(?<=\\d)[ \\u00a0\\u202f](?=\\d{3})", "").replace(",", ".");
     }
 
     public static boolean containsUrl(String text) {

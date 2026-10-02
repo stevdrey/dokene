@@ -619,4 +619,20 @@ class DraftSafetyValidatorTest {
         assertThat(DraftSafetyValidator.validate(draft, "Juan Ofrecimos USD 100 antes Café", withPriceInNotes))
                 .isEmpty();
     }
+
+    @Test
+    void unicodeSpacesDoNotEvadeAmountOrPercentageExtraction() {
+        Optional<DraftSafetyViolation> amount = DraftSafetyValidator.validate(
+                draftWith("Crédito de USD\u00a0100 para ti.", "es-419", List.of()), "Aceptamos USD");
+        assertThat(amount).isPresent();
+        assertThat(amount.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+
+        Optional<DraftSafetyViolation> percentage = DraftSafetyValidator.validate(
+                draftWith("Tienes 50\u202f% hoy.", "es-419", List.of()), "Customer: Juan.");
+        assertThat(percentage).isPresent();
+
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Crédito de USD\u00a0100 para ti.", "es-419", List.of()), "Ofrecimos USD 100 antes"))
+                .isEmpty();
+    }
 }

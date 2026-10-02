@@ -38,6 +38,9 @@ import io.github.stevdrey.dokene.ai.domain.DraftJsonSchema;
 import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
+import io.github.stevdrey.dokene.ai.domain.NoDraftReason;
+import io.github.stevdrey.dokene.ai.domain.NoDraft;
 import io.github.stevdrey.dokene.ai.domain.RecommendationJsonSchema;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import java.io.InterruptedIOException;
@@ -277,6 +280,18 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
         if (Thread.currentThread().isInterrupted()) {
             throw new AiProviderException(AiFailureCategory.CANCELLED,
                     failureMetadata(modelId, null, Duration.ZERO, null, AiFailureCategory.CANCELLED));
+        }
+
+        String requestedLocale = request.context().businessFacts() != null
+                ? request.context().businessFacts().preferredLocale() : MessageDraft.DEFAULT_LOCALE;
+        if (!MessageDraft.DEFAULT_LOCALE.equalsIgnoreCase(requestedLocale.strip())) {
+            // Safety vocabulary and prompts are Spanish-only; refuse without sending customer data.
+            return new AiDraftResponse(
+                    new NoDraft(NoDraftReason.UNSUPPORTED_ACTION,
+                            "Only the " + MessageDraft.DEFAULT_LOCALE + " locale is supported",
+                            RecommendationConfidence.of(0.5)),
+                    new AiInvocationMetadata(PROVIDER_ID, modelId, "locale-refusal", Duration.ZERO, null,
+                            AiCompletionStatus.SUCCEEDED));
         }
 
         Response response = null;

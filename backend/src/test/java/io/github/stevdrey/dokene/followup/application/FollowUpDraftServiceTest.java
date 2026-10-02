@@ -156,6 +156,30 @@ class FollowUpDraftServiceTest {
     }
 
     @Test
+    void draftSafe_explicitRepeatPurchaseWithoutPurchaseHistoryIsDisallowed() {
+        CustomerId customerId = new CustomerId(UUID.randomUUID());
+        FollowUpEvaluation evaluation = new FollowUpEvaluation(
+                customerId, FollowUpStatus.DUE,
+                List.of(FollowUpReason.DUE_TODAY), Instant.now(), tenantDate,
+                ZoneId.of("UTC"), tenantDate, FollowUpTimingSource.EXPLICIT_DATE, 30, null);
+        when(followUps.customerPolicy(customerId)).thenReturn(new CustomerFollowUpPolicy(
+                tenantId, customerId, 30, null, null, null, 1L));
+        var noPurchaseContext = new RecommendationContext(
+                new RecommendationContext.TrustedFacts(
+                        tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY),
+                        30, tenantDate, true, List.of(), Arrays.asList(SemanticAction.values())),
+                new RecommendationContext.UntrustedText("Ana", "Cliente habitual", List.of()));
+        when(assembler.assemble(customerId)).thenReturn(new RecommendationContextAssembler.Assembly(
+                evaluation, noPurchaseContext, List.of(), 1L));
+
+        FollowUpDraftResult result = service.draftSafe(
+                customerId, SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, null, timeout, null);
+
+        assertThat(result.status()).isEqualTo(DraftStatus.INELIGIBLE);
+        verify(provider, never()).draft(any());
+    }
+
+    @Test
     void draftSafe_requiresMessageDraftPermission() {
         CustomerId customerId = new CustomerId(UUID.randomUUID());
         org.mockito.Mockito.doThrow(new TenantAccessDeniedException("Permission denied"))

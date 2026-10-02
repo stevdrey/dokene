@@ -140,7 +140,8 @@ public final class FollowUpDraftService {
             List<SemanticAction> allowedActions = assembly.context().trusted().allowedActions();
             SemanticAction action = requestedAction;
             if (action != null) {
-                if (!allowedActions.contains(action)) {
+                if (!allowedActions.contains(action)
+                        || (action == SemanticAction.REPEAT_PURCHASE_FOLLOW_UP && assembly.purchases().isEmpty())) {
                     revalidateAuthorization(customerId);
                     return FollowUpDraftResult.ineligible(evaluation, ActionGateRejectionReason.DISALLOWED_ACTION, policyVersion);
                 }
