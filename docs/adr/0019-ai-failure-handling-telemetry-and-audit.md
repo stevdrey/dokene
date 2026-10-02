@@ -42,7 +42,7 @@ The SDK client keeps `maxRetries(0)`. `ResilientAiProvider` wraps the selected `
 
 `AiTelemetry` is the port; `MicrometerAiTelemetry` implements it. Actuator is on the classpath **only** to provide the `MeterRegistry`; `management.endpoints.access.default` is `none` and no endpoint or exporter is configured, so no new diagnostics endpoint exists.
 
-Meters (all `dokene.ai.*`): `invocations`, `invocation.duration`, `tokens` (when the provider supplies usage), `retries`, `model.refusals`, `gate.rejections`. Tags come only from closed vocabularies: `operation`, `provider`, `model` (validated identifier), `outcome`, `category`, `direction`, `reason`. **Tenant, customer, actor, correlation id and free text are never tags**: this prevents unbounded cardinality and a cross-tenant information channel.
+Meters (all `dokene.ai.*`): `invocations`, `invocation.duration`, `tokens` (when the provider supplies usage), `retries`, `model.refusals`, `gate.rejections`. Tags come only from closed vocabularies: `operation`, `provider`, `model` (validated identifier), `outcome`, `category`, `direction`, `reason`. **Tenant, customer, actor, correlation id and free text are never tags**: this prevents unbounded cardinality and a cross-tenant information channel. The `reason` tag is enforced against a closed allow-list (`AiTelemetry.GATE_REJECTION_REASONS`, guarded by a test against `ActionGateRejectionReason`); any other value is recorded as `UNKNOWN`.
 
 ### 4. Privacy-safe durable audit
 

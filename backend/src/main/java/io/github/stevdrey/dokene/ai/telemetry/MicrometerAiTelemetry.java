@@ -63,6 +63,8 @@ public final class MicrometerAiTelemetry implements AiTelemetry {
 
     @Override
     public void gateRejected(AiOperation operation, String reason) {
-        registry.counter(GATE_REJECTIONS, "operation", operation.name(), "reason", reason).increment();
+        // The tag value must come from the closed vocabulary; anything else cannot become a metric dimension.
+        String tag = reason != null && GATE_REJECTION_REASONS.contains(reason) ? reason : UNKNOWN_REASON;
+        registry.counter(GATE_REJECTIONS, "operation", operation.name(), "reason", tag).increment();
     }
 }

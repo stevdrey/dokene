@@ -63,6 +63,21 @@ class MicrometerAiTelemetryTest {
     }
 
     @Test
+    void gateRejectionReasonOutsideTheClosedVocabularyIsNeverUsedAsATagValue() {
+        telemetry.gateRejected(AiOperation.NEXT_BEST_ACTION, "tenant-3f2a free text +593991234567");
+        telemetry.gateRejected(AiOperation.NEXT_BEST_ACTION, null);
+        telemetry.gateRejected(AiOperation.NEXT_BEST_ACTION, "STALE_STATE");
+
+        assertThat(registry.get(MicrometerAiTelemetry.GATE_REJECTIONS).tag("reason", "UNKNOWN").counter().count())
+                .isEqualTo(2.0);
+        assertThat(registry.get(MicrometerAiTelemetry.GATE_REJECTIONS).tag("reason", "STALE_STATE").counter().count())
+                .isEqualTo(1.0);
+        assertThat(registry.find(MicrometerAiTelemetry.GATE_REJECTIONS).counters())
+                .extracting(counter -> counter.getId().getTag("reason"))
+                .containsExactlyInAnyOrder("UNKNOWN", "STALE_STATE");
+    }
+
+    @Test
     void neverUsesTenantCustomerActorOrCorrelationDimensions() {
         telemetry.invocationCompleted(AiOperation.NEXT_BEST_ACTION, new AiInvocationMetadata("openai", "m", "r",
                 Duration.ofMillis(1), new AiTokenUsage(1, 1), AiCompletionStatus.SUCCEEDED), null);

@@ -7,6 +7,18 @@ package io.github.stevdrey.dokene.ai.application;
  */
 public interface AiTelemetry {
 
+    /**
+     * Closed vocabulary accepted for the {@code reason} tag of gate rejections. It mirrors the follow-up module's
+     * {@code ActionGateRejectionReason} (the AI module cannot depend on it); a test in the follow-up module fails
+     * if the two drift apart. Any other value is reported as {@link #UNKNOWN_REASON}, never as a raw tag value.
+     */
+    java.util.Set<String> GATE_REJECTION_REASONS = java.util.Set.of(
+            "NO_TENANT_CONTEXT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND", "CUSTOMER_ARCHIVED", "DO_NOT_CONTACT",
+            "NO_CONTACT_CONSENT", "FOLLOW_UP_INELIGIBLE", "STALE_STATE", "DISALLOWED_ACTION",
+            "DISALLOWED_TEMPLATE_INTENT", "INVALID_RECOMMENDATION");
+
+    String UNKNOWN_REASON = "UNKNOWN";
+
     /** One provider attempt finished. {@code category} is null when the attempt succeeded. */
     void invocationCompleted(AiOperation operation, AiInvocationMetadata metadata, AiFailureCategory category);
 
