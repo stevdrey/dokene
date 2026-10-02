@@ -13,7 +13,7 @@ import java.time.Duration;
 
 /**
  * Fallback {@link AiProvider} implementation used when no concrete AI provider
- * is configured. Fails fast with {@link AiFailureCategory#UNAVAILABLE} to allow
+ * is configured. Fails fast with {@link AiFailureCategory#NOT_AVAILABLE} to allow
  * Dokene to boot and execute deterministic follow-up workflows while safely
  * degrading recommendation requests.
  */
@@ -29,11 +29,11 @@ public final class DisabledAiProvider implements AiProvider {
 
     @Override
     public AiRecommendationResponse recommend(AiRecommendationRequest request) {
-        throw new AiProviderException(AiFailureCategory.UNAVAILABLE, METADATA);
+        throw new AiProviderException(AiFailureCategory.NOT_AVAILABLE, METADATA);
     }
 
     @Override
     public io.github.stevdrey.dokene.ai.application.AiDraftResponse draft(io.github.stevdrey.dokene.ai.application.AiDraftRequest request) {
-        throw new AiProviderException(AiFailureCategory.UNAVAILABLE, METADATA);
+        throw new AiProviderException(AiFailureCategory.NOT_AVAILABLE, METADATA);
     }
 }

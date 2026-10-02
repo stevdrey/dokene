@@ -21,6 +21,7 @@ import com.openai.models.responses.ResponseStatus;
 import com.openai.models.responses.ResponseTextConfig;
 import com.openai.models.responses.ResponseUsage;
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
+import io.github.stevdrey.dokene.ai.application.AiCorrelationSource;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
@@ -93,12 +94,22 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             6. If safe drafting is not possible, or if critical context is missing, return NO_DRAFT with an appropriate refusal reason.
             """;
 
+    /** Opaque, server-generated request correlation UUID forwarded for provider-side diagnostics only. */
+    static final String CORRELATION_HEADER = "X-Client-Request-Id";
+
     private final OpenAIClient client;
     private final OpenAiProviderProperties properties;
+    private final AiCorrelationSource correlation;
 
     public OpenAiResponsesApiAdapter(OpenAIClient client, OpenAiProviderProperties properties) {
+        this(client, properties, AiCorrelationSource.none());
+    }
+
+    public OpenAiResponsesApiAdapter(OpenAIClient client, OpenAiProviderProperties properties,
+            AiCorrelationSource correlation) {
         this.client = Objects.requireNonNull(client, "OpenAI client is required");
         this.properties = Objects.requireNonNull(properties, "OpenAI properties are required");
+        this.correlation = Objects.requireNonNull(correlation, "Correlation source is required");
     }
 
     @Override
@@ -158,6 +169,11 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             String outputText = extractOutputText(response);
+            if (outputText.isBlank() && hasRefusal(response)) {
+                throw new AiProviderException(AiFailureCategory.REFUSED,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.REFUSED));
+            }
             if (outputText.isBlank()) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                         failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
@@ -329,6 +345,11 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             String outputText = extractOutputText(response);
+            if (outputText.isBlank() && hasRefusal(response)) {
+                throw new AiProviderException(AiFailureCategory.REFUSED,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.REFUSED));
+            }
             if (outputText.isBlank()) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                         failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
@@ -485,13 +506,14 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .format(formatConfig)
                 .build();
 
-        return ResponseCreateParams.builder()
+        ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(modelId)
                 .instructions(DRAFT_SYSTEM_INSTRUCTIONS)
                 .input(input)
                 .text(textConfig)
-                .store(false)
-                .build();
+                .store(false);
+        correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
+        return builder.build();
     }
 
     private String formatDraftInput(DraftContext context) {
@@ -574,13 +596,14 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .format(formatConfig)
                 .build();
 
-        return ResponseCreateParams.builder()
+        ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(modelId)
                 .instructions(SYSTEM_INSTRUCTIONS)
                 .input(input)
                 .text(textConfig)
-                .store(false)
-                .build();
+                .store(false);
+        correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
+        return builder.build();
     }
 
     private String formatInput(RecommendationContext context) {
@@ -625,6 +648,17 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             return "";
         }
         return text.replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /** True when the model returned a refusal content part. The refusal text itself is never read or retained. */
+    private boolean hasRefusal(Response response) {
+        if (response == null || response.output() == null) {
+            return false;
+        }
+        return response.output().stream()
+                .flatMap(item -> item.message().stream())
+                .flatMap(msg -> msg.content().stream())
+                .anyMatch(content -> content.refusal().isPresent());
     }
 
     private String extractOutputText(Response response) {

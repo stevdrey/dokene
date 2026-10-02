@@ -2,8 +2,10 @@ package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
+import io.github.stevdrey.dokene.ai.application.AiResilience;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
+import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
 import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
@@ -37,6 +39,7 @@ public final class FollowUpRecommendationService {
     private final TenantContextProvider contexts;
     private final FollowUpService followUps;
     private final FollowUpRecommendationRateLimiter rateLimiter;
+    private final AiOutcomeReporter reporter;
 
     @Autowired
     public FollowUpRecommendationService(
@@ -46,14 +49,29 @@ public final class FollowUpRecommendationService {
             TenantAuthorizationService authorization,
             TenantContextProvider contexts,
             FollowUpService followUps,
-            FollowUpRecommendationRateLimiter rateLimiter) {
-        this.provider = Objects.requireNonNull(provider, "AI provider is required");
+            FollowUpRecommendationRateLimiter rateLimiter,
+            AiResilience resilience,
+            AiOutcomeReporter reporter) {
+        Objects.requireNonNull(provider, "AI provider is required");
+        this.provider = resilience == null ? provider : resilience.wrap(provider);
+        this.reporter = reporter == null ? AiOutcomeReporter.noop() : reporter;
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
         this.gate = Objects.requireNonNull(gate, "AI action gate is required");
         this.authorization = authorization;
         this.contexts = contexts;
         this.followUps = followUps;
         this.rateLimiter = rateLimiter;
+    }
+
+    public FollowUpRecommendationService(
+            AiProvider provider,
+            RecommendationContextAssembler assembler,
+            AiActionGate gate,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            FollowUpService followUps,
+            FollowUpRecommendationRateLimiter rateLimiter) {
+        this(provider, assembler, gate, authorization, contexts, followUps, rateLimiter, null, null);
     }
 
     public FollowUpRecommendationService(
@@ -90,9 +108,11 @@ public final class FollowUpRecommendationService {
         }
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
-        RecommendationOutcome outcome = provider.recommend(request).outcome();
+        AiRecommendationResponse response = provider.recommend(request);
+        RecommendationOutcome outcome = response.outcome();
 
         ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
+        reportOutcome(customerId, gateDecision, outcome);
         if (gateDecision.rejectionReason().isPresent()) {
             ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
             if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
@@ -201,44 +221,48 @@ public final class FollowUpRecommendationService {
                     evaluation, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, freshVersion);
 
         } catch (AiProviderException ex) {
-            if (gate != null) {
-                gate.revalidateAuthorization(customerId);
-            }
-            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
-            FollowUpEvaluation eval = snapshot.evaluation();
-            long freshVersion = snapshot.policyVersion();
-            if (expectedVersion != null && expectedVersion != freshVersion) {
-                throw new FollowUpConflictException();
-            }
-            if (freshVersion != policyVersion) {
-                return FollowUpRecommendationResult.staleState(eval, freshVersion);
-            }
-            if (eval != null && !eval.eligible()) {
-                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
-                return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
-            }
-            return FollowUpRecommendationResult.aiUnavailable(eval, ex.category().name(), freshVersion);
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.category()));
         } catch (RecommendationContextException ex) {
-            if (gate != null) {
-                gate.revalidateAuthorization(customerId);
-            }
-            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
-            FollowUpEvaluation eval = snapshot.evaluation();
-            long freshVersion = snapshot.policyVersion();
-            if (expectedVersion != null && expectedVersion != freshVersion) {
-                throw new FollowUpConflictException();
-            }
-            if (freshVersion != policyVersion) {
-                return FollowUpRecommendationResult.staleState(eval, freshVersion);
-            }
-            if (eval != null && !eval.eligible()) {
-                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
-                return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
-            }
-            return FollowUpRecommendationResult.aiUnavailable(
-                    eval,
-                    "CONTEXT_" + ex.reason().name(),
-                    freshVersion);
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()));
+        }
+    }
+
+    /**
+     * Degrades to a safe result when the AI step cannot produce advice. Authorization is revalidated first,
+     * the failure is reported (metrics, log, audit) and the deterministic evaluation is returned unchanged.
+     */
+    private FollowUpRecommendationResult unavailable(
+            CustomerId customerId,
+            long policyVersion,
+            Long expectedVersion,
+            AiUnavailableReason reason) {
+        if (gate != null) {
+            gate.revalidateAuthorization(customerId);
+        }
+        reporter.failed(customerId, AiOperation.NEXT_BEST_ACTION, reason);
+        FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
+        FollowUpEvaluation eval = snapshot.evaluation();
+        long freshVersion = snapshot.policyVersion();
+        if (expectedVersion != null && expectedVersion != freshVersion) {
+            throw new FollowUpConflictException();
+        }
+        if (freshVersion != policyVersion) {
+            return FollowUpRecommendationResult.staleState(eval, freshVersion);
+        }
+        if (eval != null && !eval.eligible()) {
+            ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+            return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
+        }
+        return FollowUpRecommendationResult.aiUnavailable(eval, reason, freshVersion);
+    }
+
+    private void reportOutcome(CustomerId customerId, ActionGateDecision decision, RecommendationOutcome outcome) {
+        if (decision.rejectionReason().isPresent()) {
+            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, decision.rejectionReason().get());
+        } else if (outcome instanceof NoRecommendation) {
+            reporter.modelRefused(customerId, AiOperation.NEXT_BEST_ACTION);
+        } else {
+            reporter.generated(customerId, AiOperation.NEXT_BEST_ACTION);
         }
     }
 

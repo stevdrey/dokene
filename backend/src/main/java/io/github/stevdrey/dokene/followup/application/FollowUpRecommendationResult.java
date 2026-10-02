@@ -18,7 +18,7 @@ public record FollowUpRecommendationResult(
         ActionRecommendation recommendation,
         NoRecommendation refusal,
         ActionGateRejectionReason rejectionReason,
-        String unavailableReason,
+        AiUnavailableReason unavailableReason,
         long policyVersion) {
 
     public FollowUpRecommendationResult {
@@ -104,13 +104,21 @@ public record FollowUpRecommendationResult(
                 null,
                 null,
                 rejectionReason,
-                rejectionReason.name(),
+                AiUnavailableReason.from(rejectionReason),
                 policyVersion);
     }
 
     public static FollowUpRecommendationResult aiUnavailable(
             FollowUpEvaluation evaluation,
             String unavailableReason,
+            long policyVersion) {
+        Objects.requireNonNull(unavailableReason, "Unavailable reason is required");
+        return aiUnavailable(evaluation, AiUnavailableReason.valueOf(unavailableReason), policyVersion);
+    }
+
+    public static FollowUpRecommendationResult aiUnavailable(
+            FollowUpEvaluation evaluation,
+            AiUnavailableReason unavailableReason,
             long policyVersion) {
         Objects.requireNonNull(unavailableReason, "Unavailable reason is required");
         return new FollowUpRecommendationResult(
@@ -144,6 +152,6 @@ public record FollowUpRecommendationResult(
     }
 
     public Optional<String> providerFailure() {
-        return Optional.ofNullable(unavailableReason);
+        return Optional.ofNullable(unavailableReason).map(Enum::name);
     }
 }

@@ -5,7 +5,9 @@ import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
+import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
+import io.github.stevdrey.dokene.ai.application.AiResilience;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.DraftContext;
 import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
@@ -49,6 +51,7 @@ public final class FollowUpDraftService {
     private final FollowUpService followUps;
     private final TenantRepository tenants;
     private final FollowUpRecommendationRateLimiter rateLimiter;
+    private final AiOutcomeReporter reporter;
 
     @Autowired
     public FollowUpDraftService(
@@ -59,8 +62,12 @@ public final class FollowUpDraftService {
             TenantContextProvider contexts,
             FollowUpService followUps,
             TenantRepository tenants,
-            FollowUpRecommendationRateLimiter rateLimiter) {
-        this.provider = Objects.requireNonNull(provider, "AI provider is required");
+            FollowUpRecommendationRateLimiter rateLimiter,
+            AiResilience resilience,
+            AiOutcomeReporter reporter) {
+        Objects.requireNonNull(provider, "AI provider is required");
+        this.provider = resilience == null ? provider : resilience.wrap(provider);
+        this.reporter = reporter == null ? AiOutcomeReporter.noop() : reporter;
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
         this.gate = Objects.requireNonNull(gate, "AI action gate is required");
         this.authorization = authorization;
@@ -68,6 +75,18 @@ public final class FollowUpDraftService {
         this.followUps = followUps;
         this.tenants = tenants;
         this.rateLimiter = rateLimiter;
+    }
+
+    public FollowUpDraftService(
+            AiProvider provider,
+            RecommendationContextAssembler assembler,
+            AiActionGate gate,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            FollowUpService followUps,
+            TenantRepository tenants,
+            FollowUpRecommendationRateLimiter rateLimiter) {
+        this(provider, assembler, gate, authorization, contexts, followUps, tenants, rateLimiter, null, null);
     }
 
     public FollowUpDraftService(
@@ -197,6 +216,7 @@ public final class FollowUpDraftService {
             DraftOutcome outcome = response.outcome();
 
             DraftGateDecision gateDecision = gate.evaluateDraft(customerId, assembly, outcome, action, templateIntent, businessFacts.preferredLocale());
+            reportOutcome(customerId, gateDecision, outcome);
             if (gateDecision.rejectionReason().isPresent()) {
                 ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
                 if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
@@ -254,62 +274,50 @@ public final class FollowUpDraftService {
                     effectiveEvaluation, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, freshVersion);
 
         } catch (AiProviderException ex) {
-            if (gate != null) {
-                gate.revalidateDraftAuthorization(customerId);
-            }
-            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
-            FollowUpEvaluation eval = snapshot.evaluation();
-            long freshVersion = snapshot.policyVersion();
-            if (expectedVersion != null && expectedVersion != freshVersion) {
-                throw new FollowUpConflictException();
-            }
-            if (freshVersion != policyVersion) {
-                return FollowUpDraftResult.staleState(eval, freshVersion);
-            }
-            if (eval != null && !eval.eligible()) {
-                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
-                return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
-            }
-            return FollowUpDraftResult.aiUnavailable(eval, ex.category().name(), freshVersion);
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.category()));
         } catch (UnsupportedOperationException ex) {
-            if (gate != null) {
-                gate.revalidateDraftAuthorization(customerId);
-            }
-            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
-            FollowUpEvaluation eval = snapshot.evaluation();
-            long freshVersion = snapshot.policyVersion();
-            if (expectedVersion != null && expectedVersion != freshVersion) {
-                throw new FollowUpConflictException();
-            }
-            if (freshVersion != policyVersion) {
-                return FollowUpDraftResult.staleState(eval, freshVersion);
-            }
-            if (eval != null && !eval.eligible()) {
-                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
-                return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
-            }
-            return FollowUpDraftResult.aiUnavailable(eval, AiFailureCategory.UNAVAILABLE.name(), freshVersion);
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.NOT_AVAILABLE);
         } catch (RecommendationContextException ex) {
-            if (gate != null) {
-                gate.revalidateDraftAuthorization(customerId);
-            }
-            FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
-            FollowUpEvaluation eval = snapshot.evaluation();
-            long freshVersion = snapshot.policyVersion();
-            if (expectedVersion != null && expectedVersion != freshVersion) {
-                throw new FollowUpConflictException();
-            }
-            if (freshVersion != policyVersion) {
-                return FollowUpDraftResult.staleState(eval, freshVersion);
-            }
-            if (eval != null && !eval.eligible()) {
-                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
-                return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
-            }
-            return FollowUpDraftResult.aiUnavailable(
-                    eval,
-                    "CONTEXT_" + ex.reason().name(),
-                    freshVersion);
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()));
+        }
+    }
+
+    /**
+     * Degrades to a safe result when the AI step cannot produce a draft. Authorization is revalidated first,
+     * the failure is reported (metrics, log, audit) and the deterministic evaluation is returned unchanged.
+     */
+    private FollowUpDraftResult unavailable(
+            CustomerId customerId,
+            long policyVersion,
+            Long expectedVersion,
+            AiUnavailableReason reason) {
+        if (gate != null) {
+            gate.revalidateDraftAuthorization(customerId);
+        }
+        reporter.failed(customerId, AiOperation.MESSAGE_DRAFT, reason);
+        FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
+        FollowUpEvaluation eval = snapshot.evaluation();
+        long freshVersion = snapshot.policyVersion();
+        if (expectedVersion != null && expectedVersion != freshVersion) {
+            throw new FollowUpConflictException();
+        }
+        if (freshVersion != policyVersion) {
+            return FollowUpDraftResult.staleState(eval, freshVersion);
+        }
+        if (eval != null && !eval.eligible()) {
+            ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+            return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
+        }
+        return FollowUpDraftResult.aiUnavailable(eval, reason, freshVersion);
+    }
+
+    private void reportOutcome(CustomerId customerId, DraftGateDecision decision, DraftOutcome outcome) {
+        if (decision.rejectionReason().isPresent()) {
+            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, decision.rejectionReason().get());
+        } else if (outcome instanceof NoDraft) {
+            reporter.modelRefused(customerId, AiOperation.MESSAGE_DRAFT);
+        } else {
+            reporter.generated(customerId, AiOperation.MESSAGE_DRAFT);
         }
     }
 

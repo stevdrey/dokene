@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.followup.api;
 
+import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.followup.application.FollowUpConflictException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
@@ -36,6 +37,17 @@ public class FollowUpExceptionHandler {
     @ExceptionHandler(TenantAccessDeniedException.class)
     ResponseEntity<Void> forbidden() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+
+    /** Provider text and framework messages never cross the HTTP boundary; the body is intentionally empty. */
+    @ExceptionHandler(AiProviderException.class)
+    ResponseEntity<Void> aiProviderFailure() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    ResponseEntity<Void> unexpectedState() {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
     }
 
     @ExceptionHandler(RecommendationRateLimitExceededException.class)

@@ -83,6 +83,21 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid customer follow-up mutation event");
                 }
             }
+            case AI_INVOCATION_OUTCOME -> {
+                if (tenantId == null || target == null || target.type() != AuditTarget.Type.CUSTOMER
+                        || !(metadata instanceof AuditMetadata.AiInvocation ai)
+                        || outcome != expectedOutcome(ai.outcome())) {
+                    throw new IllegalArgumentException("Invalid AI invocation outcome event");
+                }
+            }
         }
+    }
+
+    private static AuditOutcome expectedOutcome(AiAuditOutcome ai) {
+        return switch (ai) {
+            case GENERATED, MODEL_REFUSED -> AuditOutcome.SUCCESS;
+            case GATE_REJECTED -> AuditOutcome.DENIED;
+            case FAILED -> AuditOutcome.FAILURE;
+        };
     }
 }

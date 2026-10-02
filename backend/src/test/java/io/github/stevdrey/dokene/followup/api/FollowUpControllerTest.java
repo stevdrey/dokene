@@ -274,7 +274,72 @@ class FollowUpControllerTest {
                 .andExpect(header().string("ETag", "\"1\""))
                 .andExpect(jsonPath("$.status").value("AI_UNAVAILABLE"))
                 .andExpect(jsonPath("$.unavailableReason").value("TIMEOUT"))
+                .andExpect(jsonPath("$.retryable").value(true))
                 .andExpect(jsonPath("$.evaluation.status").value("DUE"));
+    }
+
+    @Test
+    void aiUnavailableReasonsAreStableAndFlagWhetherRetryingIsReasonable() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        for (String[] expected : new String[][] {{"NOT_AVAILABLE", "false"}, {"THROTTLED", "true"},
+                {"INVALID_STRUCTURED_RESPONSE", "false"}, {"CONTEXT_TOO_LARGE", "false"},
+                {"DISALLOWED_ACTION", "false"}}) {
+            when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                    .thenReturn(FollowUpRecommendationResult.aiUnavailable(evaluation, expected[0], 1L));
+            mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.unavailableReason").value(expected[0]))
+                    .andExpect(jsonPath("$.retryable").value(Boolean.parseBoolean(expected[1])));
+        }
+    }
+
+    @Test
+    void draftAiUnavailableCarriesStableReasonAndRetryHint() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenReturn(FollowUpDraftResult.aiUnavailable(evaluation, "UNAVAILABLE", 1L));
+
+        mvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("AI_UNAVAILABLE"))
+                .andExpect(jsonPath("$.unavailableReason").value("UNAVAILABLE"))
+                .andExpect(jsonPath("$.retryable").value(true));
+    }
+
+    @Test
+    void successfulRecommendationIsNotFlaggedRetryable() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenReturn(FollowUpRecommendationResult.refusal(evaluation, NoRecommendationReason.UNCERTAIN_INTENT, 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(jsonPath("$.unavailableReason").doesNotExist())
+                .andExpect(jsonPath("$.retryable").value(false));
+    }
+
+    @Test
+    void unexpectedProviderOrStateFailuresNeverLeakTextAcrossTheHttpBoundary() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenThrow(new io.github.stevdrey.dokene.ai.application.AiProviderException(
+                        io.github.stevdrey.dokene.ai.application.AiFailureCategory.UNAVAILABLE,
+                        new io.github.stevdrey.dokene.ai.application.AiInvocationMetadata("openai", null, null,
+                                java.time.Duration.ZERO, null,
+                                io.github.stevdrey.dokene.ai.application.AiCompletionStatus.FAILED)));
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(result -> org.assertj.core.api.Assertions
+                        .assertThat(result.getResponse().getContentAsString()).isEmpty());
+
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenThrow(new IllegalStateException("sk-secret-key +593991234567"));
+        mvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(result -> org.assertj.core.api.Assertions
+                        .assertThat(result.getResponse().getContentAsString()).isEmpty());
     }
 
     @Test

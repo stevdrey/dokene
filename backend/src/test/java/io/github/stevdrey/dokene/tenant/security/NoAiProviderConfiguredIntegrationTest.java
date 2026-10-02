@@ -158,7 +158,8 @@ class NoAiProviderConfiguredIntegrationTest {
                 recommendations.recommendSafe(customer.id(), null, null));
 
         assertThat(result.status()).isEqualTo(RecommendationStatus.AI_UNAVAILABLE);
-        assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
+        assertThat(result.unavailableReason())
+                .isEqualTo(io.github.stevdrey.dokene.followup.application.AiUnavailableReason.NOT_AVAILABLE);
         assertThat(result.evaluation()).isNotNull();
         assertThat(result.evaluation().customerId()).isEqualTo(customer.id());
         assertThat(result.policyVersion()).isNotNull();

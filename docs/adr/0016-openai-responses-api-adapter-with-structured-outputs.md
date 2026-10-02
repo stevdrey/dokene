@@ -60,6 +60,7 @@ All SDK and HTTP exceptions are mapped into application-controlled `AiFailureCat
 - **I/O, HTTP 408 & Socket Timeouts**: Mapped to `AiFailureCategory.TIMEOUT`.
 - **Schema Violations / Missing Status / Disallowed Actions / Missing Root Envelope**: Mapped to `AiFailureCategory.INVALID_STRUCTURED_RESPONSE`.
 - **Thread Interruption / Cancelled Responses**: Mapped to `AiFailureCategory.CANCELLED`, restoring the thread's interrupt status.
+- **Model Refusal Content Part** *(ADR 0019)*: A response whose only output is a refusal part is mapped to `AiFailureCategory.REFUSED`; the refusal text is never read or retained. A disabled provider or unsupported operation maps to `AiFailureCategory.NOT_AVAILABLE`, and is no longer reported as `UNAVAILABLE`.
 
 Every mapped exception and response produces `AiInvocationMetadata` carrying diagnostic data only: provider ID (`openai`), sanitized model ID, provider request ID (validated against safe identifier patterns), latency (measured via a monotonic clock source `System.nanoTime()` and normalized to prevent negative durations across system clock adjustments), token usage (`AiTokenUsage`, with malformed or negative token counts treated as absent), and completion status. Exception messages and logs never include raw prompts, customer text, or API credentials.
 
@@ -71,7 +72,7 @@ Configuration is externalized through `OpenAiProviderProperties` (`@Configuratio
 - `dokene.ai.openai.model`: Configurable model name (default: `gpt-6-luna`), avoiding domain coupling to a single model.
 - `dokene.ai.openai.base-url`: Sourced from `DOKENE_AI_OPENAI_BASE_URL` to support proxies or local gateways.
 - `dokene.ai.openai.timeout`: Configurable timeout (default: `15s`).
-- `dokene.ai.openai.max-retries`: Configurable retries (default: `0`, restricted strictly to `0`). Client-level SDK retries are disabled to enforce the deterministic single-invocation request timeout contract and surface transient errors immediately for domain-level handling; multi-attempt retry loops that violate request deadlines are rejected at startup.
+- `dokene.ai.openai.max-retries`: Configurable retries (default: `0`, restricted strictly to `0`). Client-level SDK retries stay disabled so the request timeout remains a deterministic deadline. **Amended by [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md):** bounded retry now exists above the adapter in `ResilientAiProvider` (`dokene.ai.retry.*`), with the requested timeout as the total deadline; the adapter itself still performs a single attempt.
 
 A shared singleton `OpenAIClient` is reused across all requests.
 

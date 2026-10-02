@@ -50,6 +50,7 @@ class OpenAiResponsesApiAdapterTest {
     private final AtomicReference<Duration> responseDelay = new AtomicReference<>(Duration.ZERO);
     private final AtomicReference<String> capturedRequestBody = new AtomicReference<>();
     private final AtomicReference<String> capturedAuthHeader = new AtomicReference<>();
+    private final AtomicReference<String> capturedCorrelationHeader = new AtomicReference<>();
     private final AtomicInteger requestCounter = new AtomicInteger(0);
 
     private final RecommendationContext sampleContext = new RecommendationContext(
@@ -81,6 +82,7 @@ class OpenAiResponsesApiAdapterTest {
         server.createContext("/v1/responses", exchange -> {
             requestCounter.incrementAndGet();
             capturedAuthHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            capturedCorrelationHeader.set(exchange.getRequestHeaders().getFirst("X-Client-Request-Id"));
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
             capturedRequestBody.set(new String(requestBytes, StandardCharsets.UTF_8));
 
@@ -740,6 +742,73 @@ class OpenAiResponsesApiAdapterTest {
         MessageDraft draft = (MessageDraft) response.outcome();
         assertThat(draft.locale()).isEqualTo("es-419");
         assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+    }
+
+    @Test
+    void modelRefusalContentPartFailsAsRefusedWithoutRetainingRefusalText() {
+        String refusalWire = """
+                {
+                  "id": "resp_refusal",
+                  "object": "response",
+                  "created_at": 1727376000,
+                  "model": "gpt-6-luna",
+                  "status": "completed",
+                  "output": [
+                    {
+                      "type": "message",
+                      "id": "msg_001",
+                      "role": "assistant",
+                      "status": "completed",
+                      "content": [
+                        { "type": "refusal", "refusal": "I cannot help with +593991234567 sk-secret-refusal" }
+                      ]
+                    }
+                  ],
+                  "usage": { "input_tokens": 40, "output_tokens": 5, "total_tokens": 45 }
+                }
+                """;
+        responseBody.set(refusalWire);
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.REFUSED);
+                    assertThat(ex.metadata().status()).isEqualTo(AiCompletionStatus.FAILED);
+                    assertThat(ex.metadata().usage().inputTokens()).isEqualTo(40);
+                    assertThat(ex.getMessage()).doesNotContain("secret").doesNotContain("593");
+                    assertThat(ex.metadata().toString()).doesNotContain("secret").doesNotContain("593");
+                });
+    }
+
+    @Test
+    void forwardsServerCorrelationIdAsClientRequestIdHeaderWhenAvailable() {
+        java.util.UUID correlation = java.util.UUID.randomUUID();
+        responseBody.set(buildWireResponse("resp_corr", "gpt-6-luna", """
+                {"recommendation": {"outcome": "NO_RECOMMENDATION", "reason": "INSUFFICIENT_HISTORY",
+                 "rationale": "Not enough history", "confidence": 0.7}}
+                """, 10, 5));
+        OpenAiProviderProperties properties = new OpenAiProviderProperties("test-api-key", null,
+                "http://127.0.0.1:" + port + "/v1", Duration.ofSeconds(15), 0);
+        OpenAIClient client = OpenAIOkHttpClient.builder().apiKey("test-api-key")
+                .baseUrl(properties.baseUrl()).maxRetries(0).build();
+        OpenAiResponsesApiAdapter adapter = new OpenAiResponsesApiAdapter(client, properties,
+                () -> java.util.Optional.of(correlation));
+
+        adapter.recommend(sampleRequest);
+
+        assertThat(capturedCorrelationHeader.get()).isEqualTo(correlation.toString());
+    }
+
+    @Test
+    void omitsCorrelationHeaderWhenNoCorrelationIsBound() {
+        responseBody.set(buildWireResponse("resp_nocorr", "gpt-6-luna", """
+                {"recommendation": {"outcome": "NO_RECOMMENDATION", "reason": "INSUFFICIENT_HISTORY",
+                 "rationale": "Not enough history", "confidence": 0.7}}
+                """, 10, 5));
+
+        createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest);
+
+        assertThat(capturedCorrelationHeader.get()).isNull();
     }
 
     private static String buildWireResponse(String id, String model, String structuredOutputText,

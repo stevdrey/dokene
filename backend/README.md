@@ -170,4 +170,23 @@ this module adds no scheduler, messaging dispatch, or AI drafting. See
 - `POST /api/customers/{customerId}/follow-up-dismissals` dismisses current cycle (with optional notes) and advances cadence.
 - `PUT /api/customers/{customerId}/follow-up-snooze` postpones eligibility to the supplied local date.
 
+## AI failure handling, telemetry and audit
+
+AI recommendations and drafts are advisory and optional; the follow-up queue and manual dispositions never depend on
+the provider ([ADR 0019](../docs/adr/0019-ai-failure-handling-telemetry-and-audit.md)).
+
+- `POST /api/customers/{customerId}/recommendation` and `.../draft` return `AI_UNAVAILABLE` (HTTP 200) with a closed
+  `unavailableReason` and a `retryable` hint when the provider cannot help; the deterministic `evaluation` is always
+  included. Unexpected failures return an empty `500`/`503` body.
+- `dokene.ai.retry.max-attempts` (`DOKENE_AI_RETRY_MAX_ATTEMPTS`, default `2`, max `3`, `1` disables),
+  `initial-backoff`, `max-backoff` and `min-attempt-budget` bound retries of `TIMEOUT`, `THROTTLED` and `UNAVAILABLE`.
+  The requested timeout is the total deadline; `dokene.ai.openai.max-retries` must stay `0`.
+- Metrics are registered under `dokene.ai.*` with a closed tag set (no tenant/customer/actor/correlation tags).
+  Actuator is present only to provide the Micrometer registry: `management.endpoints.access.default=none` and no
+  endpoint or exporter is exposed.
+- Every terminal invocation writes one `AI_INVOCATION_OUTCOME` audit event (Flyway `V13`) with enumerated operation,
+  outcome and detail only; never prompts, notes, phone numbers or generated text.
+- Each request has a server-generated correlation id in the log MDC, the `X-Request-Id` response header and the
+  provider `X-Client-Request-Id` header. Inbound `X-Request-Id` is ignored.
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

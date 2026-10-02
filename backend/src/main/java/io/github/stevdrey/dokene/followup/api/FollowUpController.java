@@ -31,6 +31,7 @@ import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.followup.application.ActionGateRejectionReason;
+import io.github.stevdrey.dokene.followup.application.AiUnavailableReason;
 import io.github.stevdrey.dokene.followup.application.DraftStatus;
 import io.github.stevdrey.dokene.followup.application.FollowUpDraftResult;
 import io.github.stevdrey.dokene.followup.application.FollowUpDraftService;
@@ -261,7 +262,8 @@ public class FollowUpController {
                 refusalResponse,
                 result.refusalReason(),
                 result.rejectionReason(),
-                result.unavailableReason());
+                result.unavailableReason(),
+                result.unavailableReason() != null && result.unavailableReason().retryable());
     }
 
     private TenantPolicyResponse response(TenantFollowUpPolicy policy) {
@@ -356,7 +358,8 @@ public class FollowUpController {
             RefusalResponse refusal,
             NoRecommendationReason refusalReason,
             ActionGateRejectionReason rejectionReason,
-            String unavailableReason) { }
+            AiUnavailableReason unavailableReason,
+            boolean retryable) { }
 
     @PostMapping({"/customers/{customerId}/draft", "/customers/{customerId}/follow-up-draft"})
     public ResponseEntity<DraftResponse> requestDraft(
@@ -429,7 +432,8 @@ public class FollowUpController {
                 refusalResponse,
                 result.refusalReason(),
                 result.rejectionReason(),
-                result.unavailableReason());
+                result.unavailableReason(),
+                result.unavailableReason() != null && result.unavailableReason().retryable());
     }
 
     public record DraftRequest(
@@ -458,5 +462,6 @@ public class FollowUpController {
             NoDraftResponse refusal,
             NoDraftReason refusalReason,
             ActionGateRejectionReason rejectionReason,
-            String unavailableReason) { }
+            AiUnavailableReason unavailableReason,
+            boolean retryable) { }
 }

@@ -146,6 +146,36 @@ Supports optional `If-Match: "<version>"` header and returns `ETag: "<version>"`
 ### Phase 2 to Phase 3 Handoff
 Draft generation is strictly an advisory decision-support operation. Generated message drafts are returned to human operators in the UI for review. Outbound messaging delivery, WhatsApp Cloud API dispatch, and operator approval state machines (`MESSAGE_APPROVE`, `MESSAGE_SEND`) belong to Phase 3 and are decoupled from draft generation.
 
+## AI Failure Handling, Telemetry and Audit
+
+Governed by [ADR 0019](../adr/0019-ai-failure-handling-telemetry-and-audit.md). AI assistance is optional: **the deterministic follow-up queue and manual dispositions work identically whether the provider is healthy, degraded, disabled or failing.**
+
+### Client-facing recovery semantics
+
+Recommendation and draft requests do not fail with an error status when the AI step cannot help. They return HTTP 200 with `status: AI_UNAVAILABLE`, the unchanged deterministic `evaluation`, an `unavailableReason` and a `retryable` hint:
+
+| `unavailableReason` | `retryable` | Meaning and suggested handling |
+|---|---|---|
+| `TIMEOUT`, `THROTTLED`, `UNAVAILABLE` | `true` | Transient provider problem that survived the server-side bounded retry. Offer "try again" with backoff; continue the manual workflow meanwhile. |
+| `NOT_AVAILABLE` | `false` | AI is disabled or unsupported. Hide or disable AI actions; nothing to retry. |
+| `REFUSED`, `INVALID_STRUCTURED_RESPONSE`, `REJECTED_REQUEST`, `CANCELLED` | `false` | The provider could not produce a usable result. Fall back to the manual workflow. |
+| `DISALLOWED_ACTION`, `DISALLOWED_TEMPLATE_INTENT`, `INVALID_RECOMMENDATION` | `false` | The deterministic Action Gate rejected model output. Never shown as advice. |
+| `CONTEXT_TOO_LARGE`, `CONTEXT_UNSUPPORTED` | `false` | The customer context cannot be sent to the model safely. |
+
+Other statuses keep their meaning: `403` (not authorized), `404` (customer not in tenant), `409` (stale `If-Match`), `429` + `Retry-After` (per-tenant/actor AI rate limit). An unexpected server error returns an empty `500`/`503` body: provider and exception text never reaches the client.
+
+### Retry
+
+Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are retried, only around the provider call, and the requested timeout is the total deadline. Configure with `dokene.ai.retry.max-attempts` (default `2`, maximum `3`, `1` disables), `initial-backoff`, `max-backoff` and `min-attempt-budget`. Authorization and the Action Gate are never skipped by a retry.
+
+### Metrics
+
+Under `dokene.ai.*`: `invocations`, `invocation.duration`, `tokens` (only when the provider reports usage), `retries`, `model.refusals`, `gate.rejections`. Tags are limited to `operation`, `provider`, `model`, `outcome`, `category`, `direction`, `reason`. No tenant, customer, actor or correlation tags, and no actuator endpoint is exposed.
+
+### Audit and logs
+
+Each terminal invocation records one `AI_INVOCATION_OUTCOME` audit event (`GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED` with the exact reason, or `FAILED` with the category), readable with `AUDIT_READ`. Raw prompts, customer notes, phone numbers, API keys and generated message bodies are never logged or audited. The server-generated correlation id appears in logs, the `X-Request-Id` response header and the provider `X-Client-Request-Id` header, which lets support correlate a user report with a log line and an audit row.
+
 ## Trust boundaries
 
 Treat these as untrusted input to the model and to the application:
@@ -293,6 +323,6 @@ Useful evaluation dimensions include:
 - unsafe recommendation rejection rate;
 - latency;
 - token/cost consumption;
-- provider failure behavior.
+- provider failure behavior (see [AI Failure Handling, Telemetry and Audit](#ai-failure-handling-telemetry-and-audit) for the operational signals).
 
 A better model is not a reason to weaken deterministic controls.

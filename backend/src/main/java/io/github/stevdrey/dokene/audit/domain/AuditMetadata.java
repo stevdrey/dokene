@@ -16,6 +16,24 @@ public sealed interface AuditMetadata {
     record FollowUpMutation() implements AuditMetadata {
     }
 
+    /** Privacy-safe AI lifecycle outcome: enums only, never prompts, generated text, notes or provider messages. */
+    record AiInvocation(AiAuditOperation operation, AiAuditOutcome outcome, AiAuditDetail detail)
+            implements AuditMetadata {
+        public AiInvocation {
+            Objects.requireNonNull(operation, "AI operation is required");
+            Objects.requireNonNull(outcome, "AI outcome is required");
+            Objects.requireNonNull(detail, "AI outcome detail is required");
+            boolean consistent = switch (outcome) {
+                case GENERATED, MODEL_REFUSED -> detail.isNone();
+                case GATE_REJECTED -> detail.isGateReason();
+                case FAILED -> detail.isFailure();
+            };
+            if (!consistent) {
+                throw new IllegalArgumentException("AI outcome detail is inconsistent with the outcome");
+            }
+        }
+    }
+
     record AuthorizationDenied(TenantPermission permission, AuditDenialReason reason) implements AuditMetadata {
         public AuthorizationDenied {
             Objects.requireNonNull(reason, "Denial reason is required");

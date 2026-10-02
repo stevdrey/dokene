@@ -80,7 +80,7 @@ class AiProviderConfigurationTest {
     }
 
     @Test
-    void disabledAiProviderThrowsUnavailableExceptionOnRecommend() {
+    void disabledAiProviderThrowsNotAvailableExceptionOnRecommend() {
         DisabledAiProvider provider = new DisabledAiProvider();
         RecommendationContext context = new RecommendationContext(
                 new RecommendationContext.TrustedFacts(java.time.LocalDate.of(2026, 9, 28), "DUE",
@@ -96,7 +96,7 @@ class AiProviderConfigurationTest {
                 .isInstanceOf(AiProviderException.class)
                 .satisfies(ex -> {
                     AiProviderException pe = (AiProviderException) ex;
-                    assertThat(pe.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
+                    assertThat(pe.category()).isEqualTo(AiFailureCategory.NOT_AVAILABLE);
                     assertThat(pe.metadata().providerId()).isEqualTo("disabled");
                     assertThat(pe.metadata().status()).isEqualTo(io.github.stevdrey.dokene.ai.application.AiCompletionStatus.FAILED);
                 });

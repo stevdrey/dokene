@@ -21,6 +21,8 @@
 - Abuse of the platform for spam
 - Supply-chain compromise
 - Sensitive data leakage through logs or observability
+- Cross-tenant information channel through metric labels or diagnostic endpoints (mitigated by a closed tag allow-list and no exposed actuator endpoints; ADR 0019)
+- Retry storms and duplicate AI cost during provider throttling or outages (mitigated by bounded, deadline-limited retry; ADR 0019)
 
 ## Trust boundaries
 

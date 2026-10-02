@@ -34,6 +34,69 @@ class AuditEventTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(AiAuditOutcome.class)
+    void aiInvocationOutcomeEventsMapEachOutcomeToItsAuditOutcome(AiAuditOutcome ai) {
+        AiAuditDetail detail = switch (ai) {
+            case GENERATED, MODEL_REFUSED -> AiAuditDetail.NONE;
+            case GATE_REJECTED -> AiAuditDetail.DISALLOWED_ACTION;
+            case FAILED -> AiAuditDetail.TIMEOUT;
+        };
+        AuditOutcome expected = switch (ai) {
+            case GENERATED, MODEL_REFUSED -> AuditOutcome.SUCCESS;
+            case GATE_REJECTED -> AuditOutcome.DENIED;
+            case FAILED -> AuditOutcome.FAILURE;
+        };
+        for (AuditOutcome candidate : AuditOutcome.values()) {
+            Runnable create = () -> aiEvent(candidate, new AuditMetadata.AiInvocation(
+                    AiAuditOperation.MESSAGE_DRAFT, ai, detail));
+            if (candidate == expected) {
+                assertThatCode(create::run).doesNotThrowAnyException();
+            } else {
+                assertThatThrownBy(create::run).isInstanceOf(IllegalArgumentException.class);
+            }
+        }
+    }
+
+    @Test
+    void aiInvocationMetadataEnforcesConsistentClosedDetails() {
+        assertThatThrownBy(() -> new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,
+                AiAuditOutcome.GENERATED, AiAuditDetail.TIMEOUT)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,
+                AiAuditOutcome.FAILED, AiAuditDetail.NONE)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,
+                AiAuditOutcome.FAILED, AiAuditDetail.STALE_STATE)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,
+                AiAuditOutcome.GATE_REJECTED, AiAuditDetail.TIMEOUT)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.AiInvocation(null, AiAuditOutcome.GENERATED, AiAuditDetail.NONE))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void aiInvocationEventRequiresTenantAttributionAndCustomerTarget() {
+        AuditMetadata ai = new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,
+                AiAuditOutcome.GENERATED, AiAuditDetail.NONE);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), null, null, null,
+                AuditEventType.AI_INVOCATION_OUTCOME, new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), ai)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), new TenantId(UUID.randomUUID()),
+                new IdentityId(UUID.randomUUID()), new TenantMembershipId(UUID.randomUUID()),
+                AuditEventType.AI_INVOCATION_OUTCOME, new AuditTarget(AuditTarget.Type.PURCHASE, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), ai)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), new TenantId(UUID.randomUUID()),
+                new IdentityId(UUID.randomUUID()), new TenantMembershipId(UUID.randomUUID()),
+                AuditEventType.AI_INVOCATION_OUTCOME, new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.CustomerMutation()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static AuditEvent aiEvent(AuditOutcome outcome, AuditMetadata metadata) {
+        return new AuditEvent(UUID.randomUUID(), Instant.now(), new TenantId(UUID.randomUUID()),
+                new IdentityId(UUID.randomUUID()), new TenantMembershipId(UUID.randomUUID()),
+                AuditEventType.AI_INVOCATION_OUTCOME, new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()),
+                outcome, UUID.randomUUID(), metadata);
+    }
+
     @Test
     void normalizesTimestampToDatabasePrecisionAndRequiresCorrelation() {
         AuditEvent event = denial(Instant.parse("2026-09-01T01:02:03.123456789Z"), UUID.randomUUID(), null, null, null);
