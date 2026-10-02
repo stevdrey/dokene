@@ -13,6 +13,9 @@ public record AiDraftRequest(
 
     public AiDraftRequest {
         Objects.requireNonNull(operation, "Operation is required");
+        if (operation != AiOperation.MESSAGE_DRAFT) {
+            throw new IllegalArgumentException("Draft requests require the MESSAGE_DRAFT operation");
+        }
         Objects.requireNonNull(context, "Draft context is required");
         Objects.requireNonNull(timeout, "Timeout is required");
         if (timeout.isZero() || timeout.isNegative()) {

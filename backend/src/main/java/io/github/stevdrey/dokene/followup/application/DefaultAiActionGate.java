@@ -428,7 +428,7 @@ public class DefaultAiActionGate implements AiActionGate {
         var evalAuthDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
         if (!evalAuthDecision.isAllowed()) {
             String diagnosticCode = evalAuthDecision.rejectionReason().orElse("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.FOLLOWUP_EVALUATE);
             return DraftGateDecision.rejected(ActionGateRejectionReason.UNAUTHORIZED,
                     "Caller lacks required permission FOLLOWUP_EVALUATE", null, outcome);
         }
@@ -648,7 +648,7 @@ public class DefaultAiActionGate implements AiActionGate {
         var evalAuthDecision = authorization.evaluate(tenantContext, TenantPermission.FOLLOWUP_EVALUATE);
         if (!evalAuthDecision.isAllowed()) {
             String diagnosticCode = evalAuthDecision.rejectionReason().orElse("MISSING_FOLLOWUP_EVALUATE_PERMISSION");
-            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.MESSAGE_DRAFT);
+            emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.UNAUTHORIZED, diagnosticCode, TenantPermission.FOLLOWUP_EVALUATE);
             throw new TenantAccessDeniedException("Caller lacks required permission FOLLOWUP_EVALUATE");
         }
 

@@ -17,4 +17,17 @@ class AiDraftRequestTest {
         assertThatThrownBy(() -> new AiDraftRequest(context, Duration.ofSeconds(-1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void rejectsOperationsOtherThanMessageDraft() {
+        assertThatThrownBy(() -> new AiDraftRequest(AiOperation.NEXT_BEST_ACTION, context, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void recommendationRequestRejectsOperationsOtherThanNextBestAction() {
+        RecommendationContext recommendationContext = mock(RecommendationContext.class);
+        assertThatThrownBy(() -> new AiRecommendationRequest(AiOperation.MESSAGE_DRAFT, recommendationContext,
+                Duration.ofSeconds(1))).isInstanceOf(IllegalArgumentException.class);
+    }
 }

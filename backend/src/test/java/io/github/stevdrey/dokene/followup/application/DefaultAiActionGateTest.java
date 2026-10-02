@@ -988,6 +988,24 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void evaluateDraft_attributesMissingFollowUpEvaluateDenialToThatPermission() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        when(authorization.evaluate(eq(tenantContext), eq(TenantPermission.FOLLOWUP_EVALUATE)))
+                .thenReturn(AuthorizationDecision.deny("Missing FOLLOWUP_EVALUATE"));
+        NoDraft refusal = new NoDraft(
+                NoDraftReason.INSUFFICIENT_HISTORY,
+                "Only one purchase on record",
+                RecommendationConfidence.of(0.85));
+
+        DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, refusal);
+
+        assertThat(decision.isAccepted()).isFalse();
+        verify(auditListener).onSecurityRejection(argThat(event ->
+                event.reason() == ActionGateRejectionReason.UNAUTHORIZED
+                        && event.permission() == TenantPermission.FOLLOWUP_EVALUATE));
+    }
+
+    @Test
     void evaluateDraft_rejectsWhenBaselineStale() {
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
         // Cadence updated from 30 to 45 authoritatively to simulate concurrent modification
