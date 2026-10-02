@@ -232,7 +232,7 @@ Do not log:
 
 Phone numbers and identifiers should be masked where full values are unnecessary.
 
-Metrics labels must not contain PII or unbounded customer-controlled values. AI metrics use only the closed tags `operation`, `provider`, `model`, `outcome`, `category`, `direction` and `reason`; tenant, customer, actor and correlation identifiers are never tags. No actuator endpoint is exposed. Each request carries a server-generated correlation id (log MDC and `X-Request-Id` response header); logs and audit rows for AI invocations contain only closed-vocabulary outcomes, never prompts, notes, phone numbers or generated text.
+Metrics labels must not contain PII or unbounded customer-controlled values. AI metrics use only the closed tags `operation`, `provider`, `model`, `outcome`, `category`, `direction` and `reason`; tenant, customer, actor and correlation identifiers are never tags. No actuator endpoint is exposed. Each request carries a server-generated correlation id (log MDC and `X-Request-Id` response header, exposed to browsers through CORS); logs and audit rows for AI invocations contain only closed-vocabulary outcomes, never prompts, notes, phone numbers or generated text.
 
 ## Browser security
 

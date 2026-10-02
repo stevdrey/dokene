@@ -34,17 +34,20 @@ public final class AiOutcomeReporter {
     }
 
     public void generated(CustomerId customerId, AiOperation operation) {
+        telemetry.outcome(operation, AiTelemetry.Outcome.GENERATED);
         logOutcome(operation, "GENERATED", "NONE");
         audit.generated(customerId, operation);
     }
 
     public void modelRefused(CustomerId customerId, AiOperation operation) {
+        telemetry.outcome(operation, AiTelemetry.Outcome.MODEL_REFUSED);
         telemetry.modelRefusal(operation);
         logOutcome(operation, "MODEL_REFUSED", "NONE");
         audit.modelRefused(customerId, operation);
     }
 
     public void gateRejected(CustomerId customerId, AiOperation operation, ActionGateRejectionReason reason) {
+        telemetry.outcome(operation, AiTelemetry.Outcome.GATE_REJECTED);
         telemetry.gateRejected(operation, reason.name());
         logOutcome(operation, "GATE_REJECTED", reason.name());
         // Without a tenant context there is no tenant to attribute an audit event to; the gate's own
@@ -55,6 +58,7 @@ public final class AiOutcomeReporter {
     }
 
     public void failed(CustomerId customerId, AiOperation operation, AiUnavailableReason reason) {
+        telemetry.outcome(operation, AiTelemetry.Outcome.FAILED);
         logOutcome(operation, "FAILED", reason.name());
         audit.failed(customerId, operation, reason);
     }

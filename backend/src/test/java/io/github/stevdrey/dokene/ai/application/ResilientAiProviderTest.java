@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.ai.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.ai.domain.NoDraft;
@@ -68,7 +69,8 @@ class ResilientAiProviderTest {
 
         assertThat(response.outcome()).isSameAs(refusal);
         assertThat(delegate.calls).isEqualTo(2);
-        assertThat(sleeps).containsExactly(Duration.ofMillis(125));
+        // no Retry-After hint: wait the (jittered, here 50%) max-backoff instead of hammering a throttling provider
+        assertThat(sleeps).containsExactly(Duration.ofSeconds(1));
         assertThat(telemetry.retries).containsExactly("NEXT_BEST_ACTION:fake:THROTTLED");
         assertThat(telemetry.invocations).containsExactly("FAILED:THROTTLED", "SUCCEEDED:NONE");
     }
@@ -158,6 +160,76 @@ class ResilientAiProviderTest {
                     assertThat(ex.metadata().toString()).doesNotContain("sk-secret");
                 });
         assertThat(telemetry.invocations).containsExactly("FAILED:UNAVAILABLE");
+    }
+
+    @Test
+    void throttlingHonorsTheProviderRetryAfterHintWhenItFitsTheBudget() {
+        delegate.failThen(AiFailureCategory.THROTTLED, Duration.ofSeconds(3));
+
+        provider(2).recommend(request(Duration.ofSeconds(15)));
+
+        assertThat(sleeps).containsExactly(Duration.ofSeconds(3));
+        assertThat(delegate.calls).isEqualTo(2);
+    }
+
+    @Test
+    void throttlingIsNotRetriedWhenTheRetryAfterHintExceedsTheRemainingBudget() {
+        delegate.failThen(AiFailureCategory.THROTTLED, Duration.ofSeconds(20));
+
+        assertThatThrownBy(() -> provider(3).recommend(request(Duration.ofSeconds(15))))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.THROTTLED);
+                    assertThat(ex.retryAfter()).isEqualTo(Duration.ofSeconds(20));
+                });
+
+        assertThat(delegate.calls).isEqualTo(1);
+        assertThat(sleeps).isEmpty();
+        assertThat(telemetry.retries).isEmpty();
+    }
+
+    @Test
+    void retryAfterHintOnlyAffectsThrottling() {
+        delegate.failThen(AiFailureCategory.UNAVAILABLE, Duration.ofSeconds(10));
+
+        provider(2).recommend(request(Duration.ofSeconds(15)));
+
+        assertThat(sleeps).containsExactly(Duration.ofMillis(125));
+    }
+
+    @Test
+    void largestConfiguredBackoffNeverOverflowsOrCollapsesToZero() {
+        delegate.alwaysFail(AiFailureCategory.UNAVAILABLE);
+        ResilientAiProvider widest = new ResilientAiProvider(delegate,
+                new AiRetryProperties(3, AiRetryProperties.HARD_MAX_BACKOFF, AiRetryProperties.HARD_MAX_BACKOFF, null),
+                telemetry, duration -> {
+                    sleeps.add(duration);
+                    nanos.addAndGet(duration.toNanos());
+                }, nanos::get, () -> 1.0);
+
+        assertThatThrownBy(() -> widest.recommend(request(Duration.ofMinutes(10))))
+                .isInstanceOf(AiProviderException.class);
+
+        assertThat(sleeps).hasSize(2).allSatisfy(sleep -> assertThat(sleep)
+                .isPositive().isLessThanOrEqualTo(AiRetryProperties.HARD_MAX_BACKOFF));
+    }
+
+    @Test
+    void backoffAboveTheHardCeilingIsRejected() {
+        assertThatThrownBy(() -> new AiRetryProperties(2, Duration.ofSeconds(31), Duration.ofSeconds(31), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AiRetryProperties(2, Duration.ofSeconds(1), Duration.ofDays(2), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatCode(() -> new AiRetryProperties(2, AiRetryProperties.HARD_MAX_BACKOFF,
+                AiRetryProperties.HARD_MAX_BACKOFF, null)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void retryAfterHintMustNotBeNegative() {
+        AiInvocationMetadata metadata = new AiInvocationMetadata("fake", null, null, Duration.ZERO, null,
+                AiCompletionStatus.FAILED);
+        assertThatThrownBy(() -> new AiProviderException(AiFailureCategory.THROTTLED, metadata, Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(new AiProviderException(AiFailureCategory.THROTTLED, metadata).retryAfter()).isNull();
     }
 
     @Test
@@ -257,6 +329,10 @@ class ResilientAiProviderTest {
             script.add(timeout -> failure(category));
         }
 
+        void failThen(AiFailureCategory category, Duration retryAfter) {
+            script.add(timeout -> failure(category, retryAfter));
+        }
+
         void alwaysFail(AiFailureCategory category) {
             fallback = timeout -> failure(category);
         }
@@ -296,9 +372,13 @@ class ResilientAiProviderTest {
         }
 
         private AiProviderException failure(AiFailureCategory category) {
+            return failure(category, null);
+        }
+
+        private AiProviderException failure(AiFailureCategory category, Duration retryAfter) {
             return new AiProviderException(category, new AiInvocationMetadata("fake", "test-model", null,
                     latencyPerCall, null, category == AiFailureCategory.CANCELLED
-                            ? AiCompletionStatus.CANCELLED : AiCompletionStatus.FAILED));
+                            ? AiCompletionStatus.CANCELLED : AiCompletionStatus.FAILED), retryAfter);
         }
 
         private AiInvocationMetadata success() {
@@ -312,7 +392,7 @@ class ResilientAiProviderTest {
         final List<String> retries = new ArrayList<>();
 
         @Override
-        public void invocationCompleted(AiOperation operation, AiInvocationMetadata metadata,
+        public void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata,
                 AiFailureCategory category) {
             invocations.add(metadata.status() == AiCompletionStatus.SUCCEEDED ? "SUCCEEDED:NONE"
                     : "FAILED:" + category);
@@ -321,6 +401,10 @@ class ResilientAiProviderTest {
         @Override
         public void retryScheduled(AiOperation operation, String providerId, AiFailureCategory category) {
             retries.add(operation + ":" + providerId + ":" + category);
+        }
+
+        @Override
+        public void outcome(AiOperation operation, Outcome outcome) {
         }
 
         @Override

@@ -33,16 +33,17 @@ Client-facing results use the closed enum `AiUnavailableReason` (the categories 
 
 The SDK client keeps `maxRetries(0)`. `ResilientAiProvider` wraps the selected `AiProvider` and owns the only retry loop:
 
-- configurable via `dokene.ai.retry.*`: `max-attempts` (default `2`, hard limit `3`, `1` disables), `initial-backoff` (250ms), `max-backoff` (2s), `min-attempt-budget` (1s);
-- the requested timeout is the **total deadline**: each attempt receives only the remaining budget, backoff is exponential with equal jitter, and no attempt starts without `min-attempt-budget` left;
+- configurable via `dokene.ai.retry.*`: `max-attempts` (default `2`, hard limit `3`, `1` disables), `initial-backoff` (250ms) and `max-backoff` (2s), both capped at 30s to keep the exponential backoff well inside the `long` range, `min-attempt-budget` (1s);
+- the requested timeout is the **total deadline**: each attempt receives only the remaining budget, backoff is exponential with equal jitter, the deadline is re-checked after the backoff sleep (an overrun rethrows the last real failure instead of starting an attempt that cannot fit), and no attempt starts without `min-attempt-budget` left;
 - retries only for `retryable()` categories and only around the provider call. Authorization revalidation, rate-limit acquisition and the Action Gate run in the caller before/after it, so retry cannot bypass them. A retry does not consume extra rate-limit quota but cannot exceed the deadline;
-- any non-`AiProviderException` runtime failure is normalized to `UNAVAILABLE` without copying its message or cause.
+- `THROTTLED` is special: the adapter extracts the provider's `retry-after-ms`/`retry-after` (seconds) into `AiProviderException.retryAfter()` (a number only, never header text); the decorator waits exactly that long, and when the hint does not fit the remaining budget there is no retry. Without a hint it waits `max-backoff` rather than hammering a provider that is already rate limiting;
+- any non-`AiProviderException` runtime failure is normalized to `UNAVAILABLE` without copying its message or cause; `UnsupportedOperationException` is the exception to that rule and maps to the permanent, never-retried `NOT_AVAILABLE`.
 
 ### 3. Telemetry through a port, Micrometer behind it
 
 `AiTelemetry` is the port; `MicrometerAiTelemetry` implements it. Actuator is on the classpath **only** to provide the `MeterRegistry`; `management.endpoints.access.default` is `none` and no endpoint or exporter is configured, so no new diagnostics endpoint exists.
 
-Meters (all `dokene.ai.*`): `invocations`, `invocation.duration`, `tokens` (when the provider supplies usage), `retries`, `model.refusals`, `gate.rejections`. Tags come only from closed vocabularies: `operation`, `provider`, `model` (validated identifier), `outcome`, `category`, `direction`, `reason`. **Tenant, customer, actor, correlation id and free text are never tags**: this prevents unbounded cardinality and a cross-tenant information channel. The `reason` tag is enforced against a closed allow-list (`AiTelemetry.GATE_REJECTION_REASONS`, guarded by a test against `ActionGateRejectionReason`); any other value is recorded as `UNKNOWN`.
+Meters (all `dokene.ai.*`): `attempts` and `attempt.duration` (one per provider attempt, retries included), `outcomes` (exactly one per request: `GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED`, `FAILED`; use this for request counts and success rates), `tokens` (when the provider supplies usage), `retries`, `model.refusals`, `gate.rejections`. Tags come only from closed vocabularies: `operation`, `provider`, `model` (validated identifier), `outcome`, `category`, `direction`, `reason`. **Tenant, customer, actor, correlation id and free text are never tags**: this prevents unbounded cardinality and a cross-tenant information channel. The `reason` tag is enforced against a closed allow-list (`AiTelemetry.GATE_REJECTION_REASONS`, guarded by a test against `ActionGateRejectionReason`); any other value is recorded as `UNKNOWN`.
 
 ### 4. Privacy-safe durable audit
 
@@ -59,11 +60,11 @@ This is the first use of `FAILURE`. Migration `V13` adds the constrained columns
 
 ### 5. Logs and correlation
 
-`AiOutcomeReporter` is the single terminal reporting point (metrics, one log line, one audit event). The log line contains `operation`, `outcome`, closed `detail` and `correlationId` only. `AuditRequestFilter` additionally places the server-generated correlation UUID in `MDC["correlationId"]` (cleared in `finally`), echoes it as the `X-Request-Id` response header, and the log pattern includes it. Inbound `X-Request-Id` remains ignored (ADR 0006). The OpenAI adapter forwards the same UUID as `X-Client-Request-Id` for provider-side diagnostics. It carries no PII.
+`AiOutcomeReporter` is the single terminal reporting point (metrics, one log line, one audit event). The log line contains `operation`, `outcome`, closed `detail` and `correlationId` only. `AuditRequestFilter` additionally places the server-generated correlation UUID in `MDC["correlationId"]` (cleared in `finally`), echoes it as the `X-Request-Id` response header, and the log pattern includes it. Inbound `X-Request-Id` remains ignored (ADR 0006). The OpenAI adapter forwards the same UUID as `X-Client-Request-Id` for provider-side diagnostics. It carries no PII. CORS exposes `X-Request-Id` (next to `ETag`) so a browser client can show it when reporting a problem, and the log pattern uses Spring Boot's `logging.pattern.correlation` hook. The terminal outcome is reported once the result is decided: output discarded by an `If-Match` conflict or a policy-version drift is audited as `GATE_REJECTED`/`STALE_STATE`, never as `GENERATED`.
 
 ### 6. HTTP semantics
 
-AI failure stays an HTTP 200 `AI_UNAVAILABLE` result with `unavailableReason` and `retryable`; the evaluation and the deterministic queue remain usable. Authorization, not-found, conflict and rate-limit semantics are unchanged. A stray `AiProviderException` maps to an empty 503 and an unexpected `IllegalStateException` to an empty 500.
+AI failure stays an HTTP 200 `AI_UNAVAILABLE` result with `unavailableReason` and `retryable`; the evaluation and the deterministic queue remain usable. Authorization, not-found, conflict and rate-limit semantics are unchanged. A stray `AiProviderException` maps to an empty 503 and an unexpected `IllegalStateException` to an empty 500. Both are logged without the message or cause (category, or exception class and top stack frame), so the failure stays diagnosable without leaking text.
 
 ## Consequences
 

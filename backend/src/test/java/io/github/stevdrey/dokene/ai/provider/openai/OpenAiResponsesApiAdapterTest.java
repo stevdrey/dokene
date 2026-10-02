@@ -52,6 +52,7 @@ class OpenAiResponsesApiAdapterTest {
     private final AtomicReference<String> capturedAuthHeader = new AtomicReference<>();
     private final AtomicReference<String> capturedCorrelationHeader = new AtomicReference<>();
     private final AtomicInteger requestCounter = new AtomicInteger(0);
+    private final java.util.Map<String, String> responseHeaders = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final RecommendationContext sampleContext = new RecommendationContext(
             new RecommendationContext.TrustedFacts(
@@ -98,6 +99,7 @@ class OpenAiResponsesApiAdapterTest {
             int status = responseStatusCode.get();
             byte[] body = responseBody.get().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
+            responseHeaders.forEach((name, value) -> exchange.getResponseHeaders().set(name, value));
             exchange.sendResponseHeaders(status, body.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(body);
@@ -742,6 +744,63 @@ class OpenAiResponsesApiAdapterTest {
         MessageDraft draft = (MessageDraft) response.outcome();
         assertThat(draft.locale()).isEqualTo("es-419");
         assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+    }
+
+    private AiProviderException throttled(java.util.function.Consumer<OpenAiResponsesApiAdapter> call) {
+        responseStatusCode.set(429);
+        responseBody.set("{\"error\": {\"message\": \"Rate limit reached\", \"type\": \"requests\", "
+                + "\"param\": null, \"code\": \"rate_limit_exceeded\"}}");
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        return org.junit.jupiter.api.Assertions.assertThrows(AiProviderException.class, () -> call.accept(adapter));
+    }
+
+    @Test
+    void throttlingCarriesTheRetryAfterSecondsHint() {
+        responseHeaders.put("retry-after", "3");
+
+        AiProviderException ex = throttled(adapter -> adapter.recommend(sampleRequest));
+
+        assertThat(ex.category()).isEqualTo(AiFailureCategory.THROTTLED);
+        assertThat(ex.retryAfter()).isEqualTo(Duration.ofSeconds(3));
+    }
+
+    @Test
+    void retryAfterMillisecondsTakesPrecedenceOverSeconds() {
+        responseHeaders.put("retry-after-ms", "1500");
+        responseHeaders.put("retry-after", "30");
+
+        AiProviderException ex = throttled(adapter -> adapter.recommend(sampleRequest));
+
+        assertThat(ex.retryAfter()).isEqualTo(Duration.ofMillis(1500));
+    }
+
+    @Test
+    void unparseableOrMissingRetryAfterYieldsNoHintAndNeverLeaksHeaderText() {
+        responseHeaders.put("retry-after", "Wed, 21 Oct 2026 07:28:00 GMT");
+        AiProviderException httpDate = throttled(adapter -> adapter.recommend(sampleRequest));
+        assertThat(httpDate.retryAfter()).isNull();
+
+        responseHeaders.put("retry-after", "-5");
+        assertThat(throttled(adapter -> adapter.recommend(sampleRequest)).retryAfter()).isNull();
+
+        responseHeaders.clear();
+        AiProviderException missing = throttled(adapter -> adapter.recommend(sampleRequest));
+        assertThat(missing.retryAfter()).isNull();
+        assertThat(httpDate.getMessage()).doesNotContain("GMT");
+    }
+
+    @Test
+    void retryAfterOnlyAppliesToThrottlingNotToOtherFailures() {
+        responseStatusCode.set(503);
+        responseBody.set("{\"error\": {\"message\": \"down\", \"type\": \"server_error\"}}");
+        responseHeaders.put("retry-after", "7");
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
+                    assertThat(ex.retryAfter()).isNull();
+                });
     }
 
     @Test

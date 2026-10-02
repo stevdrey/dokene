@@ -81,7 +81,7 @@ public final class ResilientAiProvider implements AiProvider {
             try {
                 R response = call.apply(remaining);
                 if (response != null) {
-                    telemetry.invocationCompleted(operation, metadataOf.apply(response), null);
+                    telemetry.attemptCompleted(operation, metadataOf.apply(response), null);
                 }
                 return response;
             } catch (AiProviderException e) {
@@ -95,9 +95,9 @@ public final class ResilientAiProvider implements AiProvider {
                         "unknown", null, null, Duration.ofNanos(Math.max(0, nanoClock.getAsLong() - startNanos)),
                         null, AiCompletionStatus.FAILED));
             }
-            telemetry.invocationCompleted(operation, failure.metadata(), failure.category());
+            telemetry.attemptCompleted(operation, failure.metadata(), failure.category());
 
-            Duration backoff = backoff(attempt);
+            Duration backoff = backoff(failure, attempt);
             if (!canRetry(failure, attempt, budget, startNanos, backoff)) {
                 throw failure;
             }
@@ -128,12 +128,27 @@ public final class ResilientAiProvider implements AiProvider {
         return afterBackoff.compareTo(retry.minAttemptBudget()) >= 0;
     }
 
-    /** Exponential backoff capped at maxBackoff with equal jitter (50%-100% of the computed delay). */
-    private Duration backoff(int attempt) {
+    /**
+     * Throttling honors the provider's Retry-After hint when present (a hint that does not fit the remaining
+     * budget therefore means no retry) and otherwise waits the full max-backoff rather than hammering a provider
+     * that is already rate limiting. Other transient failures use exponential backoff capped at max-backoff.
+     * Every delay gets equal jitter (50%-100%), except an explicit provider hint, which is used as given.
+     */
+    private Duration backoff(AiProviderException failure, int attempt) {
+        if (failure.category() == AiFailureCategory.THROTTLED) {
+            if (failure.retryAfter() != null) {
+                return failure.retryAfter();
+            }
+            return jittered(retry.maxBackoff().toNanos());
+        }
+        // initial-backoff is validated <= HARD_MAX_BACKOFF, so this shift (<= 2^20) cannot overflow a long.
         long base = retry.initialBackoff().toNanos() << Math.min(attempt - 1, 20);
-        long capped = Math.min(retry.maxBackoff().toNanos(), Math.max(base, 0));
+        return jittered(Math.min(retry.maxBackoff().toNanos(), base));
+    }
+
+    private Duration jittered(long nanos) {
         double factor = 0.5 + 0.5 * Math.min(1.0, Math.max(0.0, jitter.getAsDouble()));
-        return Duration.ofNanos((long) (capped * factor));
+        return Duration.ofNanos((long) (nanos * factor));
     }
 
     private Duration remaining(Duration budget, long startNanos) {

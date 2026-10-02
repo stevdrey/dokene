@@ -76,6 +76,6 @@ management:
 logging:
   pattern:
     # Server-generated request correlation UUID (see AuditRequestFilter); empty outside a request.
-    level: "%5p [%X{correlationId:-}]"
+    correlation: "[%X{correlationId:-}] "
   level:
     root: INFO

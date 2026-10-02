@@ -19,8 +19,14 @@ public interface AiTelemetry {
 
     String UNKNOWN_REASON = "UNKNOWN";
 
+    /** Logical result of one AI invocation (request), independent of how many provider attempts it took. */
+    enum Outcome { GENERATED, MODEL_REFUSED, GATE_REJECTED, FAILED }
+
     /** One provider attempt finished. {@code category} is null when the attempt succeeded. */
-    void invocationCompleted(AiOperation operation, AiInvocationMetadata metadata, AiFailureCategory category);
+    void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata, AiFailureCategory category);
+
+    /** The terminal outcome of one invocation: counted exactly once per request, not once per retry attempt. */
+    void outcome(AiOperation operation, Outcome outcome);
 
     /** A bounded retry was scheduled after a transient failure of the given category. */
     void retryScheduled(AiOperation operation, String providerId, AiFailureCategory category);
@@ -34,8 +40,12 @@ public interface AiTelemetry {
     static AiTelemetry noop() {
         return new AiTelemetry() {
             @Override
-            public void invocationCompleted(AiOperation operation, AiInvocationMetadata metadata,
+            public void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata,
                     AiFailureCategory category) {
+            }
+
+            @Override
+            public void outcome(AiOperation operation, Outcome outcome) {
             }
 
             @Override

@@ -33,12 +33,25 @@ public enum AiUnavailableReason {
         return retryable;
     }
 
+    /** Exhaustive on purpose: a new {@link AiFailureCategory} must be mapped here or the build fails. */
     public static AiUnavailableReason from(AiFailureCategory category) {
-        return valueOf(category.name());
+        return switch (category) {
+            case TIMEOUT -> TIMEOUT;
+            case THROTTLED -> THROTTLED;
+            case UNAVAILABLE -> UNAVAILABLE;
+            case INVALID_STRUCTURED_RESPONSE -> INVALID_STRUCTURED_RESPONSE;
+            case REJECTED_REQUEST -> REJECTED_REQUEST;
+            case CANCELLED -> CANCELLED;
+            case NOT_AVAILABLE -> NOT_AVAILABLE;
+            case REFUSED -> REFUSED;
+        };
     }
 
     public static AiUnavailableReason from(RecommendationContextException.Reason reason) {
-        return valueOf("CONTEXT_" + reason.name());
+        return switch (reason) {
+            case TOO_LARGE -> CONTEXT_TOO_LARGE;
+            case UNSUPPORTED -> CONTEXT_UNSUPPORTED;
+        };
     }
 
     /** Only the model-output rejections that surface as AI_UNAVAILABLE map here. */

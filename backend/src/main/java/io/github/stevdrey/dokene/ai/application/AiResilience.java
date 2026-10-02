@@ -15,8 +15,4 @@ public final class AiResilience {
     public AiProvider wrap(AiProvider provider) {
         return provider instanceof ResilientAiProvider ? provider : new ResilientAiProvider(provider, retry, telemetry);
     }
-
-    public AiTelemetry telemetry() {
-        return telemetry;
-    }
 }

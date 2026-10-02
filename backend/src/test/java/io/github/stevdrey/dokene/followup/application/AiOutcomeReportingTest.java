@@ -95,6 +95,7 @@ class AiOutcomeReportingTest {
 
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+    private Level previousRootLevel;
 
     private FollowUpRecommendationService recommendations;
 
@@ -102,6 +103,7 @@ class AiOutcomeReportingTest {
     void setUp() {
         logs.start();
         rootLogger.addAppender(logs);
+        previousRootLevel = rootLogger.getLevel();
         rootLogger.setLevel(Level.DEBUG);
         stubTimeouts(provider);
         when(assembler.assemble(customerId)).thenReturn(assembly);
@@ -121,6 +123,8 @@ class AiOutcomeReportingTest {
     @AfterEach
     void tearDown() {
         rootLogger.detachAppender(logs);
+        // The root logger is JVM-global: leaving DEBUG on would change every later test in this worker.
+        rootLogger.setLevel(previousRootLevel);
     }
 
     @Test
@@ -236,6 +240,9 @@ class AiOutcomeReportingTest {
 
         assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
         assertThat(audit.events).containsExactly("generated:NEXT_BEST_ACTION");
+        // two provider attempts, exactly one logical outcome for the request
+        assertThat(telemetry.invocations).hasSize(2);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GENERATED");
     }
 
     @Test
@@ -248,6 +255,71 @@ class AiOutcomeReportingTest {
         assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
         assertThat(result.unavailableReason().retryable()).isTrue();
         assertThat(audit.events).containsExactly("failed:NEXT_BEST_ACTION:UNAVAILABLE");
+    }
+
+    @Test
+    void acceptedOutputDiscardedByAVersionConflictIsAuditedAsStaleNotGenerated() {
+        ActionRecommendation action = action();
+        when(provider.recommend(any())).thenReturn(new AiRecommendationResponse(action, success()));
+        // the client's If-Match (1) matches the policy read before the call, but the gate saw a newer version (2)
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action)))
+                .thenReturn(ActionGateDecision.accepted(action, due, 2L));
+
+        assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+
+        assertThat(audit.events).containsExactly("gateRejected:NEXT_BEST_ACTION:STALE_STATE");
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+    }
+
+    @Test
+    void acceptedOutputDiscardedByPolicyDriftIsAuditedAsStaleNotGenerated() {
+        ActionRecommendation action = action();
+        when(provider.recommend(any())).thenReturn(new AiRecommendationResponse(action, success()));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action)))
+                .thenReturn(ActionGateDecision.accepted(action, due, 1L));
+        // policy read at the start is version 1; by the time the gate result is checked it is version 2
+        when(followUps.customerPolicy(customerId))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), customerId, 30, null, null, null, 1L))
+                .thenReturn(new CustomerFollowUpPolicy(TenantId.random(), customerId, 30, null, null, null, 2L));
+
+        FollowUpRecommendationResult result = recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.STALE_STATE);
+        assertThat(audit.events).containsExactly("gateRejected:NEXT_BEST_ACTION:STALE_STATE");
+    }
+
+    @Test
+    void deterministicallyIneligibleCustomerNeverReachesTheProviderAndIsNotReported() {
+        FollowUpEvaluation ineligible = new FollowUpEvaluation(customerId, FollowUpStatus.INELIGIBLE,
+                List.of(FollowUpReason.DO_NOT_CONTACT), Instant.now(), tenantDate, ZoneId.of("UTC"), tenantDate,
+                FollowUpTimingSource.LAST_PURCHASE, 30, lastPurchase);
+        when(assembler.assemble(customerId))
+                .thenReturn(new RecommendationContextAssembler.Assembly(ineligible, context(), purchases, 1L));
+
+        FollowUpRecommendationResult result = recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.INELIGIBLE);
+        verify(provider, times(0)).recommend(any());
+        assertThat(audit.events).isEmpty();
+        assertThat(telemetry.outcomes).isEmpty();
+    }
+
+    @Test
+    void draftDiscardedByAVersionConflictIsAuditedAsStaleNotGenerated() {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        NoDraft noDraft = new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, "No draft", RecommendationConfidence.of(0.5));
+        when(draftProvider.draft(any())).thenReturn(new AiDraftResponse(noDraft, success()));
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(noDraft), any(), any(), any()))
+                .thenReturn(DraftGateDecision.accepted(noDraft, due, 2L));
+
+        assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+
+        assertThat(audit.events).containsExactly("gateRejected:MESSAGE_DRAFT:STALE_STATE");
     }
 
     @Test
@@ -380,9 +452,10 @@ class AiOutcomeReportingTest {
         final List<AiOperation> refusals = new ArrayList<>();
         final List<String> gateRejections = new ArrayList<>();
         final List<String> invocations = new ArrayList<>();
+        final List<String> outcomes = new ArrayList<>();
 
         @Override
-        public void invocationCompleted(AiOperation operation, AiInvocationMetadata metadata,
+        public void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata,
                 AiFailureCategory category) {
             invocations.add(operation + ":" + metadata.providerId() + ":" + category);
         }
@@ -390,6 +463,11 @@ class AiOutcomeReportingTest {
         @Override
         public void retryScheduled(AiOperation operation, String providerId, AiFailureCategory category) {
             retries.add(operation + ":" + category);
+        }
+
+        @Override
+        public void outcome(AiOperation operation, Outcome outcome) {
+            outcomes.add(operation + ":" + outcome);
         }
 
         @Override

@@ -29,6 +29,16 @@ class TenantSecurityConfigurationTest {
     }
 
     @Test
+    void exposesTheCorrelationHeaderToBrowserClients() {
+        CorsConfigurationSource source = new TenantSecurityConfiguration()
+                .corsConfigurationSource(List.of("http://frontend-a.example.test"));
+
+        CorsConfiguration configuration = source.getCorsConfiguration(new MockHttpServletRequest("GET", "/api/session"));
+
+        assertThat(configuration.getExposedHeaders()).contains("ETag", "X-Request-Id");
+    }
+
+    @Test
     void emptyCorsOriginsConfiguresNoAllowedOriginsRejectingCrossOriginRequests() {
         CorsConfigurationSource source = new TenantSecurityConfiguration().corsConfigurationSource(List.of(" ", ""));
 

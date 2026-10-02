@@ -92,6 +92,26 @@ public final class FollowUpRecommendationService {
     }
 
     public FollowUpDecision recommend(CustomerId customerId, Duration timeout) {
+        Invocation invocation = invoke(customerId, timeout);
+        if (invocation.aiInvoked()) {
+            reportOutcome(customerId, invocation.decision());
+        }
+        return invocation.decision();
+    }
+
+    /**
+     * Result of one orchestration step. {@code aiInvoked} is false for the deterministic-ineligible short-circuit,
+     * which never reaches the provider and therefore has no AI outcome to report.
+     */
+    private record Invocation(FollowUpDecision decision, boolean aiInvoked) {
+    }
+
+    /**
+     * Runs the provider and the Action Gate without reporting the final outcome, so the caller can report it once
+     * the result is decided (a result discarded by a later version check must not be reported as delivered).
+     * Rejections that abort the request with an exception are reported here because no result will follow.
+     */
+    private Invocation invoke(CustomerId customerId, Duration timeout) {
         Objects.requireNonNull(customerId, "Customer ID is required");
         Objects.requireNonNull(timeout, "Timeout is required");
         var assembly = assembler.assemble(customerId);
@@ -100,7 +120,7 @@ public final class FollowUpRecommendationService {
             if (gate != null) {
                 gate.revalidateAuthorization(customerId);
             }
-            return FollowUpDecision.ineligible(evaluation, assembly.policyVersion());
+            return new Invocation(FollowUpDecision.ineligible(evaluation, assembly.policyVersion()), false);
         }
         if (rateLimiter != null && contexts != null) {
             var tenantContext = contexts.requireCurrent();
@@ -112,22 +132,23 @@ public final class FollowUpRecommendationService {
         RecommendationOutcome outcome = response.outcome();
 
         ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
-        reportOutcome(customerId, gateDecision, outcome);
         if (gateDecision.rejectionReason().isPresent()) {
             ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
             if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
+                reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason);
                 throw new TenantAccessDeniedException("Authorization revoked or tenant context unavailable");
             }
             if (reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND) {
+                reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason);
                 throw new CustomerNotFoundException();
             }
         }
 
         FollowUpEvaluation effectiveEvaluation = gateDecision.evaluation().orElse(evaluation);
         if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
-            return FollowUpDecision.accepted(effectiveEvaluation, accepted);
+            return new Invocation(FollowUpDecision.accepted(effectiveEvaluation, accepted), true);
         }
-        return FollowUpDecision.rejected(effectiveEvaluation, gateDecision);
+        return new Invocation(FollowUpDecision.rejected(effectiveEvaluation, gateDecision), true);
     }
 
     public FollowUpDecision recommend(FollowUpEvaluation evaluation, Duration timeout) {
@@ -168,18 +189,25 @@ public final class FollowUpRecommendationService {
         }
 
         try {
-            FollowUpDecision decision = recommend(customerId, effectiveTimeout);
+            Invocation invocation = invoke(customerId, effectiveTimeout);
+            FollowUpDecision decision = invocation.decision();
             FollowUpEvaluation evaluation = decision.evaluation();
             Long gateVersion = decision.gateDecision().policyVersion();
             long currentVersion = resolvePolicyVersion(customerId, policyVersion);
             long freshVersion = gateVersion != null ? gateVersion : currentVersion;
 
             if (expectedVersion != null && gateVersion != null && !expectedVersion.equals(gateVersion)) {
+                reportDiscarded(customerId, invocation);
                 throw new FollowUpConflictException();
             }
 
             if (gateVersion != null && currentVersion != gateVersion.longValue()) {
+                reportDiscarded(customerId, invocation);
                 return FollowUpRecommendationResult.staleState(evaluation, currentVersion);
+            }
+
+            if (invocation.aiInvoked()) {
+                reportOutcome(customerId, decision);
             }
 
             if (decision.gateDecision().isAccepted()) {
@@ -256,13 +284,20 @@ public final class FollowUpRecommendationService {
         return FollowUpRecommendationResult.aiUnavailable(eval, reason, freshVersion);
     }
 
-    private void reportOutcome(CustomerId customerId, ActionGateDecision decision, RecommendationOutcome outcome) {
+    private void reportOutcome(CustomerId customerId, FollowUpDecision decision) {
         if (decision.rejectionReason().isPresent()) {
             reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, decision.rejectionReason().get());
-        } else if (outcome instanceof NoRecommendation) {
+        } else if (decision.recommendation() instanceof NoRecommendation) {
             reporter.modelRefused(customerId, AiOperation.NEXT_BEST_ACTION);
         } else {
             reporter.generated(customerId, AiOperation.NEXT_BEST_ACTION);
+        }
+    }
+
+    /** The output was produced but not delivered because the customer policy moved: audit it as a stale rejection. */
+    private void reportDiscarded(CustomerId customerId, Invocation invocation) {
+        if (invocation.aiInvoked()) {
+            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ActionGateRejectionReason.STALE_STATE);
         }
     }
 

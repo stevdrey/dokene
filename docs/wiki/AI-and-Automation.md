@@ -166,11 +166,11 @@ Other statuses keep their meaning: `403` (not authorized), `404` (customer not i
 
 ### Retry
 
-Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are retried, only around the provider call, and the requested timeout is the total deadline. Configure with `dokene.ai.retry.max-attempts` (default `2`, maximum `3`, `1` disables), `initial-backoff`, `max-backoff` and `min-attempt-budget`. Authorization and the Action Gate are never skipped by a retry.
+Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are retried, only around the provider call, and the requested timeout is the total deadline. Configure with `dokene.ai.retry.max-attempts` (default `2`, maximum `3`, `1` disables), `initial-backoff`, `max-backoff` and `min-attempt-budget`. Authorization and the Action Gate are never skipped by a retry. On `THROTTLED` the provider's `Retry-After` is honored (no retry if it exceeds the remaining deadline); without one the wait is `max-backoff`. Backoff values are capped at 30s.
 
 ### Metrics
 
-Under `dokene.ai.*`: `invocations`, `invocation.duration`, `tokens` (only when the provider reports usage), `retries`, `model.refusals`, `gate.rejections`. Tags are limited to `operation`, `provider`, `model`, `outcome`, `category`, `direction`, `reason`. No tenant, customer, actor or correlation tags, and no actuator endpoint is exposed.
+Under `dokene.ai.*`: `attempts` and `attempt.duration` (per provider attempt, retries included), `outcomes` (one per request; use it for request counts and success rate), `tokens` (only when the provider reports usage), `retries`, `model.refusals`, `gate.rejections`. Tags are limited to `operation`, `provider`, `model`, `outcome`, `category`, `direction`, `reason`. No tenant, customer, actor or correlation tags, and no actuator endpoint is exposed.
 
 ### Audit and logs
 

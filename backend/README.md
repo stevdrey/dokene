@@ -179,14 +179,15 @@ the provider ([ADR 0019](../docs/adr/0019-ai-failure-handling-telemetry-and-audi
   `unavailableReason` and a `retryable` hint when the provider cannot help; the deterministic `evaluation` is always
   included. Unexpected failures return an empty `500`/`503` body.
 - `dokene.ai.retry.max-attempts` (`DOKENE_AI_RETRY_MAX_ATTEMPTS`, default `2`, max `3`, `1` disables),
-  `initial-backoff`, `max-backoff` and `min-attempt-budget` bound retries of `TIMEOUT`, `THROTTLED` and `UNAVAILABLE`.
+  `initial-backoff`, `max-backoff` (both at most 30s) and `min-attempt-budget` bound retries of `TIMEOUT`, `THROTTLED` and
+  `UNAVAILABLE`; on `THROTTLED` the provider's `Retry-After` is honored.
   The requested timeout is the total deadline; `dokene.ai.openai.max-retries` must stay `0`.
-- Metrics are registered under `dokene.ai.*` with a closed tag set (no tenant/customer/actor/correlation tags).
+- Metrics are registered under `dokene.ai.*` (`attempts` per provider attempt, `outcomes` once per request) with a closed tag set (no tenant/customer/actor/correlation tags).
   Actuator is present only to provide the Micrometer registry: `management.endpoints.access.default=none` and no
   endpoint or exporter is exposed.
 - Every terminal invocation writes one `AI_INVOCATION_OUTCOME` audit event (Flyway `V13`) with enumerated operation,
   outcome and detail only; never prompts, notes, phone numbers or generated text.
 - Each request has a server-generated correlation id in the log MDC, the `X-Request-Id` response header and the
-  provider `X-Client-Request-Id` header. Inbound `X-Request-Id` is ignored.
+  provider `X-Client-Request-Id` header. Inbound `X-Request-Id` is ignored. CORS exposes `X-Request-Id` to browsers.
 
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

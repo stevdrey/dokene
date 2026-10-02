@@ -216,13 +216,15 @@ public final class FollowUpDraftService {
             DraftOutcome outcome = response.outcome();
 
             DraftGateDecision gateDecision = gate.evaluateDraft(customerId, assembly, outcome, action, templateIntent, businessFacts.preferredLocale());
-            reportOutcome(customerId, gateDecision, outcome);
             if (gateDecision.rejectionReason().isPresent()) {
                 ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
+                // These abort the request with an exception, so no result follows: report them here.
                 if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
+                    reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason);
                     throw new TenantAccessDeniedException("Authorization revoked or tenant context unavailable");
                 }
                 if (reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND) {
+                    reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason);
                     throw new CustomerNotFoundException();
                 }
             }
@@ -233,12 +235,17 @@ public final class FollowUpDraftService {
             long freshVersion = gateVersion != null ? gateVersion : currentVersion;
 
             if (expectedVersion != null && gateVersion != null && !expectedVersion.equals(gateVersion)) {
+                // The output was produced but is not delivered: audit it as a stale rejection, not as generated.
+                reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.STALE_STATE);
                 throw new FollowUpConflictException();
             }
 
             if (gateVersion != null && currentVersion != gateVersion.longValue()) {
+                reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.STALE_STATE);
                 return FollowUpDraftResult.staleState(effectiveEvaluation, currentVersion);
             }
+
+            reportOutcome(customerId, gateDecision, outcome);
 
             if (gateDecision.isAccepted()) {
                 if (gateDecision.rawOutcome().orElse(null) instanceof MessageDraft draft) {

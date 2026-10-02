@@ -14,8 +14,9 @@ import java.util.Objects;
  * identifiers and free text are deliberately never used as dimensions (cardinality and cross-tenant channel).
  */
 public final class MicrometerAiTelemetry implements AiTelemetry {
-    static final String INVOCATIONS = "dokene.ai.invocations";
-    static final String DURATION = "dokene.ai.invocation.duration";
+    static final String ATTEMPTS = "dokene.ai.attempts";
+    static final String OUTCOMES = "dokene.ai.outcomes";
+    static final String DURATION = "dokene.ai.attempt.duration";
     static final String TOKENS = "dokene.ai.tokens";
     static final String RETRIES = "dokene.ai.retries";
     static final String REFUSALS = "dokene.ai.model.refusals";
@@ -29,7 +30,7 @@ public final class MicrometerAiTelemetry implements AiTelemetry {
     }
 
     @Override
-    public void invocationCompleted(AiOperation operation, AiInvocationMetadata metadata,
+    public void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata,
             AiFailureCategory category) {
         Tags tags = Tags.of(
                 "operation", operation.name(),
@@ -37,7 +38,7 @@ public final class MicrometerAiTelemetry implements AiTelemetry {
                 "model", metadata.modelId() == null ? NONE : metadata.modelId(),
                 "outcome", metadata.status().name(),
                 "category", category == null ? NONE : category.name());
-        registry.counter(INVOCATIONS, tags).increment();
+        registry.counter(ATTEMPTS, tags).increment();
         Timer.builder(DURATION)
                 .tags(tags.and("operation", operation.name()))
                 .register(registry)
@@ -48,6 +49,11 @@ public final class MicrometerAiTelemetry implements AiTelemetry {
             registry.counter(TOKENS, usageTags.and("direction", "input")).increment(metadata.usage().inputTokens());
             registry.counter(TOKENS, usageTags.and("direction", "output")).increment(metadata.usage().outputTokens());
         }
+    }
+
+    @Override
+    public void outcome(AiOperation operation, Outcome outcome) {
+        registry.counter(OUTCOMES, "operation", operation.name(), "outcome", outcome.name()).increment();
     }
 
     @Override

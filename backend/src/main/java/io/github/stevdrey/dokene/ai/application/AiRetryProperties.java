@@ -15,6 +15,8 @@ public record AiRetryProperties(Integer maxAttempts, Duration initialBackoff, Du
     public static final Duration DEFAULT_INITIAL_BACKOFF = Duration.ofMillis(250);
     public static final Duration DEFAULT_MAX_BACKOFF = Duration.ofSeconds(2);
     public static final Duration DEFAULT_MIN_ATTEMPT_BUDGET = Duration.ofSeconds(1);
+    /** Ceiling that also keeps the exponential backoff shift far from long overflow. */
+    public static final Duration HARD_MAX_BACKOFF = Duration.ofSeconds(30);
 
     public AiRetryProperties {
         if (maxAttempts == null) {
@@ -27,13 +29,13 @@ public record AiRetryProperties(Integer maxAttempts, Duration initialBackoff, Du
         initialBackoff = positiveOrDefault(initialBackoff, DEFAULT_INITIAL_BACKOFF, "initial-backoff");
         maxBackoff = positiveOrDefault(maxBackoff, DEFAULT_MAX_BACKOFF, "max-backoff");
         minAttemptBudget = positiveOrDefault(minAttemptBudget, DEFAULT_MIN_ATTEMPT_BUDGET, "min-attempt-budget");
+        if (initialBackoff.compareTo(HARD_MAX_BACKOFF) > 0 || maxBackoff.compareTo(HARD_MAX_BACKOFF) > 0) {
+            throw new IllegalArgumentException(
+                    "dokene.ai.retry backoff values must not exceed " + HARD_MAX_BACKOFF.toSeconds() + "s");
+        }
         if (maxBackoff.compareTo(initialBackoff) < 0) {
             throw new IllegalArgumentException("dokene.ai.retry.max-backoff must be >= initial-backoff");
         }
-    }
-
-    public static AiRetryProperties disabled() {
-        return new AiRetryProperties(1, null, null, null);
     }
 
     public static AiRetryProperties defaults() {
