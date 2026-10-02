@@ -136,6 +136,19 @@ class ResilientAiProviderTest {
     }
 
     @Test
+    void firstAttemptAlwaysRunsWithTheRequestedTimeoutEvenBelowTheMinimumAttemptBudget() {
+        // min-attempt-budget (default 1s) only gates retries: an explicit short client timeout is honored as given
+        delegate.alwaysFail(AiFailureCategory.UNAVAILABLE);
+
+        assertThatThrownBy(() -> provider(3).recommend(request(Duration.ofMillis(100))))
+                .isInstanceOf(AiProviderException.class);
+
+        assertThat(delegate.timeouts).containsExactly(Duration.ofMillis(100));
+        assertThat(sleeps).isEmpty();
+        assertThat(telemetry.retries).isEmpty();
+    }
+
+    @Test
     void eachAttemptReceivesOnlyTheRemainingBudget() {
         delegate.failThen(AiFailureCategory.TIMEOUT);
         delegate.latencyPerCall = Duration.ofSeconds(4);

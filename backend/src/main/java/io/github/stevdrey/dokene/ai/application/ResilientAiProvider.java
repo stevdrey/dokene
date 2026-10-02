@@ -16,7 +16,9 @@ import java.util.function.LongSupplier;
  *   <li>Only {@link AiFailureCategory#retryable()} categories are retried; disabled/refused/invalid/rejected/
  *       cancelled outcomes never are.</li>
  *   <li>The requested timeout is the total deadline: each attempt receives only the remaining budget and no
- *       attempt starts without {@link AiRetryProperties#minAttemptBudget()} left after backoff.</li>
+ *       retry starts without {@link AiRetryProperties#minAttemptBudget()} left after backoff. The first attempt always
+ *       runs with the requested timeout: the minimum budget only gates retries, so an explicit short client timeout
+ *       is honored as given.</li>
  *   <li>It wraps only the provider call. Authorization revalidation, rate limiting and the Action Gate run in
  *       the caller, before and after it, so retry cannot bypass them.</li>
  *   <li>Raw provider exception messages are never copied: unexpected runtime failures become

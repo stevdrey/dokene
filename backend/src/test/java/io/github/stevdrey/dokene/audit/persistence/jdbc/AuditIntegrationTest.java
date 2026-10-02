@@ -429,6 +429,23 @@ class AuditIntegrationTest {
     }
 
     @Test
+    void rejectsAiOutcomeRowsWithoutACustomerTargetTypeAtDatabaseBoundary() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        scoped(context, () -> {
+            // '=' is UNKNOWN for NULL and a CHECK accepts UNKNOWN, so the NULL case needs its own constraint (V15)
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", null,
+                    UUID.randomUUID(), "NEXT_BEST_ACTION", "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS",
+                    "PURCHASE", UUID.randomUUID(), "NEXT_BEST_ACTION", "GENERATED", "NONE"))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
+            migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", UUID.randomUUID(),
+                    "NEXT_BEST_ACTION", "GENERATED", "NONE");
+            assertThat(reader.read().events()).hasSize(1);
+        });
+    }
+
+    @Test
     void rollsBackRoleAndSuccessEventWhenBusinessTransactionRollsBack() {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);
@@ -593,24 +610,30 @@ class AuditIntegrationTest {
 
     private void migrationInsertAi(TenantId tenant, String eventType, String outcome, UUID target,
             String operation, String aiOutcome, String detail) {
+        migrationInsertAi(tenant, eventType, outcome, "CUSTOMER", target, operation, aiOutcome, detail);
+    }
+
+    private void migrationInsertAi(TenantId tenant, String eventType, String outcome, String targetType, UUID target,
+            String operation, String aiOutcome, String detail) {
         try (Connection connection = migration();
              var statement = connection.prepareStatement("""
                 INSERT INTO dokene.audit_events
                     (id, occurred_at, tenant_id, actor_id, membership_id, event_type, target_type, target_id,
                      outcome, correlation_id, ai_operation, ai_outcome, ai_detail)
-                VALUES (?, '2026-09-01T00:00:00Z', ?, ?, ?, ?, 'CUSTOMER', ?, ?, ?, ?, ?, ?)
+                VALUES (?, '2026-09-01T00:00:00Z', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """)) {
             statement.setObject(1, UUID.randomUUID());
             statement.setObject(2, tenant == null ? null : tenant.value());
             statement.setObject(3, tenant == null ? null : UUID.randomUUID());
             statement.setObject(4, tenant == null ? null : UUID.randomUUID());
             statement.setString(5, eventType);
-            statement.setObject(6, target);
-            statement.setString(7, outcome);
-            statement.setObject(8, UUID.randomUUID());
-            statement.setString(9, operation);
-            statement.setString(10, aiOutcome);
-            statement.setString(11, detail);
+            statement.setString(6, targetType);
+            statement.setObject(7, target);
+            statement.setString(8, outcome);
+            statement.setObject(9, UUID.randomUUID());
+            statement.setString(10, operation);
+            statement.setString(11, aiOutcome);
+            statement.setString(12, detail);
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new RuntimeException(exception);

@@ -185,7 +185,7 @@ the provider ([ADR 0019](../docs/adr/0019-ai-failure-handling-telemetry-and-audi
 - Metrics are registered under `dokene.ai.*` (`attempts` per provider attempt, `outcomes` once per AI invocation) with a closed tag set (no tenant/customer/actor/correlation tags).
   Actuator is present only to provide the Micrometer registry: `management.endpoints.access.default=none` and no
   endpoint or exporter is exposed.
-- Every terminal invocation writes one `AI_INVOCATION_OUTCOME` audit event (Flyway `V13`, tightened by `V14`) with enumerated operation,
+- Every terminal invocation writes one `AI_INVOCATION_OUTCOME` audit event (Flyway `V13`, tightened by `V14` and `V15`) with enumerated operation,
   outcome and detail only; never prompts, notes, phone numbers or generated text.
 - Each request has a server-generated correlation id in the log MDC, the `X-Request-Id` response header and the
   provider `X-Client-Request-Id` header. Inbound `X-Request-Id` is ignored. CORS exposes `X-Request-Id` to browsers.

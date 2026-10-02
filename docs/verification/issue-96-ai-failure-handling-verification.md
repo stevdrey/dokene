@@ -16,6 +16,8 @@ Scope: [ADR 0019](../adr/0019-ai-failure-handling-telemetry-and-audit.md). Verif
 | Client error/recovery semantics documented | `docs/wiki/AI-and-Automation.md` ("AI Failure Handling, Telemetry and Audit"), ADR 0019 §6 |
 | No new public diagnostics | `AiFailureHandlingIntegrationTest.metricsRegistryIsAvailableWithoutExposingAnyActuatorEndpoint` (no `@Endpoint` beans, `management.endpoints.access.default=none`) |
 | Throttling honors Retry-After; backoff bounded | `ResilientAiProviderTest` (hint honored / skipped when it exceeds the budget / only for `THROTTLED` / no-hint floor, backoff ceiling and no overflow), `OpenAiResponsesApiAdapterTest` (`retry-after`, `retry-after-ms`, unparseable) |
+| DB boundary requires a `CUSTOMER` target type (V15) | `AuditIntegrationTest.rejectsAiOutcomeRowsWithoutACustomerTargetTypeAtDatabaseBoundary` (NULL and non-`CUSTOMER` target types rejected, valid row accepted) |
+| First attempt honors a short client timeout; `min-attempt-budget` only gates retries | `ResilientAiProviderTest.firstAttemptAlwaysRunsWithTheRequestedTimeoutEvenBelowTheMinimumAttemptBudget` |
 | Per-attempt latency stays per attempt | `ResilientAiProviderTest.syntheticRuntimeFailureLatencyIsMeasuredPerAttemptNotFromTheStartOfTheInvocation` |
 | Authorization lost mid-failure still yields one counted/logged outcome | `AiOutcomeReportingTest` (`authorizationLostWhileAProviderFailureIsInFlight...`, recommendation and draft) |
 | One logical outcome per request | `MicrometerAiTelemetryTest` (`attempts` vs `outcomes`), `AiOutcomeReportingTest` (retry = 2 attempts, 1 outcome; discarded output audited as `STALE_STATE`) |
