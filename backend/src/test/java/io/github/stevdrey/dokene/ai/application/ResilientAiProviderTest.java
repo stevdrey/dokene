@@ -153,11 +153,42 @@ class ResilientAiProviderTest {
         assertThatThrownBy(() -> provider(1).recommend(request(Duration.ofSeconds(15))))
                 .isInstanceOfSatisfying(AiProviderException.class, ex -> {
                     assertThat(ex.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
-                    assertThat(ex.getMessage()).doesNotContain("sk-secret").doesNotContain("593");
+                    assertThat(ex.getMessage()).doesNotContain("sk-secret").doesNotContain("991234567");
                     assertThat(ex.getCause()).isNull();
                     assertThat(ex.metadata().toString()).doesNotContain("sk-secret");
                 });
         assertThat(telemetry.invocations).containsExactly("FAILED:UNAVAILABLE");
+    }
+
+    @Test
+    void unsupportedOperationIsNotAvailableAndNeverRetried() {
+        delegate.throwRuntime(new UnsupportedOperationException(SECRET));
+
+        assertThatThrownBy(() -> provider(3).recommend(request(Duration.ofSeconds(15))))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.NOT_AVAILABLE);
+                    assertThat(ex.category().retryable()).isFalse();
+                    assertThat(ex.getMessage()).doesNotContain("sk-secret");
+                });
+
+        assertThat(delegate.calls).isEqualTo(1);
+        assertThat(sleeps).isEmpty();
+    }
+
+    @Test
+    void doesNotStartAnAttemptWhenTheBackoffOverrunsTheDeadline() {
+        delegate.alwaysFail(AiFailureCategory.THROTTLED);
+        // The sleep reports a normal backoff but actually overruns the whole 5s budget (e.g. a long pause).
+        ResilientAiProvider overrunning = new ResilientAiProvider(delegate,
+                new AiRetryProperties(3, null, null, null), telemetry,
+                duration -> nanos.addAndGet(Duration.ofSeconds(6).toNanos()), nanos::get, () -> 0.0);
+
+        assertThatThrownBy(() -> overrunning.recommend(request(Duration.ofSeconds(5))))
+                .isInstanceOfSatisfying(AiProviderException.class,
+                        ex -> assertThat(ex.category()).isEqualTo(AiFailureCategory.THROTTLED));
+
+        assertThat(delegate.calls).isEqualTo(1);
+        assertThat(delegate.timeouts).noneMatch(timeout -> timeout.compareTo(Duration.ofMillis(10)) < 0);
     }
 
     @Test

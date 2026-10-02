@@ -260,7 +260,7 @@ class AiOutcomeReportingTest {
         assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
         String observed = String.join("\n", logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 + audit.events + telemetry.all();
-        assertThat(observed).doesNotContain("sk-secret").doesNotContain("593").doesNotContain("IGNORE");
+        assertThat(observed).doesNotContain("sk-secret").doesNotContain("991234567").doesNotContain("IGNORE");
         assertThat(logs.list).noneMatch(event -> event.getThrowableProxy() != null);
         assertThat(logs.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
                 .contains("operation=NEXT_BEST_ACTION").contains("outcome=FAILED").contains("detail=UNAVAILABLE"));

@@ -75,6 +75,23 @@ class AuditRequestFilterTest {
     }
 
     @Test
+    void auditFailureResponseStillCarriesTheServerGeneratedCorrelationHeader() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<UUID> correlation = new AtomicReference<>();
+
+        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+            correlation.set(context.requireCurrent());
+            ((jakarta.servlet.http.HttpServletResponse) res).setHeader("X-Other", "dropped-by-reset");
+            throw new ServletException("untrusted exception details", new AuditPersistenceException());
+        });
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("X-Request-Id")).isEqualTo(correlation.get().toString());
+        assertThat(response.getHeader("X-Other")).isNull();
+        assertThat(org.slf4j.MDC.get("correlationId")).isNull();
+    }
+
+    @Test
     void mvcFailureHasTheSameGeneric503Response() throws Exception {
         MockMvcBuilders.standaloneSetup(new FailingController()).setControllerAdvice(new AuditExceptionHandler())
                 .addFilters(filter).build().perform(get("/failure"))

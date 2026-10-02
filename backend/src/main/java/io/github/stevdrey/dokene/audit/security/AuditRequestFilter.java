@@ -42,6 +42,8 @@ public class AuditRequestFilter extends OncePerRequestFilter {
         } catch (Exception exception) {
             if (isAuditFailure(exception) && !response.isCommitted()) {
                 response.reset();
+                // reset() drops every header; the correlation id matters most on exactly this failure path.
+                response.setHeader(CORRELATION_HEADER, correlation.toString());
                 response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if (exception instanceof IOException io) {
                 throw io;

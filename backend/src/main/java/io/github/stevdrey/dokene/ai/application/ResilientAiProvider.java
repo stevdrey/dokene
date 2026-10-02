@@ -88,7 +88,10 @@ public final class ResilientAiProvider implements AiProvider {
                 failure = e;
             } catch (RuntimeException e) {
                 // Deliberately drops the message/cause: provider and framework text is untrusted and may be sensitive.
-                failure = new AiProviderException(AiFailureCategory.UNAVAILABLE, new AiInvocationMetadata(
+                // An unsupported operation is permanent, so it must stay NOT_AVAILABLE (never retried).
+                AiFailureCategory category = e instanceof UnsupportedOperationException
+                        ? AiFailureCategory.NOT_AVAILABLE : AiFailureCategory.UNAVAILABLE;
+                failure = new AiProviderException(category, new AiInvocationMetadata(
                         "unknown", null, null, Duration.ofNanos(Math.max(0, nanoClock.getAsLong() - startNanos)),
                         null, AiCompletionStatus.FAILED));
             }
@@ -106,6 +109,10 @@ public final class ResilientAiProvider implements AiProvider {
                 throw new AiProviderException(AiFailureCategory.CANCELLED, new AiInvocationMetadata(
                         failure.metadata().providerId(), failure.metadata().modelId(), null,
                         failure.metadata().latency(), null, AiCompletionStatus.CANCELLED));
+            }
+            // The sleep itself may overrun; never start an attempt that cannot fit in the remaining deadline.
+            if (unclampedRemaining(budget, startNanos).compareTo(retry.minAttemptBudget()) < 0) {
+                throw failure;
             }
             attempt++;
         }
@@ -130,8 +137,12 @@ public final class ResilientAiProvider implements AiProvider {
     }
 
     private Duration remaining(Duration budget, long startNanos) {
-        Duration left = budget.minus(Duration.ofNanos(Math.max(0, nanoClock.getAsLong() - startNanos)));
+        Duration left = unclampedRemaining(budget, startNanos);
         return left.isNegative() || left.isZero() ? Duration.ofMillis(1) : left;
+    }
+
+    private Duration unclampedRemaining(Duration budget, long startNanos) {
+        return budget.minus(Duration.ofNanos(Math.max(0, nanoClock.getAsLong() - startNanos)));
     }
 
     @FunctionalInterface

@@ -173,7 +173,7 @@ class AiFailureHandlingIntegrationTest {
 
         assertThat(result.status()).isEqualTo(RecommendationStatus.AI_UNAVAILABLE);
         assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
-        assertThat(aiEvents().toString()).doesNotContain("secret").doesNotContain("593");
+        assertThat(aiEvents().toString()).doesNotContain("secret").doesNotContain("991234567");
     }
 
     @Test

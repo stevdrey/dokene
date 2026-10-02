@@ -775,8 +775,8 @@ class OpenAiResponsesApiAdapterTest {
                     assertThat(ex.category()).isEqualTo(AiFailureCategory.REFUSED);
                     assertThat(ex.metadata().status()).isEqualTo(AiCompletionStatus.FAILED);
                     assertThat(ex.metadata().usage().inputTokens()).isEqualTo(40);
-                    assertThat(ex.getMessage()).doesNotContain("secret").doesNotContain("593");
-                    assertThat(ex.metadata().toString()).doesNotContain("secret").doesNotContain("593");
+                    assertThat(ex.getMessage()).doesNotContain("secret").doesNotContain("991234567");
+                    assertThat(ex.metadata().toString()).doesNotContain("secret").doesNotContain("991234567");
                 });
     }
 
