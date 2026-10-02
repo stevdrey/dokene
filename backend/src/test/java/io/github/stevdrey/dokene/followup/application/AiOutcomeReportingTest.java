@@ -383,6 +383,49 @@ class AiOutcomeReportingTest {
         assertThat(audit.events).isEmpty();
     }
 
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class, names = {"UNAUTHORIZED", "CUSTOMER_NOT_FOUND"})
+    void authorizationLostWhileAProviderFailureIsInFlightStillCountsAndLogsTheOutcome(
+            ActionGateRejectionReason reason) {
+        when(provider.recommend(any())).thenThrow(failure(AiFailureCategory.REJECTED_REQUEST));
+        RuntimeException lost = boundaryException(reason);
+        org.mockito.Mockito.doThrow(lost).when(gate).revalidateAuthorization(customerId);
+
+        assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, null)).isSameAs(lost);
+
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
+        assertThat(audit.events).isEmpty();
+        assertThat(logs.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+                .contains("outcome=GATE_REJECTED").contains("detail=" + reason.name()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class, names = {"UNAUTHORIZED", "CUSTOMER_NOT_FOUND"})
+    void draftAuthorizationLostWhileAProviderFailureIsInFlightStillCountsAndLogsTheOutcome(
+            ActionGateRejectionReason reason) {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.REJECTED_REQUEST));
+        RuntimeException lost = boundaryException(reason);
+        // the first revalidation is the fail-closed check before data reaches the provider; the second is the failure path
+        org.mockito.Mockito.doNothing().doThrow(lost).when(gate).revalidateDraftAuthorization(customerId);
+
+        assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, null)).isSameAs(lost);
+
+        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:GATE_REJECTED");
+        assertThat(telemetry.gateRejections).containsExactly("MESSAGE_DRAFT:" + reason.name());
+        assertThat(audit.events).isEmpty();
+    }
+
+    private static RuntimeException boundaryException(ActionGateRejectionReason reason) {
+        return reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND
+                ? new io.github.stevdrey.dokene.customer.application.CustomerNotFoundException()
+                : new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("revoked");
+    }
+
     @Test
     void draftOutcomesAreReportedWithTheDraftOperation() {
         TenantContextProvider tenantContexts = mock();

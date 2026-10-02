@@ -76,6 +76,7 @@ public final class ResilientAiProvider implements AiProvider {
         long startNanos = nanoClock.getAsLong();
         int attempt = 1;
         while (true) {
+            long attemptStartNanos = nanoClock.getAsLong();
             Duration remaining = remaining(budget, startNanos);
             AiProviderException failure;
             try {
@@ -92,7 +93,7 @@ public final class ResilientAiProvider implements AiProvider {
                 AiFailureCategory category = e instanceof UnsupportedOperationException
                         ? AiFailureCategory.NOT_AVAILABLE : AiFailureCategory.UNAVAILABLE;
                 failure = new AiProviderException(category, new AiInvocationMetadata(
-                        "unknown", null, null, Duration.ofNanos(Math.max(0, nanoClock.getAsLong() - startNanos)),
+                        "unknown", null, null, Duration.ofNanos(Math.max(0, nanoClock.getAsLong() - attemptStartNanos)),
                         null, AiCompletionStatus.FAILED));
             }
             telemetry.attemptCompleted(operation, failure.metadata(), failure.category());

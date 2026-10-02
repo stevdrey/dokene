@@ -298,9 +298,7 @@ public final class FollowUpDraftService {
             long policyVersion,
             Long expectedVersion,
             AiUnavailableReason reason) {
-        if (gate != null) {
-            gate.revalidateDraftAuthorization(customerId);
-        }
+        revalidateReportingBoundaryRejection(customerId);
         reporter.failed(customerId, AiOperation.MESSAGE_DRAFT, reason);
         FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
         FollowUpEvaluation eval = snapshot.evaluation();
@@ -316,6 +314,26 @@ public final class FollowUpDraftService {
             return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
         }
         return FollowUpDraftResult.aiUnavailable(eval, reason, freshVersion);
+    }
+
+    /**
+     * Revalidation can abort the failure path (authorization revoked, customer gone). The invocation already
+     * happened, so its terminal outcome must still be counted and logged before the exception propagates; the
+     * reporter suppresses the audit row for these tenant-boundary reasons.
+     */
+    private void revalidateReportingBoundaryRejection(CustomerId customerId) {
+        if (gate == null) {
+            return;
+        }
+        try {
+            gate.revalidateDraftAuthorization(customerId);
+        } catch (TenantAccessDeniedException ex) {
+            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.UNAUTHORIZED);
+            throw ex;
+        } catch (CustomerNotFoundException ex) {
+            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.CUSTOMER_NOT_FOUND);
+            throw ex;
+        }
     }
 
     private void reportOutcome(CustomerId customerId, DraftGateDecision decision, DraftOutcome outcome) {

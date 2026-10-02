@@ -170,7 +170,7 @@ Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are retried, only around the provi
 
 ### Metrics
 
-Under `dokene.ai.*`: `attempts` and `attempt.duration` (per provider attempt, retries included), `outcomes` (one per request; use it for request counts and success rate), `tokens` (only when the provider reports usage), `retries`, `model.refusals`, `gate.rejections`. Tags are limited to `operation`, `provider`, `model`, `outcome`, `category`, `direction`, `reason`. No tenant, customer, actor or correlation tags, and no actuator endpoint is exposed.
+Under `dokene.ai.*`: `attempts` and `attempt.duration` (per provider attempt, retries included), `outcomes` (one per AI invocation; use it for request counts and success rate), `tokens` (only when the provider reports usage), `retries`, `model.refusals`, `gate.rejections`. Tags are limited to `operation`, `provider`, `model`, `outcome`, `category`, `direction`, `reason`. No tenant, customer, actor or correlation tags, and no actuator endpoint is exposed.
 
 ### Audit and logs
 

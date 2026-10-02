@@ -233,6 +233,22 @@ class ResilientAiProviderTest {
     }
 
     @Test
+    void syntheticRuntimeFailureLatencyIsMeasuredPerAttemptNotFromTheStartOfTheInvocation() {
+        delegate.latencyPerCall = Duration.ofSeconds(2);
+        delegate.failThen(AiFailureCategory.THROTTLED, Duration.ofSeconds(1));
+        delegate.throwRuntime(new IllegalStateException(SECRET));
+
+        // attempt 1 takes 2s, the backoff 1s, attempt 2 (the runtime failure) 2s: the clock reads 5s at the end
+        assertThatThrownBy(() -> provider(2).recommend(request(Duration.ofSeconds(30))))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
+                    assertThat(ex.metadata().latency()).isEqualTo(Duration.ofSeconds(2));
+                });
+
+        assertThat(delegate.calls).isEqualTo(2);
+    }
+
+    @Test
     void unsupportedOperationIsNotAvailableAndNeverRetried() {
         delegate.throwRuntime(new UnsupportedOperationException(SECRET));
 
