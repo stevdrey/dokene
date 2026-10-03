@@ -6,13 +6,82 @@ import {
   CustomerPolicyResponse,
   ManualFollowUpResponse,
   DismissalResponse,
-  TenantPolicyResponse
+  TenantPolicyResponse,
+  RecommendationResponse,
+  DraftResponse,
+  DraftRequestParams
 } from '@/features/followups/types';
 
 export interface FollowUpQueueParams {
   status?: FollowUpStatus;
   cursor?: string;
   limit?: number;
+}
+
+export class InvalidAiResponseError extends Error {
+  constructor() {
+    super('La respuesta del asistente IA no tiene el formato esperado.');
+    this.name = 'InvalidAiResponseError';
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function hasKnownStatus(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return (
+    typeof value.status === 'string' &&
+    allowed.includes(value.status) &&
+    typeof value.retryable === 'boolean'
+  );
+}
+
+function isRecommendationResponse(value: unknown): value is RecommendationResponse {
+  if (!isRecord(value)) return false;
+  if (!hasKnownStatus(value, ['AVAILABLE', 'NO_RECOMMENDATION', 'INELIGIBLE', 'STALE_STATE', 'AI_UNAVAILABLE'])) {
+    return false;
+  }
+  if (value.status === 'AVAILABLE') {
+    const rec = value.recommendation;
+    return (
+      isRecord(rec) &&
+      typeof rec.action === 'string' &&
+      typeof rec.templateIntent === 'string' &&
+      typeof rec.rationale === 'string' &&
+      typeof rec.confidence === 'number'
+    );
+  }
+  if (value.status === 'NO_RECOMMENDATION') {
+    return isRecord(value.refusal) && typeof value.refusal.rationale === 'string';
+  }
+  return true;
+}
+
+function isDraftResponse(value: unknown): value is DraftResponse {
+  if (!isRecord(value)) return false;
+  if (!hasKnownStatus(value, ['AVAILABLE', 'NO_DRAFT', 'INELIGIBLE', 'STALE_STATE', 'AI_UNAVAILABLE'])) {
+    return false;
+  }
+  if (value.status === 'AVAILABLE') {
+    const draft = value.draft;
+    return (
+      isRecord(draft) &&
+      typeof draft.action === 'string' &&
+      typeof draft.templateIntent === 'string' &&
+      typeof draft.body === 'string' &&
+      isStringArray(draft.evidence) &&
+      isStringArray(draft.warnings)
+    );
+  }
+  if (value.status === 'NO_DRAFT') {
+    return isRecord(value.refusal) && typeof value.refusal.rationale === 'string';
+  }
+  return true;
 }
 
 export const followUpApi = {
@@ -124,6 +193,42 @@ export const followUpApi = {
     );
     const updatedVersion = etag ? parseVersionFromEtag(etag) : data.policyVersion;
     return { completion: data, version: updatedVersion };
+  },
+
+  async requestRecommendation(
+    customerId: string,
+    version: number,
+    signal?: AbortSignal
+  ): Promise<{ data: RecommendationResponse; version: number }> {
+    const { data, etag } = await httpClient.request<unknown>(
+      `/api/customers/${customerId}/recommendation`,
+      { method: 'POST', ifMatch: version, signal }
+    );
+    if (!isRecommendationResponse(data)) {
+      throw new InvalidAiResponseError();
+    }
+    return { data, version: etag ? parseVersionFromEtag(etag) : version };
+  },
+
+  async requestDraft(
+    customerId: string,
+    params: DraftRequestParams,
+    version: number,
+    signal?: AbortSignal
+  ): Promise<{ data: DraftResponse; version: number }> {
+    const { data, etag } = await httpClient.request<unknown>(
+      `/api/customers/${customerId}/draft`,
+      {
+        method: 'POST',
+        ifMatch: version,
+        body: { action: params.action, templateIntent: params.templateIntent },
+        signal
+      }
+    );
+    if (!isDraftResponse(data)) {
+      throw new InvalidAiResponseError();
+    }
+    return { data, version: etag ? parseVersionFromEtag(etag) : version };
   },
 
   async getTenantFollowUpPolicy(

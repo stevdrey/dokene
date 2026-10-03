@@ -15,6 +15,8 @@ interface FollowUpWorkbenchProps {
 export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigateToCustomer }) => {
   const { activeWorkspace } = useTenant();
   const canWrite = activeWorkspace?.role ? activeWorkspace.role !== 'VIEWER' : true;
+  // UI affordance only: the backend enforces FOLLOWUP_EVALUATE / MESSAGE_DRAFT on every AI request.
+  const canUseAi = canWrite;
   const [items, setItems] = useState<QueueItemResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -320,6 +322,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
+
+  const refreshQueue = useCallback(() => {
+    void replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+  }, [replaceQueue, activeFilter]);
 
   // Disposition handlers
   const handleRecordManualFollowUp = async (notes: string | undefined, idempotencyKey: string) => {
@@ -848,7 +854,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       ) : isMobile && selectedItem ? (
         /* Mobile Stacked View: Detail Screen */
         <FollowUpDetail
-          key={selectedItem.customerId}
+          key={`${activeWorkspace?.tenantId ?? ''}:${selectedItem.customerId}`}
           item={selectedItem}
           isMobileView={true}
           timeZone={tenantTimeZone}
@@ -858,6 +864,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           onSnooze={handleSnooze}
           onDismiss={handleDismiss}
           canWrite={canWrite}
+          canUseAi={canUseAi}
+          onRequestRefresh={refreshQueue}
         />
       ) : (
         /* Desktop Split View or Mobile List Screen */
@@ -920,7 +928,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             <div>
               {selectedItem ? (
                 <FollowUpDetail
-                  key={selectedItem.customerId}
+                  key={`${activeWorkspace?.tenantId ?? ''}:${selectedItem.customerId}`}
                   item={selectedItem}
                   isMobileView={false}
                   timeZone={tenantTimeZone}
@@ -929,6 +937,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   onSnooze={handleSnooze}
                   onDismiss={handleDismiss}
                   canWrite={canWrite}
+                  canUseAi={canUseAi}
+                  onRequestRefresh={refreshQueue}
                 />
               ) : (
                 <div
