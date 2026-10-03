@@ -7,6 +7,7 @@ import { SnoozeModal } from './SnoozeModal';
 import { DismissModal } from './DismissModal';
 import { Button } from '@/shared/components/Button';
 import { computeDaysOverdueInTimeZone } from '../utils/dateUtils';
+import { AiAssistantPanel } from './AiAssistantPanel';
 
 interface FollowUpDetailProps {
   item: QueueItemResponse;
@@ -17,6 +18,8 @@ interface FollowUpDetailProps {
   onSnooze: (until: string) => Promise<void>;
   onDismiss: (notes: string | undefined, idempotencyKey: string) => Promise<void>;
   canWrite: boolean;
+  canUseAi: boolean;
+  onRequestRefresh: () => void;
   timeZone?: string;
 }
 
@@ -29,6 +32,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   onSnooze,
   onDismiss,
   canWrite,
+  canUseAi,
+  onRequestRefresh,
   timeZone
 }) => {
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
@@ -416,6 +421,13 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
           {getReasonExplanation()}
         </p>
       </div>
+
+      <AiAssistantPanel
+        customerId={item.customerId}
+        policyVersion={item.policyVersion}
+        canUseAi={canUseAi}
+        onRequestRefresh={onRequestRefresh}
+      />
 
       {/* Recent Purchases Section */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>

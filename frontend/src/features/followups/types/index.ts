@@ -83,3 +83,134 @@ export interface TenantPolicyResponse {
   cadenceDays: number;
   timeZone: string;
 }
+
+export type RecommendationStatus =
+  | 'AVAILABLE'
+  | 'NO_RECOMMENDATION'
+  | 'INELIGIBLE'
+  | 'STALE_STATE'
+  | 'AI_UNAVAILABLE';
+
+export type DraftStatus = 'AVAILABLE' | 'NO_DRAFT' | 'INELIGIBLE' | 'STALE_STATE' | 'AI_UNAVAILABLE';
+
+export type SemanticAction =
+  | 'REPEAT_PURCHASE_FOLLOW_UP'
+  | 'GENERAL_CHECK_IN'
+  | 'RELATED_PRODUCT_OFFER'
+  | 'DORMANT_REENGAGEMENT'
+  | 'SEASONAL_GREETING';
+
+export type SemanticTemplateIntent =
+  | 'GENERAL_FOLLOW_UP'
+  | 'REPEAT_PURCHASE'
+  | 'RELATED_PRODUCT'
+  | 'SEASONAL_EVENT'
+  | 'DORMANT_CUSTOMER';
+
+export type NoRecommendationReason =
+  | 'INSUFFICIENT_HISTORY'
+  | 'RECENTLY_CONTACTED'
+  | 'NO_RELEVANT_OFFER'
+  | 'UNCERTAIN_INTENT'
+  | 'MANUAL_REVIEW_REQUIRED';
+
+export type NoDraftReason =
+  | 'INSUFFICIENT_HISTORY'
+  | 'UNSUPPORTED_ACTION'
+  | 'MISSING_TRUSTED_FACTS'
+  | 'SAFETY_VIOLATION'
+  | 'MANUAL_REVIEW_REQUIRED';
+
+export type ActionGateRejectionReason =
+  | 'NO_TENANT_CONTEXT'
+  | 'UNAUTHORIZED'
+  | 'CUSTOMER_NOT_FOUND'
+  | 'CUSTOMER_ARCHIVED'
+  | 'DO_NOT_CONTACT'
+  | 'NO_CONTACT_CONSENT'
+  | 'FOLLOW_UP_INELIGIBLE'
+  | 'STALE_STATE'
+  | 'DISALLOWED_ACTION'
+  | 'DISALLOWED_TEMPLATE_INTENT'
+  | 'INVALID_RECOMMENDATION';
+
+export type AiUnavailableReason =
+  | 'TIMEOUT'
+  | 'THROTTLED'
+  | 'UNAVAILABLE'
+  | 'INVALID_STRUCTURED_RESPONSE'
+  | 'REJECTED_REQUEST'
+  | 'CANCELLED'
+  | 'NOT_AVAILABLE'
+  | 'REFUSED'
+  | 'DISALLOWED_ACTION'
+  | 'DISALLOWED_TEMPLATE_INTENT'
+  | 'INVALID_RECOMMENDATION'
+  | 'CONTEXT_TOO_LARGE'
+  | 'CONTEXT_UNSUPPORTED';
+
+export interface DraftVariable {
+  key: string;
+  value: string;
+}
+
+export interface ActionRecommendation {
+  action: SemanticAction;
+  templateIntent: SemanticTemplateIntent;
+  rationale: string;
+  confidence: number;
+  draftVariables: DraftVariable[];
+}
+
+export interface RecommendationRefusal {
+  reason: NoRecommendationReason;
+  rationale: string;
+  confidence: number;
+}
+
+export interface RecommendationResponse {
+  status: RecommendationStatus;
+  customerId: string | null;
+  evaluation: EvaluationResponse | null;
+  recommendation: ActionRecommendation | null;
+  refusal: RecommendationRefusal | null;
+  refusalReason: NoRecommendationReason | null;
+  rejectionReason: ActionGateRejectionReason | null;
+  unavailableReason: AiUnavailableReason | null;
+  retryable: boolean;
+}
+
+export interface MessageDraft {
+  action: SemanticAction;
+  templateIntent: SemanticTemplateIntent;
+  body: string;
+  draftVariables: DraftVariable[];
+  locale: string;
+  evidence: string[];
+  warnings: string[];
+  rationale: string;
+  confidence: number;
+}
+
+export interface DraftRefusal {
+  reason: NoDraftReason;
+  rationale: string;
+  confidence: number;
+}
+
+export interface DraftResponse {
+  status: DraftStatus;
+  customerId: string | null;
+  evaluation: EvaluationResponse | null;
+  draft: MessageDraft | null;
+  refusal: DraftRefusal | null;
+  refusalReason: NoDraftReason | null;
+  rejectionReason: ActionGateRejectionReason | null;
+  unavailableReason: AiUnavailableReason | null;
+  retryable: boolean;
+}
+
+export interface DraftRequestParams {
+  action: SemanticAction;
+  templateIntent: SemanticTemplateIntent;
+}
