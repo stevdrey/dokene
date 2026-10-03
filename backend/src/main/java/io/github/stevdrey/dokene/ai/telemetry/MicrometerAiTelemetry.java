@@ -52,8 +52,13 @@ public final class MicrometerAiTelemetry implements AiTelemetry {
     }
 
     @Override
-    public void outcome(AiOperation operation, Outcome outcome) {
-        registry.counter(OUTCOMES, "operation", operation.name(), "outcome", outcome.name()).increment();
+    public void outcome(AiOperation operation, AiInvocationMetadata metadata, Outcome outcome) {
+        // provider/model come from validated invocation metadata, never from request text.
+        registry.counter(OUTCOMES,
+                "operation", operation.name(),
+                "provider", metadata == null ? NONE : metadata.providerId(),
+                "model", metadata == null || metadata.modelId() == null ? NONE : metadata.modelId(),
+                "outcome", outcome.name()).increment();
     }
 
     @Override

@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import io.github.stevdrey.dokene.ai.application.AiResilience;
@@ -20,6 +21,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -98,16 +100,17 @@ public final class FollowUpRecommendationService {
     public FollowUpDecision recommend(CustomerId customerId, Duration timeout) {
         Invocation invocation = invoke(customerId, timeout);
         if (invocation.aiInvoked()) {
-            reportOutcome(customerId, invocation.decision());
+            reportOutcome(customerId, invocation.decision(), invocation.metadata());
         }
         return invocation.decision();
     }
 
     /**
      * Result of one orchestration step. {@code aiInvoked} is false for the deterministic-ineligible short-circuit,
-     * which never reaches the provider and therefore has no AI outcome to report.
+     * which never reaches the provider and therefore has no AI outcome to report. {@code metadata} is the validated
+     * metadata of the provider response (null when no provider was reached); it labels the terminal outcome metric.
      */
-    private record Invocation(FollowUpDecision decision, boolean aiInvoked) {
+    private record Invocation(FollowUpDecision decision, boolean aiInvoked, AiInvocationMetadata metadata) {
     }
 
     /**
@@ -124,7 +127,7 @@ public final class FollowUpRecommendationService {
             if (gate != null) {
                 gate.revalidateAuthorization(customerId);
             }
-            return new Invocation(FollowUpDecision.ineligible(evaluation, assembly.policyVersion()), false);
+            return new Invocation(FollowUpDecision.ineligible(evaluation, assembly.policyVersion()), false, null);
         }
         if (rateLimiter != null && contexts != null) {
             var tenantContext = contexts.requireCurrent();
@@ -133,10 +136,11 @@ public final class FollowUpRecommendationService {
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
         AiRecommendationResponse response;
+        AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
         try {
-            response = invocationProvider(customerId).recommend(request);
+            response = invocationProvider(customerId, lastAttempt).recommend(request);
         } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
-            reportBoundaryRejection(customerId, ex);
+            reportBoundaryRejection(customerId, ex, lastAttempt.get());
             throw ex;
         }
         RecommendationOutcome outcome = response.outcome();
@@ -145,20 +149,20 @@ public final class FollowUpRecommendationService {
         if (gateDecision.rejectionReason().isPresent()) {
             ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
             if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
-                reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason);
+                reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason, response.metadata());
                 throw new TenantAccessDeniedException("Authorization revoked or tenant context unavailable");
             }
             if (reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND) {
-                reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason);
+                reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason, response.metadata());
                 throw new CustomerNotFoundException();
             }
         }
 
         FollowUpEvaluation effectiveEvaluation = gateDecision.evaluation().orElse(evaluation);
         if (gateDecision instanceof ActionGateDecision.Accepted accepted) {
-            return new Invocation(FollowUpDecision.accepted(effectiveEvaluation, accepted), true);
+            return new Invocation(FollowUpDecision.accepted(effectiveEvaluation, accepted), true, response.metadata());
         }
-        return new Invocation(FollowUpDecision.rejected(effectiveEvaluation, gateDecision), true);
+        return new Invocation(FollowUpDecision.rejected(effectiveEvaluation, gateDecision), true, response.metadata());
     }
 
     public FollowUpDecision recommend(FollowUpEvaluation evaluation, Duration timeout) {
@@ -217,7 +221,7 @@ public final class FollowUpRecommendationService {
             }
 
             if (invocation.aiInvoked()) {
-                reportOutcome(customerId, decision);
+                reportOutcome(customerId, decision, invocation.metadata());
             }
 
             if (decision.gateDecision().isAccepted()) {
@@ -259,9 +263,11 @@ public final class FollowUpRecommendationService {
                     evaluation, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, freshVersion);
 
         } catch (AiProviderException ex) {
-            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.category()));
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.category()),
+                    ex.metadata());
         } catch (RecommendationContextException ex) {
-            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()));
+            // context assembly failed before any provider was reached: provider/model are reported as "none"
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()), null);
         }
     }
 
@@ -273,9 +279,10 @@ public final class FollowUpRecommendationService {
             CustomerId customerId,
             long policyVersion,
             Long expectedVersion,
-            AiUnavailableReason reason) {
-        revalidateReportingBoundaryRejection(customerId);
-        reporter.failed(customerId, AiOperation.NEXT_BEST_ACTION, reason);
+            AiUnavailableReason reason,
+            AiInvocationMetadata metadata) {
+        revalidateReportingBoundaryRejection(customerId, metadata);
+        reporter.failed(customerId, AiOperation.NEXT_BEST_ACTION, reason, metadata);
         FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
         FollowUpEvaluation eval = snapshot.evaluation();
         long freshVersion = snapshot.policyVersion();
@@ -297,17 +304,20 @@ public final class FollowUpRecommendationService {
      * retry so a retry can never send customer context after the caller's access was revoked or the customer
      * disappeared.
      */
-    private AiProvider invocationProvider(CustomerId customerId) {
+    private AiProvider invocationProvider(CustomerId customerId, AtomicReference<AiInvocationMetadata> lastAttempt) {
         if (resilience == null || gate == null) {
             return provider;
         }
-        return resilience.wrap(rawProvider, () -> gate.revalidateAuthorization(customerId));
+        return resilience.wrap(rawProvider, previousAttempt -> {
+            lastAttempt.set(previousAttempt);
+            gate.revalidateAuthorization(customerId);
+        });
     }
 
     /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */
-    private void reportBoundaryRejection(CustomerId customerId, RuntimeException ex) {
+    private void reportBoundaryRejection(CustomerId customerId, RuntimeException ex, AiInvocationMetadata lastAttempt) {
         reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ex instanceof CustomerNotFoundException
-                ? ActionGateRejectionReason.CUSTOMER_NOT_FOUND : ActionGateRejectionReason.UNAUTHORIZED);
+                ? ActionGateRejectionReason.CUSTOMER_NOT_FOUND : ActionGateRejectionReason.UNAUTHORIZED, lastAttempt);
     }
 
     /**
@@ -315,36 +325,38 @@ public final class FollowUpRecommendationService {
      * happened, so its terminal outcome must still be counted and logged before the exception propagates; the
      * reporter suppresses the audit row for these tenant-boundary reasons.
      */
-    private void revalidateReportingBoundaryRejection(CustomerId customerId) {
+    private void revalidateReportingBoundaryRejection(CustomerId customerId, AiInvocationMetadata metadata) {
         if (gate == null) {
             return;
         }
         try {
             gate.revalidateAuthorization(customerId);
         } catch (TenantAccessDeniedException ex) {
-            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ActionGateRejectionReason.UNAUTHORIZED);
+            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ActionGateRejectionReason.UNAUTHORIZED,
+                    metadata);
             throw ex;
         } catch (CustomerNotFoundException ex) {
             reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION,
-                    ActionGateRejectionReason.CUSTOMER_NOT_FOUND);
+                    ActionGateRejectionReason.CUSTOMER_NOT_FOUND, metadata);
             throw ex;
         }
     }
 
-    private void reportOutcome(CustomerId customerId, FollowUpDecision decision) {
+    private void reportOutcome(CustomerId customerId, FollowUpDecision decision, AiInvocationMetadata metadata) {
         if (decision.rejectionReason().isPresent()) {
-            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, decision.rejectionReason().get());
+            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, decision.rejectionReason().get(), metadata);
         } else if (decision.recommendation() instanceof NoRecommendation) {
-            reporter.modelRefused(customerId, AiOperation.NEXT_BEST_ACTION);
+            reporter.modelRefused(customerId, AiOperation.NEXT_BEST_ACTION, metadata);
         } else {
-            reporter.generated(customerId, AiOperation.NEXT_BEST_ACTION);
+            reporter.generated(customerId, AiOperation.NEXT_BEST_ACTION, metadata);
         }
     }
 
     /** The output was produced but not delivered because the customer policy moved: audit it as a stale rejection. */
     private void reportDiscarded(CustomerId customerId, Invocation invocation) {
         if (invocation.aiInvoked()) {
-            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ActionGateRejectionReason.STALE_STATE);
+            reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ActionGateRejectionReason.STALE_STATE,
+                    invocation.metadata());
         }
     }
 

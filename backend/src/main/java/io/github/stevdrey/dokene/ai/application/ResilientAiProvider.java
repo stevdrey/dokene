@@ -134,7 +134,7 @@ public final class ResilientAiProvider implements AiProvider {
             }
             // Re-validate before the customer context is sent again. A throwing guard aborts the retry and its
             // exception propagates unchanged (it is deliberately outside the try that normalizes provider failures).
-            guard.beforeRetry();
+            guard.beforeRetry(failure.metadata());
             telemetry.retryScheduled(operation, failure.metadata().providerId(), failure.category());
             attempt++;
         }

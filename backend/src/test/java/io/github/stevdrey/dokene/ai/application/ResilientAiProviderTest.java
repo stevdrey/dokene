@@ -142,15 +142,24 @@ class ResilientAiProviderTest {
         java.util.concurrent.atomic.AtomicInteger guardCalls = new java.util.concurrent.atomic.AtomicInteger();
         java.util.concurrent.atomic.AtomicInteger callsAtGuard = new java.util.concurrent.atomic.AtomicInteger(-1);
 
-        provider(3).guardedBy(() -> {
+        List<AiInvocationMetadata> seenByGuard = new ArrayList<>();
+
+        provider(3).guardedBy(previousAttempt -> {
             guardCalls.incrementAndGet();
             callsAtGuard.set(delegate.calls);
+            seenByGuard.add(previousAttempt);
         }).recommend(request(Duration.ofSeconds(30)));
 
         assertThat(delegate.calls).isEqualTo(3);
         assertThat(guardCalls).hasValue(2);
         // the guard of the second retry ran after two provider calls and before the third one
         assertThat(callsAtGuard).hasValue(2);
+        // the guard is told which provider/model the failed attempt used, so an abort can still be attributed to it
+        assertThat(seenByGuard).hasSize(2).allSatisfy(metadata -> {
+            assertThat(metadata.providerId()).isEqualTo("fake");
+            assertThat(metadata.modelId()).isEqualTo("test-model");
+            assertThat(metadata.status()).isEqualTo(AiCompletionStatus.FAILED);
+        });
     }
 
     @Test
@@ -158,7 +167,7 @@ class ResilientAiProviderTest {
         delegate.alwaysFail(AiFailureCategory.THROTTLED);
         IllegalStateException revoked = new IllegalStateException("authorization revoked");
 
-        assertThatThrownBy(() -> provider(3).guardedBy(() -> {
+        assertThatThrownBy(() -> provider(3).guardedBy(previousAttempt -> {
             throw revoked;
         }).recommend(request(Duration.ofSeconds(30)))).isSameAs(revoked);
 
@@ -172,7 +181,7 @@ class ResilientAiProviderTest {
         delegate.alwaysFail(AiFailureCategory.NOT_AVAILABLE);
         java.util.concurrent.atomic.AtomicInteger guardCalls = new java.util.concurrent.atomic.AtomicInteger();
 
-        assertThatThrownBy(() -> provider(3).guardedBy(guardCalls::incrementAndGet)
+        assertThatThrownBy(() -> provider(3).guardedBy(previousAttempt -> guardCalls.incrementAndGet())
                 .recommend(request(Duration.ofSeconds(30)))).isInstanceOf(AiProviderException.class);
 
         assertThat(guardCalls).hasValue(0);
@@ -476,7 +485,7 @@ class ResilientAiProviderTest {
         }
 
         @Override
-        public void outcome(AiOperation operation, Outcome outcome) {
+        public void outcome(AiOperation operation, AiInvocationMetadata metadata, Outcome outcome) {
         }
 
         @Override

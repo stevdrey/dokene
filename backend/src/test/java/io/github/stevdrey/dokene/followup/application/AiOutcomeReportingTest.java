@@ -244,7 +244,7 @@ class AiOutcomeReportingTest {
         assertThat(audit.events).containsExactly("generated:NEXT_BEST_ACTION");
         // two provider attempts, exactly one logical outcome for the request
         assertThat(telemetry.invocations).hasSize(2);
-        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GENERATED");
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GENERATED");
     }
 
     @Test
@@ -271,7 +271,7 @@ class AiOutcomeReportingTest {
                 .isInstanceOf(FollowUpConflictException.class);
 
         assertThat(audit.events).containsExactly("gateRejected:NEXT_BEST_ACTION:STALE_STATE");
-        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GATE_REJECTED");
     }
 
     @Test
@@ -325,6 +325,108 @@ class AiOutcomeReportingTest {
     }
 
     @Test
+    void outcomeMetricCarriesTheProviderAndModelOfTheTerminalCallForEveryTerminalPath() {
+        // success without retry
+        ActionRecommendation action = action();
+        when(provider.recommend(any())).thenReturn(new AiRecommendationResponse(action, success()));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action)))
+                .thenReturn(ActionGateDecision.accepted(action, due, 1L));
+        recommendations.recommendSafe(customerId, timeout, null);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GENERATED");
+        assertThat(telemetry.invocations).hasSize(1);
+
+        // model refusal
+        telemetry.outcomes.clear();
+        NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Insufficient signal", RecommendationConfidence.of(0.4));
+        when(provider.recommend(any())).thenReturn(new AiRecommendationResponse(refusal, success()));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(refusal)))
+                .thenReturn(ActionGateDecision.accepted(refusal, due, 1L));
+        recommendations.recommendSafe(customerId, timeout, null);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:MODEL_REFUSED");
+
+        // gate rejection
+        telemetry.outcomes.clear();
+        when(provider.recommend(any())).thenReturn(new AiRecommendationResponse(action, success()));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action))).thenReturn(ActionGateDecision.rejected(
+                ActionGateRejectionReason.DISALLOWED_ACTION, "diagnostic", due, action, 1L));
+        recommendations.recommendSafe(customerId, timeout, null);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GATE_REJECTED");
+    }
+
+    @Test
+    void oneRetryRecordsTwoAttemptsButExactlyOneOutcomeLabelledWithTheSuccessfulCall() {
+        ActionRecommendation action = action();
+        when(provider.recommend(any()))
+                .thenThrow(new AiProviderException(AiFailureCategory.THROTTLED, new AiInvocationMetadata(
+                        "first-provider", "first-model", null, Duration.ofMillis(5), null, AiCompletionStatus.FAILED)))
+                .thenReturn(new AiRecommendationResponse(action, new AiInvocationMetadata(
+                        "second-provider", "second-model", "req-2", Duration.ofMillis(9), null,
+                        AiCompletionStatus.SUCCEEDED)));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action)))
+                .thenReturn(ActionGateDecision.accepted(action, due, 1L));
+
+        recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(telemetry.invocations).hasSize(2);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:second-provider/second-model:GENERATED");
+    }
+
+    @Test
+    void terminalFailureAfterRetriesIsLabelledWithTheTerminalProviderMetadata() {
+        when(provider.recommend(any()))
+                .thenThrow(new AiProviderException(AiFailureCategory.THROTTLED, new AiInvocationMetadata(
+                        "first-provider", "first-model", null, Duration.ofMillis(5), null, AiCompletionStatus.FAILED)))
+                .thenThrow(new AiProviderException(AiFailureCategory.UNAVAILABLE, new AiInvocationMetadata(
+                        "last-provider", "last-model", null, Duration.ofMillis(7), null, AiCompletionStatus.FAILED)));
+
+        FollowUpRecommendationResult result = recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
+        assertThat(telemetry.invocations).hasSize(2);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:last-provider/last-model:FAILED");
+    }
+
+    @Test
+    void disabledProviderReportsAStableProviderModelPairWithoutFreeText() {
+        FollowUpRecommendationService disabled = new FollowUpRecommendationService(
+                new io.github.stevdrey.dokene.ai.provider.disabled.DisabledAiProvider(), assembler, gate,
+                authorization, contexts, followUps, null, resilience, reporter);
+
+        FollowUpRecommendationResult result = disabled.recommendSafe(customerId, timeout, null);
+
+        assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.NOT_AVAILABLE);
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:disabled/none:FAILED");
+    }
+
+    @Test
+    void failureBeforeAnyProviderIsReachedIsLabelledNoneNone() {
+        when(assembler.assemble(customerId))
+                .thenThrow(new RecommendationContextException(RecommendationContextException.Reason.TOO_LARGE));
+
+        recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:none/none:FAILED");
+        assertThat(telemetry.invocations).isEmpty();
+    }
+
+    @Test
+    void draftOutcomeMetricCarriesTheProviderAndModel() {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        NoDraft noDraft = new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, "No draft", RecommendationConfidence.of(0.5));
+        when(draftProvider.draft(any())).thenReturn(new AiDraftResponse(noDraft, success()));
+        when(gate.evaluateDraft(eq(customerId), eq(assembly), eq(noDraft), any(), any(), any()))
+                .thenReturn(DraftGateDecision.accepted(noDraft, due, 1L));
+
+        drafts.draftSafe(customerId, null, null, timeout, null);
+
+        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:test/test-model:MODEL_REFUSED");
+    }
+
+    @Test
     void noSensitiveTextReachesLogsTelemetryOrAudit() {
         when(provider.recommend(any())).thenThrow(
                 new IllegalStateException(SECRET, new RuntimeException(SECRET)));
@@ -356,7 +458,7 @@ class AiOutcomeReportingTest {
                         : io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException.class);
 
         assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
-        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GATE_REJECTED");
         assertThat(audit.events).isEmpty();
         assertThat(logs.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
                 .contains("outcome=GATE_REJECTED").contains("detail=" + reason.name()));
@@ -393,7 +495,7 @@ class AiOutcomeReportingTest {
 
         assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, null)).isSameAs(lost);
 
-        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GATE_REJECTED");
         assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
         assertThat(audit.events).isEmpty();
         assertThat(logs.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
@@ -415,7 +517,7 @@ class AiOutcomeReportingTest {
 
         assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, null)).isSameAs(lost);
 
-        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:GATE_REJECTED");
+        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:test/test-model:GATE_REJECTED");
         assertThat(telemetry.gateRejections).containsExactly("MESSAGE_DRAFT:" + reason.name());
         assertThat(audit.events).isEmpty();
     }
@@ -455,7 +557,7 @@ class AiOutcomeReportingTest {
 
         verify(provider, times(1)).recommend(any());
         assertThat(telemetry.retries).isEmpty();
-        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GATE_REJECTED");
         assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
         assertThat(audit.events).isEmpty();
     }
@@ -477,7 +579,7 @@ class AiOutcomeReportingTest {
 
         verify(draftProvider, times(1)).draft(any());
         assertThat(telemetry.retries).isEmpty();
-        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:GATE_REJECTED");
+        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:test/test-model:GATE_REJECTED");
         assertThat(telemetry.gateRejections).containsExactly("MESSAGE_DRAFT:" + reason.name());
         assertThat(audit.events).isEmpty();
     }
@@ -596,8 +698,10 @@ class AiOutcomeReportingTest {
         }
 
         @Override
-        public void outcome(AiOperation operation, Outcome outcome) {
-            outcomes.add(operation + ":" + outcome);
+        public void outcome(AiOperation operation, AiInvocationMetadata metadata, Outcome outcome) {
+            outcomes.add(operation + ":" + (metadata == null ? "none/none"
+                    : metadata.providerId() + "/" + (metadata.modelId() == null ? "none" : metadata.modelId()))
+                    + ":" + outcome);
         }
 
         @Override

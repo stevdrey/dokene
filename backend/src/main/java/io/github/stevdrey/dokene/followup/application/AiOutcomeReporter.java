@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.application.AiCorrelationSource;
+import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiTelemetry;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
@@ -33,21 +34,22 @@ public final class AiOutcomeReporter {
         return new AiOutcomeReporter(AiTelemetry.noop(), AiOutcomeAuditPort.noop(), AiCorrelationSource.none());
     }
 
-    public void generated(CustomerId customerId, AiOperation operation) {
-        telemetry.outcome(operation, AiTelemetry.Outcome.GENERATED);
+    public void generated(CustomerId customerId, AiOperation operation, AiInvocationMetadata metadata) {
+        telemetry.outcome(operation, metadata, AiTelemetry.Outcome.GENERATED);
         logOutcome(operation, "GENERATED", "NONE");
         audit.generated(customerId, operation);
     }
 
-    public void modelRefused(CustomerId customerId, AiOperation operation) {
-        telemetry.outcome(operation, AiTelemetry.Outcome.MODEL_REFUSED);
+    public void modelRefused(CustomerId customerId, AiOperation operation, AiInvocationMetadata metadata) {
+        telemetry.outcome(operation, metadata, AiTelemetry.Outcome.MODEL_REFUSED);
         telemetry.modelRefusal(operation);
         logOutcome(operation, "MODEL_REFUSED", "NONE");
         audit.modelRefused(customerId, operation);
     }
 
-    public void gateRejected(CustomerId customerId, AiOperation operation, ActionGateRejectionReason reason) {
-        telemetry.outcome(operation, AiTelemetry.Outcome.GATE_REJECTED);
+    public void gateRejected(CustomerId customerId, AiOperation operation, ActionGateRejectionReason reason,
+            AiInvocationMetadata metadata) {
+        telemetry.outcome(operation, metadata, AiTelemetry.Outcome.GATE_REJECTED);
         telemetry.gateRejected(operation, reason.name());
         logOutcome(operation, "GATE_REJECTED", reason.name());
         // These reasons are raised at the authorization/existence boundary, before the gate has established that
@@ -59,8 +61,9 @@ public final class AiOutcomeReporter {
         }
     }
 
-    public void failed(CustomerId customerId, AiOperation operation, AiUnavailableReason reason) {
-        telemetry.outcome(operation, AiTelemetry.Outcome.FAILED);
+    public void failed(CustomerId customerId, AiOperation operation, AiUnavailableReason reason,
+            AiInvocationMetadata metadata) {
+        telemetry.outcome(operation, metadata, AiTelemetry.Outcome.FAILED);
         logOutcome(operation, "FAILED", reason.name());
         audit.failed(customerId, operation, reason);
     }

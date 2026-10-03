@@ -120,6 +120,9 @@ class AiFailureHandlingIntegrationTest {
     @Test
     void temporaryProviderRecoveryYieldsAvailableAndAuditsOnlyTheFinalOutcome() throws Exception {
         double retriesBefore = counter("dokene.ai.retries");
+        double attemptsBefore = counter("dokene.ai.attempts");
+        double outcomesBefore = counter("dokene.ai.outcomes", "operation", "NEXT_BEST_ACTION",
+                "provider", "fake-provider", "model", "deterministic-fake", "outcome", "GENERATED");
         doThrow(failure(AiFailureCategory.THROTTLED)).doCallRealMethod().when(provider).recommend(any());
 
         FollowUpRecommendationResult result = inContext(() -> recommendations.recommendSafe(customer.id(), null, null));
@@ -127,6 +130,10 @@ class AiFailureHandlingIntegrationTest {
         assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
         verify(provider, times(2)).recommend(any());
         assertThat(counter("dokene.ai.retries")).isEqualTo(retriesBefore + 1);
+        // one retry: two provider attempts but exactly one logical outcome, labelled with the terminal call's provider/model
+        assertThat(counter("dokene.ai.attempts")).isEqualTo(attemptsBefore + 2);
+        assertThat(counter("dokene.ai.outcomes", "operation", "NEXT_BEST_ACTION", "provider", "fake-provider",
+                "model", "deterministic-fake", "outcome", "GENERATED")).isEqualTo(outcomesBefore + 1);
         assertThat(aiEvents()).singleElement().satisfies(event -> {
             assertThat(event.metadata()).isEqualTo(new AuditMetadata.AiInvocation(
                     AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.GENERATED, AiAuditDetail.NONE));
@@ -144,6 +151,8 @@ class AiFailureHandlingIntegrationTest {
         assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
         assertThat(result.unavailableReason().retryable()).isTrue();
         verify(provider, times(2)).recommend(any());
+        assertThat(counter("dokene.ai.outcomes", "operation", "NEXT_BEST_ACTION", "provider", "fake-provider",
+                "model", "deterministic-fake", "outcome", "FAILED")).isGreaterThanOrEqualTo(1.0);
         assertThat(aiEvents()).singleElement().satisfies(event -> assertThat(event.metadata())
                 .isEqualTo(new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.FAILED,
                         AiAuditDetail.UNAVAILABLE)));
@@ -187,6 +196,10 @@ class AiFailureHandlingIntegrationTest {
 
     private double counter(String name) {
         return meters.find(name).counters().stream().mapToDouble(c -> c.count()).sum();
+    }
+
+    private double counter(String name, String... tags) {
+        return meters.find(name).tags(tags).counters().stream().mapToDouble(c -> c.count()).sum();
     }
 
     private List<AuditEvent> aiEvents() throws Exception {

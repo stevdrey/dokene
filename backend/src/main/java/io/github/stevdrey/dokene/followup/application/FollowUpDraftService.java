@@ -30,6 +30,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -211,10 +212,11 @@ public final class FollowUpDraftService {
 
             AiDraftRequest request = new AiDraftRequest(draftContext, effectiveTimeout);
             AiDraftResponse response;
+            AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
             try {
-                response = invocationProvider(customerId).draft(request);
+                response = invocationProvider(customerId, lastAttempt).draft(request);
             } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
-                reportBoundaryRejection(customerId, ex);
+                reportBoundaryRejection(customerId, ex, lastAttempt.get());
                 throw ex;
             }
             if (response == null || response.metadata() == null
@@ -230,11 +232,11 @@ public final class FollowUpDraftService {
                 ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
                 // These abort the request with an exception, so no result follows: report them here.
                 if (reason == ActionGateRejectionReason.NO_TENANT_CONTEXT || reason == ActionGateRejectionReason.UNAUTHORIZED) {
-                    reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason);
+                    reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason, response.metadata());
                     throw new TenantAccessDeniedException("Authorization revoked or tenant context unavailable");
                 }
                 if (reason == ActionGateRejectionReason.CUSTOMER_NOT_FOUND) {
-                    reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason);
+                    reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason, response.metadata());
                     throw new CustomerNotFoundException();
                 }
             }
@@ -246,16 +248,18 @@ public final class FollowUpDraftService {
 
             if (expectedVersion != null && gateVersion != null && !expectedVersion.equals(gateVersion)) {
                 // The output was produced but is not delivered: audit it as a stale rejection, not as generated.
-                reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.STALE_STATE);
+                reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.STALE_STATE,
+                        response.metadata());
                 throw new FollowUpConflictException();
             }
 
             if (gateVersion != null && currentVersion != gateVersion.longValue()) {
-                reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.STALE_STATE);
+                reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.STALE_STATE,
+                        response.metadata());
                 return FollowUpDraftResult.staleState(effectiveEvaluation, currentVersion);
             }
 
-            reportOutcome(customerId, gateDecision, outcome);
+            reportOutcome(customerId, gateDecision, outcome, response.metadata());
 
             if (gateDecision.isAccepted()) {
                 if (gateDecision.rawOutcome().orElse(null) instanceof MessageDraft draft) {
@@ -291,11 +295,13 @@ public final class FollowUpDraftService {
                     effectiveEvaluation, ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE, freshVersion);
 
         } catch (AiProviderException ex) {
-            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.category()));
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.category()),
+                    ex.metadata());
         } catch (UnsupportedOperationException ex) {
-            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.NOT_AVAILABLE);
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.NOT_AVAILABLE, null);
         } catch (RecommendationContextException ex) {
-            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()));
+            // context assembly failed before any provider was reached: provider/model are reported as "none"
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()), null);
         }
     }
 
@@ -307,9 +313,10 @@ public final class FollowUpDraftService {
             CustomerId customerId,
             long policyVersion,
             Long expectedVersion,
-            AiUnavailableReason reason) {
-        revalidateReportingBoundaryRejection(customerId);
-        reporter.failed(customerId, AiOperation.MESSAGE_DRAFT, reason);
+            AiUnavailableReason reason,
+            AiInvocationMetadata metadata) {
+        revalidateReportingBoundaryRejection(customerId, metadata);
+        reporter.failed(customerId, AiOperation.MESSAGE_DRAFT, reason, metadata);
         FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
         FollowUpEvaluation eval = snapshot.evaluation();
         long freshVersion = snapshot.policyVersion();
@@ -331,17 +338,20 @@ public final class FollowUpDraftService {
      * retry so a retry can never send customer context after the caller's access was revoked or the customer
      * disappeared.
      */
-    private AiProvider invocationProvider(CustomerId customerId) {
+    private AiProvider invocationProvider(CustomerId customerId, AtomicReference<AiInvocationMetadata> lastAttempt) {
         if (resilience == null || gate == null) {
             return provider;
         }
-        return resilience.wrap(rawProvider, () -> gate.revalidateDraftAuthorization(customerId));
+        return resilience.wrap(rawProvider, previousAttempt -> {
+            lastAttempt.set(previousAttempt);
+            gate.revalidateDraftAuthorization(customerId);
+        });
     }
 
     /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */
-    private void reportBoundaryRejection(CustomerId customerId, RuntimeException ex) {
+    private void reportBoundaryRejection(CustomerId customerId, RuntimeException ex, AiInvocationMetadata lastAttempt) {
         reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ex instanceof CustomerNotFoundException
-                ? ActionGateRejectionReason.CUSTOMER_NOT_FOUND : ActionGateRejectionReason.UNAUTHORIZED);
+                ? ActionGateRejectionReason.CUSTOMER_NOT_FOUND : ActionGateRejectionReason.UNAUTHORIZED, lastAttempt);
     }
 
     /**
@@ -349,28 +359,31 @@ public final class FollowUpDraftService {
      * happened, so its terminal outcome must still be counted and logged before the exception propagates; the
      * reporter suppresses the audit row for these tenant-boundary reasons.
      */
-    private void revalidateReportingBoundaryRejection(CustomerId customerId) {
+    private void revalidateReportingBoundaryRejection(CustomerId customerId, AiInvocationMetadata metadata) {
         if (gate == null) {
             return;
         }
         try {
             gate.revalidateDraftAuthorization(customerId);
         } catch (TenantAccessDeniedException ex) {
-            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.UNAUTHORIZED);
+            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.UNAUTHORIZED,
+                    metadata);
             throw ex;
         } catch (CustomerNotFoundException ex) {
-            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.CUSTOMER_NOT_FOUND);
+            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ActionGateRejectionReason.CUSTOMER_NOT_FOUND,
+                    metadata);
             throw ex;
         }
     }
 
-    private void reportOutcome(CustomerId customerId, DraftGateDecision decision, DraftOutcome outcome) {
+    private void reportOutcome(CustomerId customerId, DraftGateDecision decision, DraftOutcome outcome,
+            AiInvocationMetadata metadata) {
         if (decision.rejectionReason().isPresent()) {
-            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, decision.rejectionReason().get());
+            reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, decision.rejectionReason().get(), metadata);
         } else if (outcome instanceof NoDraft) {
-            reporter.modelRefused(customerId, AiOperation.MESSAGE_DRAFT);
+            reporter.modelRefused(customerId, AiOperation.MESSAGE_DRAFT, metadata);
         } else {
-            reporter.generated(customerId, AiOperation.MESSAGE_DRAFT);
+            reporter.generated(customerId, AiOperation.MESSAGE_DRAFT, metadata);
         }
     }
 

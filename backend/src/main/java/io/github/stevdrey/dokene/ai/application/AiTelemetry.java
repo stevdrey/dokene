@@ -25,8 +25,13 @@ public interface AiTelemetry {
     /** One provider attempt finished. {@code category} is null when the attempt succeeded. */
     void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata, AiFailureCategory category);
 
-    /** The terminal outcome of one invocation: counted exactly once per request, not once per retry attempt. */
-    void outcome(AiOperation operation, Outcome outcome);
+    /**
+     * The terminal outcome of one invocation: counted exactly once per request, not once per retry attempt.
+     * {@code metadata} is the validated metadata of the terminal provider call (the successful response, or the
+     * terminal failure); it is null only when no provider was reached (e.g. context assembly failed), which is
+     * reported as provider/model {@code none}. Provider/model must never come from request text.
+     */
+    void outcome(AiOperation operation, AiInvocationMetadata metadata, Outcome outcome);
 
     /** A bounded retry was scheduled after a transient failure of the given category. */
     void retryScheduled(AiOperation operation, String providerId, AiFailureCategory category);
@@ -45,7 +50,7 @@ public interface AiTelemetry {
             }
 
             @Override
-            public void outcome(AiOperation operation, Outcome outcome) {
+            public void outcome(AiOperation operation, AiInvocationMetadata metadata, Outcome outcome) {
             }
 
             @Override

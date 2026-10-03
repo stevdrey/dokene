@@ -83,14 +83,39 @@ class MicrometerAiTelemetryTest {
                 Duration.ofMillis(5), null, AiCompletionStatus.FAILED), AiFailureCategory.THROTTLED);
         telemetry.attemptCompleted(AiOperation.NEXT_BEST_ACTION, new AiInvocationMetadata("openai", "m", "r",
                 Duration.ofMillis(5), null, AiCompletionStatus.SUCCEEDED), null);
-        telemetry.outcome(AiOperation.NEXT_BEST_ACTION, io.github.stevdrey.dokene.ai.application.AiTelemetry.Outcome.GENERATED);
+        telemetry.outcome(AiOperation.NEXT_BEST_ACTION, new AiInvocationMetadata("openai", "m", "r",
+                Duration.ofMillis(5), null, AiCompletionStatus.SUCCEEDED),
+                io.github.stevdrey.dokene.ai.application.AiTelemetry.Outcome.GENERATED);
 
         // one request that needed a retry: two provider attempts, exactly one logical outcome
         assertThat(registry.find(MicrometerAiTelemetry.ATTEMPTS).counters().stream()
                 .mapToDouble(io.micrometer.core.instrument.Counter::count).sum()).isEqualTo(2.0);
         assertThat(registry.get(MicrometerAiTelemetry.OUTCOMES).tag("operation", "NEXT_BEST_ACTION")
-                .tag("outcome", "GENERATED").counter().count()).isEqualTo(1.0);
+                .tag("provider", "openai").tag("model", "m").tag("outcome", "GENERATED").counter().count())
+                .isEqualTo(1.0);
         assertThat(registry.find(MicrometerAiTelemetry.OUTCOMES).counters()).hasSize(1);
+    }
+
+    @Test
+    void outcomeTagsComeFromValidatedMetadataAndDefaultToNoneWhenNoProviderWasReached() {
+        io.github.stevdrey.dokene.ai.application.AiTelemetry.Outcome failed =
+                io.github.stevdrey.dokene.ai.application.AiTelemetry.Outcome.FAILED;
+        telemetry.outcome(AiOperation.MESSAGE_DRAFT, new AiInvocationMetadata("disabled", "none", "none",
+                Duration.ZERO, new AiTokenUsage(0, 0), AiCompletionStatus.FAILED), failed);
+        telemetry.outcome(AiOperation.MESSAGE_DRAFT, new AiInvocationMetadata("openai", null, null,
+                Duration.ofMillis(3), null, AiCompletionStatus.FAILED), failed);
+        telemetry.outcome(AiOperation.MESSAGE_DRAFT, null, failed);
+
+        assertThat(registry.get(MicrometerAiTelemetry.OUTCOMES).tag("provider", "disabled").tag("model", "none")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get(MicrometerAiTelemetry.OUTCOMES).tag("provider", "openai").tag("model", "none")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get(MicrometerAiTelemetry.OUTCOMES).tag("provider", "none").tag("model", "none")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.find(MicrometerAiTelemetry.OUTCOMES).counters())
+                .extracting(counter -> counter.getId().getTags().stream()
+                        .map(io.micrometer.core.instrument.Tag::getKey).collect(Collectors.toSet()))
+                .allSatisfy(keys -> assertThat(keys).containsExactlyInAnyOrder("operation", "provider", "model", "outcome"));
     }
 
     @Test
@@ -100,7 +125,9 @@ class MicrometerAiTelemetryTest {
         telemetry.retryScheduled(AiOperation.NEXT_BEST_ACTION, "openai", AiFailureCategory.UNAVAILABLE);
         telemetry.modelRefusal(AiOperation.NEXT_BEST_ACTION);
         telemetry.gateRejected(AiOperation.NEXT_BEST_ACTION, "STALE_STATE");
-        telemetry.outcome(AiOperation.NEXT_BEST_ACTION, io.github.stevdrey.dokene.ai.application.AiTelemetry.Outcome.FAILED);
+        telemetry.outcome(AiOperation.NEXT_BEST_ACTION, new AiInvocationMetadata("openai", "m", null,
+                Duration.ofMillis(1), null, AiCompletionStatus.FAILED),
+                io.github.stevdrey.dokene.ai.application.AiTelemetry.Outcome.FAILED);
 
         Set<String> tagKeys = registry.getMeters().stream()
                 .map(Meter::getId)
