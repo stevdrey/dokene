@@ -15,4 +15,11 @@ public final class AiResilience {
     public AiProvider wrap(AiProvider provider) {
         return provider instanceof ResilientAiProvider ? provider : new ResilientAiProvider(provider, retry, telemetry);
     }
+
+    /** Wraps {@code provider} so that {@code guard} runs before every retry (see {@link RetryGuard}). */
+    public AiProvider wrap(AiProvider provider, RetryGuard guard) {
+        ResilientAiProvider resilient = provider instanceof ResilientAiProvider existing
+                ? existing : new ResilientAiProvider(provider, retry, telemetry);
+        return resilient.guardedBy(guard);
+    }
 }

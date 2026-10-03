@@ -166,7 +166,7 @@ Other statuses keep their meaning: `403` (not authorized), `404` (customer not i
 
 ### Retry
 
-Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are retried, only around the provider call, and the requested timeout is the total deadline. Configure with `dokene.ai.retry.max-attempts` (default `2`, maximum `3`, `1` disables), `initial-backoff`, `max-backoff` and `min-attempt-budget` (the smallest budget a *retry* may start with; the first attempt always runs with the requested timeout). Authorization and the Action Gate are never skipped by a retry. On `THROTTLED` the provider's `Retry-After` is honored (no retry if it exceeds the remaining deadline); without one the wait is `max-backoff`. Backoff values are capped at 30s.
+Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are retried, only around the provider call, and the requested timeout is the total deadline. Configure with `dokene.ai.retry.max-attempts` (default `2`, maximum `3`, `1` disables), `initial-backoff`, `max-backoff` and `min-attempt-budget` (the smallest budget a *retry* may start with; the first attempt always runs with the requested timeout). Authorization and the Action Gate are never skipped by a retry: authorization is re-validated before each retry, and if it was revoked in the meantime the retry is aborted (403/404) before the customer context is sent again. On `THROTTLED` the provider's `Retry-After` is honored (no retry if it exceeds the remaining deadline); without one the wait is `max-backoff`. Backoff values are capped at 30s.
 
 ### Metrics
 

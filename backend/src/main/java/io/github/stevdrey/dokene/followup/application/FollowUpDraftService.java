@@ -44,6 +44,8 @@ public final class FollowUpDraftService {
     private static final Duration MAX_TIMEOUT = Duration.ofSeconds(30);
 
     private final AiProvider provider;
+    private final AiProvider rawProvider;
+    private final AiResilience resilience;
     private final RecommendationContextAssembler assembler;
     private final AiActionGate gate;
     private final TenantAuthorizationService authorization;
@@ -66,6 +68,8 @@ public final class FollowUpDraftService {
             AiResilience resilience,
             AiOutcomeReporter reporter) {
         Objects.requireNonNull(provider, "AI provider is required");
+        this.rawProvider = provider;
+        this.resilience = resilience;
         this.provider = resilience == null ? provider : resilience.wrap(provider);
         this.reporter = reporter == null ? AiOutcomeReporter.noop() : reporter;
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
@@ -206,7 +210,13 @@ public final class FollowUpDraftService {
             }
 
             AiDraftRequest request = new AiDraftRequest(draftContext, effectiveTimeout);
-            AiDraftResponse response = provider.draft(request);
+            AiDraftResponse response;
+            try {
+                response = invocationProvider(customerId).draft(request);
+            } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
+                reportBoundaryRejection(customerId, ex);
+                throw ex;
+            }
             if (response == null || response.metadata() == null
                     || response.metadata().status() != AiCompletionStatus.SUCCEEDED) {
                 throw new AiProviderException(AiFailureCategory.UNAVAILABLE,
@@ -314,6 +324,24 @@ public final class FollowUpDraftService {
             return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
         }
         return FollowUpDraftResult.aiUnavailable(eval, reason, freshVersion);
+    }
+
+    /**
+     * The provider for one request. When resilience is configured, authorization is re-validated before every
+     * retry so a retry can never send customer context after the caller's access was revoked or the customer
+     * disappeared.
+     */
+    private AiProvider invocationProvider(CustomerId customerId) {
+        if (resilience == null || gate == null) {
+            return provider;
+        }
+        return resilience.wrap(rawProvider, () -> gate.revalidateDraftAuthorization(customerId));
+    }
+
+    /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */
+    private void reportBoundaryRejection(CustomerId customerId, RuntimeException ex) {
+        reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, ex instanceof CustomerNotFoundException
+                ? ActionGateRejectionReason.CUSTOMER_NOT_FOUND : ActionGateRejectionReason.UNAUTHORIZED);
     }
 
     /**

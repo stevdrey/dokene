@@ -33,6 +33,8 @@ public final class FollowUpRecommendationService {
     private static final Duration MAX_TIMEOUT = Duration.ofSeconds(30);
 
     private final AiProvider provider;
+    private final AiProvider rawProvider;
+    private final AiResilience resilience;
     private final RecommendationContextAssembler assembler;
     private final AiActionGate gate;
     private final TenantAuthorizationService authorization;
@@ -53,6 +55,8 @@ public final class FollowUpRecommendationService {
             AiResilience resilience,
             AiOutcomeReporter reporter) {
         Objects.requireNonNull(provider, "AI provider is required");
+        this.rawProvider = provider;
+        this.resilience = resilience;
         this.provider = resilience == null ? provider : resilience.wrap(provider);
         this.reporter = reporter == null ? AiOutcomeReporter.noop() : reporter;
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
@@ -128,7 +132,13 @@ public final class FollowUpRecommendationService {
         }
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
-        AiRecommendationResponse response = provider.recommend(request);
+        AiRecommendationResponse response;
+        try {
+            response = invocationProvider(customerId).recommend(request);
+        } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
+            reportBoundaryRejection(customerId, ex);
+            throw ex;
+        }
         RecommendationOutcome outcome = response.outcome();
 
         ActionGateDecision gateDecision = gate.evaluate(customerId, assembly, outcome);
@@ -280,6 +290,24 @@ public final class FollowUpRecommendationService {
             return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
         }
         return FollowUpRecommendationResult.aiUnavailable(eval, reason, freshVersion);
+    }
+
+    /**
+     * The provider for one request. When resilience is configured, authorization is re-validated before every
+     * retry so a retry can never send customer context after the caller's access was revoked or the customer
+     * disappeared.
+     */
+    private AiProvider invocationProvider(CustomerId customerId) {
+        if (resilience == null || gate == null) {
+            return provider;
+        }
+        return resilience.wrap(rawProvider, () -> gate.revalidateAuthorization(customerId));
+    }
+
+    /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */
+    private void reportBoundaryRejection(CustomerId customerId, RuntimeException ex) {
+        reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, ex instanceof CustomerNotFoundException
+                ? ActionGateRejectionReason.CUSTOMER_NOT_FOUND : ActionGateRejectionReason.UNAUTHORIZED);
     }
 
     /**

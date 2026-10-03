@@ -180,7 +180,7 @@ the provider ([ADR 0019](../docs/adr/0019-ai-failure-handling-telemetry-and-audi
   included. Unexpected failures return an empty `500`/`503` body.
 - `dokene.ai.retry.max-attempts` (`DOKENE_AI_RETRY_MAX_ATTEMPTS`, default `2`, max `3`, `1` disables),
   `initial-backoff`, `max-backoff` (both at most 30s) and `min-attempt-budget` bound retries of `TIMEOUT`, `THROTTLED` and
-  `UNAVAILABLE`; on `THROTTLED` the provider's `Retry-After` is honored.
+  `UNAVAILABLE`; on `THROTTLED` the provider's `Retry-After` is honored. Authorization is re-validated before every retry.
   The requested timeout is the total deadline; `dokene.ai.openai.max-retries` must stay `0`.
 - Metrics are registered under `dokene.ai.*` (`attempts` per provider attempt, `outcomes` once per AI invocation) with a closed tag set (no tenant/customer/actor/correlation tags).
   Actuator is present only to provide the Micrometer registry: `management.endpoints.access.default=none` and no

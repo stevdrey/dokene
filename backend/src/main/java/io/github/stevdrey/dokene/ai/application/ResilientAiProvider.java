@@ -20,7 +20,8 @@ import java.util.function.LongSupplier;
  *       runs with the requested timeout: the minimum budget only gates retries, so an explicit short client timeout
  *       is honored as given.</li>
  *   <li>It wraps only the provider call. Authorization revalidation, rate limiting and the Action Gate run in
- *       the caller, before and after it, so retry cannot bypass them.</li>
+ *       the caller, before and after it, and the caller's {@link RetryGuard} re-validates authorization before
+ *       every retry, so retry cannot bypass them or send customer context after a revocation.</li>
  *   <li>Raw provider exception messages are never copied: unexpected runtime failures become
  *       {@link AiFailureCategory#UNAVAILABLE}.</li>
  * </ul>
@@ -32,6 +33,7 @@ public final class ResilientAiProvider implements AiProvider {
     private final Sleeper sleeper;
     private final LongSupplier nanoClock;
     private final DoubleSupplier jitter;
+    private final RetryGuard guard;
 
     public ResilientAiProvider(AiProvider delegate, AiRetryProperties retry, AiTelemetry telemetry) {
         this(delegate, retry, telemetry, Thread::sleep, System::nanoTime,
@@ -40,12 +42,26 @@ public final class ResilientAiProvider implements AiProvider {
 
     ResilientAiProvider(AiProvider delegate, AiRetryProperties retry, AiTelemetry telemetry, Sleeper sleeper,
             LongSupplier nanoClock, DoubleSupplier jitter) {
+        this(delegate, retry, telemetry, sleeper, nanoClock, jitter, RetryGuard.none());
+    }
+
+    private ResilientAiProvider(AiProvider delegate, AiRetryProperties retry, AiTelemetry telemetry,
+            Sleeper sleeper, LongSupplier nanoClock, DoubleSupplier jitter, RetryGuard guard) {
+        this.guard = Objects.requireNonNull(guard, "Retry guard is required");
         this.delegate = Objects.requireNonNull(delegate, "Delegate provider is required");
         this.retry = Objects.requireNonNull(retry, "Retry properties are required");
         this.telemetry = Objects.requireNonNull(telemetry, "Telemetry is required");
         this.sleeper = Objects.requireNonNull(sleeper, "Sleeper is required");
         this.nanoClock = Objects.requireNonNull(nanoClock, "Clock is required");
         this.jitter = Objects.requireNonNull(jitter, "Jitter is required");
+    }
+
+    /**
+     * A view of this decorator that runs {@code guard} before every retry. Cheap to create per request, which lets
+     * the caller bind the guard to the current tenant/customer without sharing mutable state.
+     */
+    public ResilientAiProvider guardedBy(RetryGuard guard) {
+        return new ResilientAiProvider(delegate, retry, telemetry, sleeper, nanoClock, jitter, guard);
     }
 
     @Override
@@ -104,7 +120,6 @@ public final class ResilientAiProvider implements AiProvider {
             if (!canRetry(failure, attempt, budget, startNanos, backoff)) {
                 throw failure;
             }
-            telemetry.retryScheduled(operation, failure.metadata().providerId(), failure.category());
             try {
                 sleeper.sleep(backoff);
             } catch (InterruptedException interrupted) {
@@ -117,6 +132,10 @@ public final class ResilientAiProvider implements AiProvider {
             if (unclampedRemaining(budget, startNanos).compareTo(retry.minAttemptBudget()) < 0) {
                 throw failure;
             }
+            // Re-validate before the customer context is sent again. A throwing guard aborts the retry and its
+            // exception propagates unchanged (it is deliberately outside the try that normalizes provider failures).
+            guard.beforeRetry();
+            telemetry.retryScheduled(operation, failure.metadata().providerId(), failure.category());
             attempt++;
         }
     }

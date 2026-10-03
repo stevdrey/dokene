@@ -136,6 +136,49 @@ class ResilientAiProviderTest {
     }
 
     @Test
+    void guardRunsBeforeEveryRetryAndNeverBeforeTheFirstAttempt() {
+        delegate.failThen(AiFailureCategory.UNAVAILABLE);
+        delegate.failThen(AiFailureCategory.UNAVAILABLE);
+        java.util.concurrent.atomic.AtomicInteger guardCalls = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger callsAtGuard = new java.util.concurrent.atomic.AtomicInteger(-1);
+
+        provider(3).guardedBy(() -> {
+            guardCalls.incrementAndGet();
+            callsAtGuard.set(delegate.calls);
+        }).recommend(request(Duration.ofSeconds(30)));
+
+        assertThat(delegate.calls).isEqualTo(3);
+        assertThat(guardCalls).hasValue(2);
+        // the guard of the second retry ran after two provider calls and before the third one
+        assertThat(callsAtGuard).hasValue(2);
+    }
+
+    @Test
+    void guardFailureAbortsTheRetryAndPropagatesUnchanged() {
+        delegate.alwaysFail(AiFailureCategory.THROTTLED);
+        IllegalStateException revoked = new IllegalStateException("authorization revoked");
+
+        assertThatThrownBy(() -> provider(3).guardedBy(() -> {
+            throw revoked;
+        }).recommend(request(Duration.ofSeconds(30)))).isSameAs(revoked);
+
+        // no second call reached the provider and no retry was counted
+        assertThat(delegate.calls).isEqualTo(1);
+        assertThat(telemetry.retries).isEmpty();
+    }
+
+    @Test
+    void guardDoesNotRunWhenNoRetryWillHappen() {
+        delegate.alwaysFail(AiFailureCategory.NOT_AVAILABLE);
+        java.util.concurrent.atomic.AtomicInteger guardCalls = new java.util.concurrent.atomic.AtomicInteger();
+
+        assertThatThrownBy(() -> provider(3).guardedBy(guardCalls::incrementAndGet)
+                .recommend(request(Duration.ofSeconds(30)))).isInstanceOf(AiProviderException.class);
+
+        assertThat(guardCalls).hasValue(0);
+    }
+
+    @Test
     void firstAttemptAlwaysRunsWithTheRequestedTimeoutEvenBelowTheMinimumAttemptBudget() {
         // min-attempt-budget (default 1s) only gates retries: an explicit short client timeout is honored as given
         delegate.alwaysFail(AiFailureCategory.UNAVAILABLE);

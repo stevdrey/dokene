@@ -427,6 +427,62 @@ class AiOutcomeReportingTest {
     }
 
     @Test
+    void retryRevalidatesAuthorizationBeforeTheSecondProviderCall() {
+        ActionRecommendation action = action();
+        when(provider.recommend(any()))
+                .thenThrow(failure(AiFailureCategory.THROTTLED))
+                .thenReturn(new AiRecommendationResponse(action, success()));
+        when(gate.evaluate(eq(customerId), eq(assembly), eq(action)))
+                .thenReturn(ActionGateDecision.accepted(action, due, 1L));
+
+        FollowUpRecommendationResult result = recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
+        verify(provider, times(2)).recommend(any());
+        // the only revalidation on this path is the pre-retry guard
+        verify(gate, times(1)).revalidateAuthorization(customerId);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class, names = {"UNAUTHORIZED", "CUSTOMER_NOT_FOUND"})
+    void authorizationRevokedBetweenAttemptsAbortsTheRetryBeforeContextIsSentAgain(
+            ActionGateRejectionReason reason) {
+        when(provider.recommend(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        RuntimeException lost = boundaryException(reason);
+        org.mockito.Mockito.doThrow(lost).when(gate).revalidateAuthorization(customerId);
+
+        assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, null)).isSameAs(lost);
+
+        verify(provider, times(1)).recommend(any());
+        assertThat(telemetry.retries).isEmpty();
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:GATE_REJECTED");
+        assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
+        assertThat(audit.events).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class, names = {"UNAUTHORIZED", "CUSTOMER_NOT_FOUND"})
+    void draftAuthorizationRevokedBetweenAttemptsAbortsTheRetryBeforeContextIsSentAgain(
+            ActionGateRejectionReason reason) {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        RuntimeException lost = boundaryException(reason);
+        // 1st: the fail-closed check before data reaches the provider; 2nd: the pre-retry guard
+        org.mockito.Mockito.doNothing().doThrow(lost).when(gate).revalidateDraftAuthorization(customerId);
+
+        assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, null)).isSameAs(lost);
+
+        verify(draftProvider, times(1)).draft(any());
+        assertThat(telemetry.retries).isEmpty();
+        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:GATE_REJECTED");
+        assertThat(telemetry.gateRejections).containsExactly("MESSAGE_DRAFT:" + reason.name());
+        assertThat(audit.events).isEmpty();
+    }
+
+    @Test
     void draftOutcomesAreReportedWithTheDraftOperation() {
         TenantContextProvider tenantContexts = mock();
         AiProvider draftProvider = mock();
