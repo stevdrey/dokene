@@ -90,6 +90,8 @@ Security-relevant rejections are emitted to `AiActionGateAuditListener`:
 - Strictly excludes raw prompt text, customer notes, purchase descriptions, draft variables, or sensitive PII.
 - Handled durably in production by `DurableAiActionGateAuditListener`, which maps rejection reasons to `AuditDenialReason` and records them through `AuditRecorder.authorizationDenied(TenantPermission.FOLLOWUP_EVALUATE, denialReason)` into the append-only `audit_events` table under `REQUIRES_NEW` transaction propagation, fulfilling Security Invariant 12.
 
+This mapping is intentionally lossy (most reasons collapse to `INSUFFICIENT_PERMISSION`). [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md) adds a complementary `AI_INVOCATION_OUTCOME` audit event that records the exact `ActionGateRejectionReason` as `GATE_REJECTED`, alongside `GENERATED`, `MODEL_REFUSED` and `FAILED` outcomes, plus a `dokene.ai.gate.rejections` metric.
+
 ## Consequences
 
 - **Inviolable Invariant**: AI models remain untrusted and advisory. Model output cannot bypass tenant boundary, customer archive status, DNC opt-out, missing consent, or follow-up eligibility.

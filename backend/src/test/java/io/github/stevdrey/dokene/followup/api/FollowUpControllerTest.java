@@ -274,7 +274,111 @@ class FollowUpControllerTest {
                 .andExpect(header().string("ETag", "\"1\""))
                 .andExpect(jsonPath("$.status").value("AI_UNAVAILABLE"))
                 .andExpect(jsonPath("$.unavailableReason").value("TIMEOUT"))
+                .andExpect(jsonPath("$.retryable").value(true))
                 .andExpect(jsonPath("$.evaluation.status").value("DUE"));
+    }
+
+    @Test
+    void aiUnavailableReasonsAreStableAndFlagWhetherRetryingIsReasonable() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        for (String[] expected : new String[][] {{"NOT_AVAILABLE", "false"}, {"THROTTLED", "true"},
+                {"INVALID_STRUCTURED_RESPONSE", "false"}, {"CONTEXT_TOO_LARGE", "false"},
+                {"DISALLOWED_ACTION", "false"}}) {
+            when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                    .thenReturn(FollowUpRecommendationResult.aiUnavailable(evaluation, expected[0], 1L));
+            mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.unavailableReason").value(expected[0]))
+                    .andExpect(jsonPath("$.retryable").value(Boolean.parseBoolean(expected[1])));
+        }
+    }
+
+    @Test
+    void draftAiUnavailableCarriesStableReasonAndRetryHint() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenReturn(FollowUpDraftResult.aiUnavailable(evaluation, "UNAVAILABLE", 1L));
+
+        mvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("AI_UNAVAILABLE"))
+                .andExpect(jsonPath("$.unavailableReason").value("UNAVAILABLE"))
+                .andExpect(jsonPath("$.retryable").value(true));
+    }
+
+    @Test
+    void successfulRecommendationIsNotFlaggedRetryable() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        var evaluation = testEvaluation(FollowUpStatus.DUE);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenReturn(FollowUpRecommendationResult.refusal(evaluation, NoRecommendationReason.UNCERTAIN_INTENT, 1L));
+
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(jsonPath("$.unavailableReason").doesNotExist())
+                .andExpect(jsonPath("$.retryable").value(false));
+    }
+
+    @Test
+    void unexpectedFailuresAreLoggedWithClassAndLocationButNeverWithTheirMessage() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        ch.qos.logback.classic.Logger handlerLogger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(FollowUpExceptionHandler.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs =
+                new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();
+        handlerLogger.addAppender(logs);
+        try {
+            when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                    .thenThrow(new io.github.stevdrey.dokene.ai.application.AiProviderException(
+                            io.github.stevdrey.dokene.ai.application.AiFailureCategory.THROTTLED,
+                            new io.github.stevdrey.dokene.ai.application.AiInvocationMetadata("openai", null, null,
+                                    java.time.Duration.ZERO, null,
+                                    io.github.stevdrey.dokene.ai.application.AiCompletionStatus.FAILED)));
+            mvc.perform(post("/api/customers/{id}/recommendation", customerId)).andExpect(status().isServiceUnavailable());
+
+            when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                    .thenThrow(new IllegalStateException("sk-secret-key +593991234567",
+                            new RuntimeException("jdbc:postgresql://secret-host")));
+            mvc.perform(post("/api/customers/{id}/draft", customerId)).andExpect(status().isInternalServerError());
+        } finally {
+            handlerLogger.detachAppender(logs);
+        }
+
+        java.util.List<String> lines = logs.list.stream()
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+        org.assertj.core.api.Assertions.assertThat(lines).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(lines.get(0)).contains("category=THROTTLED");
+        org.assertj.core.api.Assertions.assertThat(lines.get(1))
+                .contains("exceptionClass=java.lang.IllegalStateException")
+                .contains("at=io.github.stevdrey.dokene.followup.application.FollowUpDraftService.draftSafe(");
+        org.assertj.core.api.Assertions.assertThat(String.join("\n", lines))
+                .doesNotContain("sk-secret").doesNotContain("991234567").doesNotContain("secret-host");
+        org.assertj.core.api.Assertions.assertThat(logs.list)
+                .allSatisfy(event -> org.assertj.core.api.Assertions.assertThat(event.getThrowableProxy()).isNull());
+    }
+
+    @Test
+    void unexpectedProviderOrStateFailuresNeverLeakTextAcrossTheHttpBoundary() throws Exception {
+        CustomerId cId = new CustomerId(customerId);
+        when(recommendations.recommendSafe(eq(cId), any(), eq(null)))
+                .thenThrow(new io.github.stevdrey.dokene.ai.application.AiProviderException(
+                        io.github.stevdrey.dokene.ai.application.AiFailureCategory.UNAVAILABLE,
+                        new io.github.stevdrey.dokene.ai.application.AiInvocationMetadata("openai", null, null,
+                                java.time.Duration.ZERO, null,
+                                io.github.stevdrey.dokene.ai.application.AiCompletionStatus.FAILED)));
+        mvc.perform(post("/api/customers/{id}/recommendation", customerId))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(result -> org.assertj.core.api.Assertions
+                        .assertThat(result.getResponse().getContentAsString()).isEmpty());
+
+        when(drafts.draftSafe(eq(cId), any(), any(), any(), eq(null)))
+                .thenThrow(new IllegalStateException("sk-secret-key +593991234567"));
+        mvc.perform(post("/api/customers/{id}/draft", customerId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(result -> org.assertj.core.api.Assertions
+                        .assertThat(result.getResponse().getContentAsString()).isEmpty());
     }
 
     @Test

@@ -1,6 +1,9 @@
 package io.github.stevdrey.dokene.audit.persistence.jdbc;
 
 import io.github.stevdrey.dokene.audit.application.AuditCursor;
+import io.github.stevdrey.dokene.audit.domain.AiAuditDetail;
+import io.github.stevdrey.dokene.audit.domain.AiAuditOperation;
+import io.github.stevdrey.dokene.audit.domain.AiAuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
@@ -37,11 +40,13 @@ class JdbcAuditStore {
                 ? value : null;
         AuditMetadata.MembershipCreated created = event.metadata() instanceof AuditMetadata.MembershipCreated value
                 ? value : null;
+        AuditMetadata.AiInvocation ai = event.metadata() instanceof AuditMetadata.AiInvocation value
+                ? value : null;
         String previousRole = change == null ? null : change.previousRole().name();
         String newRole = change != null ? change.newRole().name() : (created != null ? created.role().name() : null);
         jdbc.queryForObject("""
                 SELECT dokene.append_audit_event(
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 UUID.class,
                 event.id(), Timestamp.from(event.timestamp()),
@@ -52,7 +57,10 @@ class JdbcAuditStore {
                 denial == null ? null : denial.reason().name(),
                 previousRole, newRole,
                 capability == null ? null : capability.payload(),
-                capability == null ? null : capability.signature());
+                capability == null ? null : capability.signature(),
+                ai == null ? null : ai.operation().name(),
+                ai == null ? null : ai.outcome().name(),
+                ai == null ? null : ai.detail().name());
     }
 
     List<AuditEvent> read(TenantId tenant, AuditCursor before, int limit) {
@@ -85,6 +93,10 @@ class JdbcAuditStore {
             case PURCHASE_RECORDED, PURCHASE_CORRECTED, PURCHASE_VOIDED -> new AuditMetadata.PurchaseMutation();
             case TENANT_FOLLOW_UP_POLICY_CHANGED, CUSTOMER_FOLLOW_UP_POLICY_CHANGED,
                     FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED, FOLLOW_UP_DISMISSED -> new AuditMetadata.FollowUpMutation();
+            case AI_INVOCATION_OUTCOME -> new AuditMetadata.AiInvocation(
+                    AiAuditOperation.valueOf(row.getString("ai_operation")),
+                    AiAuditOutcome.valueOf(row.getString("ai_outcome")),
+                    AiAuditDetail.valueOf(row.getString("ai_detail")));
         };
         return new AuditEvent(row.getObject("id", UUID.class), row.getTimestamp("occurred_at").toInstant(),
                 new TenantId(row.getObject("tenant_id", UUID.class)), new IdentityId(row.getObject("actor_id", UUID.class)),

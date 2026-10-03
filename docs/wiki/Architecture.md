@@ -78,7 +78,7 @@ Message templates, versioning, categories, language, provider-template reference
 
 ### `ai`
 
-AI provider abstraction, structured request/response contracts, model invocation, schema validation, and AI-specific telemetry. This module must not own authorization or side-effect policy.
+AI provider abstraction, structured request/response contracts, model invocation, schema validation, bounded retry, and AI-specific telemetry (privacy-safe metrics; see ADR 0019). This module must not own authorization or side-effect policy.
 
 ### `integration`
 

@@ -27,7 +27,9 @@ created by the recorder. Explicit-context `evaluate` methods remain side-effect-
 `require*` and boolean `has*` authorization enforcement paths dispatch durable denials.
 
 `AuditRequestFilter` wraps the servlet/security chain in a fresh server-generated
-correlation UUID, ignoring inbound correlation headers. `AuditExecutionContext`
+correlation UUID, ignoring inbound correlation headers. The UUID is also placed in the
+logging MDC (`correlationId`, cleared after the request) and echoed as the `X-Request-Id`
+response header; it is never accepted from the client. `AuditExecutionContext`
 provides bounded `ScopedValue` scopes for internal work. Jobs must explicitly establish
 both correlation and trusted tenant scopes; ordinary executor tasks do not inherit
 them. Request-created asynchronous work must pass these values to its own entry scope.
@@ -50,6 +52,7 @@ Metadata is a sealed set of typed records persisted as constrained scalar column
 - Membership creation: target `MEMBERSHIP` UUID, assigned role (`ADMIN`, `OPERATOR`, or `VIEWER`), and null previous role.
 - Membership revocation: target `MEMBERSHIP` UUID, with null previous and new role.
 - Customer and purchase mutations: no metadata beyond the privacy-reviewed target UUID.
+- AI invocation outcome (`AI_INVOCATION_OUTCOME`, [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md)): target `CUSTOMER` UUID plus three enumerated values (operation, outcome, detail), persisted as constrained columns. No prompt, generated text, note or provider message.
 
 The listener translates only known reasons; unknown text becomes `UNSPECIFIED`.
 There is no general string/map/JSON payload API. SQL checks reject unknown permission,
@@ -57,8 +60,8 @@ reason, role, and event shapes. Secrets, tokens, credentials, message bodies, re
 payloads, exception messages, names, IP addresses, and foreign-tenant identifiers are
 not metadata fields. Adding a new event requires deliberate code/schema changes and
 privacy review. UUID references remain sensitive operational identifiers and require
-access control. `FAILURE` is reserved in the outcome vocabulary; neither current event
-type permits it and no general failure-payload entry point exists.
+access control. `FAILURE` is permitted only for `AI_INVOCATION_OUTCOME` with outcome `FAILED`; no
+general failure-payload entry point exists.
 
 ## Transactions and failure policy
 Successful security-sensitive database transitions and their audit INSERT share the

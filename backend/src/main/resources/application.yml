@@ -39,6 +39,11 @@ dokene:
       base-url: ${DOKENE_AI_OPENAI_BASE_URL:}
       timeout: ${DOKENE_AI_OPENAI_TIMEOUT:15s}
       max-retries: ${DOKENE_AI_OPENAI_MAX_RETRIES:0}
+    retry:
+      max-attempts: ${DOKENE_AI_RETRY_MAX_ATTEMPTS:2}
+      initial-backoff: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:250ms}
+      max-backoff: ${DOKENE_AI_RETRY_MAX_BACKOFF:2s}
+      min-attempt-budget: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:1s}
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
@@ -61,8 +66,16 @@ server:
 
 management:
   endpoints:
-    enabled-by-default: false
+    # No actuator endpoint is accessible or exposed; Actuator is on the classpath only to provide Micrometer.
+    access:
+      default: none
+    web:
+      exposure:
+        include: ""
 
 logging:
+  pattern:
+    # Server-generated request correlation UUID (see AuditRequestFilter); empty outside a request.
+    correlation: "[%X{correlationId:-}] "
   level:
     root: INFO

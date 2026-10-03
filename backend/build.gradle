@@ -32,6 +32,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    // Provides Micrometer MeterRegistry only; every actuator endpoint stays disabled and unexposed (see application.yml).
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.40'
     implementation 'com.openai:openai-java:4.69.3'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'

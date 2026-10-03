@@ -50,7 +50,9 @@ class OpenAiResponsesApiAdapterTest {
     private final AtomicReference<Duration> responseDelay = new AtomicReference<>(Duration.ZERO);
     private final AtomicReference<String> capturedRequestBody = new AtomicReference<>();
     private final AtomicReference<String> capturedAuthHeader = new AtomicReference<>();
+    private final AtomicReference<String> capturedCorrelationHeader = new AtomicReference<>();
     private final AtomicInteger requestCounter = new AtomicInteger(0);
+    private final java.util.Map<String, String> responseHeaders = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final RecommendationContext sampleContext = new RecommendationContext(
             new RecommendationContext.TrustedFacts(
@@ -81,6 +83,7 @@ class OpenAiResponsesApiAdapterTest {
         server.createContext("/v1/responses", exchange -> {
             requestCounter.incrementAndGet();
             capturedAuthHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            capturedCorrelationHeader.set(exchange.getRequestHeaders().getFirst("X-Client-Request-Id"));
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
             capturedRequestBody.set(new String(requestBytes, StandardCharsets.UTF_8));
 
@@ -96,6 +99,7 @@ class OpenAiResponsesApiAdapterTest {
             int status = responseStatusCode.get();
             byte[] body = responseBody.get().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
+            responseHeaders.forEach((name, value) -> exchange.getResponseHeaders().set(name, value));
             exchange.sendResponseHeaders(status, body.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(body);
@@ -740,6 +744,130 @@ class OpenAiResponsesApiAdapterTest {
         MessageDraft draft = (MessageDraft) response.outcome();
         assertThat(draft.locale()).isEqualTo("es-419");
         assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+    }
+
+    private AiProviderException throttled(java.util.function.Consumer<OpenAiResponsesApiAdapter> call) {
+        responseStatusCode.set(429);
+        responseBody.set("{\"error\": {\"message\": \"Rate limit reached\", \"type\": \"requests\", "
+                + "\"param\": null, \"code\": \"rate_limit_exceeded\"}}");
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        return org.junit.jupiter.api.Assertions.assertThrows(AiProviderException.class, () -> call.accept(adapter));
+    }
+
+    @Test
+    void throttlingCarriesTheRetryAfterSecondsHint() {
+        responseHeaders.put("retry-after", "3");
+
+        AiProviderException ex = throttled(adapter -> adapter.recommend(sampleRequest));
+
+        assertThat(ex.category()).isEqualTo(AiFailureCategory.THROTTLED);
+        assertThat(ex.retryAfter()).isEqualTo(Duration.ofSeconds(3));
+    }
+
+    @Test
+    void retryAfterMillisecondsTakesPrecedenceOverSeconds() {
+        responseHeaders.put("retry-after-ms", "1500");
+        responseHeaders.put("retry-after", "30");
+
+        AiProviderException ex = throttled(adapter -> adapter.recommend(sampleRequest));
+
+        assertThat(ex.retryAfter()).isEqualTo(Duration.ofMillis(1500));
+    }
+
+    @Test
+    void unparseableOrMissingRetryAfterYieldsNoHintAndNeverLeaksHeaderText() {
+        responseHeaders.put("retry-after", "Wed, 21 Oct 2026 07:28:00 GMT");
+        AiProviderException httpDate = throttled(adapter -> adapter.recommend(sampleRequest));
+        assertThat(httpDate.retryAfter()).isNull();
+
+        responseHeaders.put("retry-after", "-5");
+        assertThat(throttled(adapter -> adapter.recommend(sampleRequest)).retryAfter()).isNull();
+
+        responseHeaders.clear();
+        AiProviderException missing = throttled(adapter -> adapter.recommend(sampleRequest));
+        assertThat(missing.retryAfter()).isNull();
+        assertThat(httpDate.getMessage()).doesNotContain("GMT");
+    }
+
+    @Test
+    void retryAfterOnlyAppliesToThrottlingNotToOtherFailures() {
+        responseStatusCode.set(503);
+        responseBody.set("{\"error\": {\"message\": \"down\", \"type\": \"server_error\"}}");
+        responseHeaders.put("retry-after", "7");
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
+                    assertThat(ex.retryAfter()).isNull();
+                });
+    }
+
+    @Test
+    void modelRefusalContentPartFailsAsRefusedWithoutRetainingRefusalText() {
+        String refusalWire = """
+                {
+                  "id": "resp_refusal",
+                  "object": "response",
+                  "created_at": 1727376000,
+                  "model": "gpt-6-luna",
+                  "status": "completed",
+                  "output": [
+                    {
+                      "type": "message",
+                      "id": "msg_001",
+                      "role": "assistant",
+                      "status": "completed",
+                      "content": [
+                        { "type": "refusal", "refusal": "I cannot help with +593991234567 sk-secret-refusal" }
+                      ]
+                    }
+                  ],
+                  "usage": { "input_tokens": 40, "output_tokens": 5, "total_tokens": 45 }
+                }
+                """;
+        responseBody.set(refusalWire);
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOfSatisfying(AiProviderException.class, ex -> {
+                    assertThat(ex.category()).isEqualTo(AiFailureCategory.REFUSED);
+                    assertThat(ex.metadata().status()).isEqualTo(AiCompletionStatus.FAILED);
+                    assertThat(ex.metadata().usage().inputTokens()).isEqualTo(40);
+                    assertThat(ex.getMessage()).doesNotContain("secret").doesNotContain("991234567");
+                    assertThat(ex.metadata().toString()).doesNotContain("secret").doesNotContain("991234567");
+                });
+    }
+
+    @Test
+    void forwardsServerCorrelationIdAsClientRequestIdHeaderWhenAvailable() {
+        java.util.UUID correlation = java.util.UUID.randomUUID();
+        responseBody.set(buildWireResponse("resp_corr", "gpt-6-luna", """
+                {"recommendation": {"outcome": "NO_RECOMMENDATION", "reason": "INSUFFICIENT_HISTORY",
+                 "rationale": "Not enough history", "confidence": 0.7}}
+                """, 10, 5));
+        OpenAiProviderProperties properties = new OpenAiProviderProperties("test-api-key", null,
+                "http://127.0.0.1:" + port + "/v1", Duration.ofSeconds(15), 0);
+        OpenAIClient client = OpenAIOkHttpClient.builder().apiKey("test-api-key")
+                .baseUrl(properties.baseUrl()).maxRetries(0).build();
+        OpenAiResponsesApiAdapter adapter = new OpenAiResponsesApiAdapter(client, properties,
+                () -> java.util.Optional.of(correlation));
+
+        adapter.recommend(sampleRequest);
+
+        assertThat(capturedCorrelationHeader.get()).isEqualTo(correlation.toString());
+    }
+
+    @Test
+    void omitsCorrelationHeaderWhenNoCorrelationIsBound() {
+        responseBody.set(buildWireResponse("resp_nocorr", "gpt-6-luna", """
+                {"recommendation": {"outcome": "NO_RECOMMENDATION", "reason": "INSUFFICIENT_HISTORY",
+                 "rationale": "Not enough history", "confidence": 0.7}}
+                """, 10, 5));
+
+        createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest);
+
+        assertThat(capturedCorrelationHeader.get()).isNull();
     }
 
     private static String buildWireResponse(String id, String model, String structuredOutputText,

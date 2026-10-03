@@ -86,7 +86,8 @@ class TenantSecurityConfiguration {
         configuration.setAllowedHeaders(List.of(
                 "Content-Type", "Idempotency-Key", "If-Match", "X-CSRF-TOKEN", "X-Tenant-Id"
         ));
-        configuration.setExposedHeaders(List.of("ETag"));
+        // X-Request-Id is the server-generated correlation id; the SPA needs it to report problems to support.
+        configuration.setExposedHeaders(List.of("ETag", "X-Request-Id"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

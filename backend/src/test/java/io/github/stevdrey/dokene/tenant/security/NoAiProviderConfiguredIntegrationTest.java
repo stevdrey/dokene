@@ -63,6 +63,7 @@ class NoAiProviderConfiguredIntegrationTest {
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
     @Autowired AuditExecutionContext auditExecution;
+    @Autowired io.micrometer.core.instrument.MeterRegistry meters;
 
     private Tenant tenant;
     private TenantContext tenantContext;
@@ -158,11 +159,16 @@ class NoAiProviderConfiguredIntegrationTest {
                 recommendations.recommendSafe(customer.id(), null, null));
 
         assertThat(result.status()).isEqualTo(RecommendationStatus.AI_UNAVAILABLE);
-        assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
+        assertThat(result.unavailableReason())
+                .isEqualTo(io.github.stevdrey.dokene.followup.application.AiUnavailableReason.NOT_AVAILABLE);
         assertThat(result.evaluation()).isNotNull();
         assertThat(result.evaluation().customerId()).isEqualTo(customer.id());
         assertThat(result.policyVersion()).isNotNull();
         assertThat(result.recommendation()).isNull();
+        // a disabled provider still yields a stable, free-text-free provider/model pair on the outcome metric
+        assertThat(meters.find("dokene.ai.outcomes").tags("operation", "NEXT_BEST_ACTION", "provider", "disabled",
+                "model", "none", "outcome", "FAILED").counters().stream().mapToDouble(c -> c.count()).sum())
+                .isGreaterThanOrEqualTo(1.0);
     }
 
     private <T> T inContext(TenantContext context, Callable<T> operation) throws Exception {

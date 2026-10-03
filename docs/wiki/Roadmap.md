@@ -53,6 +53,7 @@ Key outcomes:
 - strict schema validation;
 - prompt-injection-aware context assembly;
 - recommendation rationale visible to operator;
+- safe AI failure handling with bounded retry, privacy-safe metrics and audit ([ADR 0019](../adr/0019-ai-failure-handling-telemetry-and-audit.md));
 - AI quality/evaluation baseline.
 
 Exit condition: the system produces useful, explainable drafts without granting the model direct side-effect authority.

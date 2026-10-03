@@ -35,6 +35,35 @@ class AuditRequestFilterTest {
     }
 
     @Test
+    void exposesServerCorrelationInMdcAndResponseHeaderOnlyForTheRequest() throws Exception {
+        UUID supplied = UUID.randomUUID();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Request-Id", supplied.toString());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<String> mdcDuringRequest = new AtomicReference<>();
+        AtomicReference<UUID> correlation = new AtomicReference<>();
+
+        filter.doFilter(request, response, (req, res) -> {
+            mdcDuringRequest.set(org.slf4j.MDC.get("correlationId"));
+            correlation.set(context.requireCurrent());
+        });
+
+        assertThat(mdcDuringRequest.get()).isEqualTo(correlation.get().toString());
+        assertThat(response.getHeader("X-Request-Id")).isEqualTo(correlation.get().toString())
+                .isNotEqualTo(supplied.toString());
+        assertThat(org.slf4j.MDC.get("correlationId")).isNull();
+    }
+
+    @Test
+    void clearsMdcEvenWhenTheRequestFails() {
+        assertThatThrownBy(() -> filter.doFilter(new MockHttpServletRequest(), new MockHttpServletResponse(),
+                (req, res) -> {
+                    throw new IllegalStateException("unrelated");
+                })).isInstanceOf(IllegalStateException.class);
+        assertThat(org.slf4j.MDC.get("correlationId")).isNull();
+    }
+
+    @Test
     void convertsSecurityFilterFailureToGeneric503() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
         filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
@@ -43,6 +72,23 @@ class AuditRequestFilterTest {
         assertThat(response.getStatus()).isEqualTo(503);
         assertThat(response.getContentAsString()).isEmpty();
         assertThat(context.current()).isEmpty();
+    }
+
+    @Test
+    void auditFailureResponseStillCarriesTheServerGeneratedCorrelationHeader() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<UUID> correlation = new AtomicReference<>();
+
+        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+            correlation.set(context.requireCurrent());
+            ((jakarta.servlet.http.HttpServletResponse) res).setHeader("X-Other", "dropped-by-reset");
+            throw new ServletException("untrusted exception details", new AuditPersistenceException());
+        });
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("X-Request-Id")).isEqualTo(correlation.get().toString());
+        assertThat(response.getHeader("X-Other")).isNull();
+        assertThat(org.slf4j.MDC.get("correlationId")).isNull();
     }
 
     @Test

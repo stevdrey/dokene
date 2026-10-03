@@ -3,6 +3,9 @@ package io.github.stevdrey.dokene.audit.persistence.jdbc;
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.domain.AiAuditDetail;
+import io.github.stevdrey.dokene.audit.domain.AiAuditOperation;
+import io.github.stevdrey.dokene.audit.domain.AiAuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
@@ -122,6 +125,20 @@ class TransactionalAuditRecorder implements AuditRecorder {
         TenantContext context = contexts.requireCurrent();
         append(context, event(context, eventType, new AuditTarget(targetType, target), AuditOutcome.SUCCESS,
                 new AuditMetadata.FollowUpMutation()), mandatory);
+    }
+
+    @Override
+    public void aiInvocationOutcome(UUID customerId, AiAuditOperation operation, AiAuditOutcome outcome,
+            AiAuditDetail detail) {
+        TenantContext context = contexts.requireCurrent();
+        AuditOutcome auditOutcome = switch (outcome) {
+            case GENERATED, MODEL_REFUSED -> AuditOutcome.SUCCESS;
+            case GATE_REJECTED -> AuditOutcome.DENIED;
+            case FAILED -> AuditOutcome.FAILURE;
+        };
+        append(context, event(context, AuditEventType.AI_INVOCATION_OUTCOME,
+                new AuditTarget(AuditTarget.Type.CUSTOMER, customerId), auditOutcome,
+                new AuditMetadata.AiInvocation(operation, outcome, detail)), independent);
     }
 
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,

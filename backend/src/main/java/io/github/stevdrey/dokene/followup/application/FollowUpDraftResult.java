@@ -16,7 +16,7 @@ public record FollowUpDraftResult(
         MessageDraft draft,
         NoDraft refusal,
         ActionGateRejectionReason rejectionReason,
-        String unavailableReason,
+        AiUnavailableReason unavailableReason,
         long policyVersion) {
 
     public FollowUpDraftResult {
@@ -91,13 +91,21 @@ public record FollowUpDraftResult(
                 null,
                 null,
                 rejectionReason,
-                rejectionReason.name(),
+                AiUnavailableReason.from(rejectionReason),
                 policyVersion);
     }
 
     public static FollowUpDraftResult aiUnavailable(
             FollowUpEvaluation evaluation,
             String unavailableReason,
+            long policyVersion) {
+        Objects.requireNonNull(unavailableReason, "Unavailable reason is required");
+        return aiUnavailable(evaluation, AiUnavailableReason.valueOf(unavailableReason), policyVersion);
+    }
+
+    public static FollowUpDraftResult aiUnavailable(
+            FollowUpEvaluation evaluation,
+            AiUnavailableReason unavailableReason,
             long policyVersion) {
         Objects.requireNonNull(unavailableReason, "Unavailable reason is required");
         return new FollowUpDraftResult(
@@ -131,6 +139,6 @@ public record FollowUpDraftResult(
     }
 
     public Optional<String> providerFailure() {
-        return Optional.ofNullable(unavailableReason);
+        return Optional.ofNullable(unavailableReason).map(Enum::name);
     }
 }

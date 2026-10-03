@@ -65,7 +65,7 @@ class OpenAiConfigurationTest {
             assertThat(context.getStartupFailure())
                     .hasRootCauseInstanceOf(IllegalArgumentException.class)
                     .hasRootCauseMessage("dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
-                            + "multi-attempt retries violate request deadline contracts and must be handled at domain level");
+                            + "retries are owned by the domain-level decorator configured with dokene.ai.retry.*");
         });
     }
 

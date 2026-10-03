@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.ai.provider.openai;
 import com.openai.client.OpenAIClient;
 import com.openai.core.JsonValue;
 import com.openai.core.RequestOptions;
+import com.openai.core.http.Headers;
 import com.openai.errors.BadRequestException;
 import com.openai.errors.InternalServerException;
 import com.openai.errors.NotFoundException;
@@ -21,6 +22,7 @@ import com.openai.models.responses.ResponseStatus;
 import com.openai.models.responses.ResponseTextConfig;
 import com.openai.models.responses.ResponseUsage;
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
+import io.github.stevdrey.dokene.ai.application.AiCorrelationSource;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
@@ -46,6 +48,7 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
@@ -93,12 +96,22 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             6. If safe drafting is not possible, or if critical context is missing, return NO_DRAFT with an appropriate refusal reason.
             """;
 
+    /** Opaque, server-generated request correlation UUID forwarded for provider-side diagnostics only. */
+    static final String CORRELATION_HEADER = "X-Client-Request-Id";
+
     private final OpenAIClient client;
     private final OpenAiProviderProperties properties;
+    private final AiCorrelationSource correlation;
 
     public OpenAiResponsesApiAdapter(OpenAIClient client, OpenAiProviderProperties properties) {
+        this(client, properties, AiCorrelationSource.none());
+    }
+
+    public OpenAiResponsesApiAdapter(OpenAIClient client, OpenAiProviderProperties properties,
+            AiCorrelationSource correlation) {
         this.client = Objects.requireNonNull(client, "OpenAI client is required");
         this.properties = Objects.requireNonNull(properties, "OpenAI properties are required");
+        this.correlation = Objects.requireNonNull(correlation, "Correlation source is required");
     }
 
     @Override
@@ -158,6 +171,11 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             String outputText = extractOutputText(response);
+            if (outputText.isBlank() && hasRefusal(response)) {
+                throw new AiProviderException(AiFailureCategory.REFUSED,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.REFUSED));
+            }
             if (outputText.isBlank()) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                         failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
@@ -198,7 +216,8 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
         } catch (RateLimitException e) {
             Duration latency = calculateLatency(startNanos);
             throw new AiProviderException(AiFailureCategory.THROTTLED,
-                    failureMetadata(modelId, null, latency, null, AiFailureCategory.THROTTLED));
+                    failureMetadata(modelId, null, latency, null, AiFailureCategory.THROTTLED),
+                    retryAfter(e.headers()));
         } catch (BadRequestException | UnauthorizedException | PermissionDeniedException
                  | NotFoundException | UnprocessableEntityException e) {
             Duration latency = calculateLatency(startNanos);
@@ -233,7 +252,8 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                     : (e.statusCode() == 409 || e.statusCode() >= 500) ? AiFailureCategory.UNAVAILABLE
                     : AiFailureCategory.REJECTED_REQUEST;
             throw new AiProviderException(category,
-                    failureMetadata(modelId, null, latency, null, category));
+                    failureMetadata(modelId, null, latency, null, category),
+                    category == AiFailureCategory.THROTTLED ? retryAfter(e.headers()) : null);
         } catch (OpenAIException e) {
             Duration latency = calculateLatency(startNanos);
             AiFailureCategory category = isTimeout(e) ? AiFailureCategory.TIMEOUT : AiFailureCategory.UNAVAILABLE;
@@ -329,6 +349,11 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             String outputText = extractOutputText(response);
+            if (outputText.isBlank() && hasRefusal(response)) {
+                throw new AiProviderException(AiFailureCategory.REFUSED,
+                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                latency, extractUsage(response), AiFailureCategory.REFUSED));
+            }
             if (outputText.isBlank()) {
                 throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                         failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
@@ -394,7 +419,8 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
         } catch (RateLimitException e) {
             Duration latency = calculateLatency(startNanos);
             throw new AiProviderException(AiFailureCategory.THROTTLED,
-                    failureMetadata(modelId, null, latency, null, AiFailureCategory.THROTTLED));
+                    failureMetadata(modelId, null, latency, null, AiFailureCategory.THROTTLED),
+                    retryAfter(e.headers()));
         } catch (BadRequestException | UnauthorizedException | PermissionDeniedException
                  | NotFoundException | UnprocessableEntityException e) {
             Duration latency = calculateLatency(startNanos);
@@ -429,7 +455,8 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                     : (e.statusCode() == 409 || e.statusCode() >= 500) ? AiFailureCategory.UNAVAILABLE
                     : AiFailureCategory.REJECTED_REQUEST;
             throw new AiProviderException(category,
-                    failureMetadata(modelId, null, latency, null, category));
+                    failureMetadata(modelId, null, latency, null, category),
+                    category == AiFailureCategory.THROTTLED ? retryAfter(e.headers()) : null);
         } catch (OpenAIException e) {
             Duration latency = calculateLatency(startNanos);
             AiFailureCategory category = isTimeout(e) ? AiFailureCategory.TIMEOUT : AiFailureCategory.UNAVAILABLE;
@@ -485,13 +512,14 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .format(formatConfig)
                 .build();
 
-        return ResponseCreateParams.builder()
+        ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(modelId)
                 .instructions(DRAFT_SYSTEM_INSTRUCTIONS)
                 .input(input)
                 .text(textConfig)
-                .store(false)
-                .build();
+                .store(false);
+        correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
+        return builder.build();
     }
 
     private String formatDraftInput(DraftContext context) {
@@ -574,13 +602,14 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .format(formatConfig)
                 .build();
 
-        return ResponseCreateParams.builder()
+        ResponseCreateParams.Builder builder = ResponseCreateParams.builder()
                 .model(modelId)
                 .instructions(SYSTEM_INSTRUCTIONS)
                 .input(input)
                 .text(textConfig)
-                .store(false)
-                .build();
+                .store(false);
+        correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
+        return builder.build();
     }
 
     private String formatInput(RecommendationContext context) {
@@ -625,6 +654,41 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             return "";
         }
         return text.replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /**
+     * Parses the standard throttling hints into a delay: {@code retry-after-ms} (milliseconds) first, then
+     * {@code retry-after} in integer seconds. HTTP-date values, garbage and negatives yield null. Only the number
+     * is kept; header text is never stored or logged.
+     */
+    static Duration retryAfter(Headers headers) {
+        if (headers == null) {
+            return null;
+        }
+        Duration millis = parseHint(headers.values("retry-after-ms"), true);
+        return millis != null ? millis : parseHint(headers.values("retry-after"), false);
+    }
+
+    private static Duration parseHint(List<String> values, boolean millis) {
+        for (String raw : values) {
+            if (raw == null || !raw.strip().matches("\\d{1,9}")) {
+                continue;
+            }
+            long amount = Long.parseLong(raw.strip());
+            return millis ? Duration.ofMillis(amount) : Duration.ofSeconds(amount);
+        }
+        return null;
+    }
+
+    /** True when the model returned a refusal content part. The refusal text itself is never read or retained. */
+    private boolean hasRefusal(Response response) {
+        if (response == null || response.output() == null) {
+            return false;
+        }
+        return response.output().stream()
+                .flatMap(item -> item.message().stream())
+                .flatMap(msg -> msg.content().stream())
+                .anyMatch(content -> content.refusal().isPresent());
     }
 
     private String extractOutputText(Response response) {

@@ -2,7 +2,9 @@ package io.github.stevdrey.dokene.ai.provider.openai;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import io.github.stevdrey.dokene.ai.application.AiCorrelationSource;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -34,7 +36,7 @@ public class OpenAiConfiguration {
         if (properties.maxRetries() != null && properties.maxRetries() != 0) {
             throw new IllegalArgumentException(
                     "dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
-                            + "multi-attempt retries violate request deadline contracts and must be handled at domain level");
+                            + "retries are owned by the domain-level decorator configured with dokene.ai.retry.*");
         }
         builder.maxRetries(0);
         return builder.build();
@@ -42,7 +44,9 @@ public class OpenAiConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "dokene.ai.provider", havingValue = "openai")
-    public AiProvider openAiProvider(OpenAIClient openAiClient, OpenAiProviderProperties properties) {
-        return new OpenAiResponsesApiAdapter(openAiClient, properties);
+    public AiProvider openAiProvider(OpenAIClient openAiClient, OpenAiProviderProperties properties,
+            ObjectProvider<AiCorrelationSource> correlation) {
+        return new OpenAiResponsesApiAdapter(openAiClient, properties,
+                correlation.getIfAvailable(AiCorrelationSource::none));
     }
 }

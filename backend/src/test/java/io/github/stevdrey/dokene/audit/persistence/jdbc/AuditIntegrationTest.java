@@ -11,6 +11,9 @@ import io.github.stevdrey.dokene.audit.application.AuditPage;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.application.AuditReader;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.domain.AiAuditDetail;
+import io.github.stevdrey.dokene.audit.domain.AiAuditOperation;
+import io.github.stevdrey.dokene.audit.domain.AiAuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
@@ -309,6 +312,140 @@ class AuditIntegrationTest {
     }
 
     @Test
+    void recordsEveryAiOutcomeDurablyEvenWhenTheOuterTransactionRollsBack() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        UUID customer = UUID.randomUUID();
+        scoped(context, () -> {
+            new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                recorder.aiInvocationOutcome(customer, AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.GENERATED,
+                        AiAuditDetail.NONE);
+                recorder.aiInvocationOutcome(customer, AiAuditOperation.MESSAGE_DRAFT, AiAuditOutcome.MODEL_REFUSED,
+                        AiAuditDetail.NONE);
+                recorder.aiInvocationOutcome(customer, AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.GATE_REJECTED,
+                        AiAuditDetail.DISALLOWED_ACTION);
+                recorder.aiInvocationOutcome(customer, AiAuditOperation.MESSAGE_DRAFT, AiAuditOutcome.FAILED,
+                        AiAuditDetail.TIMEOUT);
+                status.setRollbackOnly();
+            });
+            List<AuditEvent> events = reader.read().events();
+            assertThat(events).hasSize(4).allSatisfy(event -> {
+                assertThat(event.type()).isEqualTo(AuditEventType.AI_INVOCATION_OUTCOME);
+                assertThat(event.tenantId()).isEqualTo(context.tenantId());
+                assertThat(event.actorId()).isEqualTo(context.identityId());
+                assertThat(event.target().id()).isEqualTo(customer);
+            });
+            assertThat(events).extracting(AuditEvent::outcome).containsExactlyInAnyOrder(
+                    AuditOutcome.SUCCESS, AuditOutcome.SUCCESS, AuditOutcome.DENIED, AuditOutcome.FAILURE);
+            assertThat(events).extracting(AuditEvent::metadata).containsExactlyInAnyOrder(
+                    new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.GENERATED,
+                            AiAuditDetail.NONE),
+                    new AuditMetadata.AiInvocation(AiAuditOperation.MESSAGE_DRAFT, AiAuditOutcome.MODEL_REFUSED,
+                            AiAuditDetail.NONE),
+                    new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.GATE_REJECTED,
+                            AiAuditDetail.DISALLOWED_ACTION),
+                    new AuditMetadata.AiInvocation(AiAuditOperation.MESSAGE_DRAFT, AiAuditOutcome.FAILED,
+                            AiAuditDetail.TIMEOUT));
+            String persisted = jdbc.queryForObject(
+                    "SELECT string_agg(row_to_json(a)::text, ' ') FROM dokene.audit_events a", String.class);
+            assertThat(persisted).doesNotContain("prompt", "phone", "message_body", "rationale");
+        });
+    }
+
+    @Test
+    void aiAuditEventsAreTenantIsolated() {
+        TenantContext first = tenant(TenantRole.ADMIN);
+        TenantContext second = tenant(TenantRole.ADMIN);
+        scoped(first, () -> recorder.aiInvocationOutcome(UUID.randomUUID(), AiAuditOperation.NEXT_BEST_ACTION,
+                AiAuditOutcome.GENERATED, AiAuditDetail.NONE));
+        scoped(second, () -> assertThat(reader.read().events()).isEmpty());
+        scoped(first, () -> assertThat(reader.read().events()).hasSize(1));
+    }
+
+    @Test
+    void rejectsUnsafeAiAuditShapesAtDatabaseBoundary() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        UUID target = UUID.randomUUID();
+        scoped(context, () -> {
+            // free text and unknown vocabulary
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", "GENERATED", "raw prompt text")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "FREE_TEXT_OPERATION", "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+            // detail inconsistent with outcome, and audit outcome inconsistent with AI outcome
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", "GENERATED", "TIMEOUT")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", "FAILED", "TIMEOUT")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "DENIED", target,
+                    "NEXT_BEST_ACTION", "GATE_REJECTED", "TIMEOUT")).isInstanceOf(RuntimeException.class);
+            // pre-existing event types can never carry AI columns
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "CUSTOMER_UPDATED", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
+        });
+    }
+
+    @Test
+    void rejectsAiOutcomeWithoutCustomerTargetOrTenantAtDatabaseBoundary() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", null,
+                "NEXT_BEST_ACTION", "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> migrationInsertAi(null, "AI_INVOCATION_OUTCOME", "SUCCESS", UUID.randomUUID(),
+                "NEXT_BEST_ACTION", "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void rejectsAiOutcomeRowsWithMissingVocabularyColumnsAtDatabaseBoundary() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        UUID target = UUID.randomUUID();
+        scoped(context, () -> {
+            // a CHECK passes on UNKNOWN, so NULLs must be rejected explicitly (V14)
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    null, "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", null, "NONE")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    "NEXT_BEST_ACTION", "GENERATED", null)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", target,
+                    null, null, null)).isInstanceOf(RuntimeException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
+        });
+    }
+
+    @Test
+    void rejectsTenantBoundaryDetailsThatWouldStoreAnUnverifiedCustomerId() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        scoped(context, () -> {
+            for (String detail : List.of("NO_TENANT_CONTEXT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND")) {
+                assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "DENIED",
+                        UUID.randomUUID(), "NEXT_BEST_ACTION", "GATE_REJECTED", detail))
+                        .isInstanceOf(RuntimeException.class);
+            }
+            // a verified-boundary rejection is still accepted
+            migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "DENIED", UUID.randomUUID(),
+                    "NEXT_BEST_ACTION", "GATE_REJECTED", "STALE_STATE");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void rejectsAiOutcomeRowsWithoutACustomerTargetTypeAtDatabaseBoundary() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        scoped(context, () -> {
+            // '=' is UNKNOWN for NULL and a CHECK accepts UNKNOWN, so the NULL case needs its own constraint (V15)
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", null,
+                    UUID.randomUUID(), "NEXT_BEST_ACTION", "GENERATED", "NONE")).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS",
+                    "PURCHASE", UUID.randomUUID(), "NEXT_BEST_ACTION", "GENERATED", "NONE"))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
+            migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", UUID.randomUUID(),
+                    "NEXT_BEST_ACTION", "GENERATED", "NONE");
+            assertThat(reader.read().events()).hasSize(1);
+        });
+    }
+
+    @Test
     void rollsBackRoleAndSuccessEventWhenBusinessTransactionRollsBack() {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);
@@ -326,7 +463,7 @@ class AuditIntegrationTest {
     void auditFailureAbortsDenialAndRollsBackSuccessfulStateChange() throws SQLException {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);
-        migrationSql("REVOKE EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT) FROM dokene_runtime");
+        migrationSql("REVOKE EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR) FROM dokene_runtime");
         try {
             scoped(context, () -> {
                 assertThatThrownBy(() -> roles.changeRole(target, TenantRole.OPERATOR)).isInstanceOf(AuditPersistenceException.class);
@@ -336,7 +473,7 @@ class AuditIntegrationTest {
                         .isInstanceOf(AuditPersistenceException.class).hasMessage("Audit persistence unavailable").hasNoCause();
             });
         } finally {
-            migrationSql("GRANT EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT) TO dokene_runtime");
+            migrationSql("GRANT EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR) TO dokene_runtime");
         }
     }
 
@@ -465,6 +602,38 @@ class AuditIntegrationTest {
             statement.setObject(5, UUID.randomUUID());
             statement.setString(6, reason);
             statement.setString(7, permission);
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+
+    private void migrationInsertAi(TenantId tenant, String eventType, String outcome, UUID target,
+            String operation, String aiOutcome, String detail) {
+        migrationInsertAi(tenant, eventType, outcome, "CUSTOMER", target, operation, aiOutcome, detail);
+    }
+
+    private void migrationInsertAi(TenantId tenant, String eventType, String outcome, String targetType, UUID target,
+            String operation, String aiOutcome, String detail) {
+        try (Connection connection = migration();
+             var statement = connection.prepareStatement("""
+                INSERT INTO dokene.audit_events
+                    (id, occurred_at, tenant_id, actor_id, membership_id, event_type, target_type, target_id,
+                     outcome, correlation_id, ai_operation, ai_outcome, ai_detail)
+                VALUES (?, '2026-09-01T00:00:00Z', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """)) {
+            statement.setObject(1, UUID.randomUUID());
+            statement.setObject(2, tenant == null ? null : tenant.value());
+            statement.setObject(3, tenant == null ? null : UUID.randomUUID());
+            statement.setObject(4, tenant == null ? null : UUID.randomUUID());
+            statement.setString(5, eventType);
+            statement.setString(6, targetType);
+            statement.setObject(7, target);
+            statement.setString(8, outcome);
+            statement.setObject(9, UUID.randomUUID());
+            statement.setString(10, operation);
+            statement.setString(11, aiOutcome);
+            statement.setString(12, detail);
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new RuntimeException(exception);

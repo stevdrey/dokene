@@ -31,7 +31,7 @@ public record OpenAiProviderProperties(
         } else if (maxRetries != 0) {
             throw new IllegalArgumentException(
                     "dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
-                            + "multi-attempt retries violate request deadline contracts and must be handled at domain level");
+                            + "retries are owned by the domain-level decorator configured with dokene.ai.retry.*");
         }
     }
 }

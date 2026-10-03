@@ -343,7 +343,7 @@ class FollowUpDraftServiceTest {
         FollowUpDraftResult result = service.draftSafe(customerId, null, null, timeout, null);
 
         assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
-        assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
+        assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
         verify(gate, org.mockito.Mockito.times(2)).revalidateDraftAuthorization(customerId);
     }
 
@@ -367,7 +367,7 @@ class FollowUpDraftServiceTest {
         FollowUpDraftResult result = service.draftSafe(customerId, null, null, timeout, null);
 
         assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
-        assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
+        assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.UNAVAILABLE);
         verify(gate, org.mockito.Mockito.times(2)).revalidateDraftAuthorization(customerId);
     }
 
@@ -389,7 +389,7 @@ class FollowUpDraftServiceTest {
         FollowUpDraftResult result = service.draftSafe(customerId, null, null, timeout, null);
 
         assertThat(result.status()).isEqualTo(DraftStatus.AI_UNAVAILABLE);
-        assertThat(result.unavailableReason()).isEqualTo("UNAVAILABLE");
+        assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.NOT_AVAILABLE);
         verify(gate, org.mockito.Mockito.times(2)).revalidateDraftAuthorization(customerId);
     }
 

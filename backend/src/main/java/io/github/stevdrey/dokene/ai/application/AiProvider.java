@@ -13,7 +13,7 @@ public interface AiProvider {
 
     default AiDraftResponse draft(AiDraftRequest request) {
         throw new AiProviderException(
-                AiFailureCategory.UNAVAILABLE,
+                AiFailureCategory.NOT_AVAILABLE,
                 new AiInvocationMetadata("unsupported", "none", "unsupported-draft", Duration.ZERO, null, AiCompletionStatus.FAILED));
     }
 
