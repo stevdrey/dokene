@@ -15,6 +15,27 @@ export type AssistantStep<T> =
   | { kind: 'stale'; refresh: StaleRefresh }
   | { kind: 'error'; error: AssistantErrorKind };
 
+/** Why the assistant asks the workbench to reload the queue. */
+export type QueueRefreshReason = 'stale' | 'ineligible';
+
+const DETERMINISTIC_INELIGIBILITY: readonly string[] = [
+  'DO_NOT_CONTACT',
+  'NO_CONTACT_CONSENT',
+  'CUSTOMER_ARCHIVED',
+  'FOLLOW_UP_INELIGIBLE'
+];
+
+/**
+ * An INELIGIBLE result caused by the customer's deterministic state (archived, do-not-contact,
+ * no consent, no longer due) means the due queue no longer matches reality, even though the
+ * policy version did not change. A disallowed action does not: the customer is still eligible.
+ */
+function changesTheQueue(data: RecommendationResponse | DraftResponse): boolean {
+  if (data.status !== 'INELIGIBLE') return false;
+  if (data.evaluation) return data.evaluation.eligible === false;
+  return data.rejectionReason !== null && DETERMINISTIC_INELIGIBILITY.includes(data.rejectionReason);
+}
+
 /** Whether the queue already carries the new policy version the stale result is waiting for. */
 export type StaleRefresh = 'pending' | 'done' | 'failed';
 
@@ -26,7 +47,7 @@ interface Options {
   customerId: string;
   policyVersion: number;
   /** Reloads the queue; resolves true only when it now reflects the current follow-up state. */
-  onRequestRefresh: () => Promise<boolean>;
+  onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
 }
 
 function isAbortLike(err: unknown): boolean {
@@ -86,7 +107,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     setRecommendation((prev) => (prev.kind === 'stale' ? { kind: 'stale', refresh: 'pending' } : prev));
     let ok = false;
     try {
-      ok = await refreshRef.current();
+      ok = await refreshRef.current('stale');
     } catch {
       ok = false;
     }
@@ -94,6 +115,15 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     setRecommendation((prev) =>
       prev.kind === 'stale' ? { kind: 'stale', refresh: ok ? 'done' : 'failed' } : prev
     );
+  }, []);
+
+  // Fire-and-forget: the result stays visible and a failed reload must not break the panel.
+  const refreshForIneligibility = useCallback(async () => {
+    try {
+      await refreshRef.current('ineligible');
+    } catch {
+      // The operator can still act on the result; the list simply was not reloaded.
+    }
   }, []);
 
   // Any staleness signal (409, STALE_STATE or a response for another policy version), whichever
@@ -129,6 +159,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
         return;
       }
       setRecommendation({ kind: 'result', data, version });
+      if (changesTheQueue(data)) void refreshForIneligibility();
     } catch (err) {
       if (controller.signal.aborted) return;
       if (isAbortLike(err)) {
@@ -141,7 +172,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
       }
       setRecommendation({ kind: 'error', error: toErrorKind(err) });
     }
-  }, [customerId, policyVersion, markStale]);
+  }, [customerId, policyVersion, markStale, refreshForIneligibility]);
 
   const requestDraft = useCallback(
     async (rec: RecommendationResponse) => {
@@ -170,6 +201,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
         setDraft({ kind: 'result', data, version });
         setDraftText(data.draft?.body ?? '');
         setDraftDirty(false);
+        if (changesTheQueue(data)) void refreshForIneligibility();
       } catch (err) {
         if (controller.signal.aborted) return;
         if (isAbortLike(err)) {
@@ -183,7 +215,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
         setDraft({ kind: 'error', error: toErrorKind(err) });
       }
     },
-    [customerId, policyVersion, markStale]
+    [customerId, policyVersion, markStale, refreshForIneligibility]
   );
 
   const editDraft = useCallback((text: string) => {

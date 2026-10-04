@@ -4,6 +4,7 @@ import { QueueItemResponse, FollowUpStatus } from '@/features/followups/types';
 import { followUpApi } from '@/features/followups/api/followUpApi';
 import { FollowUpCard } from './FollowUpCard';
 import { FollowUpDetail } from './FollowUpDetail';
+import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 import { Button } from '@/shared/components/Button';
 import { getCalendarDateInTimeZone } from '../utils/dateUtils';
 import { ApiError } from '@/shared/api/httpClient';
@@ -24,6 +25,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // True while an AI-triggered background refresh replaces the queue: pagination must wait,
+  // otherwise a page fetched from the old cursor could land after the refreshed pages.
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
+  const backgroundRefreshingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [conflictNotice, setConflictNotice] = useState<string | null>(null);
   const [tenantTimeZone, setTenantTimeZone] = useState<string | undefined>(undefined);
@@ -177,6 +182,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       const controller = new AbortController();
       queueAbortControllerRef.current = controller;
 
+      backgroundRefreshingRef.current = background;
+      setBackgroundRefreshing(background);
       if (!background) {
         setLoading(true);
       }
@@ -237,6 +244,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       } finally {
         if (requestGenerationRef.current === currentGeneration) {
           setLoading(false);
+          backgroundRefreshingRef.current = false;
+          setBackgroundRefreshing(false);
         }
       }
       return applied;
@@ -293,7 +302,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   }, [activeFilter, replaceQueue]);
 
   const handleLoadMore = async () => {
-    if (!nextCursor || loadingMore) return;
+    if (!nextCursor || loadingMore || backgroundRefreshingRef.current) return;
     const currentGeneration = requestGenerationRef.current;
     const currentFilter = activeFilter;
     const controller = new AbortController();
@@ -359,7 +368,12 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
 
   const refreshQueue = useCallback(
-    () => replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, { background: true }),
+    (reason?: QueueRefreshReason) => {
+      if (reason === 'ineligible') {
+        setConflictNotice('El cliente ya no es elegible para seguimiento. La lista se ha actualizado.');
+      }
+      return replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, { background: true });
+    },
     [replaceQueue, activeFilter]
   );
 
@@ -758,7 +772,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                 <button
                   type="button"
                   onClick={handleLoadMore}
-                  disabled={loadingMore}
+                  disabled={loadingMore || backgroundRefreshing}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -873,6 +887,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   variant="secondary"
                   onClick={handleLoadMore}
                   isLoading={loadingMore}
+                  disabled={backgroundRefreshing}
                 >
                   Cargar más seguimientos
                 </Button>
@@ -952,6 +967,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   variant="secondary"
                   onClick={handleLoadMore}
                   isLoading={loadingMore}
+                  disabled={backgroundRefreshing}
                 >
                   {isSearchActive ? 'Cargar más páginas y seguir buscando' : 'Cargar más seguimientos'}
                 </Button>

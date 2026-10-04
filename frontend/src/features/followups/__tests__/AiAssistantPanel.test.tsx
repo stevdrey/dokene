@@ -77,7 +77,7 @@ interface PanelOverrides {
   customerId?: string;
   policyVersion?: number;
   canUseAi?: boolean;
-  onRequestRefresh?: () => Promise<boolean>;
+  onRequestRefresh?: (reason?: 'stale' | 'ineligible') => Promise<boolean>;
 }
 
 function renderPanel(overrides: PanelOverrides = {}) {
@@ -911,6 +911,78 @@ describe('AiAssistantPanel', () => {
       });
       expect(await screen.findByRole('button', { name: 'Reintentar actualizar lista' })).toBeInTheDocument();
       expect(screen.getByLabelText(/Tu borrador editado/)).toHaveValue('Mi texto editado');
+    });
+  });
+  describe('deterministic ineligibility changes the queue', () => {
+    const ineligibleEvaluation = { ...evaluation, eligible: false, status: 'INELIGIBLE' as const, reasons: ['DO_NOT_CONTACT' as const] };
+
+    it('refreshes the queue when a recommendation comes back INELIGIBLE with an ineligible evaluation', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      const { props } = renderPanel();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByText(/el cliente pidió no ser contactado/i)).toBeInTheDocument();
+      await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledTimes(1));
+      expect(props.onRequestRefresh).toHaveBeenCalledWith('ineligible');
+    });
+
+    it('refreshes the queue when a draft comes back INELIGIBLE with an ineligible evaluation', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({
+        data: { ...baseDraft, status: 'INELIGIBLE', draft: null, rejectionReason: 'NO_CONTACT_CONSENT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      const { props } = renderPanel();
+      await getRecommendation();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+
+      await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledWith('ineligible'));
+      expect(props.onRequestRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not refresh when INELIGIBLE only means the requested action is not allowed', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({
+        data: { ...baseDraft, status: 'INELIGIBLE', draft: null, rejectionReason: 'DISALLOWED_ACTION' },
+        version: 3
+      });
+      const { props } = renderPanel();
+      await getRecommendation();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+
+      expect(await screen.findByText(/la acción solicitada no está permitida/i)).toBeInTheDocument();
+      expect(props.onRequestRefresh).not.toHaveBeenCalled();
+    });
+
+    it('still refreshes when the evaluation is missing but the reason is a deterministic ineligibility', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, customerId: null, evaluation: null, rejectionReason: 'CUSTOMER_ARCHIVED' },
+        version: 3
+      });
+      const { props } = renderPanel();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledWith('ineligible'));
+    });
+
+    it('does not break the panel if that refresh fails', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      renderPanel({ onRequestRefresh: vi.fn().mockRejectedValue(new Error('network')) });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByText(/el cliente pidió no ser contactado/i)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
 });

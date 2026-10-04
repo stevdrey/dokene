@@ -363,4 +363,66 @@ describe('FollowUpWorkbench AI assistance', () => {
 
     expect(queue).not.toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything());
   });
+  it('blocks pagination while an AI-triggered background refresh is in flight', async () => {
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    queue.mockResolvedValue({ items: [baseItem], nextCursor: 'c1' });
+    vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+    await screen.findByRole('button', { name: 'Obtener recomendación' });
+    expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toBeEnabled();
+
+    const refresh = deferred<{ items: QueueItemResponse[]; nextCursor: string | null }>();
+    queue.mockClear();
+    queue.mockReturnValueOnce(refresh.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+    await screen.findByText(/El seguimiento cambió mientras consultabas/);
+
+    const loadMore = screen.getByRole('button', { name: /Cargar más seguimientos|Cargando/ });
+    expect(loadMore).toBeDisabled();
+    fireEvent.click(loadMore);
+    expect(queue).toHaveBeenCalledTimes(1);
+    expect(queue).not.toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything());
+
+    await act(async () => {
+      refresh.resolve({ items: [{ ...baseItem, policyVersion: 3 }], nextCursor: 'c1' });
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toBeEnabled());
+  });
+
+  it('refreshes the queue and says so when the AI reports the customer is no longer eligible', async () => {
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+      data: {
+        ...recommendation,
+        status: 'INELIGIBLE',
+        recommendation: null,
+        rejectionReason: 'NO_CONTACT_CONSENT',
+        evaluation: {
+          customerId: 'cust-1',
+          eligible: false,
+          status: 'INELIGIBLE',
+          reasons: ['DO_NOT_CONTACT'],
+          evaluatedAt: '2026-09-15T12:00:00Z',
+          tenantDate: '2026-09-15',
+          tenantTimeZone: 'America/Santiago',
+          nextFollowUpDate: null,
+          timingSource: 'NONE',
+          effectiveCadenceDays: 60,
+          lastPurchaseAt: null
+        }
+      },
+      version: 2
+    });
+    await renderWorkbench();
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    queue.mockClear();
+    queue.mockResolvedValue({ items: [], nextCursor: null });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+    await waitFor(() => expect(queue).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/ya no es elegible para seguimiento/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Registrar seguimiento/i })).not.toBeInTheDocument()
+    );
+  });
 });

@@ -8,6 +8,7 @@ import { DismissModal } from './DismissModal';
 import { Button } from '@/shared/components/Button';
 import { computeDaysOverdueInTimeZone } from '../utils/dateUtils';
 import { AiAssistantPanel } from './AiAssistantPanel';
+import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 
 interface FollowUpDetailProps {
   item: QueueItemResponse;
@@ -19,7 +20,7 @@ interface FollowUpDetailProps {
   onDismiss: (notes: string | undefined, idempotencyKey: string) => Promise<void>;
   canWrite: boolean;
   canUseAi: boolean;
-  onRequestRefresh: () => Promise<boolean>;
+  onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
   timeZone?: string;
 }
 

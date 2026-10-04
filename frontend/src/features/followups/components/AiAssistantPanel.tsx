@@ -2,7 +2,8 @@ import React, { useEffect, useId, useRef } from 'react';
 import { Button } from '@/shared/components/Button';
 import {
   useFollowUpAssistant,
-  type AssistantErrorKind
+  type AssistantErrorKind,
+  type QueueRefreshReason
 } from '@/features/followups/hooks/useFollowUpAssistant';
 import {
   AI_MANUAL_FALLBACK,
@@ -25,7 +26,7 @@ interface AiAssistantPanelProps {
   /** UI affordance only: the backend remains the authority for AI permissions. */
   canUseAi: boolean;
   /** Asks the workbench to reload the queue after the follow-up changed under the assistant. */
-  onRequestRefresh: () => Promise<boolean>;
+  onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
 }
 
 const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espacio de trabajo.';
