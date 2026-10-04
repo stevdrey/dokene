@@ -425,4 +425,98 @@ describe('FollowUpWorkbench AI assistance', () => {
       expect(screen.queryByRole('button', { name: /Registrar seguimiento/i })).not.toBeInTheDocument()
     );
   });
+  describe('background refresh keeps looking for the selected customer', () => {
+    const itemA: QueueItemResponse = { ...baseItem, customerId: 'cust-A', displayName: 'Ana Primera Página' };
+    const itemB: QueueItemResponse = { ...baseItem, customerId: 'cust-B', displayName: 'Bruno Segunda Página', policyVersion: 2 };
+    const itemX: QueueItemResponse = { ...baseItem, customerId: 'cust-X', displayName: 'Ximena Recién Vencida' };
+
+    async function selectBFromSecondPage() {
+      const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+      queue.mockImplementation(async (params: { cursor?: string }) =>
+        params.cursor === 'c1' ? { items: [itemB], nextCursor: null } : { items: [itemA], nextCursor: 'c1' }
+      );
+      const rec = vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findAllByText('Ana Primera Página');
+      fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+      fireEvent.click(await screen.findByRole('button', { name: /Bruno Segunda Página/ }));
+      await screen.findByRole('heading', { name: 'Bruno Segunda Página', level: 2 });
+      queue.mockClear();
+      return { queue, rec };
+    }
+
+    it('continues past the previously loaded count when a newly due customer pushes the selection beyond it', async () => {
+      const { queue, rec } = await selectBFromSecondPage();
+      // A new customer became due and now sorts before B: page 1 already holds as many rows as before.
+      queue.mockImplementation(async (params: { cursor?: string }) =>
+        params.cursor === 'c1'
+          ? { items: [{ ...itemB, policyVersion: 3 }], nextCursor: null }
+          : { items: [itemA, itemX], nextCursor: 'c1' }
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await screen.findByText(/El seguimiento cambió mientras consultabas/);
+      await waitFor(() => expect(queue).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything()));
+      expect(screen.getByRole('heading', { name: 'Bruno Segunda Página', level: 2 })).toBeInTheDocument();
+      const update = await screen.findByRole('button', { name: 'Actualizar recomendación' });
+      await waitFor(() => expect(update).toBeEnabled());
+      rec.mockResolvedValueOnce({ data: { ...recommendation, customerId: 'cust-B' }, version: 3 });
+      fireEvent.click(update);
+      await waitFor(() => expect(rec).toHaveBeenLastCalledWith('cust-B', 3, expect.any(AbortSignal)));
+    });
+
+    it('stops when the cursor is exhausted and falls back when the selected customer is really gone', async () => {
+      const { queue } = await selectBFromSecondPage();
+      queue.mockImplementation(async (params: { cursor?: string }) =>
+        params.cursor === 'c1' ? { items: [itemX], nextCursor: null } : { items: [itemA], nextCursor: 'c1' }
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(queue).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Ana Primera Página', level: 2 })).toBeInTheDocument()
+      );
+      expect(queue).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('announces the ineligibility refresh only after it succeeds, and offers a retry when it fails', async () => {
+    const ineligible = {
+      ...recommendation,
+      status: 'INELIGIBLE' as const,
+      recommendation: null,
+      rejectionReason: 'NO_CONTACT_CONSENT' as const,
+      evaluation: {
+        customerId: 'cust-1',
+        eligible: false,
+        status: 'INELIGIBLE' as const,
+        reasons: ['DO_NOT_CONTACT' as const],
+        evaluatedAt: '2026-09-15T12:00:00Z',
+        tenantDate: '2026-09-15',
+        tenantTimeZone: 'America/Santiago',
+        nextFollowUpDate: null,
+        timingSource: 'NONE' as const,
+        effectiveCadenceDays: 60,
+        lastPurchaseAt: null
+      }
+    };
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: ineligible, version: 2 });
+    await renderWorkbench();
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    queue.mockClear();
+    queue.mockRejectedValueOnce(new Error('boom'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+    expect(await screen.findByText('No pudimos actualizar la lista de seguimientos.')).toBeInTheDocument();
+    expect(screen.queryByText(/ya no es elegible para seguimiento/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+
+    queue.mockResolvedValueOnce({ items: [], nextCursor: null });
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualizar lista' }));
+
+    expect(await screen.findByText(/ya no es elegible para seguimiento/i)).toBeInTheDocument();
+  });
 });

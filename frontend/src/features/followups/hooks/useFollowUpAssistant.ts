@@ -39,6 +39,9 @@ function changesTheQueue(data: RecommendationResponse | DraftResponse): boolean 
 /** Whether the queue already carries the new policy version the stale result is waiting for. */
 export type StaleRefresh = 'pending' | 'done' | 'failed';
 
+/** Outcome of the queue reload triggered by a deterministic ineligibility result. */
+export type IneligibleRefresh = 'idle' | 'pending' | 'failed';
+
 export type CopyStatus = 'idle' | 'copied' | 'failed';
 export type PendingDiscard = 'regenerate-draft' | 'requery' | null;
 
@@ -82,6 +85,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   const [draftDirty, setDraftDirty] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard>(null);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
+  const [ineligibleRefresh, setIneligibleRefresh] = useState<IneligibleRefresh>('idle');
 
   const recController = useRef<AbortController | null>(null);
   const draftController = useRef<AbortController | null>(null);
@@ -89,6 +93,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   refreshRef.current = onRequestRefresh;
   const mountedRef = useRef(true);
   const refreshToken = useRef(0);
+  const ineligibleToken = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -117,13 +122,19 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     );
   }, []);
 
-  // Fire-and-forget: the result stays visible and a failed reload must not break the panel.
+  // The result stays visible either way; a failed reload is reported and can be retried so the
+  // operator is never left with an outdated list and no way to know.
   const refreshForIneligibility = useCallback(async () => {
+    const token = ++ineligibleToken.current;
+    setIneligibleRefresh('pending');
+    let ok = false;
     try {
-      await refreshRef.current('ineligible');
+      ok = await refreshRef.current('ineligible');
     } catch {
-      // The operator can still act on the result; the list simply was not reloaded.
+      ok = false;
     }
+    if (!mountedRef.current || token !== ineligibleToken.current) return;
+    setIneligibleRefresh(ok ? 'idle' : 'failed');
   }, []);
 
   // Any staleness signal (409, STALE_STATE or a response for another policy version), whichever
@@ -141,6 +152,8 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     recController.current?.abort();
     draftController.current?.abort();
     refreshToken.current += 1;
+    ineligibleToken.current += 1;
+    setIneligibleRefresh('idle');
     const controller = new AbortController();
     recController.current = controller;
 
@@ -249,6 +262,8 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     copyDraft,
     askDiscard,
     cancelDiscard,
-    retryRefresh: runRefresh
+    retryRefresh: runRefresh,
+    ineligibleRefresh,
+    retryIneligibleRefresh: refreshForIneligibility
   };
 }

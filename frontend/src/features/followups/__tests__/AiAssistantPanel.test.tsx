@@ -972,16 +972,52 @@ describe('AiAssistantPanel', () => {
       await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledWith('ineligible'));
     });
 
-    it('does not break the panel if that refresh fails', async () => {
+    it('keeps the result visible and offers a retry when that refresh fails', async () => {
       vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
         data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
         version: 3
       });
-      renderPanel({ onRequestRefresh: vi.fn().mockRejectedValue(new Error('network')) });
+      const onRequestRefresh = vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(true);
+      renderPanel({ onRequestRefresh });
 
       fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
 
       expect(await screen.findByText(/el cliente pidió no ser contactado/i)).toBeInTheDocument();
+      expect(await screen.findByText('No pudimos actualizar la lista de seguimientos.')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualizar lista' }));
+
+      await waitFor(() => expect(onRequestRefresh).toHaveBeenCalledTimes(2));
+      expect(onRequestRefresh).toHaveBeenLastCalledWith('ineligible');
+      await waitFor(() =>
+        expect(screen.queryByText('No pudimos actualizar la lista de seguimientos.')).not.toBeInTheDocument()
+      );
+      expect(screen.getByText(/el cliente pidió no ser contactado/i)).toBeInTheDocument();
+    });
+
+    it('treats a refresh that resolves false as a failure too', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      renderPanel({ onRequestRefresh: vi.fn().mockResolvedValue(false) });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByRole('button', { name: 'Reintentar actualizar lista' })).toBeInTheDocument();
+    });
+
+    it('shows no refresh failure when the refresh succeeds', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      const { props } = renderPanel();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await screen.findByText(/el cliente pidió no ser contactado/i);
+      await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledTimes(1));
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });

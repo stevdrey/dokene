@@ -152,6 +152,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
 
   let liveMessage = '';
   if (isStale && staleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
+  else if (assistant.ineligibleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
   else if (recLoading) liveMessage = 'Consultando al asistente…';
   else if (draftLoading) liveMessage = 'Redactando borrador…';
   else if (copyStatus === 'copied') liveMessage = 'Borrador copiado';
@@ -354,6 +355,15 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             </div>
           )}
         </>
+      )}
+
+      {assistant.ineligibleRefresh === 'failed' && (
+        <div role="alert" style={alertStyle}>
+          <span>{STALE_REFRESH_FAILED_MESSAGE}</span>
+          <Button variant="secondary" size="sm" onClick={() => void assistant.retryIneligibleRefresh()}>
+            Reintentar actualizar lista
+          </Button>
+        </div>
       )}
 
       {rec && rec.status === 'INELIGIBLE' && (

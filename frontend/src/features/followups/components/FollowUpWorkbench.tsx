@@ -43,6 +43,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const requestGenerationRef = useRef(0);
   const itemsCountRef = useRef(0);
   itemsCountRef.current = items.length;
+  const selectedCustomerIdRef = useRef<string | null>(null);
   const loadMoreAbortControllerRef = useRef<AbortController | null>(null);
   const queueAbortControllerRef = useRef<AbortController | null>(null);
   const lastFetchedTenantDateRef = useRef<string>('');
@@ -161,6 +162,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       // a later page is still found and its detail is not unmounted.
       const { background = false } = options;
       const loadedCount = itemsCountRef.current;
+      const selectedId = selectedCustomerIdRef.current;
       let applied = false;
       requestGenerationRef.current += 1;
       const currentGeneration = requestGenerationRef.current;
@@ -196,11 +198,13 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         if (background) {
           let collected = page.items || [];
           let cursor = page.nextCursor || null;
-          for (
-            let pages = 1;
-            cursor && collected.length < loadedCount && pages < MAX_BACKGROUND_REFRESH_PAGES;
-            pages += 1
-          ) {
+          // Keep following the cursor until the previously loaded extent is covered AND the selected
+          // customer is found (newly due customers can push it past the old boundary). If the cap is
+          // hit first, the existing fallback selection applies.
+          const needsMore = () =>
+            collected.length < loadedCount ||
+            (selectedId !== null && !collected.some((item) => item.customerId === selectedId));
+          for (let pages = 1; cursor && needsMore() && pages < MAX_BACKGROUND_REFRESH_PAGES; pages += 1) {
             if (requestGenerationRef.current !== currentGeneration || controller.signal.aborted) break;
             const next = await followUpApi.getFollowUpQueue(
               { status: statusFilter, cursor, limit: 50 },
@@ -363,16 +367,22 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     return filteredItems.find((i) => i.customerId === selectedCustomerId) || null;
   }, [filteredItems, selectedCustomerId]);
 
+  selectedCustomerIdRef.current = selectedCustomerId;
+
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
 
   const refreshQueue = useCallback(
-    (reason?: QueueRefreshReason) => {
-      if (reason === 'ineligible') {
+    async (reason?: QueueRefreshReason) => {
+      const refreshed = await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, {
+        background: true
+      });
+      // Only claim the list was updated when it really was.
+      if (refreshed && reason === 'ineligible') {
         setConflictNotice('El cliente ya no es elegible para seguimiento. La lista se ha actualizado.');
       }
-      return replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, { background: true });
+      return refreshed;
     },
     [replaceQueue, activeFilter]
   );
