@@ -142,7 +142,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   // Centralized queue replacement: invalidates and aborts in-flight pagination, clears loadingMore,
   // and fetches replacement first page under a new generation
   const replaceQueue = useCallback(
-    async (statusFilter?: FollowUpStatus) => {
+    async (statusFilter?: FollowUpStatus, options: { background?: boolean } = {}) => {
+      // A background refresh keeps the current list and detail mounted (no full-screen
+      // spinner or error), so work in progress inside the detail survives the reload.
+      const { background = false } = options;
       requestGenerationRef.current += 1;
       const currentGeneration = requestGenerationRef.current;
 
@@ -163,7 +166,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       const controller = new AbortController();
       queueAbortControllerRef.current = controller;
 
-      setLoading(true);
+      if (!background) {
+        setLoading(true);
+      }
       setError(null);
       try {
         const page = await followUpApi.getFollowUpQueue(
@@ -176,7 +181,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             : null;
           if (requestStartDate && completionDate && requestStartDate !== completionDate) {
             // Crossed tenant midnight during in-flight fetch; immediately refresh to get updated day's queue
-            replaceQueue(statusFilter);
+            replaceQueue(statusFilter, options);
             return;
           }
 
@@ -197,7 +202,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
-        if (requestGenerationRef.current === currentGeneration) {
+        if (requestGenerationRef.current === currentGeneration && !background) {
           setError(err instanceof Error ? err.message : 'Error al cargar la lista de seguimientos.');
         }
       } finally {
@@ -324,7 +329,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
 
   const refreshQueue = useCallback(() => {
-    void replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined);
+    void replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, { background: true });
   }, [replaceQueue, activeFilter]);
 
   // Disposition handlers
@@ -872,7 +877,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '5fr 7fr',
+            gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 5fr) minmax(0, 7fr)',
             gap: 'var(--space-24)',
             alignItems: 'start'
           }}

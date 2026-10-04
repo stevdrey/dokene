@@ -34,6 +34,20 @@ Run with the real `<App/>` in Chrome (Browser pane) against a throwaway harness 
 
 Interaction checks (same harness): workspace switch Norte → Sur removed the previous rationale and draft and showed only Sur's customer; `VIEWER` shows the button disabled with the role explanation; `403` renders the role message and keeps the request button enabled; crossing the 1024px breakpoint remounts the detail and discards the AI result (safe by design).
 
-Not re-verified in a browser after the Copilot review fixes (covered by component tests only): the stale state with a preserved edited draft.
-
 Not verified: keyboard-only pass with a screen reader, 200% zoom, automated axe checks (none are configured in the repository), and a run against the real backend with `dokene.ai.provider=fake`/`openai`.
+
+## Real-stack browser verification (Chrome DevTools MCP)
+
+Run against the real stack: Docker Compose (PostgreSQL + Keycloak), backend with `DOKENE_AI_PROVIDER=fake` on JDK 26, Vite dev server, OIDC login as `testoperator` / `testviewer` (synthetic users from `scripts/seed-local-qa.sh`) and two workspaces with due, consented customers. No live OpenAI call was made (the `fake` provider answers).
+
+| Check | Result |
+|---|---|
+| Request recommendation, then draft, on real endpoints | PASS: ETag/version matched (no false stale state); `customerId`, vocabularies and body bound validated against real responses; focus moved to the draft editor; status region announced "Recomendación lista" / "Borrador listo para revisar" |
+| Edited draft + policy version bumped out-of-band, then "Regenerar borrador" | Real `409`. **Defect found and fixed:** the queue refresh used the full-screen loading state, which unmounted the detail and wiped the stale notice and the edited draft. The AI-triggered refresh is now a background refresh (no spinner, no full-screen error). After the fix: `role="alert"` notice, recommendation and editor hidden, edited text kept and copyable, "Actualizar recomendación" asks for confirmation ("Consultar de nuevo descartará el borrador y tus cambios."), confirming requests a fresh recommendation with the current version |
+| Workspace switch with a visible recommendation (Norte → QA 61 → Norte) | PASS: no rationale, draft or assistant panel left over, and nothing resurrected on return |
+| `VIEWER` | PASS: control disabled with the role explanation; backend returns `403` for both `recommendation` and `draft` |
+| Console / network | Only the intentional `409` |
+| Layout 390×844 and 320×568 (mobile) | PASS: no horizontal overflow, targets ≥ 44px, no send/approve control |
+| Layout 1024×768 | **Defect found and fixed:** the `5fr 7fr` grid let the detail column overflow by ~42px (pre-existing; reproduced with the panel hidden). Columns are now `minmax(0, 5fr) minmax(0, 7fr)`; `scrollWidth` equals `clientWidth` |
+
+Regression tests for the background refresh: `FollowUpWorkbench.ai.test.tsx` (`keeps the follow-up detail and the edited draft mounted while the AI-triggered refresh is in flight`, `keeps the current queue and detail when the AI-triggered refresh fails`). The grid fix is a layout change verified in the browser only (jsdom has no layout).

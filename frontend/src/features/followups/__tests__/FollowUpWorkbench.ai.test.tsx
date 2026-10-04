@@ -230,4 +230,73 @@ describe('FollowUpWorkbench AI assistance', () => {
     expect(screen.queryByText('Suele repetir su compra cada dos meses.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Obtener recomendación' })).toBeEnabled();
   });
+  it('keeps the follow-up detail and the edited draft mounted while the AI-triggered refresh is in flight', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: recommendation, version: 2 });
+    vi.spyOn(followUpApi, 'requestDraft').mockResolvedValueOnce({
+      data: {
+        status: 'AVAILABLE',
+        customerId: 'cust-1',
+        evaluation: null,
+        draft: {
+          action: 'REPEAT_PURCHASE_FOLLOW_UP',
+          templateIntent: 'REPEAT_PURCHASE',
+          body: 'Hola Valentina.',
+          draftVariables: [],
+          locale: 'es-419',
+          evidence: [],
+          warnings: [],
+          rationale: 'r',
+          confidence: 0.8
+        },
+        refusal: null,
+        refusalReason: null,
+        rejectionReason: null,
+        unavailableReason: null,
+        retryable: false
+      },
+      version: 2
+    });
+    await renderWorkbench();
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+    await screen.findByText('Suele repetir su compra cada dos meses.');
+    fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+    const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+    fireEvent.change(textarea, { target: { value: 'Mi texto editado' } });
+
+    // The next draft request conflicts; the queue refresh it triggers stays pending.
+    vi.spyOn(followUpApi, 'requestDraft').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+    const refresh = deferred<{ items: QueueItemResponse[]; nextCursor: string | null }>();
+    (followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>).mockReturnValue(refresh.promise);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerar borrador' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reemplazar mis cambios' }));
+
+    await screen.findByText(/El seguimiento cambió mientras consultabas/);
+    expect(screen.queryByText('Cargando seguimientos...')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Tu borrador editado/)).toHaveValue('Mi texto editado');
+
+    await act(async () => {
+      refresh.resolve({ items: [{ ...baseItem, policyVersion: 3 }], nextCursor: null });
+    });
+
+    expect(screen.getByLabelText(/Tu borrador editado/)).toHaveValue('Mi texto editado');
+    expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Registrar seguimiento/i })).toBeEnabled();
+  });
+
+  it('keeps the current queue and detail when the AI-triggered refresh fails', async () => {
+    vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new ApiError(409, 'conflict'));
+    await renderWorkbench();
+    (followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+    await screen.findByText(/El seguimiento cambió mientras consultabas/);
+    await waitFor(() => expect(followUpApi.getFollowUpQueue).toHaveBeenCalledTimes(2));
+    expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeInTheDocument();
+    expect(screen.queryByText(/Error al cargar/i)).not.toBeInTheDocument();
+  });
 });
