@@ -24,7 +24,7 @@ Recommendation and draft are separate calls on the backend (separate permission,
 ### 2. Advisory and local only
 
 - Results live in component state (`useFollowUpAssistant`). Nothing is persisted: no `localStorage`/`sessionStorage`, no cache shared across customers or tenants, no backend write.
-- The draft is a local `<textarea>` (max 1000 characters, mirroring the backend bound). Editing it performs no network call.
+- The draft is a local `<textarea>` limited to 1000 Unicode code points, mirroring the backend bound. The limit is applied and displayed by code point (not UTF-16 units) and the UTF-16 based `maxLength` attribute is not used, so ~1000 emoji are accepted and a surrogate pair is never split. Editing it performs no network call.
 - **No approval or send path exists in Phase 2**: no "Aprobar", "Enviar", "Programar" or "Enviado" control or wording. The panel states that nothing was sent and that sending is manual. "Copiar borrador" copies the edited text to the clipboard and has no business effect.
 - Model-generated strings (`rationale`, `body`, `evidence`, `warnings`) are rendered as plain React text, never as HTML.
 
@@ -39,6 +39,8 @@ Every result stores the `ETag` version it was produced for, and requests send `I
 - **Explicit `stale` state:** a `409`, a `STALE_STATE` result or a response for another policy version, raised by the recommendation **or** the draft request, moves the panel to a `stale` step. Both the recommendation and the draft are invalidated and the workbench reloads the queue (`onRequestRefresh`). It is an explicit state rather than a stored result compared against the item version because, once the queue refresh brings the new `policyVersion`, such a result would compare equal and the old advice would look current again.
 - **Derived staleness:** a valid result whose version no longer equals the item's `policyVersion` (for example after a snooze, dismissal or manual follow-up reloads the queue) is hidden the same way.
 - The only way forward from a stale panel is **Actualizar recomendación**; "Obtener recomendación" is reserved for the initial request and for non-state errors (403, 429, 5xx, malformed response).
+- **The refresh outcome is part of the state.** The workbench's `replaceQueue` resolves `true` only when the replacement queue was applied. While the refresh is pending the recovery action is disabled and announced ("Actualizando la lista…"); if it fails the panel says so and offers **Reintentar actualizar lista** instead of "Actualizar recomendación", so the operator can never resend the old `If-Match` and loop on `409`.
+- **The refresh does not unmount the detail.** An AI-triggered refresh is a background refresh: no full-screen spinner or error, and it reloads as many pages as the operator had already loaded (following the cursor, capped at 20 pages), so a customer selected from a later page is still found and its stale notice and edited draft survive. Filter changes, workspace changes and dispositions keep the existing first-page behaviour.
 - **Edited drafts are not lost:** the hook keeps the operator's edited text when the panel goes stale; the panel shows it in an editable "Tu borrador editado" area (copy still works) and asks for confirmation before a refresh discards it. Regenerating the draft and querying again each use their own confirmation wording.
 
 ### 5. Tenant and customer isolation

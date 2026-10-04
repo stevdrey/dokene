@@ -286,17 +286,81 @@ describe('FollowUpWorkbench AI assistance', () => {
     expect(screen.getByRole('button', { name: /Registrar seguimiento/i })).toBeEnabled();
   });
 
-  it('keeps the current queue and detail when the AI-triggered refresh fails', async () => {
-    vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new ApiError(409, 'conflict'));
+  it('reports a failed AI-triggered refresh, keeps the detail and retries it before allowing a new request', async () => {
+    const rec = vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
     await renderWorkbench();
-    (followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'));
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    queue.mockRejectedValueOnce(new Error('boom'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
 
-    await screen.findByText(/El seguimiento cambió mientras consultabas/);
-    await waitFor(() => expect(followUpApi.getFollowUpQueue).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('No pudimos actualizar la lista de seguimientos.')).toBeInTheDocument();
     expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeInTheDocument();
     expect(screen.queryByText(/Error al cargar/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Actualizar recomendación' })).not.toBeInTheDocument();
+    expect(rec).toHaveBeenCalledTimes(1);
+
+    queue.mockResolvedValueOnce({ items: [{ ...baseItem, policyVersion: 3 }], nextCursor: null });
+    rec.mockResolvedValueOnce({ data: recommendation, version: 3 });
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualizar lista' }));
+
+    const update = await screen.findByRole('button', { name: 'Actualizar recomendación' });
+    await waitFor(() => expect(update).toBeEnabled());
+    fireEvent.click(update);
+
+    await waitFor(() => expect(rec).toHaveBeenLastCalledWith('cust-1', 3, expect.any(AbortSignal)));
+    await screen.findByText('Suele repetir su compra cada dos meses.');
+  });
+
+  it('keeps a customer loaded from a later page selected (with its stale notice) when the AI refresh reloads the loaded extent', async () => {
+    const itemA: QueueItemResponse = { ...baseItem, customerId: 'cust-A', displayName: 'Ana Primera Página' };
+    const itemB: QueueItemResponse = { ...baseItem, customerId: 'cust-B', displayName: 'Bruno Segunda Página', policyVersion: 2 };
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    queue.mockImplementation(async (params: { cursor?: string }) =>
+      params.cursor === 'c1' ? { items: [itemB], nextCursor: null } : { items: [itemA], nextCursor: 'c1' }
+    );
+    const rec = vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+    await screen.findAllByText('Ana Primera Página');
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+    const cardB = await screen.findByRole('button', { name: /Bruno Segunda Página/ });
+    fireEvent.click(cardB);
+    await screen.findByRole('heading', { name: 'Bruno Segunda Página', level: 2 });
+
+    // The refresh must now return B with a new version, but only from the second page.
+    queue.mockClear();
+    queue.mockImplementation(async (params: { cursor?: string }) =>
+      params.cursor === 'c1'
+        ? { items: [{ ...itemB, policyVersion: 3 }], nextCursor: null }
+        : { items: [itemA], nextCursor: 'c1' }
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+    await screen.findByText(/El seguimiento cambió mientras consultabas/);
+    await waitFor(() =>
+      expect(queue).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything())
+    );
+    expect(screen.getByRole('heading', { name: 'Bruno Segunda Página', level: 2 })).toBeInTheDocument();
+    const update = await screen.findByRole('button', { name: 'Actualizar recomendación' });
+    await waitFor(() => expect(update).toBeEnabled());
+
+    rec.mockResolvedValueOnce({ data: { ...recommendation, customerId: 'cust-B' }, version: 3 });
+    fireEvent.click(update);
+    await waitFor(() => expect(rec).toHaveBeenLastCalledWith('cust-B', 3, expect.any(AbortSignal)));
+  });
+
+  it('does not reload extra pages for a background refresh when only the first page was loaded', async () => {
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    queue.mockResolvedValue({ items: [baseItem], nextCursor: 'c1' });
+    vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+    await screen.findByRole('button', { name: 'Obtener recomendación' });
+    queue.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+    await screen.findByText(/El seguimiento cambió mientras consultabas/);
+    await waitFor(() => expect(queue).toHaveBeenCalledTimes(1));
+
+    expect(queue).not.toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything());
   });
 });

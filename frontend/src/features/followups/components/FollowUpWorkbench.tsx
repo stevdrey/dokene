@@ -12,6 +12,9 @@ interface FollowUpWorkbenchProps {
   onNavigateToCustomer: (customerId: string) => void;
 }
 
+// Safety cap for a background refresh that follows cursors (50 items per page).
+const MAX_BACKGROUND_REFRESH_PAGES = 20;
+
 export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigateToCustomer }) => {
   const { activeWorkspace } = useTenant();
   const canWrite = activeWorkspace?.role ? activeWorkspace.role !== 'VIEWER' : true;
@@ -33,6 +36,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const [isPolicyLoading, setIsPolicyLoading] = useState(false);
 
   const requestGenerationRef = useRef(0);
+  const itemsCountRef = useRef(0);
+  itemsCountRef.current = items.length;
   const loadMoreAbortControllerRef = useRef<AbortController | null>(null);
   const queueAbortControllerRef = useRef<AbortController | null>(null);
   const lastFetchedTenantDateRef = useRef<string>('');
@@ -141,11 +146,17 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
 
   // Centralized queue replacement: invalidates and aborts in-flight pagination, clears loadingMore,
   // and fetches replacement first page under a new generation
+  // Resolves true only when the replacement queue was applied, so callers that depend on the
+  // refreshed data (the AI assistant) can tell a failed or superseded refresh from a good one.
   const replaceQueue = useCallback(
-    async (statusFilter?: FollowUpStatus, options: { background?: boolean } = {}) => {
+    async (statusFilter?: FollowUpStatus, options: { background?: boolean } = {}): Promise<boolean> => {
       // A background refresh keeps the current list and detail mounted (no full-screen
-      // spinner or error), so work in progress inside the detail survives the reload.
+      // spinner or error), so work in progress inside the detail survives the reload. It
+      // reloads as many pages as the operator had already loaded, so a customer selected from
+      // a later page is still found and its detail is not unmounted.
       const { background = false } = options;
+      const loadedCount = itemsCountRef.current;
+      let applied = false;
       requestGenerationRef.current += 1;
       const currentGeneration = requestGenerationRef.current;
 
@@ -171,18 +182,35 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       }
       setError(null);
       try {
-        const page = await followUpApi.getFollowUpQueue(
+        let page = await followUpApi.getFollowUpQueue(
           { status: statusFilter, limit: 50 },
           controller.signal
         );
+        if (background) {
+          let collected = page.items || [];
+          let cursor = page.nextCursor || null;
+          for (
+            let pages = 1;
+            cursor && collected.length < loadedCount && pages < MAX_BACKGROUND_REFRESH_PAGES;
+            pages += 1
+          ) {
+            if (requestGenerationRef.current !== currentGeneration || controller.signal.aborted) break;
+            const next = await followUpApi.getFollowUpQueue(
+              { status: statusFilter, cursor, limit: 50 },
+              controller.signal
+            );
+            collected = [...collected, ...(next.items || [])];
+            cursor = next.nextCursor || null;
+          }
+          page = { items: collected, nextCursor: cursor };
+        }
         if (requestGenerationRef.current === currentGeneration && !controller.signal.aborted) {
           const completionDate = tenantTimeZoneRef.current
             ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
             : null;
           if (requestStartDate && completionDate && requestStartDate !== completionDate) {
             // Crossed tenant midnight during in-flight fetch; immediately refresh to get updated day's queue
-            replaceQueue(statusFilter, options);
-            return;
+            return replaceQueue(statusFilter, options);
           }
 
           setItems(page.items || []);
@@ -199,9 +227,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             }
             return null;
           });
+          applied = true;
         }
       } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') return;
+        if (err instanceof Error && err.name === 'AbortError') return false;
         if (requestGenerationRef.current === currentGeneration && !background) {
           setError(err instanceof Error ? err.message : 'Error al cargar la lista de seguimientos.');
         }
@@ -210,6 +239,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           setLoading(false);
         }
       }
+      return applied;
     },
     [isMobile]
   );
@@ -328,9 +358,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
 
-  const refreshQueue = useCallback(() => {
-    void replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, { background: true });
-  }, [replaceQueue, activeFilter]);
+  const refreshQueue = useCallback(
+    () => replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, { background: true }),
+    [replaceQueue, activeFilter]
+  );
 
   // Disposition handlers
   const handleRecordManualFollowUp = async (notes: string | undefined, idempotencyKey: string) => {

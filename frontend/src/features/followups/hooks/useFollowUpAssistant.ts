@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { followUpApi } from '@/features/followups/api/followUpApi';
 import { ApiError, AbortedTenantRequestError, StaleSessionError } from '@/shared/api/httpClient';
+import { DRAFT_BODY_MAX_CODE_POINTS } from '@/features/followups/types';
 import type { DraftResponse, RecommendationResponse } from '@/features/followups/types';
+import { truncateToCodePoints } from '@/features/followups/utils/textLength';
 
 export type AssistantErrorKind = 'forbidden' | 'rate-limited' | 'failed';
 
@@ -10,18 +12,21 @@ export type AssistantStep<T> =
   | { kind: 'loading' }
   | { kind: 'result'; data: T; version: number }
   /** The follow-up changed under the assistant: nothing produced before this point is actionable. */
-  | { kind: 'stale' }
+  | { kind: 'stale'; refresh: StaleRefresh }
   | { kind: 'error'; error: AssistantErrorKind };
+
+/** Whether the queue already carries the new policy version the stale result is waiting for. */
+export type StaleRefresh = 'pending' | 'done' | 'failed';
 
 export type CopyStatus = 'idle' | 'copied' | 'failed';
 export type PendingDiscard = 'regenerate-draft' | 'requery' | null;
 
-export const DRAFT_MAX_LENGTH = 1000;
 
 interface Options {
   customerId: string;
   policyVersion: number;
-  onRequestRefresh: () => void;
+  /** Reloads the queue; resolves true only when it now reflects the current follow-up state. */
+  onRequestRefresh: () => Promise<boolean>;
 }
 
 function isAbortLike(err: unknown): boolean {
@@ -61,14 +66,35 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   const draftController = useRef<AbortController | null>(null);
   const refreshRef = useRef(onRequestRefresh);
   refreshRef.current = onRequestRefresh;
+  const mountedRef = useRef(true);
+  const refreshToken = useRef(0);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       recController.current?.abort();
       draftController.current?.abort();
-    },
-    []
-  );
+    };
+  }, []);
+
+  // Reloads the queue and records whether it worked. "Actualizar recomendación" is only
+  // offered once the list carries the new version; otherwise it would resend the old
+  // If-Match and conflict again.
+  const runRefresh = useCallback(async () => {
+    const token = ++refreshToken.current;
+    setRecommendation((prev) => (prev.kind === 'stale' ? { kind: 'stale', refresh: 'pending' } : prev));
+    let ok = false;
+    try {
+      ok = await refreshRef.current();
+    } catch {
+      ok = false;
+    }
+    if (!mountedRef.current || token !== refreshToken.current) return;
+    setRecommendation((prev) =>
+      prev.kind === 'stale' ? { kind: 'stale', refresh: ok ? 'done' : 'failed' } : prev
+    );
+  }, []);
 
   // Any staleness signal (409, STALE_STATE or a response for another policy version), whichever
   // request raised it, invalidates both steps: no advice from the old state stays actionable.
@@ -76,14 +102,15 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   const markStale = useCallback(() => {
     setPendingDiscard(null);
     setCopyStatus('idle');
-    setRecommendation({ kind: 'stale' });
+    setRecommendation({ kind: 'stale', refresh: 'pending' });
     setDraft({ kind: 'idle' });
-    refreshRef.current();
-  }, []);
+    void runRefresh();
+  }, [runRefresh]);
 
   const requestRecommendation = useCallback(async () => {
     recController.current?.abort();
     draftController.current?.abort();
+    refreshToken.current += 1;
     const controller = new AbortController();
     recController.current = controller;
 
@@ -160,7 +187,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   );
 
   const editDraft = useCallback((text: string) => {
-    setDraftText(text.slice(0, DRAFT_MAX_LENGTH));
+    setDraftText(truncateToCodePoints(text, DRAFT_BODY_MAX_CODE_POINTS));
     setDraftDirty(true);
     setCopyStatus('idle');
   }, []);
@@ -189,6 +216,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     editDraft,
     copyDraft,
     askDiscard,
-    cancelDiscard
+    cancelDiscard,
+    retryRefresh: runRefresh
   };
 }

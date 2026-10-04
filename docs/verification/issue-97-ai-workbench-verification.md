@@ -17,6 +17,9 @@ Automated: `npm test` and `npm run build` (`tsc -b` + Vite) in `frontend/` (see 
 | Review follow-up: response belongs to the requested customer (Copilot, high) | `followUpAiApi.test.ts` (`customer correlation`: other customer, other evaluation customer, missing id on content results, case-insensitive match, non-content results may omit it but never name another customer) |
 | Review follow-up: conflict recovery says "Actualizar recomendación" and invalidates every step (Copilot) | `AiAssistantPanel.test.tsx` (`stale state after a conflict`: draft 409 / version mismatch / `STALE_STATE` hide recommendation and draft, one refresh request, old advice stays hidden after the queue brings the new version, refresh uses the current version) |
 | Review follow-up: closed vocabularies, 1000 code point body, announcements, wording, edited draft preserved | `followUpAiApi.test.ts` (`closed vocabularies and draft bounds`), `AiAssistantPanel.test.tsx` (`edited draft survives a stale recommendation`, `discard confirmation wording`, `assistive technology announcements`) |
+| Review follow-up (Codex): draft limit and counter by Unicode code point | `textLength.test.ts`, `AiAssistantPanel.test.tsx` (`draft length counted in Unicode code points`: 1000 emoji accepted, 1001 truncated without a lone surrogate, no `maxLength`, API draft counted by code point) |
+| Review follow-up (Codex): a failed stale-state refresh is reported and retried before a new request | `AiAssistantPanel.test.tsx` (`stale refresh lifecycle`: pending disables and announces, failure offers "Reintentar actualizar lista", rejected refresh, edited draft kept), `FollowUpWorkbench.ai.test.tsx` (failed refresh keeps the detail, retry succeeds, the new request uses the new version) |
+| Review follow-up (Codex): a customer from a later page keeps its detail across the AI refresh | `FollowUpWorkbench.ai.test.tsx` (`keeps a customer loaded from a later page selected…`, `does not reload extra pages… only the first page was loaded`) |
 | Contract/runtime hardening | `followUpAiApi.test.ts` (headers, `If-Match`, body, ETag parsing, unknown status / missing payload rejected) |
 | Docs updated | ADR 0020, `docs/wiki/AI-and-Automation.md` ("Operator UI: AI assistance panel"), `docs/wiki/Roadmap.md`, `docs/security/security-invariants.md` #22 |
 
@@ -51,3 +54,16 @@ Run against the real stack: Docker Compose (PostgreSQL + Keycloak), backend with
 | Layout 1024×768 | **Defect found and fixed:** the `5fr 7fr` grid let the detail column overflow by ~42px (pre-existing; reproduced with the panel hidden). Columns are now `minmax(0, 5fr) minmax(0, 7fr)`; `scrollWidth` equals `clientWidth` |
 
 Regression tests for the background refresh: `FollowUpWorkbench.ai.test.tsx` (`keeps the follow-up detail and the edited draft mounted while the AI-triggered refresh is in flight`, `keeps the current queue and detail when the AI-triggered refresh fails`). The grid fix is a layout change verified in the browser only (jsdom has no layout).
+
+### Real-stack re-verification after the Codex review fixes
+
+Same stack as above (Compose, backend with the `fake` provider, Vite, `testoperator`), Chrome DevTools MCP:
+
+| Check | Result |
+|---|---|
+| 1000 emoji pasted into the draft (2000 UTF-16 units) | PASS: accepted, counter `1000 / 1000`, no `maxlength` attribute |
+| 1001 emoji | PASS: truncated to 1000 code points, no lone surrogate |
+| Stale `409` while the queue request fails (`fetch` for `/api/follow-up-queue` rejected once) | PASS: alert "No pudimos actualizar la lista de seguimientos.", edited draft kept, the list still showed the old cadence and **no** "Actualizar recomendación" was offered; only "Reintentar actualizar lista" |
+| Retry once the queue answers | PASS: the list showed the new cadence, the message "Actualizamos la lista…" and "Actualizar recomendación" appeared; confirming ("Consultar de nuevo descartará el borrador y tus cambios.") issued a new recommendation that succeeded |
+
+Not exercised against the real stack: a customer selected from a second queue page (needs more than 50 due customers); it is covered by `FollowUpWorkbench.ai.test.tsx`.

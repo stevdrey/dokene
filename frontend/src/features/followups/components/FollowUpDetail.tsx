@@ -19,7 +19,7 @@ interface FollowUpDetailProps {
   onDismiss: (notes: string | undefined, idempotencyKey: string) => Promise<void>;
   canWrite: boolean;
   canUseAi: boolean;
-  onRequestRefresh: () => void;
+  onRequestRefresh: () => Promise<boolean>;
   timeZone?: string;
 }
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useId, useRef } from 'react';
 import { Button } from '@/shared/components/Button';
 import {
-  DRAFT_MAX_LENGTH,
   useFollowUpAssistant,
   type AssistantErrorKind
 } from '@/features/followups/hooks/useFollowUpAssistant';
@@ -15,7 +14,9 @@ import {
   noRecommendationReasonLabel,
   unavailableMessage
 } from '@/features/followups/utils/aiLabels';
+import { DRAFT_BODY_MAX_CODE_POINTS } from '@/features/followups/types';
 import type { DraftResponse, RecommendationResponse } from '@/features/followups/types';
+import { countCodePoints } from '@/features/followups/utils/textLength';
 
 interface AiAssistantPanelProps {
   customerId: string;
@@ -24,7 +25,7 @@ interface AiAssistantPanelProps {
   /** UI affordance only: the backend remains the authority for AI permissions. */
   canUseAi: boolean;
   /** Asks the workbench to reload the queue after the follow-up changed under the assistant. */
-  onRequestRefresh: () => void;
+  onRequestRefresh: () => Promise<boolean>;
 }
 
 const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espacio de trabajo.';
@@ -37,6 +38,8 @@ const ERROR_MESSAGES: Record<AssistantErrorKind, string> = {
 
 const STALE_CHANGED_MESSAGE =
   'El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación.';
+const STALE_REFRESHING_MESSAGE = 'El seguimiento cambió mientras consultabas al asistente.';
+const STALE_REFRESH_FAILED_MESSAGE = 'No pudimos actualizar la lista de seguimientos.';
 
 const DISCARD_COPY = {
   'regenerate-draft': {
@@ -126,7 +129,14 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const versionDrifted = recommendation.kind === 'result' && recommendation.version !== policyVersion;
   // Explicit `stale` (409 / STALE_STATE / version mismatch) or a queue refresh that moved the item on.
   const isStale = recommendation.kind === 'stale' || versionDrifted;
-  const staleMessage = recommendation.kind === 'stale' ? STALE_CHANGED_MESSAGE : STALE_RESULT_MESSAGE;
+  // A derived stale result already means the queue moved on, so no refresh is pending.
+  const staleRefresh = recommendation.kind === 'stale' ? recommendation.refresh : 'done';
+  let staleMessage = STALE_RESULT_MESSAGE;
+  if (recommendation.kind === 'stale') {
+    if (staleRefresh === 'pending') staleMessage = STALE_REFRESHING_MESSAGE;
+    else if (staleRefresh === 'failed') staleMessage = STALE_REFRESH_FAILED_MESSAGE;
+    else staleMessage = STALE_CHANGED_MESSAGE;
+  }
   const draftData: DraftResponse | null = draft.kind === 'result' ? draft.data : null;
   const keptDraft = isStale && draftDirty && draftText !== '';
 
@@ -140,7 +150,8 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   }, [draft.kind === 'result' ? draft.data : null, showDraftEditor]);
 
   let liveMessage = '';
-  if (recLoading) liveMessage = 'Consultando al asistente…';
+  if (isStale && staleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
+  else if (recLoading) liveMessage = 'Consultando al asistente…';
   else if (draftLoading) liveMessage = 'Redactando borrador…';
   else if (copyStatus === 'copied') liveMessage = 'Borrador copiado';
   else if (copyStatus === 'failed') liveMessage = 'No se pudo copiar el borrador';
@@ -305,14 +316,13 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
               <textarea
                 id={`${draftLabelId}-kept`}
                 value={draftText}
-                maxLength={DRAFT_MAX_LENGTH}
                 onChange={(event) => assistant.editDraft(event.target.value)}
                 rows={6}
                 style={draftTextareaStyle}
               />
               <div style={{ ...noteStyle, display: 'flex', justifyContent: 'space-between', gap: 'var(--space-8)' }}>
                 <span>Edición local: no se guarda ni se envía.</span>
-                <span>{draftText.length} / {DRAFT_MAX_LENGTH}</span>
+                <span>{countCodePoints(draftText)} / {DRAFT_BODY_MAX_CODE_POINTS}</span>
               </div>
               {!pendingDiscard && (
                 <div style={actionsRowStyle}>
@@ -327,9 +337,19 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             renderDiscardConfirm()
           ) : (
             <div style={actionsRowStyle}>
-              <Button variant="primary" onClick={askRefresh} disabled={!canUseAi || busy}>
-                Actualizar recomendación
-              </Button>
+              {staleRefresh === 'failed' ? (
+                <Button variant="primary" onClick={() => void assistant.retryRefresh()} disabled={busy}>
+                  Reintentar actualizar lista
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={askRefresh}
+                  disabled={!canUseAi || busy || staleRefresh === 'pending'}
+                >
+                  Actualizar recomendación
+                </Button>
+              )}
             </div>
           )}
         </>
@@ -449,14 +469,13 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             id={`${draftLabelId}-input`}
             ref={textareaRef}
             value={draftText}
-            maxLength={DRAFT_MAX_LENGTH}
             onChange={(event) => assistant.editDraft(event.target.value)}
             rows={6}
             style={draftTextareaStyle}
           />
           <div style={{ ...noteStyle, display: 'flex', justifyContent: 'space-between', gap: 'var(--space-8)' }}>
             <span>Edición local: no se guarda ni se envía.</span>
-            <span>{draftText.length} / {DRAFT_MAX_LENGTH}</span>
+            <span>{countCodePoints(draftText)} / {DRAFT_BODY_MAX_CODE_POINTS}</span>
           </div>
 
           {draftData.draft.evidence.length > 0 && (

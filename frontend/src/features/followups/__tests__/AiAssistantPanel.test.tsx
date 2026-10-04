@@ -77,7 +77,7 @@ interface PanelOverrides {
   customerId?: string;
   policyVersion?: number;
   canUseAi?: boolean;
-  onRequestRefresh?: () => void;
+  onRequestRefresh?: () => Promise<boolean>;
 }
 
 function renderPanel(overrides: PanelOverrides = {}) {
@@ -85,7 +85,7 @@ function renderPanel(overrides: PanelOverrides = {}) {
     customerId: 'c-1',
     policyVersion: 3,
     canUseAi: true,
-    onRequestRefresh: vi.fn(),
+    onRequestRefresh: vi.fn().mockResolvedValue(true),
     ...overrides
   };
   const utils = render(<AiAssistantPanel {...props} />);
@@ -483,7 +483,7 @@ describe('AiAssistantPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('El seguimiento cambió');
     expect(props.onRequestRefresh).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('region', { name: 'Recomendación de la IA' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled());
     expect(screen.queryByRole('button', { name: 'Obtener recomendación' })).not.toBeInTheDocument();
   });
 
@@ -586,7 +586,7 @@ describe('AiAssistantPanel', () => {
       expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Generar borrador' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Obtener recomendación' })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled());
       expect(props.onRequestRefresh).toHaveBeenCalledTimes(1);
     });
 
@@ -786,6 +786,131 @@ describe('AiAssistantPanel', () => {
       await waitFor(() =>
         expect(screen.getByRole('status')).toHaveTextContent('Borrador no disponible para este cliente')
       );
+    });
+  });
+  describe('draft length counted in Unicode code points', () => {
+    async function openEditor() {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      renderPanel();
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      return screen.findByLabelText('Borrador del mensaje (editable)');
+    }
+
+    it('accepts 1000 emoji (2000 UTF-16 units) and shows 1000 / 1000', async () => {
+      const textarea = await openEditor();
+      const text = '😀'.repeat(1000);
+
+      fireEvent.change(textarea, { target: { value: text } });
+
+      expect(textarea).toHaveValue(text);
+      expect(screen.getByText('1000 / 1000')).toBeInTheDocument();
+    });
+
+    it('truncates by code point without leaving a lone surrogate', async () => {
+      const textarea = await openEditor();
+
+      fireEvent.change(textarea, { target: { value: '😀'.repeat(1001) } });
+
+      const value = (textarea as HTMLTextAreaElement).value;
+      expect([...value]).toHaveLength(1000);
+      expect(value).toBe('😀'.repeat(1000));
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(value)).toBe(false);
+      expect(screen.getByText('1000 / 1000')).toBeInTheDocument();
+    });
+
+    it('does not rely on the UTF-16 based maxLength attribute', async () => {
+      const textarea = await openEditor();
+
+      expect(textarea).not.toHaveAttribute('maxlength');
+    });
+
+    it('counts a draft coming from the API by code point', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({
+        data: { ...baseDraft, draft: { ...baseDraft.draft!, body: '😀'.repeat(10) } },
+        version: 3
+      });
+      renderPanel();
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      await screen.findByLabelText('Borrador del mensaje (editable)');
+
+      expect(screen.getByText('10 / 1000')).toBeInTheDocument();
+    });
+  });
+  describe('stale refresh lifecycle', () => {
+    it('keeps "Actualizar recomendación" disabled and announces progress while the list refresh is pending', async () => {
+      const pending = deferred<boolean>();
+      vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new ApiError(409, 'conflict'));
+      renderPanel({ onRequestRefresh: vi.fn().mockReturnValue(pending.promise) });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByRole('button', { name: 'Actualizar recomendación' })).toBeDisabled();
+      expect(screen.getByRole('status')).toHaveTextContent('Actualizando la lista…');
+      expect(screen.getByRole('alert')).not.toHaveTextContent('Actualizamos la lista');
+
+      await act(async () => {
+        pending.resolve(true);
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled());
+      expect(screen.getByRole('alert')).toHaveTextContent('Actualizamos la lista');
+    });
+
+    it('reports a failed refresh and only offers to retry the list refresh, never a request with the old version', async () => {
+      const rec = vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new ApiError(409, 'conflict'));
+      const onRequestRefresh = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      renderPanel({ onRequestRefresh });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByText('No pudimos actualizar la lista de seguimientos.')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).not.toHaveTextContent('Actualizamos la lista');
+      expect(screen.queryByRole('button', { name: 'Actualizar recomendación' })).not.toBeInTheDocument();
+      expect(rec).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualizar lista' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled());
+      expect(onRequestRefresh).toHaveBeenCalledTimes(2);
+      expect(rec).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a rejected refresh as a failed refresh', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new ApiError(409, 'conflict'));
+      renderPanel({ onRequestRefresh: vi.fn().mockRejectedValue(new Error('network')) });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByRole('button', { name: 'Reintentar actualizar lista' })).toBeInTheDocument();
+    });
+
+    it('keeps the edited draft in every refresh state', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockRejectedValue(new ApiError(409, 'conflict'));
+      const pending = deferred<boolean>();
+      const { props } = renderPanel({ onRequestRefresh: vi.fn() });
+      (props.onRequestRefresh as ReturnType<typeof vi.fn>).mockReturnValueOnce(pending.promise);
+      // First draft succeeds so the operator can edit it; the second one conflicts.
+      (followUpApi.requestDraft as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ data: baseDraft, version: 3 })
+        .mockRejectedValueOnce(new ApiError(409, 'conflict'));
+
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mi texto editado' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Regenerar borrador' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Reemplazar mis cambios' }));
+
+      expect(await screen.findByLabelText(/Tu borrador editado/)).toHaveValue('Mi texto editado');
+      await act(async () => {
+        pending.resolve(false);
+      });
+      expect(await screen.findByRole('button', { name: 'Reintentar actualizar lista' })).toBeInTheDocument();
+      expect(screen.getByLabelText(/Tu borrador editado/)).toHaveValue('Mi texto editado');
     });
   });
 });
