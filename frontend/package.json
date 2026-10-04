@@ -11,7 +11,7 @@
     "audit": "npm audit --audit-level=high"
   },
   "dependencies": {
-    "libphonenumber-js": "1.13.13",
+    "libphonenumber-js": "1.13.14",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
