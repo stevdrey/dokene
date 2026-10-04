@@ -3,12 +3,14 @@ import { followUpApi } from '@/features/followups/api/followUpApi';
 import { ApiError, AbortedTenantRequestError, StaleSessionError } from '@/shared/api/httpClient';
 import type { DraftResponse, RecommendationResponse } from '@/features/followups/types';
 
-export type AssistantErrorKind = 'forbidden' | 'rate-limited' | 'conflict' | 'failed';
+export type AssistantErrorKind = 'forbidden' | 'rate-limited' | 'failed';
 
 export type AssistantStep<T> =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'result'; data: T; version: number }
+  /** The follow-up changed under the assistant: nothing produced before this point is actionable. */
+  | { kind: 'stale' }
   | { kind: 'error'; error: AssistantErrorKind };
 
 export type CopyStatus = 'idle' | 'copied' | 'failed';
@@ -30,11 +32,14 @@ function isAbortLike(err: unknown): boolean {
   );
 }
 
+function isConflict(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409;
+}
+
 function toErrorKind(err: unknown): AssistantErrorKind {
   if (err instanceof ApiError) {
     if (err.status === 403) return 'forbidden';
     if (err.status === 429) return 'rate-limited';
-    if (err.status === 409) return 'conflict';
   }
   return 'failed';
 }
@@ -65,6 +70,17 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     []
   );
 
+  // Any staleness signal (409, STALE_STATE or a response for another policy version), whichever
+  // request raised it, invalidates both steps: no advice from the old state stays actionable.
+  // The edited draft text is deliberately kept so the operator can decide what to do with it.
+  const markStale = useCallback(() => {
+    setPendingDiscard(null);
+    setCopyStatus('idle');
+    setRecommendation({ kind: 'stale' });
+    setDraft({ kind: 'idle' });
+    refreshRef.current();
+  }, []);
+
   const requestRecommendation = useCallback(async () => {
     recController.current?.abort();
     draftController.current?.abort();
@@ -82,12 +98,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
       const { data, version } = await followUpApi.requestRecommendation(customerId, policyVersion, controller.signal);
       if (controller.signal.aborted) return;
       if (data.status === 'STALE_STATE' || version !== policyVersion) {
-        setRecommendation(
-          data.status === 'STALE_STATE'
-            ? { kind: 'result', data, version }
-            : { kind: 'error', error: 'conflict' }
-        );
-        refreshRef.current();
+        markStale();
         return;
       }
       setRecommendation({ kind: 'result', data, version });
@@ -97,11 +108,13 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
         setRecommendation({ kind: 'idle' });
         return;
       }
-      const error = toErrorKind(err);
-      setRecommendation({ kind: 'error', error });
-      if (error === 'conflict') refreshRef.current();
+      if (isConflict(err)) {
+        markStale();
+        return;
+      }
+      setRecommendation({ kind: 'error', error: toErrorKind(err) });
     }
-  }, [customerId, policyVersion]);
+  }, [customerId, policyVersion, markStale]);
 
   const requestDraft = useCallback(
     async (rec: RecommendationResponse) => {
@@ -124,12 +137,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
         );
         if (controller.signal.aborted) return;
         if (data.status === 'STALE_STATE' || version !== policyVersion) {
-          setDraft(
-            data.status === 'STALE_STATE'
-              ? { kind: 'result', data, version }
-              : { kind: 'error', error: 'conflict' }
-          );
-          refreshRef.current();
+          markStale();
           return;
         }
         setDraft({ kind: 'result', data, version });
@@ -141,12 +149,14 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
           setDraft({ kind: 'idle' });
           return;
         }
-        const error = toErrorKind(err);
-        setDraft({ kind: 'error', error });
-        if (error === 'conflict') refreshRef.current();
+        if (isConflict(err)) {
+          markStale();
+          return;
+        }
+        setDraft({ kind: 'error', error: toErrorKind(err) });
       }
     },
-    [customerId, policyVersion]
+    [customerId, policyVersion, markStale]
   );
 
   const editDraft = useCallback((text: string) => {

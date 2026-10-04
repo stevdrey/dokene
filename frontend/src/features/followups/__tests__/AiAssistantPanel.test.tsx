@@ -483,6 +483,8 @@ describe('AiAssistantPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('El seguimiento cambió');
     expect(props.onRequestRefresh).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('region', { name: 'Recomendación de la IA' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Obtener recomendación' })).not.toBeInTheDocument();
   });
 
   it('treats a STALE_STATE result as stale and asks the workbench to refresh', async () => {
@@ -496,6 +498,8 @@ describe('AiAssistantPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El seguimiento cambió');
     expect(props.onRequestRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Obtener recomendación' })).not.toBeInTheDocument();
   });
 
   it('hides a recommendation and draft once the item policy version changes and requires an explicit refresh', async () => {
@@ -551,5 +555,237 @@ describe('AiAssistantPanel', () => {
       expect(screen.getByRole('button', { name: 'Obtener recomendación' })).toBeEnabled()
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+  describe('stale state after a conflict', () => {
+    async function openDraft(draftImpl: () => Promise<{ data: DraftResponse; version: number }>) {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      const draft = vi.spyOn(followUpApi, 'requestDraft').mockImplementation(draftImpl);
+      const utils = renderPanel({ policyVersion: 3 });
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      return { ...utils, draft };
+    }
+
+    it.each([
+      ['a 409', () => Promise.reject(new ApiError(409, 'conflict'))],
+      ['a version mismatch', () => Promise.resolve({ data: baseDraft, version: 4 })],
+      [
+        'a STALE_STATE result',
+        () =>
+          Promise.resolve({
+            data: { ...baseDraft, status: 'STALE_STATE' as const, draft: null, rejectionReason: 'STALE_STATE' as const },
+            version: 4
+          })
+      ]
+    ])('invalidates the recommendation as well when the draft request hits %s', async (_label, impl) => {
+      const { props } = await openDraft(impl);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('El seguimiento cambió');
+      expect(screen.queryByRole('region', { name: 'Recomendación de la IA' })).not.toBeInTheDocument();
+      expect(screen.queryByText(baseRec.recommendation!.rationale)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Generar borrador' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Obtener recomendación' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
+      expect(props.onRequestRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not make old advice actionable again once the queue refresh brings the new version', async () => {
+      const { rerenderWith } = await openDraft(() => Promise.resolve({ data: baseDraft, version: 4 }));
+      await screen.findByRole('alert');
+
+      rerenderWith({ policyVersion: 4 });
+
+      expect(screen.queryByText(baseRec.recommendation!.rationale)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeInTheDocument();
+    });
+
+    it('re-requests the recommendation with the current version from the refresh action', async () => {
+      const { rerenderWith } = await openDraft(() => Promise.reject(new ApiError(409, 'conflict')));
+      await screen.findByRole('alert');
+      const rec = followUpApi.requestRecommendation as ReturnType<typeof vi.fn>;
+      rec.mockClear();
+
+      rerenderWith({ policyVersion: 4 });
+      fireEvent.click(screen.getByRole('button', { name: 'Actualizar recomendación' }));
+
+      await waitFor(() => expect(rec).toHaveBeenCalledWith('c-1', 4, expect.any(AbortSignal)));
+    });
+  });
+
+  describe('edited draft survives a stale recommendation', () => {
+    async function editedDraft() {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      const utils = renderPanel({ policyVersion: 3 });
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mi texto editado' } });
+      return utils;
+    }
+
+    it('keeps the edited text editable and copyable when the result becomes stale', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      const { rerenderWith } = await editedDraft();
+
+      rerenderWith({ policyVersion: 4 });
+
+      expect(screen.getByRole('alert')).toHaveTextContent('ya no está actualizada');
+      expect(screen.queryByText(baseRec.recommendation!.rationale)).not.toBeInTheDocument();
+      const kept = screen.getByLabelText(/Tu borrador editado/);
+      expect(kept).toHaveValue('Mi texto editado');
+
+      fireEvent.change(kept, { target: { value: 'Mi texto editado y ajustado' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Copiar borrador' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('Mi texto editado y ajustado'));
+    });
+
+    it('asks before refreshing and keeps the text when the operator cancels', async () => {
+      const { rerenderWith } = await editedDraft();
+      rerenderWith({ policyVersion: 4 });
+      const rec = followUpApi.requestRecommendation as ReturnType<typeof vi.fn>;
+      rec.mockClear();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Actualizar recomendación' }));
+
+      expect(screen.getByText('Consultar de nuevo descartará el borrador y tus cambios.')).toBeInTheDocument();
+      expect(rec).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+      expect(screen.getByLabelText(/Tu borrador editado/)).toHaveValue('Mi texto editado');
+      expect(rec).not.toHaveBeenCalled();
+    });
+
+    it('refreshes and drops the edited text once the operator confirms', async () => {
+      const { rerenderWith } = await editedDraft();
+      rerenderWith({ policyVersion: 4 });
+      const rec = followUpApi.requestRecommendation as ReturnType<typeof vi.fn>;
+      rec.mockClear();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Actualizar recomendación' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Descartar y consultar' }));
+
+      await waitFor(() => expect(rec).toHaveBeenCalledWith('c-1', 4, expect.any(AbortSignal)));
+      expect(screen.queryByLabelText(/Tu borrador editado/)).not.toBeInTheDocument();
+    });
+
+    it('does not ask for confirmation when the draft was never edited', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      const { rerenderWith } = renderPanel({ policyVersion: 3 });
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      await screen.findByLabelText('Borrador del mensaje (editable)');
+      const rec = followUpApi.requestRecommendation as ReturnType<typeof vi.fn>;
+      rec.mockClear();
+
+      rerenderWith({ policyVersion: 4 });
+      expect(screen.queryByLabelText(/Tu borrador editado/)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Actualizar recomendación' }));
+
+      await waitFor(() => expect(rec).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe('discard confirmation wording', () => {
+    async function dirtyEditor() {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      renderPanel();
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mis cambios' } });
+    }
+
+    it('explains that querying again discards the draft', async () => {
+      await dirtyEditor();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Consultar de nuevo' }));
+
+      expect(screen.getByText('Consultar de nuevo descartará el borrador y tus cambios.')).toBeInTheDocument();
+      expect(screen.queryByText(/Regenerar reemplazará/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reemplazar mis cambios' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Descartar y consultar' }));
+      await waitFor(() =>
+        expect(followUpApi.requestRecommendation).toHaveBeenCalledTimes(2)
+      );
+    });
+
+    it('keeps the regenerate wording for regenerating the draft', async () => {
+      await dirtyEditor();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Regenerar borrador' }));
+
+      expect(screen.getByText(/Regenerar reemplazará tus cambios/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reemplazar mis cambios' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Descartar y consultar' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('assistive technology announcements for terminal outcomes', () => {
+    it('announces a recommendation refusal in the status region', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: {
+          ...baseRec,
+          status: 'NO_RECOMMENDATION',
+          recommendation: null,
+          refusal: { reason: 'RECENTLY_CONTACTED', rationale: 'Se contactó hace dos días.', confidence: 0.7 },
+          refusalReason: 'RECENTLY_CONTACTED'
+        },
+        version: 3
+      });
+      renderPanel();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Sin recomendación de la IA'));
+    });
+
+    it('announces an ineligible recommendation in the status region', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'NO_CONTACT_CONSENT' },
+        version: 3
+      });
+      renderPanel();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent('Recomendación no disponible para este cliente')
+      );
+    });
+
+    it('announces a missing draft and an ineligible draft in the status region', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft')
+        .mockResolvedValueOnce({
+          data: {
+            ...baseDraft,
+            status: 'NO_DRAFT',
+            draft: null,
+            refusal: { reason: 'SAFETY_VIOLATION', rationale: 'Texto inseguro.', confidence: 0.9 },
+            refusalReason: 'SAFETY_VIOLATION'
+          },
+          version: 3
+        })
+        .mockResolvedValueOnce({
+          data: { ...baseDraft, status: 'INELIGIBLE', draft: null, rejectionReason: 'DO_NOT_CONTACT' },
+          version: 3
+        });
+      renderPanel();
+      await getRecommendation();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Borrador no disponible'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Regenerar borrador' }));
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent('Borrador no disponible para este cliente')
+      );
+    });
   });
 });

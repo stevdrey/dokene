@@ -163,4 +163,146 @@ describe('followUpApi AI assistance', () => {
       InvalidAiResponseError
     );
   });
+  describe('customer correlation', () => {
+    it('rejects a recommendation that belongs to another customer', async () => {
+      mockFetchJson({ ...recommendationBody, customerId: 'c-OTHER' });
+
+      await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+        InvalidAiResponseError
+      );
+    });
+
+    it('rejects a draft that belongs to another customer', async () => {
+      mockFetchJson({ ...draftBody, customerId: 'c-OTHER' });
+
+      await expect(
+        followUpApi.requestDraft('c-1', { action: 'REPEAT_PURCHASE_FOLLOW_UP', templateIntent: 'REPEAT_PURCHASE' }, 3)
+      ).rejects.toBeInstanceOf(InvalidAiResponseError);
+    });
+
+    it('rejects a response whose evaluation belongs to another customer', async () => {
+      mockFetchJson({ ...recommendationBody, evaluation: { ...evaluation, customerId: 'c-OTHER' } });
+
+      await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+        InvalidAiResponseError
+      );
+    });
+
+    it('rejects content-bearing results that carry no customerId', async () => {
+      mockFetchJson({ ...recommendationBody, customerId: null });
+
+      await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+        InvalidAiResponseError
+      );
+    });
+
+    it('compares customer ids case-insensitively', async () => {
+      mockFetchJson({ ...recommendationBody, customerId: 'C-1', evaluation: { ...evaluation, customerId: 'C-1' } });
+
+      const { data } = await followUpApi.requestRecommendation('c-1', 3);
+
+      expect(data.status).toBe('AVAILABLE');
+    });
+
+    it.each(['INELIGIBLE', 'STALE_STATE', 'AI_UNAVAILABLE'] as const)(
+      'accepts a %s result without customerId or evaluation',
+      async (status) => {
+        mockFetchJson({
+          ...recommendationBody,
+          status,
+          customerId: null,
+          evaluation: null,
+          recommendation: null,
+          unavailableReason: status === 'AI_UNAVAILABLE' ? 'NOT_AVAILABLE' : null
+        });
+
+        const { data } = await followUpApi.requestRecommendation('c-1', 3);
+
+        expect(data.status).toBe(status);
+      }
+    );
+
+    it('still rejects a non-content result that names another customer', async () => {
+      mockFetchJson({ ...recommendationBody, status: 'INELIGIBLE', recommendation: null, customerId: 'c-OTHER' });
+
+      await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+        InvalidAiResponseError
+      );
+    });
+  });
+
+  describe('closed vocabularies and draft bounds', () => {
+    it('rejects a recommendation with an unknown action', async () => {
+      mockFetchJson({
+        ...recommendationBody,
+        recommendation: { ...recommendationBody.recommendation, action: 'SEND_MESSAGE_NOW' }
+      });
+
+      await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+        InvalidAiResponseError
+      );
+    });
+
+    it('rejects a recommendation with an unknown template intent', async () => {
+      mockFetchJson({
+        ...recommendationBody,
+        recommendation: { ...recommendationBody.recommendation, templateIntent: 'WHATSAPP_HSM_42' }
+      });
+
+      await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+        InvalidAiResponseError
+      );
+    });
+
+    it('rejects a draft with an unknown action or template intent', async () => {
+      mockFetchJson({ ...draftBody, draft: { ...draftBody.draft, action: 'NOPE' } });
+      await expect(
+        followUpApi.requestDraft('c-1', { action: 'GENERAL_CHECK_IN', templateIntent: 'GENERAL_FOLLOW_UP' }, 3)
+      ).rejects.toBeInstanceOf(InvalidAiResponseError);
+
+      vi.restoreAllMocks();
+      mockFetchJson({ ...draftBody, draft: { ...draftBody.draft, templateIntent: 'NOPE' } });
+      await expect(
+        followUpApi.requestDraft('c-1', { action: 'GENERAL_CHECK_IN', templateIntent: 'GENERAL_FOLLOW_UP' }, 3)
+      ).rejects.toBeInstanceOf(InvalidAiResponseError);
+    });
+
+    it.each([
+      ['empty', ''],
+      ['blank', '   \n  '],
+      ['over 1000 code points', 'a'.repeat(1001)]
+    ])('rejects a draft body that is %s', async (_label, body) => {
+      mockFetchJson({ ...draftBody, draft: { ...draftBody.draft, body } });
+
+      await expect(
+        followUpApi.requestDraft('c-1', { action: 'REPEAT_PURCHASE_FOLLOW_UP', templateIntent: 'REPEAT_PURCHASE' }, 3)
+      ).rejects.toBeInstanceOf(InvalidAiResponseError);
+    });
+
+    it('counts code points, not UTF-16 units, for the 1000 character limit', async () => {
+      const body = '😀'.repeat(1000);
+      mockFetchJson({ ...draftBody, draft: { ...draftBody.draft, body } });
+
+      const { data } = await followUpApi.requestDraft(
+        'c-1',
+        { action: 'REPEAT_PURCHASE_FOLLOW_UP', templateIntent: 'REPEAT_PURCHASE' },
+        3
+      );
+
+      expect(data.draft?.body).toBe(body);
+    });
+
+    it('accepts a draft body of exactly 1000 code points', async () => {
+      const body = 'a'.repeat(1000);
+      mockFetchJson({ ...draftBody, draft: { ...draftBody.draft, body } });
+
+      const { data } = await followUpApi.requestDraft(
+        'c-1',
+        { action: 'REPEAT_PURCHASE_FOLLOW_UP', templateIntent: 'REPEAT_PURCHASE' },
+        3
+      );
+
+      expect(data.draft?.body).toHaveLength(1000);
+    });
+  });
 });

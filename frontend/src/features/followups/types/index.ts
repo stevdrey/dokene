@@ -93,19 +93,26 @@ export type RecommendationStatus =
 
 export type DraftStatus = 'AVAILABLE' | 'NO_DRAFT' | 'INELIGIBLE' | 'STALE_STATE' | 'AI_UNAVAILABLE';
 
-export type SemanticAction =
-  | 'REPEAT_PURCHASE_FOLLOW_UP'
-  | 'GENERAL_CHECK_IN'
-  | 'RELATED_PRODUCT_OFFER'
-  | 'DORMANT_REENGAGEMENT'
-  | 'SEASONAL_GREETING';
+export const SEMANTIC_ACTIONS = [
+  'REPEAT_PURCHASE_FOLLOW_UP',
+  'GENERAL_CHECK_IN',
+  'RELATED_PRODUCT_OFFER',
+  'DORMANT_REENGAGEMENT',
+  'SEASONAL_GREETING'
+] as const;
+export type SemanticAction = (typeof SEMANTIC_ACTIONS)[number];
 
-export type SemanticTemplateIntent =
-  | 'GENERAL_FOLLOW_UP'
-  | 'REPEAT_PURCHASE'
-  | 'RELATED_PRODUCT'
-  | 'SEASONAL_EVENT'
-  | 'DORMANT_CUSTOMER';
+export const SEMANTIC_TEMPLATE_INTENTS = [
+  'GENERAL_FOLLOW_UP',
+  'REPEAT_PURCHASE',
+  'RELATED_PRODUCT',
+  'SEASONAL_EVENT',
+  'DORMANT_CUSTOMER'
+] as const;
+export type SemanticTemplateIntent = (typeof SEMANTIC_TEMPLATE_INTENTS)[number];
+
+/** Backend bound for a draft body, counted in Unicode code points. */
+export const DRAFT_BODY_MAX_CODE_POINTS = 1000;
 
 export type NoRecommendationReason =
   | 'INSUFFICIENT_HISTORY'

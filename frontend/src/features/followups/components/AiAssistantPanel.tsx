@@ -32,10 +32,22 @@ const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espaci
 const ERROR_MESSAGES: Record<AssistantErrorKind, string> = {
   forbidden: FORBIDDEN_MESSAGE,
   'rate-limited': 'Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo.',
-  conflict:
-    'El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; vuelve a pedir la recomendación.',
   failed: `No pudimos consultar al asistente IA. ${AI_MANUAL_FALLBACK}`
 };
+
+const STALE_CHANGED_MESSAGE =
+  'El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación.';
+
+const DISCARD_COPY = {
+  'regenerate-draft': {
+    message: 'Regenerar reemplazará tus cambios en el borrador.',
+    confirm: 'Reemplazar mis cambios'
+  },
+  requery: {
+    message: 'Consultar de nuevo descartará el borrador y tus cambios.',
+    confirm: 'Descartar y consultar'
+  }
+} as const;
 
 const STALE_RESULT_MESSAGE = 'Esta recomendación ya no está actualizada porque el seguimiento cambió.';
 
@@ -76,6 +88,20 @@ const bodyTextStyle: React.CSSProperties = {
   overflowWrap: 'anywhere'
 };
 
+const draftTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  minHeight: '120px',
+  padding: 'var(--space-12)',
+  border: '1px solid var(--color-outline)',
+  borderRadius: 'var(--radius-md)',
+  font: 'inherit',
+  fontSize: 'var(--font-size-secondary)',
+  color: 'var(--color-text-main)',
+  backgroundColor: 'var(--color-surface)',
+  resize: 'vertical'
+};
+
 const actionsRowStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 'var(--space-8)' };
 
 export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
@@ -97,15 +123,15 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const busy = recLoading || draftLoading;
 
   const recData: RecommendationResponse | null = recommendation.kind === 'result' ? recommendation.data : null;
-  const recStale =
-    recommendation.kind === 'result' &&
-    (recommendation.data.status === 'STALE_STATE' || recommendation.version !== policyVersion);
+  const versionDrifted = recommendation.kind === 'result' && recommendation.version !== policyVersion;
+  // Explicit `stale` (409 / STALE_STATE / version mismatch) or a queue refresh that moved the item on.
+  const isStale = recommendation.kind === 'stale' || versionDrifted;
+  const staleMessage = recommendation.kind === 'stale' ? STALE_CHANGED_MESSAGE : STALE_RESULT_MESSAGE;
   const draftData: DraftResponse | null = draft.kind === 'result' ? draft.data : null;
-  const draftStale =
-    draft.kind === 'result' && (draft.data.status === 'STALE_STATE' || draft.version !== policyVersion);
+  const keptDraft = isStale && draftDirty && draftText !== '';
 
-  const showRecommendation = recData !== null && !recStale;
-  const showDraftEditor = showRecommendation && !draftStale && draftData?.status === 'AVAILABLE' && !!draftData.draft;
+  const showRecommendation = recData !== null && !isStale;
+  const showDraftEditor = showRecommendation && draftData?.status === 'AVAILABLE' && !!draftData.draft;
 
   useEffect(() => {
     if (showDraftEditor) {
@@ -119,10 +145,25 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   else if (copyStatus === 'copied') liveMessage = 'Borrador copiado';
   else if (copyStatus === 'failed') liveMessage = 'No se pudo copiar el borrador';
   else if (showDraftEditor) liveMessage = 'Borrador listo para revisar';
-  else if (showRecommendation && recData?.status === 'AVAILABLE') liveMessage = 'Recomendación lista';
+  else if (showRecommendation && draftData?.status === 'NO_DRAFT') liveMessage = 'Borrador no disponible';
+  else if (showRecommendation && draftData?.status === 'INELIGIBLE') {
+    liveMessage = 'Borrador no disponible para este cliente';
+  } else if (showRecommendation && recData?.status === 'AVAILABLE') liveMessage = 'Recomendación lista';
+  else if (showRecommendation && recData?.status === 'NO_RECOMMENDATION') liveMessage = 'Sin recomendación de la IA';
+  else if (showRecommendation && recData?.status === 'INELIGIBLE') {
+    liveMessage = 'Recomendación no disponible para este cliente';
+  }
 
   const recErrorKind: AssistantErrorKind | null = recommendation.kind === 'error' ? recommendation.error : null;
   const draftErrorKind: AssistantErrorKind | null = draft.kind === 'error' ? draft.error : null;
+
+  const askRefresh = () => {
+    if (draftDirty) {
+      assistant.askDiscard('requery');
+    } else {
+      void assistant.requestRecommendation();
+    }
+  };
 
   const askRequery = () => {
     if (draftDirty) {
@@ -146,6 +187,24 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
     } else if (pendingDiscard === 'regenerate-draft' && recData) {
       void assistant.requestDraft(recData);
     }
+  };
+
+  const renderDiscardConfirm = (): React.ReactNode => {
+    if (!pendingDiscard) return null;
+    const copy = DISCARD_COPY[pendingDiscard];
+    return (
+      <div role="group" aria-label="Confirmar reemplazo del borrador" style={alertStyle}>
+        <span>{copy.message}</span>
+        <div style={actionsRowStyle}>
+          <Button variant="danger" size="sm" onClick={confirmDiscard}>
+            {copy.confirm}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={assistant.cancelDiscard}>
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    );
   };
 
   const renderUnavailable = (
@@ -233,16 +292,46 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
         </>
       )}
 
-      {recData && recStale && (
+      {isStale && (
         <>
           <div role="alert" style={alertStyle}>
-            <span>{recData.status === 'STALE_STATE' ? ERROR_MESSAGES.conflict : STALE_RESULT_MESSAGE}</span>
+            <span>{staleMessage}</span>
           </div>
-          <div style={actionsRowStyle}>
-            <Button variant="primary" onClick={() => void assistant.requestRecommendation()} disabled={!canUseAi || busy}>
-              Actualizar recomendación
-            </Button>
-          </div>
+          {keptDraft && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+              <label htmlFor={`${draftLabelId}-kept`} style={{ ...bodyTextStyle, fontWeight: 600 }}>
+                Tu borrador editado (la recomendación ya no está actualizada)
+              </label>
+              <textarea
+                id={`${draftLabelId}-kept`}
+                value={draftText}
+                maxLength={DRAFT_MAX_LENGTH}
+                onChange={(event) => assistant.editDraft(event.target.value)}
+                rows={6}
+                style={draftTextareaStyle}
+              />
+              <div style={{ ...noteStyle, display: 'flex', justifyContent: 'space-between', gap: 'var(--space-8)' }}>
+                <span>Edición local: no se guarda ni se envía.</span>
+                <span>{draftText.length} / {DRAFT_MAX_LENGTH}</span>
+              </div>
+              {!pendingDiscard && (
+                <div style={actionsRowStyle}>
+                  <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
+                    Copiar borrador
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {pendingDiscard ? (
+            renderDiscardConfirm()
+          ) : (
+            <div style={actionsRowStyle}>
+              <Button variant="primary" onClick={askRefresh} disabled={!canUseAi || busy}>
+                Actualizar recomendación
+              </Button>
+            </div>
+          )}
         </>
       )}
 
@@ -328,29 +417,16 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
         </>
       )}
 
-      {rec && draftData && draftStale && (
-        <>
-          <div role="alert" style={alertStyle}>
-            <span>{draftData.status === 'STALE_STATE' ? ERROR_MESSAGES.conflict : STALE_RESULT_MESSAGE}</span>
-          </div>
-          <div style={actionsRowStyle}>
-            <Button variant="secondary" onClick={() => void assistant.requestRecommendation()} disabled={!canUseAi || busy}>
-              Actualizar recomendación
-            </Button>
-          </div>
-        </>
-      )}
-
-      {rec && draftData && !draftStale && draftData.status === 'INELIGIBLE' && (
+      {rec && draftData && draftData.status === 'INELIGIBLE' && (
         <p style={noteStyle}>
           Ahora no se puede redactar un borrador: {ineligibleReasonLabel(draftData.rejectionReason)}.
         </p>
       )}
 
-      {rec && draftData && !draftStale && draftData.status === 'AI_UNAVAILABLE' &&
+      {rec && draftData && draftData.status === 'AI_UNAVAILABLE' &&
         renderUnavailable(draftData, () => void assistant.requestDraft(rec))}
 
-      {rec && draftData && !draftStale && draftData.status === 'NO_DRAFT' && (
+      {rec && draftData && draftData.status === 'NO_DRAFT' && (
         <div style={{ ...noteStyle, display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
           <strong style={{ color: 'var(--color-text-main)' }}>
             La IA no pudo redactar un borrador: {noDraftReasonLabel(draftData.refusal?.reason ?? draftData.refusalReason)}.
@@ -376,19 +452,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             maxLength={DRAFT_MAX_LENGTH}
             onChange={(event) => assistant.editDraft(event.target.value)}
             rows={6}
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              minHeight: '120px',
-              padding: 'var(--space-12)',
-              border: '1px solid var(--color-outline)',
-              borderRadius: 'var(--radius-md)',
-              font: 'inherit',
-              fontSize: 'var(--font-size-secondary)',
-              color: 'var(--color-text-main)',
-              backgroundColor: 'var(--color-surface)',
-              resize: 'vertical'
-            }}
+            style={draftTextareaStyle}
           />
           <div style={{ ...noteStyle, display: 'flex', justifyContent: 'space-between', gap: 'var(--space-8)' }}>
             <span>Edición local: no se guarda ni se envía.</span>
@@ -417,17 +481,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
           )}
 
           {pendingDiscard ? (
-            <div role="group" aria-label="Confirmar reemplazo del borrador" style={alertStyle}>
-              <span>Regenerar reemplazará tus cambios en el borrador.</span>
-              <div style={actionsRowStyle}>
-                <Button variant="danger" size="sm" onClick={confirmDiscard}>
-                  Reemplazar mis cambios
-                </Button>
-                <Button variant="ghost" size="sm" onClick={assistant.cancelDiscard}>
-                  Cancelar
-                </Button>
-              </div>
-            </div>
+            renderDiscardConfirm()
           ) : (
             <div style={actionsRowStyle}>
               <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>

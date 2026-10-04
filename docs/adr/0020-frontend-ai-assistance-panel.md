@@ -32,14 +32,14 @@ Recommendation and draft are separate calls on the backend (separate permission,
 
 The existing "¿Por qué contactar hoy?" block remains the deterministic, rule-based reason. The AI output lives in its own panel and region ("Recomendación de la IA"), always labelled as AI-generated, with a textual label (not colour alone).
 
-### 4. Staleness is derived, never silently reused
+### 4. Staleness is explicit or derived, never silently reused
 
-Every result stores the `ETag` version it was produced for. The panel receives the queue item's `policyVersion`; a result is stale when `result.version !== item.policyVersion` or when the server returned `STALE_STATE`.
+Every result stores the `ETag` version it was produced for, and requests send `If-Match: "<item.policyVersion>"`.
 
-- A stale result is hidden (recommendation and draft) and replaced by an alert with an explicit **Actualizar recomendación** action.
-- Requests send `If-Match: "<item.policyVersion>"`. A `409`, or a result produced for another version, is treated as a conflict: the result is discarded and the workbench reloads the queue (`onRequestRefresh`).
-- After a disposition (snooze, dismissal, manual follow-up) the reloaded queue carries the new `policyVersion`, so previous AI output becomes stale automatically.
-- Regenerating a draft (or re-querying) with unsaved edits requires an inline confirmation.
+- **Explicit `stale` state:** a `409`, a `STALE_STATE` result or a response for another policy version, raised by the recommendation **or** the draft request, moves the panel to a `stale` step. Both the recommendation and the draft are invalidated and the workbench reloads the queue (`onRequestRefresh`). It is an explicit state rather than a stored result compared against the item version because, once the queue refresh brings the new `policyVersion`, such a result would compare equal and the old advice would look current again.
+- **Derived staleness:** a valid result whose version no longer equals the item's `policyVersion` (for example after a snooze, dismissal or manual follow-up reloads the queue) is hidden the same way.
+- The only way forward from a stale panel is **Actualizar recomendación**; "Obtener recomendación" is reserved for the initial request and for non-state errors (403, 429, 5xx, malformed response).
+- **Edited drafts are not lost:** the hook keeps the operator's edited text when the panel goes stale; the panel shows it in an editable "Tu borrador editado" area (copy still works) and asks for confirmation before a refresh discards it. Regenerating the draft and querying again each use their own confirmation wording.
 
 ### 5. Tenant and customer isolation
 
@@ -51,13 +51,17 @@ Every result stores the `ETag` version it was produced for. The panel receives t
 
 `canUseAi` (false for `VIEWER`) only disables the controls and explains why. The backend (`FOLLOWUP_EVALUATE`, `MESSAGE_DRAFT`) stays authoritative; a `403` is rendered as a clear role message.
 
-### 7. AI is optional
+### 7. Responses are verified before they reach the UI
+
+The client treats API data as untrusted. `followUpApi` rejects (as `InvalidAiResponseError`) any response that has the wrong shape, an `action`/`templateIntent` outside the closed vocabularies, a draft body that is blank or longer than 1000 Unicode code points, or that does not belong to the requested customer: content-bearing results (`AVAILABLE`, `NO_RECOMMENDATION`, `NO_DRAFT`) must name the requested customer, other statuses may omit the id (the backend sends `null` without an evaluation) but never name another one, and a mismatching `evaluation.customerId` is rejected.
+
+### 8. AI is optional
 
 `AI_UNAVAILABLE` results and HTTP errors never disable manual actions. Messages are mapped from the closed `unavailableReason` vocabulary of ADR 0019: a retry button appears only when `retryable` is true; `NOT_AVAILABLE` states that the assistant is not enabled for the workspace. Unknown enum values from the network fall back to neutral labels, and malformed responses (runtime shape check in `followUpApi`) become a generic error.
 
-### 8. Accessibility
+### 9. Accessibility
 
-A persistent `role="status"` live region announces loading, readiness and copy results; failures use `role="alert"`; focus moves to the draft editor when a draft arrives; targets and focus rings follow the shared 44px / `:focus-visible` tokens; loading never replaces the surrounding follow-up context.
+A persistent `role="status"` live region announces loading, readiness, copy results and terminal outcomes without an alert (no recommendation, ineligible, no draft); failures use `role="alert"`; focus moves to the draft editor when a draft arrives; targets and focus rings follow the shared 44px / `:focus-visible` tokens; loading never replaces the surrounding follow-up context.
 
 ## Consequences
 

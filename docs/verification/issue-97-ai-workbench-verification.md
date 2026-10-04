@@ -2,7 +2,7 @@
 
 Scope: [ADR 0020](../adr/0020-frontend-ai-assistance-panel.md). Frontend only; the backend contracts from Issues #94, #95 and #96 are consumed unchanged.
 
-Automated: `npm test` (21 files, 261 tests), `npm run build` (`tsc -b` + Vite) in `frontend/`.
+Automated: `npm test` and `npm run build` (`tsc -b` + Vite) in `frontend/` (see the PR for the final count; the follow-ups suite alone is 115 tests after the Copilot review fixes).
 
 | Acceptance criterion | Evidence |
 |---|---|
@@ -14,6 +14,9 @@ Automated: `npm test` (21 files, 261 tests), `npm run build` (`tsc -b` + Vite) i
 | Workspace switching cannot show Tenant A's AI result in Tenant B | `FollowUpWorkbench.ai.test.tsx` (switch clears result; late Tenant A response ignored), unmount aborts the in-flight request (`AiAssistantPanel.test.tsx`) |
 | Loading/error/status states accessible | `role="status"` live region, `role="alert"` errors, focus moved to the draft editor (panel tests) |
 | No OpenAI SDK/key/provider call in the frontend | `grep -rniE "openai|api[_-]?key" frontend/src` → no matches; the only network calls are `followUpApi.requestRecommendation`/`requestDraft` through `httpClient` |
+| Review follow-up: response belongs to the requested customer (Copilot, high) | `followUpAiApi.test.ts` (`customer correlation`: other customer, other evaluation customer, missing id on content results, case-insensitive match, non-content results may omit it but never name another customer) |
+| Review follow-up: conflict recovery says "Actualizar recomendación" and invalidates every step (Copilot) | `AiAssistantPanel.test.tsx` (`stale state after a conflict`: draft 409 / version mismatch / `STALE_STATE` hide recommendation and draft, one refresh request, old advice stays hidden after the queue brings the new version, refresh uses the current version) |
+| Review follow-up: closed vocabularies, 1000 code point body, announcements, wording, edited draft preserved | `followUpAiApi.test.ts` (`closed vocabularies and draft bounds`), `AiAssistantPanel.test.tsx` (`edited draft survives a stale recommendation`, `discard confirmation wording`, `assistive technology announcements`) |
 | Contract/runtime hardening | `followUpAiApi.test.ts` (headers, `If-Match`, body, ETag parsing, unknown status / missing payload rejected) |
 | Docs updated | ADR 0020, `docs/wiki/AI-and-Automation.md` ("Operator UI: AI assistance panel"), `docs/wiki/Roadmap.md`, `docs/security/security-invariants.md` #22 |
 
@@ -30,5 +33,7 @@ Run with the real `<App/>` in Chrome (Browser pane) against a throwaway harness 
 | 320×568 | PASS: no horizontal overflow, panel and textarea within the viewport |
 
 Interaction checks (same harness): workspace switch Norte → Sur removed the previous rationale and draft and showed only Sur's customer; `VIEWER` shows the button disabled with the role explanation; `403` renders the role message and keeps the request button enabled; crossing the 1024px breakpoint remounts the detail and discards the AI result (safe by design).
+
+Not re-verified in a browser after the Copilot review fixes (covered by component tests only): the stale state with a preserved edited draft.
 
 Not verified: keyboard-only pass with a screen reader, 200% zoom, automated axe checks (none are configured in the repository), and a run against the real backend with `dokene.ai.provider=fake`/`openai`.

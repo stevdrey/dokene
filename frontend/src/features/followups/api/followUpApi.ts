@@ -9,7 +9,10 @@ import {
   TenantPolicyResponse,
   RecommendationResponse,
   DraftResponse,
-  DraftRequestParams
+  DraftRequestParams,
+  SEMANTIC_ACTIONS,
+  SEMANTIC_TEMPLATE_INTENTS,
+  DRAFT_BODY_MAX_CODE_POINTS
 } from '@/features/followups/types';
 
 export interface FollowUpQueueParams {
@@ -29,6 +32,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isOneOf(allowed: readonly string[], value: unknown): boolean {
+  return typeof value === 'string' && allowed.includes(value);
+}
+
 function isStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
@@ -41,6 +48,40 @@ function hasKnownStatus(value: Record<string, unknown>, allowed: readonly string
   );
 }
 
+function isValidDraftBody(body: unknown): boolean {
+  return (
+    typeof body === 'string' &&
+    body.trim() !== '' &&
+    [...body].length <= DRAFT_BODY_MAX_CODE_POINTS
+  );
+}
+
+const CONTENT_STATUSES: readonly string[] = ['AVAILABLE', 'NO_RECOMMENDATION', 'NO_DRAFT'];
+
+/**
+ * A valid-looking response for another customer must never reach the UI. Content-bearing
+ * results must name the requested customer; the other statuses may omit it (the backend
+ * returns null when there is no evaluation) but can never name a different one.
+ */
+function assertSameCustomer(
+  data: RecommendationResponse | DraftResponse,
+  requestedCustomerId: string
+): void {
+  const expected = requestedCustomerId.toLowerCase();
+  const matches = (candidate: unknown) =>
+    typeof candidate === 'string' && candidate.toLowerCase() === expected;
+
+  if (data.customerId !== null && data.customerId !== undefined && !matches(data.customerId)) {
+    throw new InvalidAiResponseError();
+  }
+  if (CONTENT_STATUSES.includes(data.status) && !matches(data.customerId)) {
+    throw new InvalidAiResponseError();
+  }
+  if (data.evaluation && !matches(data.evaluation.customerId)) {
+    throw new InvalidAiResponseError();
+  }
+}
+
 function isRecommendationResponse(value: unknown): value is RecommendationResponse {
   if (!isRecord(value)) return false;
   if (!hasKnownStatus(value, ['AVAILABLE', 'NO_RECOMMENDATION', 'INELIGIBLE', 'STALE_STATE', 'AI_UNAVAILABLE'])) {
@@ -50,8 +91,8 @@ function isRecommendationResponse(value: unknown): value is RecommendationRespon
     const rec = value.recommendation;
     return (
       isRecord(rec) &&
-      typeof rec.action === 'string' &&
-      typeof rec.templateIntent === 'string' &&
+      isOneOf(SEMANTIC_ACTIONS, rec.action) &&
+      isOneOf(SEMANTIC_TEMPLATE_INTENTS, rec.templateIntent) &&
       typeof rec.rationale === 'string' &&
       typeof rec.confidence === 'number'
     );
@@ -71,9 +112,9 @@ function isDraftResponse(value: unknown): value is DraftResponse {
     const draft = value.draft;
     return (
       isRecord(draft) &&
-      typeof draft.action === 'string' &&
-      typeof draft.templateIntent === 'string' &&
-      typeof draft.body === 'string' &&
+      isOneOf(SEMANTIC_ACTIONS, draft.action) &&
+      isOneOf(SEMANTIC_TEMPLATE_INTENTS, draft.templateIntent) &&
+      isValidDraftBody(draft.body) &&
       isStringArray(draft.evidence) &&
       isStringArray(draft.warnings)
     );
@@ -207,6 +248,7 @@ export const followUpApi = {
     if (!isRecommendationResponse(data)) {
       throw new InvalidAiResponseError();
     }
+    assertSameCustomer(data, customerId);
     return { data, version: etag ? parseVersionFromEtag(etag) : version };
   },
 
@@ -228,6 +270,7 @@ export const followUpApi = {
     if (!isDraftResponse(data)) {
       throw new InvalidAiResponseError();
     }
+    assertSameCustomer(data, customerId);
     return { data, version: etag ? parseVersionFromEtag(etag) : version };
   },
 
