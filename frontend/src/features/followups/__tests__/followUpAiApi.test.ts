@@ -56,7 +56,7 @@ const draftBody = {
   retryable: false
 };
 
-function mockFetchJson(body: unknown, etag = '"3"', status = 200) {
+function mockFetchJson(body: unknown, etag: string | null = '"3"', status = 200) {
   let url = '';
   let init: RequestInit | undefined;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, requestInit) => {
@@ -64,7 +64,7 @@ function mockFetchJson(body: unknown, etag = '"3"', status = 200) {
     init = requestInit;
     return new Response(JSON.stringify(body), {
       status,
-      headers: { 'Content-Type': 'application/json', ETag: etag }
+      headers: { 'Content-Type': 'application/json', ...(etag === null ? {} : { ETag: etag }) }
     });
   });
   return {
@@ -303,6 +303,52 @@ describe('followUpApi AI assistance', () => {
       );
 
       expect(data.draft?.body).toHaveLength(1000);
+    });
+  });
+  describe('response ETag is required and strictly validated (fail closed)', () => {
+    const draftParams = { action: 'REPEAT_PURCHASE_FOLLOW_UP', templateIntent: 'REPEAT_PURCHASE' } as const;
+    const calls: Array<[string, (etagBody: unknown) => Promise<unknown>, unknown]> = [
+      ['recommendation', () => followUpApi.requestRecommendation('c-1', 7), recommendationBody],
+      ['draft', () => followUpApi.requestDraft('c-1', draftParams, 7), draftBody]
+    ];
+
+    describe.each(calls)('%s', (_name, call, body) => {
+      it.each([
+        ['missing', null],
+        ['empty', ''],
+        ['weak', 'W/"7"'],
+        ['not a number', 'foo'],
+        ['trailing garbage', '"7abc"'],
+        ['leading zero', '"07"'],
+        ['negative', '"-1"'],
+        ['decimal', '"7.5"'],
+        ['unquoted', '7'],
+        ['unsafe integer', '"99999999999999999999"']
+      ])('rejects a successful response whose ETag is %s, never falling back to the requested version', async (_label, etag) => {
+        mockFetchJson(body, etag);
+
+        await expect(call(body)).rejects.toBeInstanceOf(InvalidAiResponseError);
+      });
+
+      it.each([
+        ['"0"', 0],
+        ['"7"', 7],
+        ['"123"', 123]
+      ])('accepts the canonical strong ETag %s', async (etag, expected) => {
+        mockFetchJson(body, etag);
+
+        const result = (await call(body)) as { version: number };
+
+        expect(result.version).toBe(expected);
+      });
+
+      it('returns the server version when it differs from the requested one so the caller can mark it stale', async () => {
+        mockFetchJson(body, '"9"');
+
+        const result = (await call(body)) as { version: number };
+
+        expect(result.version).toBe(9);
+      });
     });
   });
 });

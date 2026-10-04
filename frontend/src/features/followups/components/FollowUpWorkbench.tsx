@@ -13,8 +13,26 @@ interface FollowUpWorkbenchProps {
   onNavigateToCustomer: (customerId: string) => void;
 }
 
-// Safety cap for a background refresh that follows cursors (50 items per page).
-const MAX_BACKGROUND_REFRESH_PAGES = 20;
+// Safety cap for the extra pages followed to find a selected customer that is still due.
+const MAX_SELECTED_SEARCH_PAGES = 20;
+
+// The due queue only holds DUE/OVERDUE customers (only OVERDUE under the "Vencidos" filter), so one
+// eligibility lookup tells whether a missing selected customer can still be on a later page.
+async function isInQueue(
+  customerId: string,
+  statusFilter: FollowUpStatus | undefined,
+  signal: AbortSignal
+): Promise<boolean> {
+  try {
+    const evaluation = await followUpApi.getFollowUpEligibility(customerId, signal);
+    if (!evaluation.eligible) return false;
+    return statusFilter === 'OVERDUE'
+      ? evaluation.status === 'OVERDUE'
+      : evaluation.status === 'DUE' || evaluation.status === 'OVERDUE';
+  } catch {
+    return false;
+  }
+}
 
 export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigateToCustomer }) => {
   const { activeWorkspace } = useTenant();
@@ -28,7 +46,6 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   // True while an AI-triggered background refresh replaces the queue: pagination must wait,
   // otherwise a page fetched from the old cursor could land after the refreshed pages.
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
-  const backgroundRefreshingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [conflictNotice, setConflictNotice] = useState<string | null>(null);
   const [tenantTimeZone, setTenantTimeZone] = useState<string | undefined>(undefined);
@@ -41,9 +58,6 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const [isPolicyLoading, setIsPolicyLoading] = useState(false);
 
   const requestGenerationRef = useRef(0);
-  const itemsCountRef = useRef(0);
-  itemsCountRef.current = items.length;
-  const selectedCustomerIdRef = useRef<string | null>(null);
   const loadMoreAbortControllerRef = useRef<AbortController | null>(null);
   const queueAbortControllerRef = useRef<AbortController | null>(null);
   const lastFetchedTenantDateRef = useRef<string>('');
@@ -150,111 +164,152 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     }
   }, []);
 
-  // Centralized queue replacement: invalidates and aborts in-flight pagination, clears loadingMore,
-  // and fetches replacement first page under a new generation
-  // Resolves true only when the replacement queue was applied, so callers that depend on the
-  // refreshed data (the AI assistant) can tell a failed or superseded refresh from a good one.
-  const replaceQueue = useCallback(
-    async (statusFilter?: FollowUpStatus, options: { background?: boolean } = {}): Promise<boolean> => {
-      // A background refresh keeps the current list and detail mounted (no full-screen
-      // spinner or error), so work in progress inside the detail survives the reload. It
-      // reloads as many pages as the operator had already loaded, so a customer selected from
-      // a later page is still found and its detail is not unmounted.
-      const { background = false } = options;
-      const loadedCount = itemsCountRef.current;
-      const selectedId = selectedCustomerIdRef.current;
-      let applied = false;
-      requestGenerationRef.current += 1;
-      const currentGeneration = requestGenerationRef.current;
+  // Starts a queue request: invalidates and aborts in-flight pagination and queue fetches, and
+  // returns the new generation, its controller and the tenant-local date it started on.
+  const beginQueueRequest = useCallback(() => {
+    requestGenerationRef.current += 1;
+    const generation = requestGenerationRef.current;
+    const startDate = tenantTimeZoneRef.current
+      ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
+      : null;
 
-      const requestStartDate = tenantTimeZoneRef.current
+    if (loadMoreAbortControllerRef.current) {
+      loadMoreAbortControllerRef.current.abort();
+      loadMoreAbortControllerRef.current = null;
+    }
+    setLoadingMore(false);
+
+    if (queueAbortControllerRef.current) {
+      queueAbortControllerRef.current.abort();
+      queueAbortControllerRef.current = null;
+    }
+    const controller = new AbortController();
+    queueAbortControllerRef.current = controller;
+    return { generation, controller, startDate };
+  }, []);
+
+  // Applies a fetched queue when its request is still the current one.
+  const commitQueuePage = useCallback(
+    (
+      page: { items: QueueItemResponse[]; nextCursor: string | null },
+      request: { generation: number; controller: AbortController; startDate: string | null }
+    ): 'applied' | 'superseded' | 'date-rolled' => {
+      if (requestGenerationRef.current !== request.generation || request.controller.signal.aborted) {
+        return 'superseded';
+      }
+      const completionDate = tenantTimeZoneRef.current
         ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
         : null;
-
-      if (loadMoreAbortControllerRef.current) {
-        loadMoreAbortControllerRef.current.abort();
-        loadMoreAbortControllerRef.current = null;
+      if (request.startDate && completionDate && request.startDate !== completionDate) {
+        // Crossed tenant midnight during the in-flight fetch: the caller refetches the new day's queue
+        return 'date-rolled';
       }
-      setLoadingMore(false);
 
-      if (queueAbortControllerRef.current) {
-        queueAbortControllerRef.current.abort();
-        queueAbortControllerRef.current = null;
-      }
-      const controller = new AbortController();
-      queueAbortControllerRef.current = controller;
+      setItems(page.items || []);
+      setNextCursor(page.nextCursor || null);
+      lastFetchedTenantDateRef.current = completionDate || request.startDate || '';
 
-      backgroundRefreshingRef.current = background;
-      setBackgroundRefreshing(background);
-      if (!background) {
-        setLoading(true);
-      }
+      // Preserve existing selection if still present in returned items
+      setSelectedCustomerId((prevId) => {
+        if (prevId && page.items?.some((it) => it.customerId === prevId)) {
+          return prevId;
+        }
+        if (!isMobile && page.items && page.items.length > 0) {
+          return page.items[0].customerId;
+        }
+        return null;
+      });
+      return 'applied';
+    },
+    [isMobile]
+  );
+
+  // Centralized queue replacement: invalidates and aborts in-flight pagination, clears loadingMore,
+  // and fetches the replacement first page under a new generation. Resolves true only when it was applied.
+  const replaceQueue = useCallback(
+    async (statusFilter?: FollowUpStatus): Promise<boolean> => {
+      const request = beginQueueRequest();
+      setBackgroundRefreshing(false);
+      setLoading(true);
       setError(null);
+      let applied = false;
       try {
-        let page = await followUpApi.getFollowUpQueue(
+        const page = await followUpApi.getFollowUpQueue(
           { status: statusFilter, limit: 50 },
-          controller.signal
+          request.controller.signal
         );
-        if (background) {
-          let collected = page.items || [];
-          let cursor = page.nextCursor || null;
-          // Keep following the cursor until the previously loaded extent is covered AND the selected
-          // customer is found (newly due customers can push it past the old boundary). If the cap is
-          // hit first, the existing fallback selection applies.
-          const needsMore = () =>
-            collected.length < loadedCount ||
-            (selectedId !== null && !collected.some((item) => item.customerId === selectedId));
-          for (let pages = 1; cursor && needsMore() && pages < MAX_BACKGROUND_REFRESH_PAGES; pages += 1) {
-            if (requestGenerationRef.current !== currentGeneration || controller.signal.aborted) break;
-            const next = await followUpApi.getFollowUpQueue(
-              { status: statusFilter, cursor, limit: 50 },
-              controller.signal
-            );
-            collected = [...collected, ...(next.items || [])];
-            cursor = next.nextCursor || null;
-          }
-          page = { items: collected, nextCursor: cursor };
+        const outcome = commitQueuePage(page, request);
+        if (outcome === 'date-rolled') {
+          return replaceQueue(statusFilter);
         }
-        if (requestGenerationRef.current === currentGeneration && !controller.signal.aborted) {
-          const completionDate = tenantTimeZoneRef.current
-            ? getCalendarDateInTimeZone(0, tenantTimeZoneRef.current)
-            : null;
-          if (requestStartDate && completionDate && requestStartDate !== completionDate) {
-            // Crossed tenant midnight during in-flight fetch; immediately refresh to get updated day's queue
-            return replaceQueue(statusFilter, options);
-          }
-
-          setItems(page.items || []);
-          setNextCursor(page.nextCursor || null);
-          lastFetchedTenantDateRef.current = completionDate || requestStartDate || '';
-
-          // Preserve existing selection if still present in returned items
-          setSelectedCustomerId((prevId) => {
-            if (prevId && page.items?.some((it) => it.customerId === prevId)) {
-              return prevId;
-            }
-            if (!isMobile && page.items && page.items.length > 0) {
-              return page.items[0].customerId;
-            }
-            return null;
-          });
-          applied = true;
-        }
+        applied = outcome === 'applied';
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return false;
-        if (requestGenerationRef.current === currentGeneration && !background) {
+        if (requestGenerationRef.current === request.generation) {
           setError(err instanceof Error ? err.message : 'Error al cargar la lista de seguimientos.');
         }
       } finally {
-        if (requestGenerationRef.current === currentGeneration) {
+        if (requestGenerationRef.current === request.generation) {
           setLoading(false);
-          backgroundRefreshingRef.current = false;
+        }
+      }
+      return applied;
+    },
+    [beginQueueRequest, commitQueuePage]
+  );
+
+  // Reloads the queue for the AI assistant without unmounting the detail: no full-screen spinner or
+  // error, and failures are reported through the returned boolean. It reloads as many pages as the
+  // operator had already loaded (so a customer selected from a later page is found again) and, if the
+  // selected customer is still missing, follows the cursor further only while it is still due.
+  const refreshLoadedQueue = useCallback(
+    async (
+      statusFilter: FollowUpStatus | undefined,
+      context: { loadedCount: number; selectedId: string | null }
+    ): Promise<boolean> => {
+      const request = beginQueueRequest();
+      const { signal } = request.controller;
+      const isCurrent = () => requestGenerationRef.current === request.generation && !signal.aborted;
+      setBackgroundRefreshing(true);
+      let applied = false;
+      try {
+        const first = await followUpApi.getFollowUpQueue({ status: statusFilter, limit: 50 }, signal);
+        let collected = first.items || [];
+        let cursor = first.nextCursor || null;
+        const loadNext = async () => {
+          const next = await followUpApi.getFollowUpQueue({ status: statusFilter, cursor: cursor!, limit: 50 }, signal);
+          collected = [...collected, ...(next.items || [])];
+          cursor = next.nextCursor || null;
+        };
+        const hasSelected = () => collected.some((item) => item.customerId === context.selectedId);
+
+        // Phase 1: cover everything the operator had loaded (bounded by what they paged through).
+        while (cursor && collected.length < context.loadedCount && isCurrent()) {
+          await loadNext();
+        }
+        // Phase 2: the selected customer may have been pushed past the old boundary. Only keep
+        // paging while it is demonstrably still in the queue; otherwise stop after one check.
+        if (cursor && context.selectedId && !hasSelected() && isCurrent() && (await isInQueue(context.selectedId, statusFilter, signal))) {
+          for (let extra = 0; extra < MAX_SELECTED_SEARCH_PAGES && cursor && !hasSelected() && isCurrent(); extra += 1) {
+            await loadNext();
+          }
+        }
+
+        const outcome = commitQueuePage({ items: collected, nextCursor: cursor }, request);
+        if (outcome === 'date-rolled') {
+          return refreshLoadedQueue(statusFilter, context);
+        }
+        applied = outcome === 'applied';
+      } catch {
+        // Aborted or failed: reported through the returned boolean.
+      } finally {
+        if (requestGenerationRef.current === request.generation) {
           setBackgroundRefreshing(false);
         }
       }
       return applied;
     },
-    [isMobile]
+    [beginQueueRequest, commitQueuePage]
   );
 
   // Reload queue when workspace or filter changes
@@ -306,7 +361,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   }, [activeFilter, replaceQueue]);
 
   const handleLoadMore = async () => {
-    if (!nextCursor || loadingMore || backgroundRefreshingRef.current) return;
+    if (!nextCursor || loadingMore || backgroundRefreshing) return;
     const currentGeneration = requestGenerationRef.current;
     const currentFilter = activeFilter;
     const controller = new AbortController();
@@ -367,24 +422,24 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     return filteredItems.find((i) => i.customerId === selectedCustomerId) || null;
   }, [filteredItems, selectedCustomerId]);
 
-  selectedCustomerIdRef.current = selectedCustomerId;
-
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
   const overdueCount = items.filter((i) => i.status === 'OVERDUE').length;
 
+  const selectedName = selectedItem?.displayName;
   const refreshQueue = useCallback(
     async (reason?: QueueRefreshReason) => {
-      const refreshed = await replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, {
-        background: true
+      const refreshed = await refreshLoadedQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined, {
+        loadedCount: items.length,
+        selectedId: selectedCustomerId
       });
       // Only claim the list was updated when it really was.
       if (refreshed && reason === 'ineligible') {
-        setConflictNotice('El cliente ya no es elegible para seguimiento. La lista se ha actualizado.');
+        setConflictNotice(`${selectedName ?? 'El cliente'} ya no es elegible para seguimiento. La lista se ha actualizado.`);
       }
       return refreshed;
     },
-    [replaceQueue, activeFilter]
+    [refreshLoadedQueue, activeFilter, items.length, selectedCustomerId, selectedName]
   );
 
   // Disposition handlers
@@ -657,7 +712,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             <button
               type="button"
               aria-pressed={activeFilter === 'ALL'}
-              onClick={() => setActiveFilter('ALL')}
+              onClick={() => {
+                setConflictNotice(null);
+                setActiveFilter('ALL');
+              }}
               className="interactive-target"
               style={{
                 display: 'inline-flex',
@@ -692,7 +750,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             <button
               type="button"
               aria-pressed={activeFilter === 'OVERDUE'}
-              onClick={() => setActiveFilter('OVERDUE')}
+              onClick={() => {
+                setConflictNotice(null);
+                setActiveFilter('OVERDUE');
+              }}
               className="interactive-target"
               style={{
                 display: 'inline-flex',
@@ -751,7 +812,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               type="search"
               aria-label="Buscar seguimientos por nombre o teléfono"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setConflictNotice(null);
+                setSearchQuery(e.target.value);
+              }}
               placeholder="Buscar por nombre o teléfono..."
               style={{
                 width: '100%',
@@ -904,7 +968,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setConflictNotice(null);
+                    setSearchQuery('');
+                  }}
                 >
                   Limpiar búsqueda
                 </Button>
@@ -963,7 +1030,11 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   key={item.customerId}
                   item={item}
                   isSelected={selectedCustomerId === item.customerId}
-                  onSelect={() => setSelectedCustomerId(item.customerId)}
+                  onSelect={() => {
+                    // A notice about the previous customer must not follow the operator to another one.
+                    setConflictNotice(null);
+                    setSelectedCustomerId(item.customerId);
+                  }}
                   timeZone={tenantTimeZone}
                 />
               ))}

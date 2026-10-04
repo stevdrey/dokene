@@ -14,6 +14,7 @@ import {
   SEMANTIC_TEMPLATE_INTENTS,
   DRAFT_BODY_MAX_CODE_POINTS
 } from '@/features/followups/types';
+import { countCodePoints } from '@/features/followups/utils/textLength';
 
 export interface FollowUpQueueParams {
   status?: FollowUpStatus;
@@ -48,11 +49,29 @@ function hasKnownStatus(value: Record<string, unknown>, allowed: readonly string
   );
 }
 
+const STRONG_NUMERIC_ETAG = /^"(0|[1-9][0-9]*)"$/;
+
+/**
+ * AI content is only displayable when it is tied to a verifiable policy version, so unlike
+ * `parseVersionFromEtag` this never falls back to the requested version or to 0: a missing,
+ * weak or malformed ETag is rejected (the backend always sends a strong numeric one).
+ */
+function parseStrictVersionFromEtag(etag: string | null): number {
+  if (etag === null || !STRONG_NUMERIC_ETAG.test(etag)) {
+    throw new InvalidAiResponseError();
+  }
+  const version = Number(etag.slice(1, -1));
+  if (!Number.isSafeInteger(version)) {
+    throw new InvalidAiResponseError();
+  }
+  return version;
+}
+
 function isValidDraftBody(body: unknown): boolean {
   return (
     typeof body === 'string' &&
     body.trim() !== '' &&
-    [...body].length <= DRAFT_BODY_MAX_CODE_POINTS
+    countCodePoints(body) <= DRAFT_BODY_MAX_CODE_POINTS
   );
 }
 
@@ -249,7 +268,7 @@ export const followUpApi = {
       throw new InvalidAiResponseError();
     }
     assertSameCustomer(data, customerId);
-    return { data, version: etag ? parseVersionFromEtag(etag) : version };
+    return { data, version: parseStrictVersionFromEtag(etag) };
   },
 
   async requestDraft(
@@ -271,7 +290,7 @@ export const followUpApi = {
       throw new InvalidAiResponseError();
     }
     assertSameCustomer(data, customerId);
-    return { data, version: etag ? parseVersionFromEtag(etag) : version };
+    return { data, version: parseStrictVersionFromEtag(etag) };
   },
 
   async getTenantFollowUpPolicy(

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, cleanup } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
 import { useTenant } from '@/features/tenants/TenantContext';
@@ -447,6 +447,11 @@ describe('FollowUpWorkbench AI assistance', () => {
 
     it('continues past the previously loaded count when a newly due customer pushes the selection beyond it', async () => {
       const { queue, rec } = await selectBFromSecondPage();
+      vi.spyOn(followUpApi, 'getFollowUpEligibility').mockResolvedValue({
+        customerId: 'cust-B', eligible: true, status: 'OVERDUE', reasons: ['OVERDUE'], evaluatedAt: '2026-09-15T12:00:00Z',
+        tenantDate: '2026-09-15', tenantTimeZone: 'America/Santiago', nextFollowUpDate: null, timingSource: 'LAST_PURCHASE',
+        effectiveCadenceDays: 60, lastPurchaseAt: null
+      });
       // A new customer became due and now sorts before B: page 1 already holds as many rows as before.
       queue.mockImplementation(async (params: { cursor?: string }) =>
         params.cursor === 'c1'
@@ -518,5 +523,206 @@ describe('FollowUpWorkbench AI assistance', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualizar lista' }));
 
     expect(await screen.findByText(/ya no es elegible para seguimiento/i)).toBeInTheDocument();
+  });
+  describe('background refresh when the selected customer is missing after covering the loaded extent', () => {
+    const itemA: QueueItemResponse = { ...baseItem, customerId: 'cust-A', displayName: 'Ana Primera Página' };
+    const itemX: QueueItemResponse = { ...baseItem, customerId: 'cust-X', displayName: 'Ximena Recién Vencida' };
+    const eligibility = (overrides: Record<string, unknown>) => ({
+      customerId: 'cust-A',
+      eligible: true,
+      status: 'OVERDUE',
+      reasons: ['OVERDUE'],
+      evaluatedAt: '2026-09-15T12:00:00Z',
+      tenantDate: '2026-09-15',
+      tenantTimeZone: 'America/Santiago',
+      nextFollowUpDate: null,
+      timingSource: 'LAST_PURCHASE',
+      effectiveCadenceDays: 60,
+      lastPurchaseAt: null,
+      ...overrides
+    });
+
+    async function renderWithSelectedA() {
+      const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+      queue.mockImplementation(async () => ({ items: [itemA], nextCursor: 'c1' }));
+      vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findAllByText('Ana Primera Página');
+      queue.mockClear();
+      // After the change a newly due customer sorts first and A would only be on the next page.
+      queue.mockImplementation(async (params: { cursor?: string }) =>
+        params.cursor === 'c1'
+          ? { items: [{ ...itemA, policyVersion: 3 }], nextCursor: null }
+          : { items: [itemX], nextCursor: 'c1' }
+      );
+      return { queue };
+    }
+
+    it('stops after a single eligibility check when the customer is provably no longer in the queue', async () => {
+      const { queue } = await renderWithSelectedA();
+      const check = vi.spyOn(followUpApi, 'getFollowUpEligibility').mockResolvedValue(
+        eligibility({ eligible: false, status: 'INELIGIBLE' }) as never
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(check).toHaveBeenCalledTimes(1));
+      expect(check).toHaveBeenCalledWith('cust-A', expect.anything());
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Ximena Recién Vencida', level: 2 })).toBeInTheDocument()
+      );
+      expect(queue).toHaveBeenCalledTimes(1);
+      expect(queue).not.toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything());
+    });
+
+    it('keeps following the cursor when the customer is still due and finds it', async () => {
+      const { queue } = await renderWithSelectedA();
+      const check = vi.spyOn(followUpApi, 'getFollowUpEligibility').mockResolvedValue(eligibility({}) as never);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(queue).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything()));
+      expect(check).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('heading', { name: 'Ana Primera Página', level: 2 })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Actualizar recomendación' })).toBeInTheDocument();
+    });
+
+    it('stops without a screen error when the eligibility check fails', async () => {
+      const { queue } = await renderWithSelectedA();
+      const check = vi.spyOn(followUpApi, 'getFollowUpEligibility').mockRejectedValue(new Error('boom'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(check).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Ximena Recién Vencida', level: 2 })).toBeInTheDocument()
+      );
+      expect(queue).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/Error al cargar/i)).not.toBeInTheDocument();
+    });
+
+    it('treats a customer that is due but not overdue as gone from the "Vencidos" queue', async () => {
+      const { queue } = await renderWithSelectedA();
+      queue.mockImplementation(async () => ({ items: [itemA], nextCursor: 'c1' }));
+      fireEvent.click(screen.getByRole('button', { name: /Vencidos/i }));
+      await waitFor(() => expect(queue).toHaveBeenCalledWith(expect.objectContaining({ status: 'OVERDUE' }), expect.anything()));
+      await screen.findAllByText('Ana Primera Página');
+      queue.mockClear();
+      queue.mockImplementation(async (params: { cursor?: string }) =>
+        params.cursor === 'c1'
+          ? { items: [{ ...itemA, policyVersion: 3 }], nextCursor: null }
+          : { items: [itemX], nextCursor: 'c1' }
+      );
+      const check = vi.spyOn(followUpApi, 'getFollowUpEligibility').mockResolvedValue(
+        eligibility({ status: 'DUE' }) as never
+      );
+      (followUpApi.requestRecommendation as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new ApiError(409, 'conflict'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      await waitFor(() => expect(check).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(queue).toHaveBeenCalledTimes(1));
+      expect(queue).not.toHaveBeenCalledWith(expect.objectContaining({ cursor: 'c1' }), expect.anything());
+    });
+  });
+
+  it('covers the whole loaded extent even when the operator had paged past the safety cap', async () => {
+    const total = 25;
+    const mk = (i: number): QueueItemResponse => ({ ...baseItem, customerId: `cust-${i}`, displayName: `Cliente Número ${i}` });
+    const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+    const pageFor = (cursor?: string) => {
+      const i = cursor ? Number(cursor) : 0;
+      return { items: [mk(i)], nextCursor: i + 1 < total ? String(i + 1) : null };
+    };
+    queue.mockImplementation(async (params: { cursor?: string }) => pageFor(params.cursor));
+    vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValueOnce(new ApiError(409, 'conflict'));
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+    await screen.findAllByText('Cliente Número 0');
+    for (let i = 1; i < total; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Cargar más seguimientos' }));
+      await screen.findAllByText(`Cliente Número ${i}`);
+    }
+    queue.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+    await screen.findByText(/El seguimiento cambió mientras consultabas/);
+    await waitFor(() => expect(queue).toHaveBeenCalledTimes(total));
+    expect(screen.getAllByText(`Cliente Número ${total - 1}`).length).toBeGreaterThan(0);
+  }, 30000);
+
+  describe('ineligibility notice', () => {
+    const itemX: QueueItemResponse = { ...baseItem, customerId: 'cust-X', displayName: 'Ximena Recién Vencida' };
+    const itemY: QueueItemResponse = { ...baseItem, customerId: 'cust-Y', displayName: 'Yolanda Tercera' };
+    const ineligibleResult = {
+      ...recommendation,
+      status: 'INELIGIBLE' as const,
+      recommendation: null,
+      rejectionReason: 'NO_CONTACT_CONSENT' as const,
+      evaluation: {
+        customerId: 'cust-1',
+        eligible: false,
+        status: 'INELIGIBLE' as const,
+        reasons: ['DO_NOT_CONTACT' as const],
+        evaluatedAt: '2026-09-15T12:00:00Z',
+        tenantDate: '2026-09-15',
+        tenantTimeZone: 'America/Santiago',
+        nextFollowUpDate: null,
+        timingSource: 'NONE' as const,
+        effectiveCadenceDays: 60,
+        lastPurchaseAt: null
+      }
+    };
+
+    async function showNotice() {
+      const queue = followUpApi.getFollowUpQueue as ReturnType<typeof vi.fn>;
+      queue.mockResolvedValue({ items: [baseItem, itemX, itemY], nextCursor: null });
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: ineligibleResult, version: 2 });
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findByRole('button', { name: 'Obtener recomendación' });
+      queue.mockResolvedValue({ items: [itemX, itemY], nextCursor: null });
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+      return screen.findByText('Valentina Morales ya no es elegible para seguimiento. La lista se ha actualizado.');
+    }
+
+    it('names the customer and survives the programmatic fallback selection of the refresh itself', async () => {
+      await showNotice();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Ximena Recién Vencida', level: 2 })).toBeInTheDocument()
+      );
+      expect(screen.getByText(/Valentina Morales ya no es elegible/)).toBeInTheDocument();
+    });
+
+    it('is cleared when the operator selects another customer', async () => {
+      await showNotice();
+
+      fireEvent.click(screen.getByRole('button', { name: /Yolanda Tercera/ }));
+
+      expect(screen.queryByText(/ya no es elegible para seguimiento/)).not.toBeInTheDocument();
+    });
+
+    it('is cleared when the operator changes the filter or the search', async () => {
+      await showNotice();
+      fireEvent.click(screen.getByRole('button', { name: /Vencidos/i }));
+      await waitFor(() => expect(screen.queryByText(/ya no es elegible para seguimiento/)).not.toBeInTheDocument());
+
+      cleanup();
+      vi.restoreAllMocks();
+      setTenant('tenant-123');
+      vi.spyOn(followUpApi, 'getTenantFollowUpPolicy').mockResolvedValue({
+        policy: { cadenceDays: 14, timeZone: 'America/Santiago' },
+        version: 1
+      });
+      vi.spyOn(followUpApi, 'getCustomerFollowUpPolicy').mockResolvedValue({
+        policy: { customerId: 'cust-1', cadenceDays: 60, explicitNextDate: null, snoozedUntil: null, lastManualFollowUpDate: null, lastDismissedDate: null },
+        version: 2
+      });
+      vi.spyOn(customerApi, 'listPurchases').mockResolvedValue({ purchases: [], nextCursor: null });
+      vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({ items: [baseItem, itemX, itemY], nextCursor: null });
+      await showNotice();
+      fireEvent.change(screen.getByPlaceholderText(/Buscar por nombre o teléfono/i), { target: { value: 'Yol' } });
+      expect(screen.queryByText(/ya no es elegible para seguimiento/)).not.toBeInTheDocument();
+    });
   });
 });

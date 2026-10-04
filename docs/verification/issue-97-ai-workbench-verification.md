@@ -24,6 +24,10 @@ Automated: `npm test` and `npm run build` (`tsc -b` + Vite) in `frontend/` (see 
 | Review follow-up (Codex): deterministic ineligibility refreshes the queue (recommendation and draft), a disallowed action does not | `AiAssistantPanel.test.tsx` (`deterministic ineligibility changes the queue`), `FollowUpWorkbench.ai.test.tsx` (`refreshes the queue and says so when the AI reports the customer is no longer eligible`) |
 | Review follow-up (Codex): the background refresh keeps looking for the selected customer | `FollowUpWorkbench.ai.test.tsx` (`background refresh keeps looking for the selected customer`: a newly due customer pushes the selection past the old count; cursor exhausted falls back without extra requests) |
 | Review follow-up (Codex): the ineligibility notice only appears after a successful refresh, a failure is retryable | `AiAssistantPanel.test.tsx` (retry after a failed refresh, `false` treated as failure, no alert on success), `FollowUpWorkbench.ai.test.tsx` (`announces the ineligibility refresh only after it succeeds…`) |
+| Review follow-up (stevdrey): AI responses without a valid strong ETag fail closed | `followUpAiApi.test.ts` (`response ETag is required and strictly validated`: recommendation and draft × missing/empty/weak/non-numeric/trailing garbage/leading zero/negative/decimal/unquoted/unsafe rejected, `"0"`, `"7"`, `"123"` accepted, server version returned on drift), `AiAssistantPanel.test.tsx` (`contract failures never display AI content`) |
+| Code review: no full-queue scan when the selected customer left the queue; list never truncated | `FollowUpWorkbench.ai.test.tsx` (`background refresh when the selected customer is missing…`: single eligibility check, still-due follows the cursor, failed check stops, "Vencidos" filter, 25 loaded pages fully covered) |
+| Code review: a pending "regenerate" confirmation is dropped on derived staleness | `AiAssistantPanel.test.tsx` (`a pending "regenerate" confirmation does not survive derived staleness`) |
+| Code review: the ineligibility notice names the customer and is cleared by user actions only | `FollowUpWorkbench.ai.test.tsx` (`ineligibility notice`) |
 | Contract/runtime hardening | `followUpAiApi.test.ts` (headers, `If-Match`, body, ETag parsing, unknown status / missing payload rejected) |
 | Docs updated | ADR 0020, `docs/wiki/AI-and-Automation.md` ("Operator UI: AI assistance panel"), `docs/wiki/Roadmap.md`, `docs/security/security-invariants.md` #22 |
 
@@ -71,3 +75,15 @@ Same stack as above (Compose, backend with the `fake` provider, Vite, `testopera
 | Retry once the queue answers | PASS: the list showed the new cadence, the message "Actualizamos la lista…" and "Actualizar recomendación" appeared; confirming ("Consultar de nuevo descartará el borrador y tus cambios.") issued a new recommendation that succeeded |
 
 Not exercised against the real stack: a customer selected from a second queue page (needs more than 50 due customers); it is covered by `FollowUpWorkbench.ai.test.tsx`.
+
+### Real-stack re-verification after the code review and ETag fixes
+
+Same stack (Compose, backend with the `fake` provider, Vite, `testoperator`), Chrome DevTools MCP:
+
+| Check | Result |
+|---|---|
+| Recommendation and draft against the real backend with the strict ETag parser | PASS: the backend's strong numeric `ETag` is accepted, the result is shown as current (no false rejection or stale loop) |
+| WhatsApp consent revoked out-of-band (`REVOKED`, the policy version does not change), then "Consultar de nuevo" | PASS: the backend answers `INELIGIBLE`; the queue reloads in the background (Pendientes 2 → 1); the notice reads "Camila Rojas Soto ya no es elegible para seguimiento. La lista se ha actualizado." and survives the refresh's own fallback selection of the next customer |
+| Changing the filter afterwards | PASS: the notice is cleared by the operator's action |
+
+The consent was restored to `GRANTED` afterwards. Not exercised against the real stack: the single eligibility check when the selected customer is on a later page, a weakened or missing ETag (needs a proxy) and the >20-page coverage; they are covered by the unit/integration tests.

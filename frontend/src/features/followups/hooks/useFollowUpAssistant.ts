@@ -90,7 +90,9 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   const recController = useRef<AbortController | null>(null);
   const draftController = useRef<AbortController | null>(null);
   const refreshRef = useRef(onRequestRefresh);
-  refreshRef.current = onRequestRefresh;
+  useEffect(() => {
+    refreshRef.current = onRequestRefresh;
+  });
   const mountedRef = useRef(true);
   const refreshToken = useRef(0);
   const ineligibleToken = useRef(0);

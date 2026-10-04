@@ -170,14 +170,6 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const recErrorKind: AssistantErrorKind | null = recommendation.kind === 'error' ? recommendation.error : null;
   const draftErrorKind: AssistantErrorKind | null = draft.kind === 'error' ? draft.error : null;
 
-  const askRefresh = () => {
-    if (draftDirty) {
-      assistant.askDiscard('requery');
-    } else {
-      void assistant.requestRecommendation();
-    }
-  };
-
   const askRequery = () => {
     if (draftDirty) {
       assistant.askDiscard('requery');
@@ -194,17 +186,22 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
     }
   };
 
+  // A regenerate confirmation belongs to the draft of a *current* recommendation: if the item
+  // moved on (derived staleness) it is dropped, so confirming can never request a draft for an
+  // obsolete recommendation. Requerying stays available.
+  const activeDiscard = pendingDiscard === 'regenerate-draft' && isStale ? null : pendingDiscard;
+
   const confirmDiscard = () => {
-    if (pendingDiscard === 'requery') {
+    if (activeDiscard === 'requery') {
       void assistant.requestRecommendation();
-    } else if (pendingDiscard === 'regenerate-draft' && recData) {
+    } else if (activeDiscard === 'regenerate-draft' && recData) {
       void assistant.requestDraft(recData);
     }
   };
 
   const renderDiscardConfirm = (): React.ReactNode => {
-    if (!pendingDiscard) return null;
-    const copy = DISCARD_COPY[pendingDiscard];
+    if (!activeDiscard) return null;
+    const copy = DISCARD_COPY[activeDiscard];
     return (
       <div role="group" aria-label="Confirmar reemplazo del borrador" style={alertStyle}>
         <span>{copy.message}</span>
@@ -326,7 +323,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
                 <span>Edición local: no se guarda ni se envía.</span>
                 <span>{countCodePoints(draftText)} / {DRAFT_BODY_MAX_CODE_POINTS}</span>
               </div>
-              {!pendingDiscard && (
+              {!activeDiscard && (
                 <div style={actionsRowStyle}>
                   <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
                     Copiar borrador
@@ -335,7 +332,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
               )}
             </div>
           )}
-          {pendingDiscard ? (
+          {activeDiscard ? (
             renderDiscardConfirm()
           ) : (
             <div style={actionsRowStyle}>
@@ -346,7 +343,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
               ) : (
                 <Button
                   variant="primary"
-                  onClick={askRefresh}
+                  onClick={askRequery}
                   disabled={!canUseAi || busy || staleRefresh === 'pending'}
                 >
                   Actualizar recomendación
@@ -510,7 +507,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             </div>
           )}
 
-          {pendingDiscard ? (
+          {activeDiscard ? (
             renderDiscardConfirm()
           ) : (
             <div style={actionsRowStyle}>

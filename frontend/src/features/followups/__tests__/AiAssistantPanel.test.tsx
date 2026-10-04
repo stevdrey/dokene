@@ -1021,4 +1021,51 @@ describe('AiAssistantPanel', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
+  describe('contract failures never display AI content', () => {
+    it('shows only the generic error when a draft response fails validation (for example an invalid ETag)', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockRejectedValue(new InvalidAiResponseError());
+      renderPanel();
+      await getRecommendation();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos consultar al asistente IA');
+      expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Generar borrador' })).toBeEnabled();
+    });
+
+    it('shows no recommendation content and keeps the initial request available on an invalid recommendation response', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new InvalidAiResponseError());
+      renderPanel();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos consultar al asistente IA');
+      expect(screen.queryByRole('region', { name: 'Recomendación de la IA' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Obtener recomendación' })).toBeEnabled();
+    });
+  });
+
+  describe('a pending "regenerate" confirmation does not survive derived staleness', () => {
+    it('neither shows nor executes it once the item policy version changed', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      const draft = vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      const { rerenderWith } = renderPanel({ policyVersion: 3 });
+      await getRecommendation();
+      fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mis cambios' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Regenerar borrador' }));
+      expect(screen.getByText(/Regenerar reemplazará tus cambios/)).toBeInTheDocument();
+
+      rerenderWith({ policyVersion: 4 });
+
+      expect(screen.queryByText(/Regenerar reemplazará tus cambios/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reemplazar mis cambios' })).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/Tu borrador editado/)).toHaveValue('Mis cambios');
+      expect(draft).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
+    });
+  });
 });
