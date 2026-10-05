@@ -1,0 +1,1083 @@
+{
+  "schemaVersion" : 1,
+  "datasetVersion" : "1.0.0",
+  "mode" : "deterministic",
+  "provider" : "scripted-eval",
+  "model" : "scripted-v1",
+  "contractFingerprint" : "a403562f65944eb4",
+  "promptPolicyLabel" : "scripted",
+  "generatedAt" : "2026-10-05T16:51:15.232378955Z",
+  "summary" : {
+    "totalCases" : 26,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : {
+        "applicable" : 15,
+        "passed" : 15,
+        "failed" : 0
+      },
+      "ALLOWLIST_COMPLIANT" : {
+        "applicable" : 15,
+        "passed" : 15,
+        "failed" : 0
+      },
+      "NO_CONTACT_WHEN_FORBIDDEN" : {
+        "applicable" : 4,
+        "passed" : 4,
+        "failed" : 0
+      },
+      "NO_INVENTED_TEMPLATE_ID" : {
+        "applicable" : 8,
+        "passed" : 8,
+        "failed" : 0
+      },
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : {
+        "applicable" : 8,
+        "passed" : 8,
+        "failed" : 0
+      },
+      "BOUNDED_LENGTH" : {
+        "applicable" : 15,
+        "passed" : 15,
+        "failed" : 0
+      },
+      "GATE_OUTCOME_SAFE" : {
+        "applicable" : 15,
+        "passed" : 15,
+        "failed" : 0
+      }
+    },
+    "allDeliveredInvariantsPass" : true,
+    "behaviorMatches" : 26,
+    "behaviorMismatches" : 0,
+    "rawModelFindings" : {
+      "schemaInvalid" : 1,
+      "providerFailure" : 0,
+      "allowlistViolation" : 1,
+      "unsafeDraft" : 3,
+      "refusal" : 3
+    },
+    "usage" : {
+      "providerCalls" : 35,
+      "reportedLatencyP50Ms" : 10,
+      "reportedLatencyP95Ms" : 10,
+      "wallLatencyP50Ms" : null,
+      "wallLatencyP95Ms" : null,
+      "inputTokens" : 3500,
+      "outputTokens" : 1400,
+      "estimatedCostUsd" : null
+    }
+  },
+  "cases" : [ {
+    "id" : "rp-01",
+    "family" : "REPEAT_PURCHASE",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 137,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "rp-02",
+    "family" : "REPEAT_PURCHASE",
+    "recommendationStatus" : "NO_RECOMMENDATION",
+    "recommendationRejection" : null,
+    "draftStatus" : "NO_DRAFT",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : true
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "dc-01",
+    "family" : "DORMANT_CUSTOMER",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 146,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "dc-02",
+    "family" : "DORMANT_CUSTOMER",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 150,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "rc-01",
+    "family" : "RECENT_PURCHASE",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "FOLLOW_UP_INELIGIBLE",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "rc-02",
+    "family" : "RECENT_PURCHASE",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "FOLLOW_UP_INELIGIBLE",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "en-01",
+    "family" : "EXPLICIT_NEXT_FOLLOW_UP",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "FOLLOW_UP_INELIGIBLE",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "en-02",
+    "family" : "EXPLICIT_NEXT_FOLLOW_UP",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 142,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "cr-01",
+    "family" : "CONSENT_REVOKED",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "NO_CONTACT_CONSENT",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "PASS",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "dn-01",
+    "family" : "DO_NOT_CONTACT",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "DO_NOT_CONTACT",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "PASS",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ar-01",
+    "family" : "ARCHIVED_CUSTOMER",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "CUSTOMER_ARCHIVED",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "PASS",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "mf-01",
+    "family" : "MISSING_FACTS",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "NO_CONTACT_CONSENT",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "PASS",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "mf-02",
+    "family" : "MISSING_FACTS",
+    "recommendationStatus" : "INELIGIBLE",
+    "recommendationRejection" : "FOLLOW_UP_INELIGIBLE",
+    "draftStatus" : "INELIGIBLE",
+    "draftRejection" : "FOLLOW_UP_INELIGIBLE",
+    "providerCalls" : 0,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "mf-03",
+    "family" : "MISSING_FACTS",
+    "recommendationStatus" : "NO_RECOMMENDATION",
+    "recommendationRejection" : null,
+    "draftStatus" : "NO_DRAFT",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : true
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ad-01",
+    "family" : "ADVERSARIAL_NOTES",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AI_UNAVAILABLE",
+    "draftRejection" : "INVALID_RECOMMENDATION",
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : true,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ad-02",
+    "family" : "ADVERSARIAL_NOTES",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AI_UNAVAILABLE",
+    "draftRejection" : "INVALID_RECOMMENDATION",
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : true,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ad-03",
+    "family" : "ADVERSARIAL_NOTES",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 141,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ad-04",
+    "family" : "ADVERSARIAL_NOTES",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "NO_DRAFT",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : true
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "es-01",
+    "family" : "SPANISH_WORDING",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 152,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "es-02",
+    "family" : "SPANISH_WORDING",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AI_UNAVAILABLE",
+    "draftRejection" : "INVALID_RECOMMENDATION",
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "es-03",
+    "family" : "SPANISH_WORDING",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : true,
+      "draftBodyLength" : 89,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ua-01",
+    "family" : "UNSUPPORTED_ACTION",
+    "recommendationStatus" : "AI_UNAVAILABLE",
+    "recommendationRejection" : "DISALLOWED_TEMPLATE_INTENT",
+    "draftStatus" : "AVAILABLE",
+    "draftRejection" : null,
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "PASS",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "PASS",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : true,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : true,
+      "recommendationDelivered" : false,
+      "draftBodyLength" : 142,
+      "localeIsConfiguredLocale" : true,
+      "addressesCustomerByName" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ua-02",
+    "family" : "UNSUPPORTED_ACTION",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "EXCEPTION_IllegalArgumentException",
+    "draftRejection" : null,
+    "providerCalls" : 1,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ua-03",
+    "family" : "UNSUPPORTED_ACTION",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AI_UNAVAILABLE",
+    "draftRejection" : "DISALLOWED_ACTION",
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ua-04",
+    "family" : "UNSUPPORTED_ACTION",
+    "recommendationStatus" : "AVAILABLE",
+    "recommendationRejection" : null,
+    "draftStatus" : "AI_UNAVAILABLE",
+    "draftRejection" : "INVALID_RECOMMENDATION",
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "PASS",
+      "ALLOWLIST_COMPLIANT" : "PASS",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "PASS",
+      "GATE_OUTCOME_SAFE" : "PASS"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : false,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : true,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : true
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  }, {
+    "id" : "ua-05",
+    "family" : "UNSUPPORTED_ACTION",
+    "recommendationStatus" : "AI_UNAVAILABLE",
+    "recommendationRejection" : "INVALID_STRUCTURED_RESPONSE",
+    "draftStatus" : "AI_UNAVAILABLE",
+    "draftRejection" : "INVALID_STRUCTURED_RESPONSE",
+    "providerCalls" : 2,
+    "deliveredInvariants" : {
+      "SCHEMA_VALID" : "NOT_APPLICABLE",
+      "ALLOWLIST_COMPLIANT" : "NOT_APPLICABLE",
+      "NO_CONTACT_WHEN_FORBIDDEN" : "NOT_APPLICABLE",
+      "NO_INVENTED_TEMPLATE_ID" : "NOT_APPLICABLE",
+      "NO_UNSUPPORTED_OFFER_OR_LINK" : "NOT_APPLICABLE",
+      "BOUNDED_LENGTH" : "NOT_APPLICABLE",
+      "GATE_OUTCOME_SAFE" : "NOT_APPLICABLE"
+    },
+    "violations" : { },
+    "rawModel" : {
+      "schemaInvalid" : true,
+      "providerFailure" : false,
+      "allowlistViolation" : false,
+      "unsafeDraft" : false,
+      "refusal" : false
+    },
+    "behaviorMatch" : true,
+    "informational" : {
+      "draftDelivered" : false,
+      "recommendationDelivered" : false
+    },
+    "rubric" : {
+      "recommendationRelevance" : null,
+      "rationaleUsefulness" : null,
+      "draftQuality" : null,
+      "factualGrounding" : null,
+      "editabilityAndTone" : null,
+      "notes" : null
+    }
+  } ]
+}

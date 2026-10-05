@@ -47,7 +47,44 @@ dependencies {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    // Live-provider evaluation is opt-in (see aiEvalLive); it must never run, cost money or need a key in normal CI.
+    useJUnitPlatform {
+        excludeTags 'ai-eval-live'
+    }
+}
+
+// Opt-in live evaluation of the configured provider against the synthetic dataset (Issue #98, ADR 0021).
+// Requires DOKENE_AI_EVAL_LIVE=true and DOKENE_AI_OPENAI_API_KEY; skipped otherwise. Deliberately not part of `check`.
+tasks.register('aiEvalLive', Test) {
+    description = 'Runs the opt-in live AI evaluation (may incur provider cost).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'ai-eval-live'
+    }
+    ['DOKENE_AI_EVAL_LIVE', 'DOKENE_AI_OPENAI_API_KEY', 'DOKENE_AI_OPENAI_MODEL', 'DOKENE_AI_OPENAI_BASE_URL',
+     'DOKENE_AI_EVAL_PROMPT_POLICY', 'DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK', 'DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK',
+     'DOKENE_AI_EVAL_REPORT_NAME'].each { name ->
+        System.getenv(name)?.with { value -> environment name, value }
+    }
+    outputs.upToDateWhen { false }
+}
+
+// Compares two evaluation reports: ./gradlew aiEvalCompare -Pbaseline=<report.json> -Pcandidate=<report.json>
+// Exits non-zero on a hard-invariant regression; quality, latency and token deltas are only displayed.
+tasks.register('aiEvalCompare', JavaExec) {
+    description = 'Compares two AI evaluation reports (baseline vs candidate).'
+    group = 'verification'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.github.stevdrey.dokene.ai.eval.EvalReportComparator'
+    dependsOn tasks.named('testClasses')
+    doFirst {
+        if (!project.hasProperty('baseline') || !project.hasProperty('candidate')) {
+            throw new GradleException('Usage: ./gradlew aiEvalCompare -Pbaseline=<report.json> -Pcandidate=<report.json>')
+        }
+        args file(project.property('baseline')).absolutePath, file(project.property('candidate')).absolutePath
+    }
 }
 def nvdApiKey = (System.getenv('DOKENE_NVD_API_KEY') ?: System.getenv('NVD_API_KEY'))?.trim()
 

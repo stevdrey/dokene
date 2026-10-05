@@ -1,0 +1,138 @@
+package io.github.stevdrey.dokene.ai.eval;
+
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.eval.InvariantChecker.InvariantResult;
+import io.github.stevdrey.dokene.ai.eval.InvariantChecker.RawFindings;
+import io.github.stevdrey.dokene.ai.eval.InvariantChecker.Verdict;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/** Turns observations into a report: hard invariants, raw-model findings and usage, kept strictly separate. */
+public final class EvalReportBuilder {
+    /** Optional cost inputs (USD per million tokens); cost stays null when no price table is supplied. */
+    public record Pricing(double inputUsdPerMillionTokens, double outputUsdPerMillionTokens) {
+    }
+
+    private EvalReportBuilder() {
+    }
+
+    public static EvalReport build(EvalDataset dataset, List<CaseObservation> observations, String mode,
+            String promptPolicyLabel, Pricing pricing, boolean includeWallLatency) {
+        List<EvalReport.CaseReport> cases = new ArrayList<>();
+        Map<String, int[]> tallies = new LinkedHashMap<>();
+        InvariantChecker.DELIVERED_INVARIANTS.forEach(id -> tallies.put(id, new int[3]));
+        int matches = 0;
+        int mismatches = 0;
+        int[] raw = new int[5];
+        List<Long> reported = new ArrayList<>();
+        List<Long> wall = new ArrayList<>();
+        long input = 0;
+        long output = 0;
+        int calls = 0;
+
+        for (CaseObservation obs : observations) {
+            Map<String, InvariantResult> delivered = InvariantChecker.checkDelivered(obs);
+            RawFindings findings = InvariantChecker.rawFindings(obs);
+            Map<String, String> verdicts = new LinkedHashMap<>();
+            Map<String, List<String>> violations = new LinkedHashMap<>();
+            delivered.forEach((id, result) -> {
+                verdicts.put(id, result.verdict().name());
+                int[] tally = tallies.get(id);
+                if (result.verdict() != Verdict.NOT_APPLICABLE) {
+                    tally[0]++;
+                    tally[result.verdict() == Verdict.PASS ? 1 : 2]++;
+                }
+                if (result.verdict() == Verdict.FAIL) {
+                    violations.put(id, result.violations());
+                }
+            });
+            Boolean behaviorMatch = "deterministic".equals(mode) ? behaviorMatches(obs) : null;
+            if (Boolean.TRUE.equals(behaviorMatch)) {
+                matches++;
+            } else if (Boolean.FALSE.equals(behaviorMatch)) {
+                mismatches++;
+            }
+            raw[0] += findings.schemaInvalid() ? 1 : 0;
+            raw[1] += findings.providerFailure() ? 1 : 0;
+            raw[2] += findings.allowlistViolation() ? 1 : 0;
+            raw[3] += findings.unsafeDraft() ? 1 : 0;
+            raw[4] += findings.refusal() ? 1 : 0;
+            for (EvalProviderCall call : obs.calls()) {
+                calls++;
+                if (call.metadata() != null) {
+                    reported.add(call.metadata().latency().toMillis());
+                    if (call.metadata().usage() != null) {
+                        input += call.metadata().usage().inputTokens();
+                        output += call.metadata().usage().outputTokens();
+                    }
+                }
+                wall.add(call.wallLatencyNanos() / 1_000_000);
+            }
+            cases.add(new EvalReport.CaseReport(obs.evalCase().id(), obs.evalCase().family().name(),
+                    obs.recommendationStatus(), obs.recommendationRejection(), obs.draftStatus(),
+                    obs.draftRejection(), obs.calls().size(), verdicts, violations,
+                    new EvalReport.RawFlags(findings.schemaInvalid(), findings.providerFailure(),
+                            findings.allowlistViolation(), findings.unsafeDraft(), findings.refusal()),
+                    behaviorMatch, informational(obs), EvalReport.Rubric.blank()));
+        }
+
+        Map<String, EvalReport.Tally> deliveredTotals = new LinkedHashMap<>();
+        boolean allPass = true;
+        for (var entry : tallies.entrySet()) {
+            int[] t = entry.getValue();
+            deliveredTotals.put(entry.getKey(), new EvalReport.Tally(t[0], t[1], t[2]));
+            allPass &= t[2] == 0;
+        }
+        Double cost = pricing == null ? null
+                : input / 1_000_000.0 * pricing.inputUsdPerMillionTokens()
+                        + output / 1_000_000.0 * pricing.outputUsdPerMillionTokens();
+        EvalReport.Usage usage = new EvalReport.Usage(calls, percentile(reported, 50), percentile(reported, 95),
+                includeWallLatency ? percentile(wall, 50) : null, includeWallLatency ? percentile(wall, 95) : null,
+                input, output, cost);
+        EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass,
+                "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
+                new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]), usage);
+        return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), mode,
+                String.join(",", EvalRunner.sortedModels(observations, true)),
+                String.join(",", EvalRunner.sortedModels(observations, false)), EvalRunner.contractFingerprint(),
+                promptPolicyLabel, Instant.now().toString(), summary, cases);
+    }
+
+    /** Deterministic baseline check: the observed statuses equal the dataset's pinned platform behavior. */
+    static boolean behaviorMatches(CaseObservation obs) {
+        EvalCase.Expect expect = obs.evalCase().expect();
+        return expect.recommendationStatus().equals(obs.recommendationStatus())
+                && java.util.Objects.equals(expect.recommendationRejection(), obs.recommendationRejection())
+                && expect.draftStatus().equals(obs.draftStatus())
+                && java.util.Objects.equals(expect.draftRejection(), obs.draftRejection())
+                && expect.providerInvoked() == !obs.calls().isEmpty();
+    }
+
+    /** Clearly labelled heuristics: informational only, never pass/fail and never part of a score. */
+    private static Map<String, Object> informational(CaseObservation obs) {
+        Map<String, Object> info = new LinkedHashMap<>();
+        MessageDraft draft = obs.deliveredDraft();
+        info.put("draftDelivered", draft != null);
+        info.put("recommendationDelivered", obs.deliveredRecommendation() != null);
+        if (draft != null) {
+            info.put("draftBodyLength", draft.body().codePointCount(0, draft.body().length()));
+            info.put("localeIsConfiguredLocale", MessageDraft.DEFAULT_LOCALE.equalsIgnoreCase(draft.locale()));
+            String firstName = obs.evalCase().displayName().split("\\s+")[0].toLowerCase(Locale.ROOT);
+            info.put("addressesCustomerByName", draft.body().toLowerCase(Locale.ROOT).contains(firstName));
+        }
+        return info;
+    }
+
+    static Long percentile(List<Long> values, int percentile) {
+        if (values.isEmpty()) {
+            return null;
+        }
+        List<Long> sorted = values.stream().sorted().toList();
+        int rank = (int) Math.ceil(percentile / 100.0 * sorted.size());
+        return sorted.get(Math.max(0, rank - 1));
+    }
+}

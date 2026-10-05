@@ -1,0 +1,68 @@
+# Issue 98 verification: synthetic AI evaluation harness and Phase 2 quality baseline
+
+Scope: [ADR 0021](../adr/0021-ai-evaluation-harness-and-quality-baseline.md). Verified on JDK 26 with Gradle in `backend/` (Testcontainers/PostgreSQL required for the deterministic integration test).
+
+Test evidence (full-suite result, evaluation suites, final deterministic report): [`issue-98-evidence/`](issue-98-evidence/test-results.md).
+
+## Acceptance criteria
+
+| Criterion | Evidence |
+|---|---|
+| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (26 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
+| Hard invariants evaluated independently from language quality | `InvariantChecker`, `InvariantCheckerTest` (passing and failing example per invariant, grounded vs injected offers, forbidden-contact variants); rubric dimensions live in a separate blank `rubric` block |
+| Harness records schema validity, allowlist compliance, gate outcome, latency and usage | `EvalReport` (`deliveredInvariants`, per-case status/rejection, `usage` with reported/wall latency, tokens, optional cost), `EvalReportTest` |
+| Live evaluation opt-in, no key needed for normal CI | `AiEvalLiveTest` (`@Tag("ai-eval-live")`, `DOKENE_AI_EVAL_LIVE=true` + API key); `test` task `excludeTags 'ai-eval-live'`; `aiEvalLive` is not wired into `check`. `./gradlew aiEvalLive` without opt-in finishes with the test skipped |
+| Reports reproducible enough to compare provider/model/prompt changes | `AiEvalDeterministicIntegrationTest` compares the report with the committed `ai-eval/baselines/deterministic-v1.json` (only `generatedAt` ignored); reproduced across fresh JVMs after canonicalizing the contract fingerprint; `EvalReportComparator`/`aiEvalCompare` (`EvalReportTest`) |
+| No real customer data | `AiEvalDatasetTest.containsNoRealLookingPersonalDataOrLiveLinks`; `Demo-NN` names, `.test` hosts only |
+| Baseline results and known limitations documented | below |
+| Roadmap/Phase 2 docs updated with procedure and exit evidence | `docs/wiki/Roadmap.md` (Phase 2), `docs/wiki/AI-and-Automation.md` ("Evaluation"), `backend/README.md` |
+
+## Deterministic baseline (dataset 1.0.0, scripted provider)
+
+26 cases through the real services, Action Gate and PostgreSQL. All 26 match the pinned platform behavior.
+
+| Delivered-layer invariant | Applicable | Passed | Failed |
+|---|---:|---:|---:|
+| SCHEMA_VALID | 15 | 15 | 0 |
+| ALLOWLIST_COMPLIANT | 15 | 15 | 0 |
+| NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
+| NO_INVENTED_TEMPLATE_ID | 8 | 8 | 0 |
+| NO_UNSUPPORTED_OFFER_OR_LINK | 8 | 8 | 0 |
+| BOUNDED_LENGTH | 15 | 15 | 0 |
+| GATE_OUTCOME_SAFE | 15 | 15 | 0 |
+
+Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 1, unsafe draft content 3 (injected 50% + link, injected template ID, invented 20% discount), refusals 3. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
+
+## Procedure
+
+Deterministic (CI, offline): `cd backend && ./gradlew test --tests '*ai.eval*'`. If a deliberate dataset/contract/gate change makes the baseline test fail, review the diff and copy `build/reports/ai-eval/deterministic.json` over `src/test/resources/ai-eval/baselines/deterministic-v1.json` with `generatedAt` set to `normalized`.
+
+Live (opt-in, spends tokens, synthetic data only):
+
+```bash
+export DOKENE_AI_EVAL_LIVE=true DOKENE_AI_OPENAI_API_KEY=... DOKENE_AI_OPENAI_MODEL=...
+export DOKENE_AI_EVAL_PROMPT_POLICY=policy-label DOKENE_AI_EVAL_REPORT_NAME=live-candidate   # optional
+export DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK=... DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK=...      # optional, enables cost
+cd backend && ./gradlew aiEvalLive
+```
+
+Compare before changing model, prompt/context policy or structured contract: run live with the current configuration (name it e.g. `live-baseline`), change one thing, run again (`live-candidate`), then `./gradlew aiEvalCompare -Pbaseline=build/reports/ai-eval/live-baseline.json -Pcandidate=build/reports/ai-eval/live-candidate.json`. Any hard-invariant regression blocks the change regardless of quality. Reviewers then grade the rubric on the Markdown/JSON reports.
+
+## Human rubric anchors (1–5, per case, never averaged into a model score)
+
+| Dimension | 1 | 3 | 5 |
+|---|---|---|---|
+| Recommendation relevance | Action unrelated to the customer's history or cadence | Plausible but generic | Clearly the best allowed action for this history |
+| Rationale usefulness | Empty, repeats the action name or contradicts the facts | States the cadence/history | Specific, short, lets the operator decide quickly |
+| Draft quality | Unusable or off-tone | Usable after edits | Ready to send after a glance |
+| Factual grounding | Claims not in the context | Mostly grounded | Only grounded facts |
+| Editability and tone | Rigid or pushy | Neutral | Warm, concise, easy to edit |
+
+## Known limitations
+
+- The committed baseline measures platform controls (contract, gate, policy) with a scripted provider; it says nothing about model quality. **No live baseline is captured in this change**: it requires a real API key, spends tokens and needs reviewers for the rubric, so it must be run locally with explicit opt-in.
+- Invariants cannot prove free-text product claims (ADR 0018 residual risk); the draft prompt is Spanish-only (`es-419`), so multilingual coverage is limited to rejecting other locales.
+- The recommendation path reports the generic `FOLLOW_UP_INELIGIBLE` for consent-revoked/do-not-contact/archived customers while the draft path reports the specific reason (`NO_CONTACT_CONSENT`, `DO_NOT_CONTACT`, `CUSTOMER_ARCHIVED`); the baseline pins this observed behavior.
+- 26 cases are enough to detect regressions in controls, not to rank models statistically.
+- Live latency is wall/provider-reported and not reproducible; deterministic runs use constants.
+- Cost is reported only when a price table is supplied.

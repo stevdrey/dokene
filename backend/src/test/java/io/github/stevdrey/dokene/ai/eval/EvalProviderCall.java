@@ -1,0 +1,21 @@
+package io.github.stevdrey.dokene.ai.eval;
+
+import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
+import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
+import io.github.stevdrey.dokene.ai.application.AiOperation;
+import io.github.stevdrey.dokene.ai.application.RecommendationContext;
+
+/**
+ * One provider invocation as seen at the {@code AiProvider} port: the raw (pre-gate, untrusted) outcome or the
+ * failure category, plus the provider-reported metadata. {@code outcome} is a {@code RecommendationOutcome} or a
+ * {@code DraftOutcome}, null on failure. Never persisted verbatim in reports (customer-like text stays out).
+ */
+public record EvalProviderCall(
+        String displayName,
+        AiOperation operation,
+        RecommendationContext context,
+        Object outcome,
+        AiFailureCategory failure,
+        AiInvocationMetadata metadata,
+        long wallLatencyNanos) {
+}
