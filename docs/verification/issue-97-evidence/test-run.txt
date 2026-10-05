@@ -1,0 +1,10 @@
+# Issue 97 - test evidence (commit 731982f, 2026-10-04T07:37Z, node v24.18.0)
+
+## npm test (full frontend suite)
+ Test Files  22 passed (22)
+      Tests  359 passed (359)
+   Duration  37.90s (tests 57%, environment 33%, setup 5%, transform 3%, import 2%)
+
+## npm run build (tsc -b + vite build)
+✓ 142 modules transformed.
+✓ built in 5.52s

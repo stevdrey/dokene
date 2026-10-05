@@ -87,3 +87,18 @@ Same stack (Compose, backend with the `fake` provider, Vite, `testoperator`), Ch
 | Changing the filter afterwards | PASS: the notice is cleared by the operator's action |
 
 The consent was restored to `GRANTED` afterwards. Not exercised against the real stack: the single eligibility check when the selected customer is on a later page, a weakened or missing ETag (needs a proxy) and the >20-page coverage; they are covered by the unit/integration tests.
+
+## Evidence files
+
+Stored in [`issue-97-evidence/`](issue-97-evidence/) (commit `731982f` of the application code):
+
+| File | What it shows |
+|---|---|
+| `01-strong-etag-recommendation-and-draft.png` | Real backend, strong ETag accepted: recommendation and editable draft shown as current |
+| `02-missing-etag-fails-closed.png` | The recommendation response reached the browser **without** its `ETag` (the backend answered 200): only the generic error is shown, no AI content |
+| `03-stale-refresh-failed-draft-kept.png` | Version conflict while the queue reload fails: "No pudimos actualizar la lista", edited draft kept, only "Reintentar actualizar lista" is offered |
+| `04-refresh-retried-update-offered.png` | After retrying, the list carries the new version and "Actualizar recomendación" is offered (draft still kept) |
+| `05-ineligible-notice-names-customer.png` | Consent revoked out-of-band: the notice names the customer and the queue went from 2 to 1 |
+| `test-run.txt` | Full frontend suite (359 tests) and build |
+| `followups-tests-verbose.txt` | Every follow-ups test by name (182) |
+| `mutation-check.txt` | Each fix undone on purpose: which tests fail (18 / 1 / 4 / 1) |

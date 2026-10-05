@@ -1,0 +1,184 @@
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > starts idle, labels the content as AI advisory and does not call the API on mount
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > disables the AI controls and explains why when the role cannot use the assistant
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > requests the recommendation with the item policy version and shows loading without erasing the panel
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows the AI action, rationale and confidence in a region labelled as AI-generated
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > renders model text as plain text, never as HTML
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > falls back to a neutral label for an action value it does not know
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > requests the draft as an explicit second step using the recommended action and intent
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > moves focus to the draft editor when the draft arrives
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > renders workbench title, stats counters, and queue items
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > lets the operator edit the draft locally without any further network call
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > keeps the deterministic due reason distinct from the AI recommendation
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > never offers a way to approve or send the message
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > copies the edited draft to the clipboard and announces it
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > selects first item on desktop and displays customer detail context
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > keeps customer context and manual actions usable while the AI is loading
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > asks for confirmation before regenerating a draft with unsaved edits
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > regenerates an unedited draft without asking for confirmation
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > prevents duplicate recommendation requests from rapid clicks
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows the advisory refusal when the AI recommends no action
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows a deterministic ineligibility message
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > keeps the recommendation visible and shows the refusal when no draft can be written
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > changes selected customer when clicking another card
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > leaves manual follow-up usable when the AI is unavailable
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > offers a retry only for retryable AI_UNAVAILABLE results and keeps the manual workflow note
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > does not offer a retry when the AI is not available for the workspace
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > filters by status tabs (Vencidos vs Pendientes)
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows an accessible error for HTTP 403
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows an accessible error for HTTP 429
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows an accessible error for HTTP 500
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > disables the AI request for read-only roles while the rest of the detail stays visible
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows an accessible error for HTTP 503
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > shows a generic error for a malformed AI response
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > treats a 409 as stale state: asks the workbench to refresh and does not reuse a result
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > treats a STALE_STATE result as stale and asks the workbench to refresh
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > filters queue items with search bar
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > hides a recommendation and draft once the item policy version changes and requires an explicit refresh
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > aborts the in-flight request on unmount and ignores its late response
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > does not show an error when its own request is aborted
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > refreshes the queue when the AI request hits a stale-state conflict
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale state after a conflict > invalidates the recommendation as well when the draft request hits a 409
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale state after a conflict > invalidates the recommendation as well when the draft request hits a version mismatch
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale state after a conflict > invalidates the recommendation as well when the draft request hits a STALE_STATE result
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale state after a conflict > does not make old advice actionable again once the queue refresh brings the new version
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale state after a conflict > re-requests the recommendation with the current version from the refresh action
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > handles manual follow-up completion with modal notes and idempotency key
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > edited draft survives a stale recommendation > keeps the edited text editable and copyable when the result becomes stale
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > does not silently reuse a recommendation after a disposition changes the policy version
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > edited draft survives a stale recommendation > asks before refreshing and keeps the text when the operator cancels
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > edited draft survives a stale recommendation > refreshes and drops the edited text once the operator confirms
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > edited draft survives a stale recommendation > does not ask for confirmation when the draft was never edited
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > discard confirmation wording > explains that querying again discards the draft
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > never shows Tenant A AI output inside Tenant B after a workspace switch
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > discard confirmation wording > keeps the regenerate wording for regenerating the draft
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > assistive technology announcements for terminal outcomes > announces a recommendation refusal in the status region
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > assistive technology announcements for terminal outcomes > announces an ineligible recommendation in the status region
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > handles snooze disposition
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > assistive technology announcements for terminal outcomes > announces a missing draft and an ineligible draft in the status region
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > draft length counted in Unicode code points > accepts 1000 emoji (2000 UTF-16 units) and shows 1000 / 1000
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > draft length counted in Unicode code points > truncates by code point without leaving a lone surrogate
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > ignores a late Tenant A AI response that resolves after switching to Tenant B
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > draft length counted in Unicode code points > does not rely on the UTF-16 based maxLength attribute
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > draft length counted in Unicode code points > counts a draft coming from the API by code point
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale refresh lifecycle > keeps "Actualizar recomendación" disabled and announces progress while the list refresh is pending
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale refresh lifecycle > reports a failed refresh and only offers to retry the list refresh, never a request with the old version
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > handles dismissal disposition
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale refresh lifecycle > treats a rejected refresh as a failed refresh
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > stale refresh lifecycle > keeps the edited draft in every refresh state
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > refreshes the queue when a recommendation comes back INELIGIBLE with an ineligible evaluation
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > refreshes the queue when a draft comes back INELIGIBLE with an ineligible evaluation
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > does not refresh when INELIGIBLE only means the requested action is not allowed
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > still refreshes when the evaluation is missing but the reason is a deterministic ineligibility
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > keeps the result visible and offers a retry when that refresh fails
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > handles 409 conflict and displays stale candidate alert
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > treats a refresh that resolves false as a failure too
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > deterministic ineligibility changes the queue > shows no refresh failure when the refresh succeeds
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > contract failures never display AI content > shows only the generic error when a draft response fails validation (for example an invalid ETag)
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > restricts mutations for VIEWER role
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > renders empty state when queue returns 0 items
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > keeps the follow-up detail and the edited draft mounted while the AI-triggered refresh is in flight
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > contract failures never display AI content > shows no recommendation content and keeps the initial request available on an invalid recommendation response
+ ✓ src/features/followups/__tests__/AiAssistantPanel.test.tsx > AiAssistantPanel > a pending "regenerate" confirmation does not survive derived staleness > neither shows nor executes it once the item policy version changed
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > renders error state and allows retry
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > displays the chronologically latest interaction when both manual follow-up and dismissal exist
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > surfaces purchase-history request failures and allows retry
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > distinguishes voided purchases as Anulada in history
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > excludes overdue items from contacts scheduled for today count
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > reports a failed AI-triggered refresh, keeps the detail and retries it before allowing a new request
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > explains due items from their actual timing source (e.g. EXPLICIT_DATE)
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > allows loading more pages when active search yields no local results and nextCursor exists
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > calculates snooze dates in tenant time zone without shifting days due to UTC offset
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > keeps a customer loaded from a later page selected (with its stale notice) when the AI refresh reloads the loaded extent
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > does not reload extra pages for a background refresh when only the first page was loaded
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > discards stale load-more responses when filter changes before response arrives
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > provides an accessible name for the search input
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > blocks pagination while an AI-triggered background refresh is in flight
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > keeps selected card synchronized with filtered detail when search excludes previous customer
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > refreshes the queue and says so when the AI reports the customer is no longer eligible
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > resets loadingMore state when replacing queue while load-more was pending
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > surfaces tenant policy error banner and disables snooze until resolved
+ ✓ src/features/followups/__tests__/FollowUpCard.test.tsx > FollowUpCard > prioritizes timingSource over DUE_TODAY in reason explanation
+ ✓ src/features/followups/__tests__/FollowUpCard.test.tsx > FollowUpCard > derives card dates and overdue status correctly under tenant timezone without false isDueToday
+ ✓ src/features/followups/__tests__/FollowUpCard.test.tsx > FollowUpCard > does not suppress focus ring with outline none
+ ✓ src/features/followups/__tests__/FollowUpCard.test.tsx > FollowUpCard > handles undefined timeZone safely without rendering malformed overdue text
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > background refresh keeps looking for the selected customer > continues past the previously loaded count when a newly due customer pushes the selection beyond it
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > background refresh keeps looking for the selected customer > stops when the cursor is exhausted and falls back when the selected customer is really gone
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > protects tenant time-zone loading across workspace switches against delayed policy responses
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > announces the ineligibility refresh only after it succeeds, and offers a retry when it fails
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > background refresh when the selected customer is missing after covering the loaded extent > stops after a single eligibility check when the customer is provably no longer in the queue
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > invalidates in-flight pagination when queue is replaced by a successful disposition
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > background refresh when the selected customer is missing after covering the loaded extent > keeps following the cursor when the customer is still due and finds it
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > invalidates in-flight pagination when queue is replaced by tenant-local date rollover
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > background refresh when the selected customer is missing after covering the loaded extent > stops without a screen error when the eligibility check fails
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > refetches immediately when queue fetch spans tenant midnight
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.test.tsx > FollowUpWorkbench > preserves current customer selection when queue is replaced and customer is still present
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > background refresh when the selected customer is missing after covering the loaded extent > treats a customer that is due but not overdue as gone from the "Vencidos" queue
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > requests a recommendation with tenant, CSRF and If-Match headers and parses the ETag version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > requests a draft passing the recommended action and template intent
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > accepts AI_UNAVAILABLE results carrying a closed unavailable reason
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > rejects a recommendation response with an unknown status
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > rejects an AVAILABLE recommendation that carries no recommendation payload
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > rejects an AVAILABLE draft whose body is not a string
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > rejects a non-object response body
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > rejects a recommendation that belongs to another customer
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > rejects a draft that belongs to another customer
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > rejects a response whose evaluation belongs to another customer
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > rejects content-bearing results that carry no customerId
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > compares customer ids case-insensitively
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > accepts a INELIGIBLE result without customerId or evaluation
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > accepts a STALE_STATE result without customerId or evaluation
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > accepts a AI_UNAVAILABLE result without customerId or evaluation
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > customer correlation > still rejects a non-content result that names another customer
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > rejects a recommendation with an unknown action
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > rejects a recommendation with an unknown template intent
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > rejects a draft with an unknown action or template intent
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > rejects a draft body that is empty
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > rejects a draft body that is blank
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > rejects a draft body that is over 1000 code points
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > counts code points, not UTF-16 units, for the 1000 character limit
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > closed vocabularies and draft bounds > accepts a draft body of exactly 1000 code points
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is missing, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is empty, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is weak, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is not a number, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is trailing garbage, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is leading zero, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is negative, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is decimal, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is unquoted, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > rejects a successful response whose ETag is unsafe integer, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > accepts the canonical strong ETag "0"
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > accepts the canonical strong ETag "7"
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > accepts the canonical strong ETag "123"
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > recommendation > returns the server version when it differs from the requested one so the caller can mark it stale
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is missing, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is empty, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is weak, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is not a number, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is trailing garbage, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is leading zero, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is negative, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is decimal, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is unquoted, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > rejects a successful response whose ETag is unsafe integer, never falling back to the requested version
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > accepts the canonical strong ETag "0"
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > accepts the canonical strong ETag "7"
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > accepts the canonical strong ETag "123"
+ ✓ src/features/followups/__tests__/followUpAiApi.test.ts > followUpApi AI assistance > response ETag is required and strictly validated (fail closed) > draft > returns the server version when it differs from the requested one so the caller can mark it stale
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > fetches follow-up queue with query parameters
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > gets customer follow-up policy and parses numeric version from ETag
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > gets customer follow-up eligibility evaluation
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > snoozes follow-up with If-Match header and date body
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > dismisses follow-up with If-Match, Idempotency-Key, and optional notes
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > records manual follow-up completion with If-Match, Idempotency-Key, and notes
+ ✓ src/features/followups/__tests__/followUpApi.test.ts > followUpApi > gets tenant follow-up policy
+ ✓ src/features/followups/__tests__/textLength.test.ts > textLength > counts code points, not UTF-16 units
+ ✓ src/features/followups/__tests__/textLength.test.ts > textLength > returns the text unchanged when it fits
+ ✓ src/features/followups/__tests__/textLength.test.ts > textLength > truncates by code point without splitting a surrogate pair
+ ✓ src/features/followups/__tests__/textLength.test.ts > textLength > handles a zero or negative limit
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > covers the whole loaded extent even when the operator had paged past the safety cap
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > ineligibility notice > names the customer and survives the programmatic fallback selection of the refresh itself
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > ineligibility notice > is cleared when the operator selects another customer
+ ✓ src/features/followups/__tests__/FollowUpWorkbench.ai.test.tsx > FollowUpWorkbench AI assistance > ineligibility notice > is cleared when the operator changes the filter or the search
+ Test Files  7 passed (7)
+      Tests  182 passed (182)
