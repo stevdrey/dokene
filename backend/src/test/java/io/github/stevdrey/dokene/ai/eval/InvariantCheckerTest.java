@@ -240,4 +240,47 @@ class InvariantCheckerTest {
                 .isEqualTo(Verdict.PASS);
         assertThat(InvariantChecker.rawFindings(rejected).unsafeDraft()).isTrue();
     }
+
+    @Test
+    void flagsRawDraftsThatDeviateFromTheRequestedActionEvenWhenActionAndIntentArePaired() {
+        MessageDraft seasonal = new MessageDraft(SemanticAction.SEASONAL_GREETING, SemanticTemplateIntent.SEASONAL_EVENT,
+                "Hola, ¡felices fiestas!", DraftVariables.empty(), "es-419", List.of(), List.of(), "Saludo.",
+                RecommendationConfidence.of(0.8));
+        EvalProviderCall requestedRepeat = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(),
+                seasonal, null, new AiInvocationMetadata("p", "m", null, Duration.ofMillis(5), null,
+                        AiCompletionStatus.SUCCEEDED), 1, SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE);
+        CaseObservation obs = new CaseObservation(evalCase, "AVAILABLE", null, null, "AI_UNAVAILABLE", null, null,
+                List.of(requestedRepeat));
+
+        assertThat(InvariantChecker.rawFindings(obs).allowlistViolation()).isTrue();
+        assertThat(InvariantChecker.checkDelivered(obs).get(InvariantChecker.GATE_OUTCOME_SAFE).verdict())
+                .isEqualTo(Verdict.PASS);
+    }
+
+    @Test
+    void deliveredRefusalsAreReParsedThroughTheirStrictContracts() {
+        var refusal = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
+                io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT, "Señal insuficiente.",
+                RecommendationConfidence.of(0.3));
+        var noDraft = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                io.github.stevdrey.dokene.ai.domain.NoDraftReason.MANUAL_REVIEW_REQUIRED, "Revisión manual.",
+                RecommendationConfidence.of(0.3));
+        var obs = new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null, "NO_DRAFT", null, null,
+                List.of(call(refusal), call(noDraft)), refusal, noDraft);
+
+        var result = InvariantChecker.checkDelivered(obs).get(InvariantChecker.SCHEMA_VALID);
+
+        assertThat(result.verdict()).isEqualTo(Verdict.PASS);
+    }
+
+    @Test
+    void unmarkedAmountsAttachedToPriceTermsMustBeGroundedExactly() {
+        EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                List.of(new EvalCase.PurchaseSpec(40, "Cuesta 50 el paquete"))));
+        assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft("Recuerda que cuesta 50 el paquete")))
+                .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).isEqualTo(Verdict.PASS);
+        assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft("Ahora el total es 999")))
+                .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).isEqualTo(Verdict.FAIL);
+    }
 }

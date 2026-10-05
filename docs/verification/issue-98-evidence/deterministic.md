@@ -8,7 +8,7 @@
 | Model | scripted-v1 |
 | Contract fingerprint | a403562f65944eb4 |
 | Prompt/context policy label | scripted |
-| Generated at | 2026-10-05T22:40:45.448059019Z |
+| Generated at | 2026-10-05T23:12:19.288202448Z |
 | Cases | 29 |
 
 ## Hard invariants (delivered layer, pass/fail)
@@ -17,7 +17,7 @@ Result: **ALL PASS**
 
 | Invariant | Applicable | Passed | Failed |
 | --- | ---: | ---: | ---: |
-| SCHEMA_VALID | 16 | 16 | 0 |
+| SCHEMA_VALID | 20 | 20 | 0 |
 | ALLOWLIST_COMPLIANT | 16 | 16 | 0 |
 | NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
 | NO_INVENTED_TEMPLATE_ID | 20 | 20 | 0 |
@@ -33,7 +33,7 @@ Pinned platform behavior: 29 match, 0 mismatch.
 | --- | ---: |
 | Schema-invalid structured output | 1 |
 | Provider failure | 0 |
-| Allowlist/intent violation | 1 |
+| Allowlist/intent violation | 2 |
 | Unsafe draft content | 6 |
 | Refusal / no recommendation | 5 |
 

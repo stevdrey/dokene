@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.ai.eval;
 
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
+import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
@@ -34,6 +35,11 @@ public final class RecordingAiProvider implements AiProvider {
             calls.add(new EvalProviderCall(name, AiOperation.NEXT_BEST_ACTION, request.context(), null,
                     ex.category(), ex.metadata(), System.nanoTime() - start));
             throw ex;
+        } catch (RuntimeException ex) {
+            // Untyped failures are normalized to UNAVAILABLE by the resilience layer; the attempt still happened.
+            calls.add(new EvalProviderCall(name, AiOperation.NEXT_BEST_ACTION, request.context(), null,
+                    AiFailureCategory.UNAVAILABLE, null, System.nanoTime() - start));
+            throw ex;
         }
     }
 
@@ -44,11 +50,18 @@ public final class RecordingAiProvider implements AiProvider {
         try {
             AiDraftResponse response = delegate.draft(request);
             calls.add(new EvalProviderCall(name, AiOperation.MESSAGE_DRAFT, request.context().customerContext(),
-                    response.outcome(), null, response.metadata(), System.nanoTime() - start));
+                    response.outcome(), null, response.metadata(), System.nanoTime() - start,
+                    request.context().action(), request.context().templateIntent()));
             return response;
         } catch (AiProviderException ex) {
             calls.add(new EvalProviderCall(name, AiOperation.MESSAGE_DRAFT, request.context().customerContext(),
-                    null, ex.category(), ex.metadata(), System.nanoTime() - start));
+                    null, ex.category(), ex.metadata(), System.nanoTime() - start, request.context().action(),
+                    request.context().templateIntent()));
+            throw ex;
+        } catch (RuntimeException ex) {
+            calls.add(new EvalProviderCall(name, AiOperation.MESSAGE_DRAFT, request.context().customerContext(),
+                    null, AiFailureCategory.UNAVAILABLE, null, System.nanoTime() - start,
+                    request.context().action(), request.context().templateIntent()));
             throw ex;
         }
     }

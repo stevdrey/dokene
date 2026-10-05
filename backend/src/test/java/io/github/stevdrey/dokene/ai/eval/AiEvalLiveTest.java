@@ -75,6 +75,10 @@ class AiEvalLiveTest {
         Path json = EvalReportWriter.write(report, Path.of("build", "reports", "ai-eval"), name);
 
         assertThat(json).exists();
+        assertThat(report.summary().unexpectedFailures())
+                .as("unexpected runtime exceptions break the experiment: %s", report.cases().stream()
+                        .filter(EvalReport.CaseReport::unexpectedFailure).map(EvalReport.CaseReport::id).toList())
+                .isZero();
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.violations())
                 .as("hard invariant violations for case %s", c.id()).isEmpty());
     }

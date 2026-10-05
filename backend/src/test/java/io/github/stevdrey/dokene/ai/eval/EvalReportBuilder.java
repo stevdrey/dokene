@@ -25,6 +25,7 @@ public final class EvalReportBuilder {
         List<EvalReport.CaseReport> cases = new ArrayList<>();
         Map<String, int[]> tallies = new LinkedHashMap<>();
         InvariantChecker.DELIVERED_INVARIANTS.forEach(id -> tallies.put(id, new int[3]));
+        int unexpected = 0;
         int matches = 0;
         int mismatches = 0;
         int[] raw = new int[5];
@@ -50,6 +51,8 @@ public final class EvalReportBuilder {
                     violations.put(id, result.violations());
                 }
             });
+            boolean unexpectedFailure = unexpectedFailure(obs, mode);
+            unexpected += unexpectedFailure ? 1 : 0;
             Boolean behaviorMatch = "deterministic".equals(mode) ? behaviorMatches(obs) : null;
             if (Boolean.TRUE.equals(behaviorMatch)) {
                 matches++;
@@ -77,7 +80,7 @@ public final class EvalReportBuilder {
                     obs.draftRejection(), obs.calls().size(), verdicts, violations,
                     new EvalReport.RawFlags(findings.schemaInvalid(), findings.providerFailure(),
                             findings.allowlistViolation(), findings.unsafeDraft(), findings.refusal()),
-                    behaviorMatch, informational(obs), delivered(obs), EvalReport.Rubric.blank()));
+                    unexpectedFailure, behaviorMatch, informational(obs), delivered(obs), EvalReport.Rubric.blank()));
         }
 
         Map<String, EvalReport.Tally> deliveredTotals = new LinkedHashMap<>();
@@ -93,13 +96,29 @@ public final class EvalReportBuilder {
         EvalReport.Usage usage = new EvalReport.Usage(calls, percentile(reported, 50), percentile(reported, 95),
                 includeWallLatency ? percentile(wall, 50) : null, includeWallLatency ? percentile(wall, 95) : null,
                 input, output, cost);
-        EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass,
+        EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass, unexpected,
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
                 new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]), usage);
         return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), mode,
                 String.join(",", EvalRunner.sortedModels(observations, true)),
                 String.join(",", EvalRunner.sortedModels(observations, false)), EvalRunner.contractFingerprint(),
                 promptPolicyLabel, Instant.now().toString(), summary, cases);
+    }
+
+    /**
+     * An exception escaping the services is a broken experiment, not a result: in live mode every one is unexpected;
+     * in deterministic mode only exceptions pinned by the case's expectation (e.g. a rejected request) are expected.
+     */
+    static boolean unexpectedFailure(CaseObservation obs, String mode) {
+        EvalCase.Expect expect = obs.evalCase().expect();
+        boolean live = !"deterministic".equals(mode);
+        return isException(obs.recommendationStatus())
+                && (live || !obs.recommendationStatus().equals(expect.recommendationStatus()))
+                || isException(obs.draftStatus()) && (live || !obs.draftStatus().equals(expect.draftStatus()));
+    }
+
+    private static boolean isException(String status) {
+        return status != null && status.startsWith("EXCEPTION_");
     }
 
     /** Deterministic baseline check: the observed statuses equal the dataset's pinned platform behavior. */

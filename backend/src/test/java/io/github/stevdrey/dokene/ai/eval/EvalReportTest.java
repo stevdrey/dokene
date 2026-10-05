@@ -143,12 +143,53 @@ class EvalReportTest {
         EvalReport.Summary s = baseline.summary();
         EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
                 baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
-                baseline.generatedAt(), new EvalReport.Summary(s.totalCases(), invariants, true, s.behaviorMatches(),
+                baseline.generatedAt(), new EvalReport.Summary(s.totalCases(), invariants, true, s.unexpectedFailures(), s.behaviorMatches(),
                 s.behaviorMismatches(), s.rawModelFindings(), s.usage()), baseline.cases());
 
         var result = EvalReportComparator.compare(baseline, candidate);
 
         assertThat(result.regression()).isTrue();
         assertThat(result.render()).contains(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK, "invariant removed or renamed");
+    }
+
+    @Test
+    void comparatorTreatsADroppedBaselineCaseAsARegressionWhenTheDatasetVersionMatches() {
+        EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
+        EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
+                baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
+                baseline.generatedAt(), baseline.summary(), baseline.cases().subList(0, 1));
+
+        var result = EvalReportComparator.compare(baseline, candidate);
+
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains("is missing from the candidate");
+    }
+
+    @Test
+    void unexpectedRuntimeExceptionsAreCountedAndBreakTheComparison() {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
+        CaseObservation crashed = new CaseObservation(c, "EXCEPTION_IllegalStateException", null, null, "AVAILABLE", null,
+                null, List.of());
+        EvalReport live = EvalReportBuilder.build(dataset, List.of(crashed), "live", null, null, true);
+        EvalReport deterministic = EvalReportBuilder.build(dataset, List.of(crashed), "deterministic", null, null, false);
+
+        assertThat(live.summary().unexpectedFailures()).isEqualTo(1);
+        assertThat(live.cases().getFirst().unexpectedFailure()).isTrue();
+        assertThat(deterministic.summary().unexpectedFailures()).isEqualTo(1);
+
+        EvalReport healthy = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
+        assertThat(EvalReportComparator.compare(healthy, live).regression()).isTrue();
+    }
+
+    @Test
+    void anExceptionPinnedByTheCaseExpectationIsNotUnexpectedInDeterministicRuns() {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("ua-02")).findFirst().orElseThrow();
+        CaseObservation rejected = new CaseObservation(c, "AVAILABLE", null, null, "EXCEPTION_IllegalArgumentException",
+                null, null, List.of());
+
+        assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "deterministic", null, null, false)
+                .summary().unexpectedFailures()).isZero();
+        assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "live", null, null, true)
+                .summary().unexpectedFailures()).isEqualTo(1);
     }
 }

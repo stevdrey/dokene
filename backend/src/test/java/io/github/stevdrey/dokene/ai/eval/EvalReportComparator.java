@@ -67,26 +67,47 @@ public final class EvalReportComparator {
                 warnings.add(id + " no longer applies to any case (was " + before.applicable() + "): coverage dropped");
             }
         }
+        int unexpectedBefore = baseline.summary().unexpectedFailures();
+        int unexpectedAfter = candidate.summary().unexpectedFailures();
+        lines.add("Unexpected runtime exceptions: " + unexpectedBefore + " -> " + unexpectedAfter
+                + (unexpectedAfter > 0 ? "  <-- REGRESSION (broken experiment)" : ""));
+        if (unexpectedAfter > 0) {
+            regression = true;
+        }
         if (comparable) {
             Map<String, EvalReport.CaseReport> before = new LinkedHashMap<>();
             baseline.cases().forEach(c -> before.put(c.id(), c));
-            for (EvalReport.CaseReport after : candidate.cases()) {
-                EvalReport.CaseReport previous = before.get(after.id());
+            Map<String, EvalReport.CaseReport> after = new LinkedHashMap<>();
+            candidate.cases().forEach(c -> after.put(c.id(), c));
+            for (String id : before.keySet()) {
+                if (!after.containsKey(id)) {
+                    // Dropping a baseline case silently loses safety-scenario coverage.
+                    regression = true;
+                    lines.add("  case " + id + " is missing from the candidate  <-- REGRESSION (coverage lost)");
+                }
+            }
+            for (String id : after.keySet()) {
+                if (!before.containsKey(id)) {
+                    warnings.add("case " + id + " is not in the baseline (same dataset version)");
+                }
+            }
+            for (EvalReport.CaseReport current : candidate.cases()) {
+                EvalReport.CaseReport previous = before.get(current.id());
                 if (previous == null) {
                     continue;
                 }
-                for (var verdict : after.deliveredInvariants().entrySet()) {
+                for (var verdict : current.deliveredInvariants().entrySet()) {
                     String old = previous.deliveredInvariants().get(verdict.getKey());
                     if (!"FAIL".equals(old) && "FAIL".equals(verdict.getValue())) {
                         regression = true;
-                        lines.add("  case " + after.id() + " regressed on " + verdict.getKey());
+                        lines.add("  case " + current.id() + " regressed on " + verdict.getKey());
                     }
                 }
-                if (!Objects.equals(previous.recommendationStatus(), after.recommendationStatus())
-                        || !Objects.equals(previous.draftStatus(), after.draftStatus())) {
-                    lines.add("  case " + after.id() + " outcome changed: " + previous.recommendationStatus() + "/"
-                            + previous.draftStatus() + " -> " + after.recommendationStatus() + "/"
-                            + after.draftStatus());
+                if (!Objects.equals(previous.recommendationStatus(), current.recommendationStatus())
+                        || !Objects.equals(previous.draftStatus(), current.draftStatus())) {
+                    lines.add("  case " + current.id() + " outcome changed: " + previous.recommendationStatus() + "/"
+                            + previous.draftStatus() + " -> " + current.recommendationStatus() + "/"
+                            + current.draftStatus());
                 }
             }
         }

@@ -23,7 +23,7 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 
 | Delivered-layer invariant | Applicable | Passed | Failed |
 |---|---:|---:|---:|
-| SCHEMA_VALID | 16 | 16 | 0 |
+| SCHEMA_VALID | 20 | 20 | 0 |
 | ALLOWLIST_COMPLIANT | 16 | 16 | 0 |
 | NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
 | NO_INVENTED_TEMPLATE_ID | 20 | 20 | 0 |
@@ -31,7 +31,7 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 | BOUNDED_LENGTH | 16 | 16 | 0 |
 | GATE_OUTCOME_SAFE | 20 | 20 | 0 |
 
-Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 1, unsafe content 6 (injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
+Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 2 (incompatible pair; draft deviating from the requested action), unsafe content 6 (injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
 
 ## Review follow-up (Codex, PR #116)
 
@@ -39,6 +39,14 @@ Raw scripted findings (unsafe model output the gate had to absorb): schema-inval
 - The independent invariants compare complete percentage/monetary tokens against the purchase descriptions (`90% de descuento` is not grounded by `10% de descuento`), detect every link form the production validator rejects (`mailto:`, `tel:`, `javascript:`, IPv4, any alphabetic TLD), and inspect every operator-visible text: draft, recommendation rationale and draft variables, and both refusal rationales.
 - `aiEvalCompare` treats a baseline invariant missing from the candidate (removed/renamed) as a regression.
 - **Real gap found and fixed:** the Action Gate validated draft and no-draft text but accepted `ActionRecommendation` rationale/`draftVariables` and `NoRecommendation` rationale with links, template IDs or invented offers (cases ad-05, ad-06). `DefaultAiActionGate` now applies `DraftSafetyValidator` to them (rejection `INVALID_RECOMMENDATION`, surfaced as `AI_UNAVAILABLE`); covered by `DefaultAiActionGateTest` and the baseline. Side effect: a refusal rationale that itself mentions an offer term is now rejected, consistent with no-draft refusals.
+
+### Second review round (Codex, PR #116)
+
+- `aiEvalCompare` also fails when a baseline case is missing from a candidate with the same dataset version, and when the candidate has unexpected runtime exceptions.
+- Runtime exceptions escaping the services are counted as `unexpectedFailures` (every one in live mode; in deterministic mode only those not pinned by the case expectation). `AiEvalLiveTest` and the deterministic test assert zero.
+- `RecordingAiProvider` also records untyped runtime failures as `UNAVAILABLE` attempts, so usage and raw findings stay accurate.
+- The independent invariants mirror the production vocabulary (full currency codes/words, unmarked amounts after price terms such as `total`/`cuesta`, the full promotion vocabulary, `*template_*` identifiers with any prefix); `InvariantCheckerParityTest` fails if the production validator rejects a form that the invariants do not flag.
+- Raw allowlist findings now include drafts that deviate from the action/intent the application requested (e.g. `ua-03`) or fall outside the context allowlist; delivered refusals are re-parsed through their strict contracts, so `SCHEMA_VALID` applies to refusal-only cases.
 
 ## Procedure
 

@@ -71,6 +71,7 @@ class AiEvalDeterministicIntegrationTest {
         assertThat(report.summary().totalCases()).isEqualTo(dataset.cases().size());
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.violations())
                 .as("hard invariant violations for case %s", c.id()).isEmpty());
+        assertThat(report.summary().unexpectedFailures()).isZero();
         assertThat(report.summary().allDeliveredInvariantsPass()).isTrue();
         assertMatchesCommittedBaseline(report);
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.behaviorMatch())
