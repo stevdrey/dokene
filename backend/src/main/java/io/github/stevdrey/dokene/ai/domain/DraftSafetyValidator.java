@@ -114,6 +114,33 @@ public final class DraftSafetyValidator {
         return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, offerContext);
     }
 
+    /**
+     * Validates the operator-visible rationale of a model refusal ({@code NoRecommendation}) with the same URL,
+     * provider identifier, offer and quantity checks applied to draft text.
+     */
+    public static Optional<DraftSafetyViolation> validate(NoRecommendation refusal, String allowedContextText,
+            DraftGroundingContext grounding) {
+        Objects.requireNonNull(refusal, "No-recommendation outcome is required");
+        String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
+        return validateTexts(Map.of("rationale", refusal.rationale()), allowedContextText, offerContext);
+    }
+
+    /**
+     * Validates the operator-visible rationale and draft variables of an action recommendation with the same
+     * URL, provider identifier, offer and quantity checks applied to draft text.
+     */
+    public static Optional<DraftSafetyViolation> validate(ActionRecommendation recommendation,
+            String allowedContextText, DraftGroundingContext grounding) {
+        Objects.requireNonNull(recommendation, "Recommendation is required");
+        Map<String, String> texts = new LinkedHashMap<>();
+        texts.put("rationale", recommendation.rationale());
+        for (DraftVariableEntry entry : recommendation.draftVariables().entries()) {
+            texts.put("variable '" + entry.key() + "'", entry.key() + "\n" + entry.value());
+        }
+        String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
+        return validateTexts(texts, allowedContextText, offerContext);
+    }
+
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText) {
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";

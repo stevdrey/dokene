@@ -58,7 +58,25 @@ public record EvalReport(
             RawFlags rawModel,
             Boolean behaviorMatch,
             Map<String, Object> informational,
+            Delivered delivered,
             Rubric rubric) {
+    }
+
+    /**
+     * Content exactly as delivered to the operator after the gate, kept so reviewers can grade quality after the
+     * run. Null parts were not delivered. Contains only model output about invented synthetic customers.
+     */
+    public record Delivered(DeliveredRecommendation recommendation, DeliveredDraft draft,
+            String recommendationRefusal, String draftRefusal) {
+    }
+
+    public record DeliveredRecommendation(String action, String templateIntent, String rationale, double confidence,
+            Map<String, String> draftVariables) {
+    }
+
+    public record DeliveredDraft(String action, String templateIntent, String locale, String body,
+            List<String> evidence, List<String> warnings, String rationale, double confidence,
+            Map<String, String> draftVariables) {
     }
 
     public record RawFlags(boolean schemaInvalid, boolean providerFailure, boolean allowlistViolation,

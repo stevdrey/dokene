@@ -2,6 +2,8 @@ package io.github.stevdrey.dokene.ai.eval;
 
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
+import io.github.stevdrey.dokene.ai.domain.NoDraft;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import java.util.List;
 
 /**
@@ -16,9 +18,19 @@ public record CaseObservation(
         String draftStatus,
         String draftRejection,
         MessageDraft deliveredDraft,
-        List<EvalProviderCall> calls) {
+        List<EvalProviderCall> calls,
+        NoRecommendation deliveredRecommendationRefusal,
+        NoDraft deliveredDraftRefusal) {
     public CaseObservation {
         calls = calls == null ? List.of() : List.copyOf(calls);
+    }
+
+    /** Observation without delivered refusals (the model produced an action/draft or nothing was delivered). */
+    public CaseObservation(EvalCase evalCase, String recommendationStatus, String recommendationRejection,
+            ActionRecommendation deliveredRecommendation, String draftStatus, String draftRejection,
+            MessageDraft deliveredDraft, List<EvalProviderCall> calls) {
+        this(evalCase, recommendationStatus, recommendationRejection, deliveredRecommendation, draftStatus,
+                draftRejection, deliveredDraft, calls, null, null);
     }
 
     /** Whether authoritative setup forbids contact; derived from the setup, never from the expectation block. */

@@ -48,7 +48,8 @@ public final class ScriptedEvalAiProvider implements AiProvider {
         return switch (script.kind()) {
             case "ACTION" -> new AiRecommendationResponse(new ActionRecommendation(script.action(),
                     script.templateIntent(), script.rationale(), RecommendationConfidence.of(script.confidence()),
-                    DraftVariables.empty()), metadata());
+                    script.variables() == null ? DraftVariables.empty() : DraftVariables.of(script.variables())),
+                    metadata());
             case "NO_RECOMMENDATION" -> new AiRecommendationResponse(new NoRecommendation(
                     NoRecommendationReason.valueOf(script.reason()), script.rationale(),
                     RecommendationConfidence.of(script.confidence())), metadata());

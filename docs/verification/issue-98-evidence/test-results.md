@@ -2,22 +2,24 @@
 
 Command: `cd backend && ./gradlew test` (JDK 26, Gradle 9.8.0, Testcontainers postgres:17-alpine). Result: BUILD SUCCESSFUL.
 
-Full suite: 1004 tests, 0 skipped, 0 failed.
+Full suite: 1011 tests, 0 skipped, 0 failed (after the Codex review follow-up).
 
-Evaluation suites:
+Evaluation and gate suites:
 
 | Suite | Tests | Skipped | Failed |
 |---|--:|--:|--:|
+| DraftSafetyValidatorTest | 38 | 0 | 0 |
 | AiEvalDatasetTest | 5 | 0 | 0 |
 | AiEvalDeterministicIntegrationTest | 1 | 0 | 0 |
-| EvalReportTest | 5 | 0 | 0 |
-| InvariantCheckerTest | 9 | 0 | 0 |
+| EvalReportTest | 7 | 0 | 0 |
+| InvariantCheckerTest | 12 | 0 | 0 |
+| DefaultAiActionGateTest | 58 | 0 | 0 |
 
 Additional checks run:
 
 - `./gradlew aiEvalCompare` baseline vs fresh deterministic report: no hard-invariant regression (exit 0).
 - `./gradlew aiEvalLive` without opt-in variables: BUILD SUCCESSFUL, live test skipped (no key, no cost).
-- Deterministic report reproduced identically across two fresh JVMs (daemon stopped between runs).
-- `deterministic.json` / `deterministic.md` in this directory are the report of the final run (26 cases, all delivered-layer invariants 0 failures).
+- The committed baseline was refreshed from one JVM and matched by the next run on a fresh Gradle daemon (reproducible).
+- `deterministic.json` / `deterministic.md` in this directory are the report of the final run (29 cases, dataset 1.1.0, all delivered-layer invariants 0 failures, 29/29 pinned behaviors).
 
 Not run: live provider evaluation (needs an API key and spends tokens).

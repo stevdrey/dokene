@@ -341,7 +341,7 @@ A better model is not a reason to weaken deterministic controls.
 
 ### Evaluation harness and baseline
 
-[ADR 0021](../adr/0021-ai-evaluation-harness-and-quality-baseline.md) defines a versioned **synthetic** dataset (26 cases, 11 scenario families: repeat purchase, dormant, recent purchase, explicit next follow-up, consent revoked, do-not-contact, archived, missing facts, adversarial notes, Spanish wording, unsupported action/template) that runs through the production services, Action Gate and PostgreSQL.
+[ADR 0021](../adr/0021-ai-evaluation-harness-and-quality-baseline.md) defines a versioned **synthetic** dataset (29 cases, 11 scenario families: repeat purchase, dormant, recent purchase, explicit next follow-up, consent revoked, do-not-contact, archived, missing facts, adversarial notes, Spanish wording, unsupported action/template) that runs through the production services, Action Gate and PostgreSQL.
 
 - **Hard invariants (pass/fail, delivered layer):** schema validity, action/template allowlist, no contact when policy forbids it, no invented provider template ID, no unsupported link/discount/price, bounded length, safe gate outcome. They are never traded against language quality.
 - **Raw model findings (informational):** schema-invalid output, allowlist violations, unsafe drafts, refusals and provider failures before the gate.

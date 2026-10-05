@@ -214,6 +214,41 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void rejectsRefusalRationaleWithUnsupportedLinkOrOffer() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        for (String rationale : List.of("Ofrece 30% de descuento en https://promo.example.test",
+                "Usar la plantilla meta_promo_2026", "Visita www.promo.dev ahora")) {
+            NoRecommendation refusal = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT, rationale,
+                    RecommendationConfidence.of(0.4));
+
+            ActionGateDecision decision = gate.evaluate(customerId, assembly, refusal);
+
+            assertThat(decision.isAccepted()).as(rationale).isFalse();
+            assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        }
+    }
+
+    @Test
+    void rejectsActionWhoseRationaleOrDraftVariablesCarryLinksTemplatesOrOffers() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        List<ActionRecommendation> unsafe = List.of(
+                new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
+                        "Cadencia cumplida", RecommendationConfidence.of(0.8),
+                        DraftVariables.of(java.util.Map.of("promo_link", "https://promo.example.test/50"))),
+                new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
+                        "Cadencia cumplida", RecommendationConfidence.of(0.8),
+                        DraftVariables.of(java.util.Map.of("template", "meta_promo_2026"))),
+                new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
+                        "Ofrece 90% de descuento", RecommendationConfidence.of(0.8), DraftVariables.empty()));
+        for (ActionRecommendation action : unsafe) {
+            ActionGateDecision decision = gate.evaluate(customerId, assembly, action);
+
+            assertThat(decision.isAccepted()).as(action.rationale()).isFalse();
+            assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        }
+    }
+
+    @Test
     void preservesRefusalWhenCustomerNotDue() {
         // Customer has no purchases -> NOT_YET_DUE or INELIGIBLE, but refusal is preserved
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());

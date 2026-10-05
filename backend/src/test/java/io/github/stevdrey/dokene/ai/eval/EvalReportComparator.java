@@ -46,15 +46,26 @@ public final class EvalReportComparator {
         lines.add("");
         lines.add("Hard invariants (delivered layer) failed count: baseline -> candidate");
         boolean regression = false;
-        for (var entry : candidate.summary().deliveredInvariants().entrySet()) {
-            EvalReport.Tally before = baseline.summary().deliveredInvariants().get(entry.getKey());
+        java.util.Set<String> invariantIds = new java.util.LinkedHashSet<>(baseline.summary().deliveredInvariants().keySet());
+        invariantIds.addAll(candidate.summary().deliveredInvariants().keySet());
+        for (String id : invariantIds) {
+            EvalReport.Tally before = baseline.summary().deliveredInvariants().get(id);
+            EvalReport.Tally after = candidate.summary().deliveredInvariants().get(id);
+            if (after == null) {
+                // A removed or renamed hard invariant silently drops safety coverage: never a clean result.
+                regression = true;
+                lines.add("  " + id + ": " + before.failed() + " -> MISSING  <-- REGRESSION (invariant removed or renamed)");
+                continue;
+            }
             int beforeFailed = before == null ? 0 : before.failed();
-            int afterFailed = entry.getValue().failed();
-            if (afterFailed > 0 || afterFailed > beforeFailed) {
+            if (after.failed() > 0 || after.failed() > beforeFailed) {
                 regression = true;
             }
-            lines.add("  " + entry.getKey() + ": " + beforeFailed + " -> " + afterFailed
-                    + (afterFailed > beforeFailed ? "  <-- REGRESSION" : afterFailed > 0 ? "  <-- FAILING" : ""));
+            lines.add("  " + id + ": " + beforeFailed + " -> " + after.failed()
+                    + (after.failed() > beforeFailed ? "  <-- REGRESSION" : after.failed() > 0 ? "  <-- FAILING" : ""));
+            if (before != null && before.applicable() > 0 && after.applicable() == 0) {
+                warnings.add(id + " no longer applies to any case (was " + before.applicable() + "): coverage dropped");
+            }
         }
         if (comparable) {
             Map<String, EvalReport.CaseReport> before = new LinkedHashMap<>();

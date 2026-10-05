@@ -75,7 +75,8 @@ public record EvalCase(
             String reason,
             String rationale,
             double confidence,
-            String failure) {
+            String failure,
+            java.util.Map<String, String> variables) {
     }
 
     /** {@code kind}: DRAFT, NO_DRAFT or FAILURE. */

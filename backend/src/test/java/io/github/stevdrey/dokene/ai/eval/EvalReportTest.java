@@ -115,4 +115,40 @@ class EvalReportTest {
         assertThat(result.warnings()).anyMatch(w -> w.contains("dataset versions differ"))
                 .anyMatch(w -> w.contains("contract fingerprint"));
     }
+
+    @Test
+    void reportKeepsDeliveredContentForHumanGradingAndRendersIt(@TempDir Path dir) throws Exception {
+        EvalReport report = EvalReportBuilder.build(dataset, List.of(
+                observation("rp-01", draft("Hola Lucía, ¿cómo te fue con tu compra?"), 20),
+                observation("rc-01", null, 20)), "live", null, null, true);
+
+        EvalReport.CaseReport graded = report.cases().get(0);
+        assertThat(graded.delivered().draft().body()).isEqualTo("Hola Lucía, ¿cómo te fue con tu compra?");
+        assertThat(graded.delivered().draft().rationale()).isEqualTo("Basado en la compra.");
+        assertThat(graded.delivered().draft().locale()).isEqualTo("es-419");
+        assertThat(report.cases().get(1).delivered()).isNull();
+
+        EvalReportWriter.write(report, dir, "content");
+        assertThat(EvalReportWriter.read(dir.resolve("content.json"))).isEqualTo(report);
+        assertThat(Files.readString(dir.resolve("content.md"))).contains("Content for grading",
+                "Hola Lucía, ¿cómo te fue con tu compra?");
+    }
+
+    @Test
+    void comparatorTreatsARemovedOrRenamedHardInvariantAsARegression() {
+        EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
+        var invariants = new java.util.LinkedHashMap<>(baseline.summary().deliveredInvariants());
+        invariants.remove(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK);
+        invariants.put("RENAMED_INVARIANT", new EvalReport.Tally(1, 1, 0));
+        EvalReport.Summary s = baseline.summary();
+        EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
+                baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
+                baseline.generatedAt(), new EvalReport.Summary(s.totalCases(), invariants, true, s.behaviorMatches(),
+                s.behaviorMismatches(), s.rawModelFindings(), s.usage()), baseline.cases());
+
+        var result = EvalReportComparator.compare(baseline, candidate);
+
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK, "invariant removed or renamed");
+    }
 }

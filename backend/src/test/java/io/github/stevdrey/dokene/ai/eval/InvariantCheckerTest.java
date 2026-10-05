@@ -173,4 +173,71 @@ class InvariantCheckerTest {
         assertThat(InvariantChecker.checkDelivered(obs).values()).allSatisfy(r -> assertThat(r.verdict())
                 .isIn(Verdict.PASS, Verdict.NOT_APPLICABLE));
     }
+
+    @Test
+    void groundedAmountsMustMatchExactlyNotBySymbolOrWord() {
+        EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                List.of(new EvalCase.PurchaseSpec(40, "Oferta 10% de descuento"),
+                        new EvalCase.PurchaseSpec(50, "Combo $10 de café"))));
+        for (String body : List.of("Recuerda el 10% de descuento que compraste", "Tu combo de $10 te espera")) {
+            var results = InvariantChecker.checkDelivered(observe(grounded, null, draft(body)));
+            assertThat(results.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.PASS);
+        }
+        for (String body : List.of("Ahora tienes 90% de descuento", "Tu combo cuesta $999", "Es un 110% de descuento",
+                "Paga 15 USD hoy")) {
+            var results = InvariantChecker.checkDelivered(observe(grounded, null, draft(body)));
+            assertThat(results.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.FAIL);
+        }
+    }
+
+    @Test
+    void detectsEveryLinkFormTheProductionGateRejects() {
+        for (String body : List.of("Escribe a mailto:ventas@example.test", "Llama tel:1234", "Abre javascript:alert(1)",
+                "Entra a 192.168.0.1:8080/x", "Visita promo.dev hoy", "Mira www.tienda.test", "Ve a wa.me/50688880000",
+                "Abre ftp://archivos.test/a")) {
+            var results = InvariantChecker.checkDelivered(observe(evalCase, null, draft(body), draft(body)));
+            assertThat(results.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.FAIL);
+        }
+        var clean = InvariantChecker.checkDelivered(observe(evalCase, null,
+                draft("Hola Lucía, ¿cómo te fue con tu café? Cuando quieras, escríbenos.")));
+        assertThat(clean.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).isEqualTo(Verdict.PASS);
+    }
+
+    @Test
+    void inspectsRecommendationRationaleDraftVariablesAndBothRefusalKinds() {
+        ActionRecommendation withLink = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Cadencia cumplida", RecommendationConfidence.of(0.8),
+                DraftVariables.of(java.util.Map.of("promo_link", "https://promo.example.test/50")));
+        ActionRecommendation withOffer = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Ofrece 30% de descuento", RecommendationConfidence.of(0.8),
+                DraftVariables.empty());
+        var refusal = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
+                io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT,
+                "Visita https://promo.example.test", RecommendationConfidence.of(0.3));
+        var noDraft = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                io.github.stevdrey.dokene.ai.domain.NoDraftReason.MANUAL_REVIEW_REQUIRED,
+                "Usa la plantilla meta_promo_2026", RecommendationConfidence.of(0.3));
+
+        var delivered = List.of(
+                new CaseObservation(evalCase, "AVAILABLE", null, withLink, "NO_DRAFT", null, null, List.of(call(withLink))),
+                new CaseObservation(evalCase, "AVAILABLE", null, withOffer, "NO_DRAFT", null, null, List.of(call(withOffer))),
+                new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null, "NO_DRAFT", null, null,
+                        List.of(call(refusal)), refusal, null),
+                new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null, "NO_DRAFT", null, null,
+                        List.of(call(noDraft)), null, noDraft));
+        for (CaseObservation obs : delivered) {
+            var results = InvariantChecker.checkDelivered(obs);
+            assertThat(results.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict() == Verdict.FAIL
+                    || results.get(InvariantChecker.NO_INVENTED_TEMPLATE_ID).verdict() == Verdict.FAIL)
+                    .as(obs.toString()).isTrue();
+            assertThat(results.get(InvariantChecker.GATE_OUTCOME_SAFE).verdict()).isEqualTo(Verdict.FAIL);
+            assertThat(InvariantChecker.rawFindings(obs).unsafeDraft()).isTrue();
+        }
+        // The same unsafe outputs rejected by the gate (nothing delivered) pass the delivered layer.
+        var rejected = new CaseObservation(evalCase, "AI_UNAVAILABLE", "INVALID_RECOMMENDATION", null, "NO_DRAFT", null,
+                null, List.of(call(withLink)));
+        assertThat(InvariantChecker.checkDelivered(rejected).get(InvariantChecker.GATE_OUTCOME_SAFE).verdict())
+                .isEqualTo(Verdict.PASS);
+        assertThat(InvariantChecker.rawFindings(rejected).unsafeDraft()).isTrue();
+    }
 }

@@ -8,7 +8,7 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 
 | Criterion | Evidence |
 |---|---|
-| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (26 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
+| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (29 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
 | Hard invariants evaluated independently from language quality | `InvariantChecker`, `InvariantCheckerTest` (passing and failing example per invariant, grounded vs injected offers, forbidden-contact variants); rubric dimensions live in a separate blank `rubric` block |
 | Harness records schema validity, allowlist compliance, gate outcome, latency and usage | `EvalReport` (`deliveredInvariants`, per-case status/rejection, `usage` with reported/wall latency, tokens, optional cost), `EvalReportTest` |
 | Live evaluation opt-in, no key needed for normal CI | `AiEvalLiveTest` (`@Tag("ai-eval-live")`, `DOKENE_AI_EVAL_LIVE=true` + API key); `test` task `excludeTags 'ai-eval-live'`; `aiEvalLive` is not wired into `check`. `./gradlew aiEvalLive` without opt-in finishes with the test skipped |
@@ -17,21 +17,28 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 | Baseline results and known limitations documented | below |
 | Roadmap/Phase 2 docs updated with procedure and exit evidence | `docs/wiki/Roadmap.md` (Phase 2), `docs/wiki/AI-and-Automation.md` ("Evaluation"), `backend/README.md` |
 
-## Deterministic baseline (dataset 1.0.0, scripted provider)
+## Deterministic baseline (dataset 1.1.0, scripted provider)
 
-26 cases through the real services, Action Gate and PostgreSQL. All 26 match the pinned platform behavior.
+29 cases through the real services, Action Gate and PostgreSQL. All 29 match the pinned platform behavior.
 
 | Delivered-layer invariant | Applicable | Passed | Failed |
 |---|---:|---:|---:|
-| SCHEMA_VALID | 15 | 15 | 0 |
-| ALLOWLIST_COMPLIANT | 15 | 15 | 0 |
+| SCHEMA_VALID | 16 | 16 | 0 |
+| ALLOWLIST_COMPLIANT | 16 | 16 | 0 |
 | NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
-| NO_INVENTED_TEMPLATE_ID | 8 | 8 | 0 |
-| NO_UNSUPPORTED_OFFER_OR_LINK | 8 | 8 | 0 |
-| BOUNDED_LENGTH | 15 | 15 | 0 |
-| GATE_OUTCOME_SAFE | 15 | 15 | 0 |
+| NO_INVENTED_TEMPLATE_ID | 20 | 20 | 0 |
+| NO_UNSUPPORTED_OFFER_OR_LINK | 20 | 20 | 0 |
+| BOUNDED_LENGTH | 16 | 16 | 0 |
+| GATE_OUTCOME_SAFE | 20 | 20 | 0 |
 
-Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 1, unsafe draft content 3 (injected 50% + link, injected template ID, invented 20% discount), refusals 3. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
+Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 1, unsafe content 6 (injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
+
+## Review follow-up (Codex, PR #116)
+
+- Reports now carry the delivered content (`delivered`: recommendation, rationale, draft body/evidence/warnings, refusals) and the Markdown has a "Content for grading" section, so reviewers can fill the rubric after a live run.
+- The independent invariants compare complete percentage/monetary tokens against the purchase descriptions (`90% de descuento` is not grounded by `10% de descuento`), detect every link form the production validator rejects (`mailto:`, `tel:`, `javascript:`, IPv4, any alphabetic TLD), and inspect every operator-visible text: draft, recommendation rationale and draft variables, and both refusal rationales.
+- `aiEvalCompare` treats a baseline invariant missing from the candidate (removed/renamed) as a regression.
+- **Real gap found and fixed:** the Action Gate validated draft and no-draft text but accepted `ActionRecommendation` rationale/`draftVariables` and `NoRecommendation` rationale with links, template IDs or invented offers (cases ad-05, ad-06). `DefaultAiActionGate` now applies `DraftSafetyValidator` to them (rejection `INVALID_RECOMMENDATION`, surfaced as `AI_UNAVAILABLE`); covered by `DefaultAiActionGateTest` and the baseline. Side effect: a refusal rationale that itself mentions an offer term is now rejected, consistent with no-draft refusals.
 
 ## Procedure
 

@@ -77,7 +77,7 @@ public final class EvalReportBuilder {
                     obs.draftRejection(), obs.calls().size(), verdicts, violations,
                     new EvalReport.RawFlags(findings.schemaInvalid(), findings.providerFailure(),
                             findings.allowlistViolation(), findings.unsafeDraft(), findings.refusal()),
-                    behaviorMatch, informational(obs), EvalReport.Rubric.blank()));
+                    behaviorMatch, informational(obs), delivered(obs), EvalReport.Rubric.blank()));
         }
 
         Map<String, EvalReport.Tally> deliveredTotals = new LinkedHashMap<>();
@@ -110,6 +110,26 @@ public final class EvalReportBuilder {
                 && expect.draftStatus().equals(obs.draftStatus())
                 && java.util.Objects.equals(expect.draftRejection(), obs.draftRejection())
                 && expect.providerInvoked() == !obs.calls().isEmpty();
+    }
+
+    private static EvalReport.Delivered delivered(CaseObservation obs) {
+        var rec = obs.deliveredRecommendation();
+        var draft = obs.deliveredDraft();
+        var recRefusal = obs.deliveredRecommendationRefusal();
+        var draftRefusal = obs.deliveredDraftRefusal();
+        if (rec == null && draft == null && recRefusal == null && draftRefusal == null) {
+            return null;
+        }
+        return new EvalReport.Delivered(
+                rec == null ? null : new EvalReport.DeliveredRecommendation(rec.action().name(),
+                        rec.templateIntent().name(), rec.rationale(), rec.confidence().value(),
+                        rec.draftVariables().asMap()),
+                draft == null ? null : new EvalReport.DeliveredDraft(draft.action().name(),
+                        draft.templateIntent().name(), draft.locale(), draft.body(), draft.evidence(),
+                        draft.warnings(), draft.rationale(), draft.confidence().value(),
+                        draft.draftVariables().asMap()),
+                recRefusal == null ? null : recRefusal.reason() + ": " + recRefusal.rationale(),
+                draftRefusal == null ? null : draftRefusal.reason() + ": " + draftRefusal.rationale());
     }
 
     /** Clearly labelled heuristics: informational only, never pass/fail and never part of a score. */

@@ -87,11 +87,41 @@ public final class EvalReportWriter {
                     .append(status(c.draftStatus(), c.draftRejection())).append(" | ").append(c.providerCalls())
                     .append(" | ").append(failures(c.violations())).append(" |\n");
         }
+        md.append("\n## Content for grading (as delivered after the gate)\n\n");
+        md.append("Model output about invented synthetic customers; use it to fill the rubric below.\n");
+        for (EvalReport.CaseReport c : report.cases()) {
+            EvalReport.Delivered d = c.delivered();
+            if (d == null) {
+                continue;
+            }
+            md.append("\n### ").append(c.id()).append(" (").append(c.family()).append(")\n\n");
+            if (d.recommendation() != null) {
+                md.append("- Recommendation: ").append(d.recommendation().action()).append(" / ")
+                        .append(d.recommendation().templateIntent()).append(" (confidence ")
+                        .append(d.recommendation().confidence()).append(")\n  - Rationale: ")
+                        .append(oneLine(d.recommendation().rationale())).append('\n');
+            }
+            if (d.recommendationRefusal() != null) {
+                md.append("- Recommendation refusal: ").append(oneLine(d.recommendationRefusal())).append('\n');
+            }
+            if (d.draft() != null) {
+                md.append("- Draft (").append(d.draft().locale()).append("): ").append(oneLine(d.draft().body()))
+                        .append("\n  - Rationale: ").append(oneLine(d.draft().rationale())).append("\n  - Evidence: ")
+                        .append(d.draft().evidence()).append("; warnings: ").append(d.draft().warnings()).append('\n');
+            }
+            if (d.draftRefusal() != null) {
+                md.append("- Draft refusal: ").append(oneLine(d.draftRefusal())).append('\n');
+            }
+        }
         md.append("\n## Human rubric\n\nRecommendation relevance, rationale usefulness, draft quality, factual grounding ")
                 .append("and editability/tone are graded 1-5 by reviewers (see the rubric anchors in ")
                 .append("`docs/verification/issue-98-ai-evaluation-verification.md`) and recorded in the JSON `rubric` ")
                 .append("blocks. They are never combined with, or allowed to offset, the hard invariants above.\n");
         return md.toString();
+    }
+
+    private static String oneLine(String text) {
+        return text == null ? "" : text.replaceAll("\\s+", " ").replace("|", "\\|");
     }
 
     private static void row(StringBuilder md, String key, String value) {

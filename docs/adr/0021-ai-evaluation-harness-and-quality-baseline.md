@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Builds on [ADR 0004](0004-ai-action-gate.md), [ADR 0015](0015-structured-next-best-action-recommendation-contracts.md), [ADR 0016](0016-openai-responses-api-adapter-with-structured-outputs.md) (CI never uses a live provider or key), [ADR 0017](0017-deterministic-ai-action-gate.md), [ADR 0018](0018-constrained-follow-up-message-draft-generation.md) and [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md).
+Accepted. Amends [ADR 0017](0017-deterministic-ai-action-gate.md) (recommendation rationale and draft variables, and refusal rationales, are content-validated like drafts). Builds on [ADR 0004](0004-ai-action-gate.md), [ADR 0015](0015-structured-next-best-action-recommendation-contracts.md), [ADR 0016](0016-openai-responses-api-adapter-with-structured-outputs.md) (CI never uses a live provider or key), [ADR 0017](0017-deterministic-ai-action-gate.md), [ADR 0018](0018-constrained-follow-up-message-draft-generation.md) and [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md).
 
 ## Context
 
@@ -12,7 +12,7 @@ Accepted. Builds on [ADR 0004](0004-ai-action-gate.md), [ADR 0015](0015-structur
 
 ### 1. Hard invariants are pass/fail and independent from quality
 
-`InvariantChecker` (test source set) evaluates, on what an operator would actually receive after the gate (the *delivered layer*): schema validity (re-parse through the strict contract parsers), action/template-intent allowlist compliance, no content or provider call when deterministic policy forbids contact (consent revoked/unknown, do-not-contact, archived), no invented provider template ID, no unsupported link/discount/price, bounded length, and gate-outcome safety (no unsafe raw output accepted). They must hold at 100% for every provider and model, and are never traded against language quality. The patterns are deliberately independent from the production `DraftSafetyValidator` so a validator regression is detected rather than trusted; text grounded in purchase descriptions is allowed, text only present in customer notes is not (notes are untrusted).
+`InvariantChecker` (test source set) evaluates, on what an operator would actually receive after the gate (the *delivered layer*): schema validity (re-parse through the strict contract parsers), action/template-intent allowlist compliance, no content or provider call when deterministic policy forbids contact (consent revoked/unknown, do-not-contact, archived), no invented provider template ID, no unsupported link/discount/price, bounded length, and gate-outcome safety (no unsafe raw output accepted). Content checks cover every operator-visible text (draft, recommendation rationale and draft variables, both refusal rationales); amounts are compared as complete tokens against the purchase descriptions and links are detected in every form the production validator rejects. They must hold at 100% for every provider and model, and are never traded against language quality. The patterns are deliberately independent from the production `DraftSafetyValidator` so a validator regression is detected rather than trusted; text grounded in purchase descriptions is allowed, text only present in customer notes is not (notes are untrusted).
 
 Raw (pre-gate) model findings — schema-invalid output, allowlist violations, unsafe drafts, refusals, provider failures — are reported separately as comparison data. Unsafe model output is expected test input; the deterministic controls must reject it.
 
@@ -31,7 +31,7 @@ Recommendation relevance, rationale usefulness, draft quality, factual grounding
 
 ### 5. Reports and comparison
 
-Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md` (human-readable). The report carries the dataset version, a canonicalized fingerprint of the strict structured-output schemas, an optional prompt/context policy label and per-case status/rejection reasons. `./gradlew aiEvalCompare -Pbaseline=… -Pcandidate=…` shows invariant, raw-finding, latency, token and cost deltas side by side and exits non-zero on any hard-invariant regression; it warns when dataset version or contract fingerprint differ. Before changing model, prompt/context policy or contract, capture a baseline with the current configuration and compare.
+Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md` (human-readable), including the content delivered after the gate so humans can grade it later (model output about invented synthetic customers only). The report carries the dataset version, a canonicalized fingerprint of the strict structured-output schemas, an optional prompt/context policy label and per-case status/rejection reasons. `./gradlew aiEvalCompare -Pbaseline=… -Pcandidate=…` shows invariant, raw-finding, latency, token and cost deltas side by side and exits non-zero on any hard-invariant regression, including a baseline invariant that is missing from the candidate; it warns when dataset version or contract fingerprint differ. Before changing model, prompt/context policy or contract, capture a baseline with the current configuration and compare.
 
 ## Consequences
 
@@ -40,6 +40,8 @@ Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md`
 - Free-text product claims remain a residual risk (ADR 0018): the invariants cannot prove a draft's factual claims, only that it contains no links, template IDs, prices or discounts that are not grounded.
 - The harness lives in the test source set; promoting it to production code would need a new ADR.
 - Evaluation configures a connection pool larger than the shared integration fixture's default of one (gate-rejection audits use an independent transaction) and a high AI rate limit for the single synthetic actor; rate limiting is verified elsewhere.
+
+- Evaluation found that the gate did not validate recommendation rationale/draft variables or refusal rationales; `DefaultAiActionGate` now applies `DraftSafetyValidator` to them.
 
 ## Out of scope
 

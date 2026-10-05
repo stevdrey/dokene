@@ -221,6 +221,16 @@ public class DefaultAiActionGate implements AiActionGate {
                             "Authoritative state changed between context assembly and result acceptance", currentEvaluation, outcome, evaluatedVersion);
                 }
             }
+            // The refusal rationale is shown to the operator: it must satisfy the same content rules as a draft
+            boolean hasRefusalContext = assembly != null && assembly.context() != null;
+            var refusalViolation = DraftSafetyValidator.validate((NoRecommendation) outcome,
+                    hasRefusalContext ? formatAllowedContext(assembly.context(), tenantPolicy, tenantOpt.get()) : "",
+                    hasRefusalContext ? buildGrounding(assembly.context()) : null);
+            if (refusalViolation.isPresent()) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, refusalViolation.get().code());
+                return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        refusalViolation.get().description(), currentEvaluation, outcome, evaluatedVersion);
+            }
             // Model refusal is accepted once tenant context, caller authorization, customer active state, and baseline consistency succeed
             return ActionGateDecision.accepted(outcome, currentEvaluation, evaluatedVersion);
         }
@@ -279,6 +289,16 @@ public class DefaultAiActionGate implements AiActionGate {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT, "INCOMPATIBLE_TEMPLATE_INTENT");
                 return ActionGateDecision.rejected(ActionGateRejectionReason.DISALLOWED_TEMPLATE_INTENT,
                         "Semantic template intent is incompatible with recommended action", currentEvaluation, outcome, evaluatedVersion);
+            }
+
+            // 14. Operator-visible text (rationale, draft variables) must satisfy the same content rules as a draft
+            var contentViolation = DraftSafetyValidator.validate(actionRec,
+                    formatAllowedContext(assembly.context(), tenantPolicy, tenantOpt.get()),
+                    buildGrounding(assembly.context()));
+            if (contentViolation.isPresent()) {
+                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, contentViolation.get().code());
+                return ActionGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
+                        contentViolation.get().description(), currentEvaluation, outcome, evaluatedVersion);
             }
 
             return ActionGateDecision.accepted(actionRec, currentEvaluation, evaluatedVersion);
