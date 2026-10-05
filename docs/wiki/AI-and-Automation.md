@@ -176,6 +176,18 @@ Under `dokene.ai.*`: `attempts` and `attempt.duration` (per provider attempt, re
 
 Each terminal invocation records one `AI_INVOCATION_OUTCOME` audit event (`GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED` with the exact reason (except authorization/not-found rejections, which are counted and logged but not audited because the customer id is unverified at that point), or `FAILED` with the category), readable with `AUDIT_READ`. Raw prompts, customer notes, phone numbers, API keys and generated message bodies are never logged or audited. The server-generated correlation id appears in logs, the `X-Request-Id` response header and the provider `X-Client-Request-Id` header, which lets support correlate a user report with a log line and an audit row.
 
+## Operator UI: AI assistance panel
+
+Governed by [ADR 0020](../adr/0020-frontend-ai-assistance-panel.md). The follow-up workbench detail shows an "Asistente IA" panel below the deterministic "¿Por qué contactar hoy?" block.
+
+- **Two explicit steps:** "Obtener recomendación", then (only for an `AVAILABLE` recommendation) "Generar borrador". Nothing is requested automatically.
+- **Separation:** the deterministic due reason, the AI action/rationale/confidence and the draft are separate, labelled regions; AI content is always marked as AI-generated.
+- **Draft editing is local:** the draft is an editable text area (max 1000 characters) with evidence and warnings; "Copiar borrador" copies the text. There is **no approve/send control** in Phase 2 and the UI says nothing was sent.
+- **Staleness:** results carry the policy version (`ETag`) they were produced for and are sent with `If-Match`. A changed version, `STALE_STATE` or `409` hides the result and requires "Actualizar recomendación"; the workbench also reloads the queue.
+- **Failure handling:** `AI_UNAVAILABLE`, refusals, `403`, `429` and server errors show accessible messages (retry only when `retryable`); the manual snooze/dismiss/manual follow-up actions are never disabled by AI state.
+- **Isolation:** state is per customer and per workspace and is discarded (and in-flight requests aborted) on selection or workspace change. The browser only calls Dokene APIs.
+- **Roles:** `VIEWER` sees the controls disabled with an explanation; the backend remains authoritative (`FOLLOWUP_EVALUATE`, `MESSAGE_DRAFT`).
+
 ## Trust boundaries
 
 Treat these as untrusted input to the model and to the application:

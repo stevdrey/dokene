@@ -1,0 +1,27 @@
+# Issue 97 - mutation check: each fix is undone on purpose and the suite must fail
+# commit 731982f, 2026-10-04T07:39Z. Files are restored after each run.
+
+### Mutation: response without a valid strong ETag is accepted again (returns 0 instead of rejecting)
+Tests  18 failed | 164 passed (182)
+         × rejects a successful response whose ETag is decimal, never falling back to the requested version
+         × rejects a successful response whose ETag is empty, never falling back to the requested version
+         × rejects a successful response whose ETag is leading zero, never falling back to the requested version
+         × rejects a successful response whose ETag is missing, never falling back to the requested version
+         × rejects a successful response whose ETag is negative, never falling back to the requested version
+         × rejects a successful response whose ETag is not a number, never falling back to the requested version
+
+### Mutation: regenerate confirmation survives derived staleness
+Tests  1 failed | 181 passed (182)
+       × neither shows nor executes it once the item policy version changed
+
+### Mutation: refresh always scans the queue instead of one eligibility check
+Tests  4 failed | 178 passed (182)
+       × keeps following the cursor when the customer is still due and finds it
+       × stops after a single eligibility check when the customer is provably no longer in the queue
+       × stops without a screen error when the eligibility check fails
+       × treats a customer that is due but not overdue as gone from the "Vencidos" queue
+
+### Mutation: ineligibility notice is not cleared by the operator selecting another customer
+Tests  1 failed | 181 passed (182)
+       × is cleared when the operator selects another customer
+

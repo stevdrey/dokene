@@ -52,7 +52,7 @@ Key outcomes:
 - constrained message drafting;
 - strict schema validation;
 - prompt-injection-aware context assembly;
-- recommendation rationale visible to operator;
+- recommendation rationale and editable draft visible to the operator in the follow-up workbench, with no approve/send path ([ADR 0020](../adr/0020-frontend-ai-assistance-panel.md));
 - safe AI failure handling with bounded retry, privacy-safe metrics and audit ([ADR 0019](../adr/0019-ai-failure-handling-telemetry-and-audit.md));
 - AI quality/evaluation baseline.
 
