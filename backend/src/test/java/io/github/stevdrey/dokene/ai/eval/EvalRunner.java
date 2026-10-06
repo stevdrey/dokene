@@ -48,6 +48,8 @@ import java.util.concurrent.Callable;
  * provider differs (scripted or live). Nothing here talks to a real customer or a production tenant.
  */
 public final class EvalRunner {
+    /** Fixed so every draft prompt is identical across runs; isolation comes from the random tenant id. */
+    static final String SYNTHETIC_BUSINESS_NAME = "Tienda Demo";
     static final ZoneId ZONE = ZoneId.of("America/Costa_Rica");
 
     private final FollowUpService followUps;
@@ -85,7 +87,7 @@ public final class EvalRunner {
     /** Runs all cases in dataset order inside one fresh synthetic tenant and returns the observations. */
     public List<CaseObservation> run(EvalDataset dataset) throws Exception {
         Instant now = Instant.now();
-        Tenant tenant = TenantSecurityIntegrationFixture.seedTenant(tenants, "AI Eval Tenant " + UUID.randomUUID(), now);
+        Tenant tenant = TenantSecurityIntegrationFixture.seedTenant(tenants, SYNTHETIC_BUSINESS_NAME, now);
         TenantContext tenantContext = TenantSecurityIntegrationFixture.context(
                 TenantSecurityIntegrationFixture.seedMembership(memberships, contexts, tenant.id(),
                         new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));

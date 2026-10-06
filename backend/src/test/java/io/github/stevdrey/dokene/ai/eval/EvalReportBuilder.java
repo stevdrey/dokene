@@ -51,7 +51,7 @@ public final class EvalReportBuilder {
                     violations.put(id, result.violations());
                 }
             });
-            boolean unexpectedFailure = unexpectedFailure(obs, mode);
+            boolean unexpectedFailure = unexpectedFailure(obs);
             unexpected += unexpectedFailure ? 1 : 0;
             Boolean behaviorMatch = "deterministic".equals(mode) ? behaviorMatches(obs) : null;
             if (Boolean.TRUE.equals(behaviorMatch)) {
@@ -106,15 +106,14 @@ public final class EvalReportBuilder {
     }
 
     /**
-     * An exception escaping the services is a broken experiment, not a result: in live mode every one is unexpected;
-     * in deterministic mode only exceptions pinned by the case's expectation (e.g. a rejected request) are expected.
+     * An exception escaping the services is a broken experiment, not a result. Only an exception pinned by the
+     * case's expectation (a deliberately malformed request such as {@code ua-02}, rejected before any provider is
+     * reached) is expected, in deterministic and live runs alike.
      */
-    static boolean unexpectedFailure(CaseObservation obs, String mode) {
+    static boolean unexpectedFailure(CaseObservation obs) {
         EvalCase.Expect expect = obs.evalCase().expect();
-        boolean live = !"deterministic".equals(mode);
-        return isException(obs.recommendationStatus())
-                && (live || !obs.recommendationStatus().equals(expect.recommendationStatus()))
-                || isException(obs.draftStatus()) && (live || !obs.draftStatus().equals(expect.draftStatus()));
+        return isException(obs.recommendationStatus()) && !obs.recommendationStatus().equals(expect.recommendationStatus())
+                || isException(obs.draftStatus()) && !obs.draftStatus().equals(expect.draftStatus());
     }
 
     private static boolean isException(String status) {

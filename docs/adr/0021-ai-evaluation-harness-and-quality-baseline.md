@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amends [ADR 0017](0017-deterministic-ai-action-gate.md) (recommendation rationale and draft variables, and refusal rationales, are content-validated like drafts). Builds on [ADR 0004](0004-ai-action-gate.md), [ADR 0015](0015-structured-next-best-action-recommendation-contracts.md), [ADR 0016](0016-openai-responses-api-adapter-with-structured-outputs.md) (CI never uses a live provider or key), [ADR 0017](0017-deterministic-ai-action-gate.md), [ADR 0018](0018-constrained-follow-up-message-draft-generation.md) and [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md).
+Accepted. Amends [ADR 0017](0017-deterministic-ai-action-gate.md) (recommendation rationale and draft variables, and refusal rationales, are content-validated like drafts) and [ADR 0018](0018-constrained-follow-up-message-draft-generation.md) (customer notes no longer ground offers, prices or discounts; only purchase descriptions do). Builds on [ADR 0004](0004-ai-action-gate.md), [ADR 0015](0015-structured-next-best-action-recommendation-contracts.md), [ADR 0016](0016-openai-responses-api-adapter-with-structured-outputs.md) (CI never uses a live provider or key), [ADR 0017](0017-deterministic-ai-action-gate.md), [ADR 0018](0018-constrained-follow-up-message-draft-generation.md) and [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md).
 
 ## Context
 

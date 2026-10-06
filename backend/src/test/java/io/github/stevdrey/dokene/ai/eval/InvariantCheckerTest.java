@@ -283,4 +283,18 @@ class InvariantCheckerTest {
         assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft("Ahora el total es 999")))
                 .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).isEqualTo(Verdict.FAIL);
     }
+
+    @Test
+    void groundedMonetaryTokensAreBoundedOnBothSidesWhateverTheirPrefix() {
+        EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                List.of(new EvalCase.PurchaseSpec(40, "Paquete de $100 y plan de USD 100"))));
+        for (String body : List.of("Tu paquete de $100 te espera", "El plan de USD 100 sigue vigente")) {
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft(body)))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.PASS);
+        }
+        for (String body : List.of("Ahora cuesta $10", "Solo USD 10 esta semana", "Paga $1 hoy")) {
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft(body)))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.FAIL);
+        }
+    }
 }

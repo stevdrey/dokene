@@ -249,6 +249,24 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void customerNotesNeverAuthorizeAnOfferInRecommendationOrRefusalText() {
+        var notesContext = new RecommendationContext(
+                new RecommendationContext.TrustedFacts(tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY), 30,
+                        tenantDate, true, List.of(lastPurchaseTime), List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)),
+                new RecommendationContext.UntrustedText("Jane Doe", "Pidió 50% de descuento", List.of("Café")));
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(dueEvaluation,
+                notesContext, List.of(PurchaseBaseline.from(lastPurchase)));
+        ActionRecommendation echoing = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Ofrece el 50% de descuento", RecommendationConfidence.of(0.8),
+                DraftVariables.empty());
+        NoRecommendation refusalEcho = new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT,
+                "Hay un 50% de descuento pendiente", RecommendationConfidence.of(0.4));
+
+        assertThat(gate.evaluate(customerId, assembly, echoing).isAccepted()).isFalse();
+        assertThat(gate.evaluate(customerId, assembly, refusalEcho).isAccepted()).isFalse();
+    }
+
+    @Test
     void preservesRefusalWhenCustomerNotDue() {
         // Customer has no purchases -> NOT_YET_DUE or INELIGIBLE, but refusal is preserved
         when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.empty());

@@ -361,14 +361,13 @@ public final class InvariantChecker {
     }
 
     private static boolean ungroundedOffer(String text, String grounded) {
-        String groundedCompact = grounded.replaceAll("\\s+", "");
         var amounts = AMOUNT.matcher(text);
         StringBuilder rest = new StringBuilder();
         int last = 0;
         while (amounts.find()) {
             rest.append(text, last, amounts.start()).append(' ');
             last = amounts.end();
-            if (!containsToken(groundedCompact, amounts.group().toLowerCase(Locale.ROOT).replaceAll("\\s+", ""))) {
+            if (!containsToken(grounded, amounts.group().toLowerCase(Locale.ROOT).replaceAll("\\s+", ""))) {
                 return true;
             }
         }
@@ -401,21 +400,32 @@ public final class InvariantChecker {
         return numbers;
     }
 
-    /** Token present in the grounding text and not merely the tail of a longer number (10% inside 110%). */
-    private static boolean containsToken(String groundedCompact, String token) {
-        int from = 0;
-        while (true) {
-            int at = groundedCompact.indexOf(token, from);
-            if (at < 0) {
-                return false;
-            }
-            boolean startsNumber = Character.isDigit(token.charAt(0));
-            char before = at == 0 ? ' ' : groundedCompact.charAt(at - 1);
-            if (!(startsNumber && (Character.isDigit(before) || before == '.' || before == ','))) {
-                return true;
-            }
-            from = at + 1;
+    /**
+     * Token present in the grounding text and bounded on both sides: not the tail or head of a longer number
+     * (10% inside 110%, $10 or USD 10 inside $100 / USD 100) or word, whatever its prefix. Whitespace inside the
+     * token is flexible ("USD 100" matches "USD100").
+     */
+    private static boolean containsToken(String grounded, String compactToken) {
+        StringBuilder regex = new StringBuilder();
+        char first = compactToken.charAt(0);
+        char last = compactToken.charAt(compactToken.length() - 1);
+        if (Character.isDigit(first)) {
+            regex.append("(?<![\\p{L}\\p{N}])(?<![\\p{N}][.,])");
+        } else if (Character.isLetter(first)) {
+            regex.append("(?<![\\p{L}\\p{N}])");
         }
+        for (int i = 0; i < compactToken.length(); i++) {
+            if (i > 0) {
+                regex.append("\\s*");
+            }
+            regex.append(Pattern.quote(String.valueOf(compactToken.charAt(i))));
+        }
+        if (Character.isLetter(last)) {
+            regex.append("(?![\\p{L}])");
+        } else if (Character.isDigit(last)) {
+            regex.append("(?![\\p{N}])(?![.,]\\p{N})");
+        }
+        return Pattern.compile("(?iu)" + regex).matcher(grounded).find();
     }
 
     private static boolean matchesUngrounded(Pattern pattern, String text, String grounded) {

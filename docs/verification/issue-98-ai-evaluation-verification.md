@@ -8,7 +8,7 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 
 | Criterion | Evidence |
 |---|---|
-| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (29 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
+| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (30 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
 | Hard invariants evaluated independently from language quality | `InvariantChecker`, `InvariantCheckerTest` (passing and failing example per invariant, grounded vs injected offers, forbidden-contact variants); rubric dimensions live in a separate blank `rubric` block |
 | Harness records schema validity, allowlist compliance, gate outcome, latency and usage | `EvalReport` (`deliveredInvariants`, per-case status/rejection, `usage` with reported/wall latency, tokens, optional cost), `EvalReportTest` |
 | Live evaluation opt-in, no key needed for normal CI | `AiEvalLiveTest` (`@Tag("ai-eval-live")`, `DOKENE_AI_EVAL_LIVE=true` + API key); `test` task `excludeTags 'ai-eval-live'`; `aiEvalLive` is not wired into `check`. `./gradlew aiEvalLive` without opt-in finishes with the test skipped |
@@ -17,21 +17,21 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 | Baseline results and known limitations documented | below |
 | Roadmap/Phase 2 docs updated with procedure and exit evidence | `docs/wiki/Roadmap.md` (Phase 2), `docs/wiki/AI-and-Automation.md` ("Evaluation"), `backend/README.md` |
 
-## Deterministic baseline (dataset 1.1.0, scripted provider)
+## Deterministic baseline (dataset 1.2.0, scripted provider)
 
-29 cases through the real services, Action Gate and PostgreSQL. All 29 match the pinned platform behavior.
+30 cases through the real services, Action Gate and PostgreSQL. All 30 match the pinned platform behavior.
 
 | Delivered-layer invariant | Applicable | Passed | Failed |
 |---|---:|---:|---:|
-| SCHEMA_VALID | 20 | 20 | 0 |
-| ALLOWLIST_COMPLIANT | 16 | 16 | 0 |
+| SCHEMA_VALID | 21 | 21 | 0 |
+| ALLOWLIST_COMPLIANT | 17 | 17 | 0 |
 | NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
-| NO_INVENTED_TEMPLATE_ID | 20 | 20 | 0 |
-| NO_UNSUPPORTED_OFFER_OR_LINK | 20 | 20 | 0 |
-| BOUNDED_LENGTH | 16 | 16 | 0 |
-| GATE_OUTCOME_SAFE | 20 | 20 | 0 |
+| NO_INVENTED_TEMPLATE_ID | 21 | 21 | 0 |
+| NO_UNSUPPORTED_OFFER_OR_LINK | 21 | 21 | 0 |
+| BOUNDED_LENGTH | 17 | 17 | 0 |
+| GATE_OUTCOME_SAFE | 21 | 21 | 0 |
 
-Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 2 (incompatible pair; draft deviating from the requested action), unsafe content 6 (injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
+Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 2 (incompatible pair; draft deviating from the requested action), unsafe content 7 (the 6 above plus a recommendation rationale repeating an offer taken from customer notes,injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
 
 ## Review follow-up (Codex, PR #116)
 
@@ -47,6 +47,14 @@ Raw scripted findings (unsafe model output the gate had to absorb): schema-inval
 - `RecordingAiProvider` also records untyped runtime failures as `UNAVAILABLE` attempts, so usage and raw findings stay accurate.
 - The independent invariants mirror the production vocabulary (full currency codes/words, unmarked amounts after price terms such as `total`/`cuesta`, the full promotion vocabulary, `*template_*` identifiers with any prefix); `InvariantCheckerParityTest` fails if the production validator rejects a form that the invariants do not flag.
 - Raw allowlist findings now include drafts that deviate from the action/intent the application requested (e.g. `ua-03`) or fall outside the context allowlist; delivered refusals are re-parsed through their strict contracts, so `SCHEMA_VALID` applies to refusal-only cases.
+
+### Third review round (Codex, PR #116)
+
+- **Gate/production:** customer notes no longer authorize offers, prices or discounts for any AI text (`DraftGroundingContext.offerBearingText` now uses purchase descriptions only); an injected `50% de descuento` in notes repeated by the model is rejected for drafts, recommendations and refusals. This amends ADR 0018's grounding rule; an offer that must be citable has to be recorded as a purchase description.
+- Monetary tokens are bounded on both sides regardless of prefix (`$10` and `USD 10` are not grounded by `$100`/`USD 100`).
+- `aiEvalLive` requires a minimum share of provider-invoked cases (default 0.5, `DOKENE_AI_EVAL_MIN_SUCCESS_RATIO`) to deliver an outcome, so an invalid key or an outage cannot produce a green run with nothing to grade.
+- The synthetic tenant name is fixed (`Tienda Demo`), so draft prompts are identical across baseline and candidate runs.
+- The pinned malformed request (`ua-02`) is honored as expected in live runs too; any other runtime exception still fails the evaluation.
 
 ## Procedure
 

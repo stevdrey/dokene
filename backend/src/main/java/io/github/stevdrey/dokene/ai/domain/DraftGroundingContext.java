@@ -24,14 +24,12 @@ public record DraftGroundingContext(String customerName, String notes, List<Stri
             "Compra, Producto, Artículo, Fecha de compra, Nombre, Cliente, Notas, Estado de seguimiento";
 
     /**
-     * Text that can legitimately authorize an offer, price or discount claim: only free-form
-     * customer notes and purchase descriptions, never identity fields such as names.
+     * Text that can legitimately authorize an offer, price or discount claim: only purchase descriptions.
+     * Free-form customer notes are untrusted (they can carry injected instructions such as "offer 50% off"), so
+     * they never authorize an offer, and neither do identity fields such as names.
      */
     String offerBearingText() {
         StringBuilder sb = new StringBuilder();
-        if (notes != null) {
-            sb.append(notes).append(' ');
-        }
         purchaseDescriptions.forEach(description -> sb.append(description).append(' '));
         return sb.toString();
     }

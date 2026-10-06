@@ -182,7 +182,7 @@ class EvalReportTest {
     }
 
     @Test
-    void anExceptionPinnedByTheCaseExpectationIsNotUnexpectedInDeterministicRuns() {
+    void anExceptionPinnedByTheCaseExpectationIsNotUnexpectedInAnyMode() {
         EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("ua-02")).findFirst().orElseThrow();
         CaseObservation rejected = new CaseObservation(c, "AVAILABLE", null, null, "EXCEPTION_IllegalArgumentException",
                 null, null, List.of());
@@ -190,6 +190,6 @@ class EvalReportTest {
         assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "deterministic", null, null, false)
                 .summary().unexpectedFailures()).isZero();
         assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "live", null, null, true)
-                .summary().unexpectedFailures()).isEqualTo(1);
+                .summary().unexpectedFailures()).isZero();
     }
 }

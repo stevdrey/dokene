@@ -604,7 +604,7 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
-    void monetaryBaselineComesFromOfferBearingFieldsOnly() {
+    void monetaryBaselineComesFromPurchaseDescriptionsOnly() {
         var grounding = new DraftGroundingContext("USD 100", "Aceptamos USD", List.of("Café"),
                 List.of(), "DUE", "2026-09-29");
         MessageDraft draft = draftWith("Crédito de USD 100 para ti.", "es-419", List.of());
@@ -614,10 +614,14 @@ class DraftSafetyValidatorTest {
         assertThat(violation).isPresent();
         assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
 
+        // Customer notes are untrusted and never authorize a price; purchase descriptions do.
         var withPriceInNotes = new DraftGroundingContext("Juan", "Ofrecimos USD 100 antes", List.of("Café"),
                 List.of(), "DUE", "2026-09-29");
         assertThat(DraftSafetyValidator.validate(draft, "Juan Ofrecimos USD 100 antes Café", withPriceInNotes))
-                .isEmpty();
+                .isPresent();
+        var withPriceInPurchase = new DraftGroundingContext("Juan", null, List.of("Plan USD 100"),
+                List.of(), "DUE", "2026-09-29");
+        assertThat(DraftSafetyValidator.validate(draft, "Juan Plan USD 100", withPriceInPurchase)).isEmpty();
     }
 
     @Test
