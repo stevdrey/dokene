@@ -371,6 +371,21 @@ class InvariantCheckerTest {
     }
 
     @Test
+    void everyClosedRejectionReasonOfOneOutputBecomesItsOwnRawFinding() {
+        EvalProviderCall call = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(), null,
+                AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1, null, null, java.util.Set.of(
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_MISMATCH,
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT));
+
+        var raw = InvariantChecker.rawFindings(new CaseObservation(evalCase, "AVAILABLE", null, null, "AI_UNAVAILABLE",
+                null, null, List.of(call)));
+
+        assertThat(raw.allowlistViolation()).isTrue();
+        assertThat(raw.unsafeDraft()).isTrue();
+        assertThat(raw.schemaInvalid()).isFalse();
+    }
+
+    @Test
     void adapterLocalRejectionsBecomeRawModelFindingsNotSchemaFailures() {
         for (var entry : java.util.Map.of(
                 io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT, "unsafe",
@@ -379,7 +394,7 @@ class InvariantCheckerTest {
                 io.github.stevdrey.dokene.ai.application.AiOutputRejection.LOCALE_MISMATCH, "allowlist",
                 io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_NOT_ALLOWED, "allowlist").entrySet()) {
             EvalProviderCall call = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(), null,
-                    AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1, null, null, entry.getKey());
+                    AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1, null, null, java.util.Set.of(entry.getKey()));
             var raw = InvariantChecker.rawFindings(new CaseObservation(evalCase, "AVAILABLE", null, null,
                     "AI_UNAVAILABLE", null, null, List.of(call)));
 

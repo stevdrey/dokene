@@ -694,6 +694,11 @@ class OpenAiResponsesApiAdapterTest {
 
     private void assertDraftRejection(String id, String action, String intent, String body,
             io.github.stevdrey.dokene.ai.application.AiOutputRejection expected) {
+        assertDraftRejections(id, action, intent, body, java.util.Set.of(expected));
+    }
+
+    private void assertDraftRejections(String id, String action, String intent, String body,
+            java.util.Set<io.github.stevdrey.dokene.ai.application.AiOutputRejection> expected) {
         String draftJson = """
                 {
                   "draft": {
@@ -722,21 +727,32 @@ class OpenAiResponsesApiAdapterTest {
                 .satisfies(e -> {
                     AiProviderException ape = (AiProviderException) e;
                     assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
-                    assertThat(ape.rejection()).isEqualTo(expected);
+                    assertThat(ape.rejections()).isEqualTo(expected);
                     assertThat(ape.getMessage()).doesNotContain(body);
                 });
     }
 
     @Test
     void draft_localValidationFailuresCarryAClosedRejectionDetail() {
-        assertDraftRejection("resp_rej_action", "SEASONAL_GREETING", "SEASONAL_EVENT", "Felices fiestas a todos.",
-                io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_MISMATCH);
+        // A different action also carries a different intent: both closed reasons are reported.
+        assertDraftRejections("resp_rej_action", "SEASONAL_GREETING", "SEASONAL_EVENT", "Felices fiestas a todos.",
+                java.util.Set.of(io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_MISMATCH,
+                        io.github.stevdrey.dokene.ai.application.AiOutputRejection.INTENT_MISMATCH));
         assertDraftRejection("resp_rej_intent", "REPEAT_PURCHASE_FOLLOW_UP", "GENERAL_FOLLOW_UP",
                 "Hola, como te fue con tu compra.",
                 io.github.stevdrey.dokene.ai.application.AiOutputRejection.INTENT_MISMATCH);
         assertDraftRejection("resp_rej_unsafe", "REPEAT_PURCHASE_FOLLOW_UP", "REPEAT_PURCHASE",
                 "Visita https://promo.example.test ahora.",
                 io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT);
+    }
+
+    @Test
+    void draft_keepsEveryRejectionReasonOfAMultiViolationOutput() {
+        assertDraftRejections("resp_rej_multi", "SEASONAL_GREETING", "SEASONAL_EVENT",
+                "Felices fiestas, visita https://promo.example.test ahora.",
+                java.util.Set.of(io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_MISMATCH,
+                        io.github.stevdrey.dokene.ai.application.AiOutputRejection.INTENT_MISMATCH,
+                        io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT));
     }
 
     @Test

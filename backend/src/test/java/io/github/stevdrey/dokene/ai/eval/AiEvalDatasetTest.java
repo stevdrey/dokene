@@ -55,10 +55,10 @@ class AiEvalDatasetTest {
         SyntheticDataGuard.collectTexts(polluted, texts);
         assertThatThrownBy(() -> assertNoRealData(texts)).isInstanceOf(AssertionError.class);
 
-        for (String bad : List.of("Llama al +506 8888 0000", "Llama al +506\u00a08888\u00a00000", "Llama al +506\u202f8888\u202f0000", "Llama al +506\u20078888\u20070000", "Llama al +1 (212) 555-1234", "Tel 8888.0000", "Tel (506) 8888-0000", "Visita https://tienda-real.com/oferta", "Compra en www.real-shop.com", "Mira promo.dev hoy", "Baja ftp://real-shop.com/file", "Ver tienda.com/promo", "mail a ana@gmail.com")) {
+        for (String bad : List.of("Llama al +506 8888 0000", "Llama al +506\u00a08888\u00a00000", "Llama al +506\u202f8888\u202f0000", "Llama al +506\u20078888\u20070000", "Llama al +1 (212) 555-1234", "Tel 8888.0000", "Tel (506) 8888-0000", "Visita https://tienda-real.com/oferta", "Compra en www.real-shop.com", "Mira promo.dev hoy", "Baja ftp://real-shop.com/file", "Ver tienda.com/promo", "https://evil.com?redirect=@safe.test", "https://evil.com#@safe.test", "https://safe.test@evil.com/x", "https://evil.com\\@safe.test", "mail a ana@gmail.com")) {
             assertThatThrownBy(() -> assertNoRealData(List.of(bad))).as(bad).isInstanceOf(AssertionError.class);
         }
-        assertNoRealData(List.of("Visita https://promo.example.test/50", "Hola, ¿cómo te fue con tu café?"));
+        assertNoRealData(List.of("Visita https://promo.example.test:8443/x?a=1#f", "Visita https://promo.example.test/50", "Hola, ¿cómo te fue con tu café?"));
     }
 
     private static void assertNoRealData(List<String> texts) {

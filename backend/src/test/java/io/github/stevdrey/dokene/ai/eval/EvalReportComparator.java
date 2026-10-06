@@ -45,6 +45,14 @@ public final class EvalReportComparator {
                     + "): per-case results are not comparable");
             comparable = false;
         }
+        if (!Objects.equals(baseline.datasetFingerprint(), candidate.datasetFingerprint())) {
+            // Same version but different content: the prompts or grading criteria differ, so per-case results are
+            // not comparable even though nobody bumped the manual version.
+            warnings.add("dataset content fingerprints differ (" + baseline.datasetFingerprint() + " vs "
+                    + candidate.datasetFingerprint() + "): the evaluated inputs changed, per-case results are not "
+                    + "comparable");
+            comparable = false;
+        }
         if (!Objects.equals(baseline.evaluationDate(), candidate.evaluationDate())) {
             warnings.add("evaluation dates differ (" + baseline.evaluationDate() + " vs " + candidate.evaluationDate()
                     + "): prompts contain different dates, so quality deltas are confounded");
@@ -171,6 +179,10 @@ public final class EvalReportComparator {
         // Fewer delivered outcomes per operation means less output was checked, even when every case-level
         // invariant verdict still applies through the other operation.
         regression |= operationCoverageLost;
+        lines.add("Wall latency p50/p95 ms (end to end, retries included): " + wall(ub) + " -> " + wall(uc));
+        if ((ub.wallLatencyP50Ms() == null) != (uc.wallLatencyP50Ms() == null)) {
+            warnings.add("wall latency is recorded in only one of the reports (deterministic runs have none)");
+        }
         lines.add("Latency p50/p95 ms (reported): " + ub.reportedLatencyP50Ms() + "/" + ub.reportedLatencyP95Ms()
                 + " -> " + uc.reportedLatencyP50Ms() + "/" + uc.reportedLatencyP95Ms());
         lines.add("Tokens in/out: " + ub.inputTokens() + "/" + ub.outputTokens() + " -> " + uc.inputTokens() + "/"
@@ -187,6 +199,10 @@ public final class EvalReportComparator {
         lines.add("Cost USD: " + ub.estimatedCostUsd() + " -> " + uc.estimatedCostUsd());
         lines.add("Human rubric dimensions are compared by reviewers; no aggregate score is computed.");
         return new Comparison(regression, comparable, warnings, lines);
+    }
+
+    private static String wall(EvalReport.Usage usage) {
+        return usage.wallLatencyP50Ms() == null ? "n/a" : usage.wallLatencyP50Ms() + "/" + usage.wallLatencyP95Ms();
     }
 
     private static String rates(EvalReport.Usage usage) {

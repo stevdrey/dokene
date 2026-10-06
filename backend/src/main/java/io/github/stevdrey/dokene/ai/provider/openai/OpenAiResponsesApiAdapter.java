@@ -49,6 +49,8 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
+import java.util.Set;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -372,25 +374,20 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             if (outcome instanceof MessageDraft draft) {
+                // Every violated rule is kept (closed reasons, no model text), so a draft with an action mismatch and
+                // unsafe content is reported as both rather than hiding the unsafe content behind the first check.
+                Set<AiOutputRejection> rejections = EnumSet.noneOf(AiOutputRejection.class);
                 if (draft.action() != request.context().action()) {
-                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
-                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
-                            AiOutputRejection.ACTION_MISMATCH);
+                    rejections.add(AiOutputRejection.ACTION_MISMATCH);
                 }
                 if (draft.templateIntent() != request.context().templateIntent()) {
-                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
-                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
-                            AiOutputRejection.INTENT_MISMATCH);
+                    rejections.add(AiOutputRejection.INTENT_MISMATCH);
                 }
 
                 String expectedLocale = request.context().businessFacts() != null
                         ? request.context().businessFacts().preferredLocale() : "es-419";
                 if (draft.locale() == null || !draft.locale().trim().equalsIgnoreCase(expectedLocale.trim())) {
-                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
-                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE), AiOutputRejection.LOCALE_MISMATCH);
+                    rejections.add(AiOutputRejection.LOCALE_MISMATCH);
                 }
 
                 String allowedContext = formatDraftInput(request.context());
@@ -404,9 +401,13 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                         customerContext.trusted().tenantDate().toString());
                 var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
                 if (violation.isPresent()) {
+                    rejections.add(AiOutputRejection.UNSAFE_CONTENT);
+                }
+                if (!rejections.isEmpty()) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE), AiOutputRejection.UNSAFE_CONTENT);
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
+                            rejections);
                 }
             }
 

@@ -11,6 +11,7 @@ import java.util.Map;
 public record EvalReport(
         int schemaVersion,
         String datasetVersion,
+        String datasetFingerprint,
         String evaluationDate,
         String mode,
         String provider,
@@ -21,13 +22,14 @@ public record EvalReport(
         Summary summary,
         List<CaseReport> cases) {
 
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
 
     /** Report for the pinned evaluation date (see {@link EvalRunner#EVAL_DATE}). */
-    public EvalReport(int schemaVersion, String datasetVersion, String mode, String provider, String model,
+    public EvalReport(int schemaVersion, String datasetVersion, String datasetFingerprint, String mode,
+            String provider, String model,
             String contractFingerprint, String promptPolicyLabel, String generatedAt, Summary summary,
             List<CaseReport> cases) {
-        this(schemaVersion, datasetVersion, EvalRunner.EVAL_DATE.toString(), mode, provider, model, contractFingerprint,
+        this(schemaVersion, datasetVersion, datasetFingerprint, EvalRunner.EVAL_DATE.toString(), mode, provider, model, contractFingerprint,
                 promptPolicyLabel, generatedAt, summary, cases);
     }
 
@@ -76,7 +78,16 @@ public record EvalReport(
             Boolean behaviorMatch,
             Map<String, Object> informational,
             Delivered delivered,
-            Rubric rubric) {
+            Rubric rubric,
+            Scenario scenario) {
+    }
+
+    /**
+     * The synthetic scenario behind a case (setup facts, request, case-specific grading hints) so a reviewer can judge
+     * relevance and grounding from the report alone. Dataset text only; it passed the synthetic-data guard.
+     */
+    public record Scenario(String description, String displayName, String locale, EvalCase.Setup setup,
+            EvalCase.Request request, String rubricHints) {
     }
 
     /**

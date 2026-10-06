@@ -134,12 +134,16 @@ public final class InvariantChecker {
         for (EvalProviderCall call : obs.calls()) {
             if (call.failure() == AiFailureCategory.INVALID_STRUCTURED_RESPONSE) {
                 // An adapter-local rejection of a parseable output is a model finding, not a schema failure.
-                if (call.rejection() == null) {
+                // Every closed reason counts: a draft with an action mismatch and unsafe content is both findings.
+                if (call.rejections().isEmpty()) {
                     schemaInvalid = true;
-                } else if (call.rejection() == io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT) {
-                    unsafe = true;
-                } else {
-                    allowlist = true;
+                }
+                for (var reason : call.rejections()) {
+                    if (reason == io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT) {
+                        unsafe = true;
+                    } else {
+                        allowlist = true;
+                    }
                 }
             } else if (call.failure() == AiFailureCategory.REFUSED) {
                 refusal = true;

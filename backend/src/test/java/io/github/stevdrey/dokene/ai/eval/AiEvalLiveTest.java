@@ -65,12 +65,15 @@ class AiEvalLiveTest {
 
     @Test
     void liveProviderRespectsEveryDeliveredHardInvariant() throws Exception {
+        // Every live setting is validated before the first paid provider call: a typo must not cost a full run.
+        double minSuccessRatio = EvalLiveSettings.minSuccessRatio(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
+        EvalReportBuilder.Pricing pricing = pricing();
         EvalDataset dataset = EvalDatasetLoader.loadDefault();
         List<CaseObservation> observations = new EvalRunner(followUps, recommendations, drafts, customers, contacts,
                 purchases, tenants, memberships, contexts, auditExecution, provider).run(dataset);
 
         EvalReport report = EvalReportBuilder.build(dataset, observations, "live", env("DOKENE_AI_EVAL_PROMPT_POLICY"),
-                pricing(), true);
+                pricing, true);
         String name = env("DOKENE_AI_EVAL_REPORT_NAME") == null ? "live" : env("DOKENE_AI_EVAL_REPORT_NAME");
         Path json = EvalReportWriter.write(report, Path.of("build", "reports", "ai-eval"), name);
 
@@ -79,7 +82,7 @@ class AiEvalLiveTest {
                 .as("unexpected runtime exceptions break the experiment: %s", report.cases().stream()
                         .filter(EvalReport.CaseReport::unexpectedFailure).map(EvalReport.CaseReport::id).toList())
                 .isZero();
-        assertEnoughSuccessfulOutputs(report);
+        assertEnoughSuccessfulOutputs(report, minSuccessRatio);
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.violations())
                 .as("hard invariant violations for case %s", c.id()).isEmpty());
     }
@@ -90,8 +93,7 @@ class AiEvalLiveTest {
      * healthy recommendation path cannot mask a wholesale draft failure (or the reverse): a minimum share of the
      * cases that reached the provider must have produced a delivered outcome (action, draft or refusal).
      */
-    private static void assertEnoughSuccessfulOutputs(EvalReport report) {
-        double minRatio = EvalLiveSettings.minSuccessRatio(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
+    private static void assertEnoughSuccessfulOutputs(EvalReport report, double minRatio) {
         report.summary().operations().forEach((operation, coverage) -> {
             assertThat(coverage.invokedCases()).as("%s: cases that reached the provider", operation).isPositive();
             assertThat((double) coverage.deliveredCases() / coverage.invokedCases())

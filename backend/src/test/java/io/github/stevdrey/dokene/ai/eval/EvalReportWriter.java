@@ -103,6 +103,7 @@ public final class EvalReportWriter {
                 continue;
             }
             md.append("\n### ").append(c.id()).append(" (").append(c.family()).append(")\n\n");
+            scenario(md, c.scenario());
             if (d.recommendation() != null) {
                 md.append("- Recommendation: ").append(d.recommendation().action()).append(" / ")
                         .append(d.recommendation().templateIntent()).append(" (confidence ")
@@ -128,6 +129,36 @@ public final class EvalReportWriter {
                 .append("`docs/verification/issue-98-ai-evaluation-verification.md`) and recorded in the JSON `rubric` ")
                 .append("blocks. They are never combined with, or allowed to offset, the hard invariants above.\n");
         return md.toString();
+    }
+
+    /** Synthetic scenario facts a reviewer needs to judge relevance and grounding. */
+    private static void scenario(StringBuilder md, EvalReport.Scenario scenario) {
+        if (scenario == null) {
+            return;
+        }
+        md.append("Scenario: ").append(oneLine(scenario.description())).append('\n');
+        EvalCase.Setup setup = scenario.setup();
+        if (setup != null) {
+            md.append("- Setup: consent ").append(setup.consent()).append(", do-not-contact ").append(setup.doNotContact())
+                    .append(", archived ").append(setup.archived()).append(", cadence days ")
+                    .append(setup.customerCadenceDays()).append(", explicit next follow-up in days ")
+                    .append(setup.explicitNextFollowUpDaysFromToday()).append('\n');
+            if (setup.notes() != null && !setup.notes().isBlank()) {
+                md.append("- Customer notes (untrusted): ").append(oneLine(setup.notes())).append('\n');
+            }
+            if (!setup.purchases().isEmpty()) {
+                md.append("- Purchases: ").append(setup.purchases().stream()
+                        .map(p -> oneLine(p.description()) + " (" + p.daysAgo() + " days ago)")
+                        .collect(java.util.stream.Collectors.joining("; "))).append('\n');
+            }
+        }
+        if (scenario.request() != null) {
+            md.append("- Operator request: ").append(scenario.request()).append('\n');
+        }
+        if (scenario.rubricHints() != null && !scenario.rubricHints().isBlank()) {
+            md.append("- Grading hint: ").append(oneLine(scenario.rubricHints())).append('\n');
+        }
+        md.append('\n');
     }
 
     /** Delivered draft variables are model content that can carry factual claims; reviewers must see them. */

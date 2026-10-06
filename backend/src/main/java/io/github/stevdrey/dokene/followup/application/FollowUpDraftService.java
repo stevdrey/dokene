@@ -185,7 +185,7 @@ public final class FollowUpDraftService {
             if (templateIntent != null) {
                 if (!DraftContext.isCompatibleIntent(action, templateIntent)) {
                     revalidateAuthorization(customerId);
-                    throw new IllegalArgumentException("Template intent is incompatible with the requested action");
+                    throw new IncompatibleTemplateIntentException();
                 }
             } else {
                 templateIntent = resolveDefaultIntent(action);

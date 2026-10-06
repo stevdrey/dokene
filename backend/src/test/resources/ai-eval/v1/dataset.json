@@ -1331,7 +1331,7 @@
         "providerInvoked": true,
         "recommendationStatus": "AVAILABLE",
         "recommendationRejection": null,
-        "draftStatus": "EXCEPTION_IllegalArgumentException",
+        "draftStatus": "EXCEPTION_IncompatibleTemplateIntentException",
         "draftRejection": null
       },
       "rubricHints": "The request is rejected before any customer data reaches the provider."

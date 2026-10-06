@@ -212,6 +212,20 @@ public final class EvalRunner {
         }
     }
 
+    /**
+     * Fingerprint of everything the provider receives or the graders see: the canonical JSON of the dataset content.
+     * The manually maintained dataset version alone cannot detect an edit made without a version bump.
+     */
+    public static String datasetFingerprint(EvalDataset dataset) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(canonical(FINGERPRINT_MAPPER.valueToTree(dataset)).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest.digest()).substring(0, 16);
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
     private static final tools.jackson.databind.json.JsonMapper FINGERPRINT_MAPPER =
             tools.jackson.databind.json.JsonMapper.builder().build();
 

@@ -106,7 +106,7 @@ class EvalReportTest {
     @Test
     void comparatorWarnsWhenDatasetOrContractChanged() {
         EvalReport baseline = report(draft("Hola"), "live");
-        EvalReport other = new EvalReport(baseline.schemaVersion(), "2.0.0", baseline.mode(), baseline.provider(),
+        EvalReport other = new EvalReport(baseline.schemaVersion(), "2.0.0", baseline.datasetFingerprint(), baseline.mode(), baseline.provider(),
                 baseline.model(), "ffffffffffffffff", baseline.promptPolicyLabel(), baseline.generatedAt(),
                 baseline.summary(), baseline.cases());
 
@@ -155,7 +155,7 @@ class EvalReportTest {
         invariants.remove(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK);
         invariants.put("RENAMED_INVARIANT", new EvalReport.Tally(1, 1, 0));
         EvalReport.Summary s = baseline.summary();
-        EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
+        EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.datasetFingerprint(), baseline.mode(),
                 baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
                 baseline.generatedAt(), new EvalReport.Summary(s.totalCases(), invariants, true, s.unexpectedFailures(), s.behaviorMatches(),
                 s.behaviorMismatches(), s.rawModelFindings(), s.operations(), s.usage()), baseline.cases());
@@ -212,7 +212,7 @@ class EvalReportTest {
     @Test
     void comparatorRefusesToCompareReportsOfDifferentSchemaVersions() {
         EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
-        EvalReport older = new EvalReport(baseline.schemaVersion() - 1, baseline.datasetVersion(), baseline.mode(),
+        EvalReport older = new EvalReport(baseline.schemaVersion() - 1, baseline.datasetVersion(), baseline.datasetFingerprint(), baseline.mode(),
                 baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
                 baseline.generatedAt(), baseline.summary(), baseline.cases());
 
@@ -264,7 +264,7 @@ class EvalReportTest {
     @Test
     void comparatorTreatsADroppedBaselineCaseAsARegressionWhenTheDatasetVersionMatches() {
         EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
-        EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
+        EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.datasetFingerprint(), baseline.mode(),
                 baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
                 baseline.generatedAt(), baseline.summary(), baseline.cases().subList(0, 1));
 
@@ -291,15 +291,68 @@ class EvalReportTest {
     }
 
     @Test
-    void anExceptionPinnedByTheCaseExpectationIsNotUnexpectedInAnyMode() {
+    void onlyTheTypedExceptionPinnedByTheCaseExpectationIsNotUnexpected() {
         EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("ua-02")).findFirst().orElseThrow();
-        CaseObservation rejected = new CaseObservation(c, "AVAILABLE", null, null, "EXCEPTION_IllegalArgumentException",
-                null, null, List.of());
+        CaseObservation pinned = new CaseObservation(c, "AVAILABLE", null, null,
+                "EXCEPTION_IncompatibleTemplateIntentException", null, null, List.of());
+        CaseObservation unrelated = new CaseObservation(c, "AVAILABLE", null, null,
+                "EXCEPTION_IllegalArgumentException", null, null, List.of());
 
-        assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "deterministic", null, null, false)
-                .summary().unexpectedFailures()).isZero();
-        assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "live", null, null, true)
-                .summary().unexpectedFailures()).isZero();
+        for (boolean live : new boolean[] {false, true}) {
+            String mode = live ? "live" : "deterministic";
+            assertThat(EvalReportBuilder.build(dataset, List.of(pinned), mode, null, null, live)
+                    .summary().unexpectedFailures()).as(mode + " pinned").isZero();
+            assertThat(EvalReportBuilder.build(dataset, List.of(unrelated), mode, null, null, live)
+                    .summary().unexpectedFailures()).as(mode + " unrelated IAE").isEqualTo(1);
+        }
+    }
+
+    @Test
+    void comparatorShowsEndToEndWallLatencyAndRefusesDifferentDatasetContent() {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
+        MessageDraft draft = draft("Hola, ¿cómo te fue con tu compra?");
+        EvalProviderCall attempt = call(c.displayName(), draft, 5);
+        CaseObservation fast = new CaseObservation(c, "AVAILABLE", null, null, "AVAILABLE", null, draft,
+                List.of(attempt), null, null, CaseObservation.NOT_MEASURED, 10_000_000L);
+        CaseObservation slow = new CaseObservation(c, "AVAILABLE", null, null, "AVAILABLE", null, draft,
+                List.of(attempt), null, null, CaseObservation.NOT_MEASURED, 3_000_000_000L);
+        EvalReport baseline = EvalReportBuilder.build(dataset, List.of(fast), "live", null, null, true);
+        EvalReport candidate = EvalReportBuilder.build(dataset, List.of(slow), "live", null, null, true);
+
+        assertThat(EvalReportComparator.compare(baseline, candidate).render())
+                .contains("Wall latency p50/p95 ms (end to end, retries included): 10/10 -> 3000/3000");
+
+        EvalCase edited = new EvalCase(c.id(), c.family(), c.description(), c.displayName(), c.locale(),
+                new EvalCase.Setup(c.setup().notes(), c.setup().archived(), c.setup().consent(),
+                        c.setup().doNotContact(), c.setup().customerCadenceDays(),
+                        c.setup().explicitNextFollowUpDaysFromToday(),
+                        List.of(new EvalCase.PurchaseSpec(10, "Otro producto"))),
+                c.request(), c.script(), c.expect(), c.rubricHints());
+        EvalDataset changed = new EvalDataset(dataset.datasetVersion(), true, dataset.description(),
+                java.util.stream.Stream.concat(java.util.stream.Stream.of(edited),
+                        dataset.cases().stream().filter(x -> !x.id().equals(c.id()))).toList());
+        assertThat(EvalRunner.datasetFingerprint(changed)).isNotEqualTo(EvalRunner.datasetFingerprint(dataset));
+        EvalReport other = EvalReportBuilder.build(changed, List.of(fast), "live", null, null, true);
+
+        var result = EvalReportComparator.compare(baseline, other);
+        assertThat(result.comparable()).isFalse();
+        assertThat(result.warnings()).anyMatch(w -> w.contains("dataset content fingerprints differ"));
+    }
+
+    @Test
+    void theGradingReportCarriesTheScenarioFactsBehindEachCase(@TempDir Path dir) throws Exception {
+        EvalReport report = EvalReportBuilder.build(dataset,
+                List.of(observation("rp-01", draft("Hola Lucía, ¿cómo te fue con tu compra?"), 20)), "live", null,
+                null, true);
+
+        EvalReport.Scenario scenario = report.cases().getFirst().scenario();
+        assertThat(scenario.setup().purchases()).isNotEmpty();
+        assertThat(scenario.rubricHints()).isNotBlank();
+
+        EvalReportWriter.write(report, dir, "scenario");
+        assertThat(Files.readString(dir.resolve("scenario.md"))).contains("Scenario:", "Purchases:", "Grading hint:",
+                scenario.setup().purchases().getFirst().description());
+        assertThat(EvalReportWriter.read(dir.resolve("scenario.json"))).isEqualTo(report);
     }
 
     @Test
@@ -325,7 +378,7 @@ class EvalReportTest {
     @Test
     void comparatorWarnsWhenEvaluationDatesDifferBecausePromptsAreConfounded() {
         EvalReport baseline = report(draft("Hola"), "live");
-        EvalReport other = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), "2030-01-01",
+        EvalReport other = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.datasetFingerprint(), "2030-01-01",
                 baseline.mode(), baseline.provider(), baseline.model(), baseline.contractFingerprint(),
                 baseline.promptPolicyLabel(), baseline.generatedAt(), baseline.summary(), baseline.cases());
 

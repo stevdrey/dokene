@@ -86,7 +86,7 @@ public final class EvalReportBuilder {
                 if (call.metadata() == null || call.metadata().usage() == null) {
                     // A completed or rejected response without token counts was probably billed: the totals and the
                     // cost estimate are incomplete. A failure that never produced a response is not counted.
-                    missingUsage += call.outcome() != null || call.rejection() != null || call.metadata() != null ? 1 : 0;
+                    missingUsage += call.outcome() != null || !call.rejections().isEmpty() || call.metadata() != null ? 1 : 0;
                 }
             }
             addWall(wall, obs, AiOperation.NEXT_BEST_ACTION, obs.recommendationWallNanos());
@@ -96,7 +96,7 @@ public final class EvalReportBuilder {
                     obs.draftRejection(), obs.calls().size(), verdicts, violations,
                     new EvalReport.RawFlags(findings.schemaInvalid(), findings.providerFailure(),
                             findings.allowlistViolation(), findings.unsafeDraft(), findings.refusal()),
-                    unexpectedFailure, behaviorMatch, informational(obs), delivered(obs), EvalReport.Rubric.blank()));
+                    unexpectedFailure, behaviorMatch, informational(obs), delivered(obs), EvalReport.Rubric.blank(), scenario(obs.evalCase())));
         }
 
         Map<String, EvalReport.Tally> deliveredTotals = new LinkedHashMap<>();
@@ -117,7 +117,8 @@ public final class EvalReportBuilder {
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
                 new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]),
                 operations(recCoverage, draftCoverage), usage);
-        return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), EvalRunner.EVAL_DATE.toString(), mode,
+        return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), EvalRunner.datasetFingerprint(dataset),
+                EvalRunner.EVAL_DATE.toString(), mode,
                 String.join(",", EvalRunner.sortedModels(observations, true)),
                 String.join(",", EvalRunner.sortedModels(observations, false)), EvalRunner.contractFingerprint(),
                 promptPolicyLabel, Instant.now().toString(), summary, cases);
@@ -135,6 +136,11 @@ public final class EvalReportBuilder {
         long nanos = measuredNanos >= 0 ? measuredNanos
                 : attempts.stream().mapToLong(EvalProviderCall::wallLatencyNanos).sum();
         wall.add(nanos / 1_000_000);
+    }
+
+    private static EvalReport.Scenario scenario(EvalCase evalCase) {
+        return new EvalReport.Scenario(evalCase.description(), evalCase.displayName(), evalCase.locale(),
+                evalCase.setup(), evalCase.request(), evalCase.rubricHints());
     }
 
     /** Insertion-ordered so the serialized report is byte-reproducible across JVM runs. */

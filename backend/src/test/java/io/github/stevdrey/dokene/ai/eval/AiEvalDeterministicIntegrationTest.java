@@ -100,7 +100,7 @@ class AiEvalDeterministicIntegrationTest {
     }
 
     private static EvalReport withoutTimestamp(EvalReport r) {
-        return new EvalReport(r.schemaVersion(), r.datasetVersion(), r.evaluationDate(), r.mode(), r.provider(), r.model(),
+        return new EvalReport(r.schemaVersion(), r.datasetVersion(), r.datasetFingerprint(), r.evaluationDate(), r.mode(), r.provider(), r.model(),
                 r.contractFingerprint(), r.promptPolicyLabel(), "normalized", r.summary(), r.cases());
     }
 }

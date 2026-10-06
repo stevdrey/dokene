@@ -25,4 +25,19 @@ class AiProviderExceptionTest {
         assertThatThrownBy(() -> new AiProviderException(AiFailureCategory.UNAVAILABLE, failed(),
                 AiOutputRejection.UNSAFE_CONTENT)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void severalRejectionReasonsAreKeptAndThePrimaryFollowsDeclarationOrder() {
+        var rejected = new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE, failed(),
+                java.util.Set.of(AiOutputRejection.UNSAFE_CONTENT, AiOutputRejection.ACTION_MISMATCH));
+
+        assertThat(rejected.rejections()).containsExactlyInAnyOrder(AiOutputRejection.ACTION_MISMATCH,
+                AiOutputRejection.UNSAFE_CONTENT);
+        assertThat(rejected.rejection()).isEqualTo(AiOutputRejection.ACTION_MISMATCH);
+        assertThat(rejected.getMessage()).isEqualTo("AI provider invocation failed: INVALID_STRUCTURED_RESPONSE");
+        assertThat(new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE, failed()).rejections())
+                .isEmpty();
+        assertThatThrownBy(() -> new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE, failed(),
+                java.util.Set.<AiOutputRejection>of())).isInstanceOf(IllegalArgumentException.class);
+    }
 }

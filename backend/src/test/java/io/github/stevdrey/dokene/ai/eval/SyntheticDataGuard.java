@@ -92,11 +92,22 @@ final class SyntheticDataGuard {
         }
     }
 
-    /** Host of a detected link: scheme, credentials, port, path, query and fragment removed. */
+    /**
+     * Host of a detected link, parsed structurally: the authority ends at the first {@code / ? # \}, userinfo is
+     * only what precedes the last {@code @} inside the authority (never one in a query or fragment), then the port is
+     * dropped. {@code https://evil.com?x=@safe.test} therefore resolves to {@code evil.com}.
+     */
     static String hostOf(String link) {
-        String host = link.replaceFirst("^[A-Za-z][A-Za-z0-9+.-]*://", "");
-        host = host.replaceFirst("^[^/@]*@", "");
-        return host.split("[/:?#\\s]", 2)[0].toLowerCase(Locale.ROOT).replaceAll("[.,;]+$", "");
+        String rest = link.replaceFirst("^[A-Za-z][A-Za-z0-9+.-]*://", "");
+        int end = 0;
+        while (end < rest.length() && "/?#\\".indexOf(rest.charAt(end)) < 0 && !Character.isWhitespace(rest.charAt(end))) {
+            end++;
+        }
+        String authority = rest.substring(0, end);
+        authority = authority.substring(authority.lastIndexOf('@') + 1);
+        int colon = authority.indexOf(':');
+        String host = colon >= 0 ? authority.substring(0, colon) : authority;
+        return host.toLowerCase(Locale.ROOT).replaceAll("[.,;]+$", "");
     }
 
     private static void add(List<String> found, String kind) {

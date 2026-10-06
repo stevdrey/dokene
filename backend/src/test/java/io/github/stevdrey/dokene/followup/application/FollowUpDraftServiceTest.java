@@ -180,6 +180,22 @@ class FollowUpDraftServiceTest {
     }
 
     @Test
+    void draftSafe_incompatibleActionAndIntentThrowsTheTypedException() {
+        CustomerId customerId = new CustomerId(UUID.randomUUID());
+        FollowUpEvaluation evaluation = dueEvaluation(customerId);
+        when(followUps.customerPolicy(customerId)).thenReturn(new CustomerFollowUpPolicy(
+                tenantId, customerId, 30, null, null, null, 1L));
+        when(assembler.assemble(customerId)).thenReturn(new RecommendationContextAssembler.Assembly(
+                evaluation, validContext(), purchases, 1L));
+
+        assertThatThrownBy(() -> service.draftSafe(customerId, SemanticAction.GENERAL_CHECK_IN,
+                SemanticTemplateIntent.RELATED_PRODUCT, timeout, null))
+                .isInstanceOf(IncompatibleTemplateIntentException.class)
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(provider, never()).draft(any());
+    }
+
+    @Test
     void draftSafe_requiresMessageDraftPermission() {
         CustomerId customerId = new CustomerId(UUID.randomUUID());
         org.mockito.Mockito.doThrow(new TenantAccessDeniedException("Permission denied"))
