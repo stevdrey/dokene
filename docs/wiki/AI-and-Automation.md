@@ -300,6 +300,9 @@ ensuring the application boots normally and all deterministic customer, purchase
 fully operational while recommendation requests degrade gracefully to `AI_UNAVAILABLE`. For local development and offline testing,
 fake provider mode must be explicitly configured via `dokene.ai.provider=fake`, allowing execution without requiring
 an external API key or outbound internet connectivity. In production, setting `dokene.ai.provider=openai` enables the real OpenAI adapter.
+Supported `dokene.ai.provider` values are unset/blank (`DisabledAiProvider`), `fake` and `openai` (case-insensitive). Any other value
+(for example the typo `opneai`) fails application startup with a configuration error naming the unsupported value and the supported ones;
+it never silently falls back to the disabled provider. The error does not include API keys or other configuration.
 Raw prompts, customer text, and API keys are strictly excluded from diagnostic metadata and logs.
 
 ## Deterministic rules before AI

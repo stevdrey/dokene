@@ -25,7 +25,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AiProviderConfigurationTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withUserConfiguration(OpenAiConfiguration.class, FakeAiConfiguration.class, DisabledAiConfiguration.class);
+            .withUserConfiguration(AiProviderSelectionConfiguration.class, OpenAiConfiguration.class,
+                    FakeAiConfiguration.class, DisabledAiConfiguration.class);
 
     @Test
     void unsetPropertyConfiguresDisabledAiProviderFallback() {
@@ -66,6 +67,55 @@ class AiProviderConfigurationTest {
             assertThat(context).doesNotHaveBean(DisabledAiProvider.class);
             assertThat(context).doesNotHaveBean(DefaultFakeAiProvider.class);
         });
+    }
+
+    @Test
+    void whitespaceOnlyPropertyConfiguresDisabledAiProviderFallback() {
+        runner.withPropertyValues("dokene.ai.provider=   ").run(context -> {
+            assertThat(context).hasSingleBean(AiProvider.class);
+            assertThat(context.getBean(AiProvider.class)).isInstanceOf(DisabledAiProvider.class);
+        });
+    }
+
+    @Test
+    void providerNameIsCaseInsensitive() {
+        runner.withPropertyValues("dokene.ai.provider=FAKE").run(context ->
+                assertThat(context.getBean(AiProvider.class)).isInstanceOf(DefaultFakeAiProvider.class));
+    }
+
+    @Test
+    void unsupportedProviderFailsStartupWithoutExposingSecrets() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=opneai",
+                "dokene.ai.openai.api-key=super-secret-key"
+        ).run(context -> {
+            assertThat(context).hasFailed();
+            Throwable failure = context.getStartupFailure();
+            Throwable root = failure;
+            while (root.getCause() != null) {
+                root = root.getCause();
+            }
+            assertThat(root).isInstanceOf(IllegalStateException.class);
+            assertThat(root.getMessage()).contains("opneai", "Supported values: fake, openai");
+            for (Throwable t = failure; t != null; t = t.getCause()) {
+                assertThat(String.valueOf(t.getMessage())).doesNotContain("super-secret-key");
+            }
+        });
+    }
+
+    @Test
+    void paddedProviderValueIsRejected() {
+        runner.withPropertyValues("dokene.ai.provider= openai ")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void unsupportedProviderFailsStartupEvenWithCustomAiProviderBean() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(AiProviderSelectionConfiguration.class, CustomAiConfiguration.class,
+                        DisabledAiConfiguration.class)
+                .withPropertyValues("dokene.ai.provider=opneai")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
