@@ -65,7 +65,7 @@ tasks.register('aiEvalLive', Test) {
     }
     ['DOKENE_AI_EVAL_LIVE', 'DOKENE_AI_OPENAI_API_KEY', 'DOKENE_AI_OPENAI_MODEL', 'DOKENE_AI_OPENAI_BASE_URL',
      'DOKENE_AI_EVAL_PROMPT_POLICY', 'DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK', 'DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK',
-     'DOKENE_AI_EVAL_REPORT_NAME'].each { name ->
+     'DOKENE_AI_EVAL_REPORT_NAME', 'DOKENE_AI_EVAL_MIN_SUCCESS_RATIO'].each { name ->
         System.getenv(name)?.with { value -> environment name, value }
     }
     outputs.upToDateWhen { false }
