@@ -21,4 +21,17 @@ class EvalLiveSettingsTest {
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }
+
+    @Test
+    void priceTableIsAbsentOrCompleteFiniteAndNonNegative() {
+        assertThat(EvalLiveSettings.pricing(null, null)).isNull();
+        assertThat(EvalLiveSettings.pricing(" ", "")).isNull();
+        assertThat(EvalLiveSettings.pricing("1.5", "0")).isEqualTo(new EvalReportBuilder.Pricing(1.5, 0.0));
+        for (String[] bad : new String[][] {{"1", null}, {null, "2"}, {"-1", "2"}, {"1", "-0.1"}, {"NaN", "2"},
+                {"1", "Infinity"}, {"abc", "2"}}) {
+            assertThatThrownBy(() -> EvalLiveSettings.pricing(bad[0], bad[1]))
+                    .as(String.join("/", String.valueOf(bad[0]), String.valueOf(bad[1])))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }

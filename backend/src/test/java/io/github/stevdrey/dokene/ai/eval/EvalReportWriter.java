@@ -108,6 +108,7 @@ public final class EvalReportWriter {
                         .append(d.recommendation().templateIntent()).append(" (confidence ")
                         .append(d.recommendation().confidence()).append(")\n  - Rationale: ")
                         .append(oneLine(d.recommendation().rationale())).append('\n');
+                variables(md, d.recommendation().draftVariables());
             }
             if (d.recommendationRefusal() != null) {
                 md.append("- Recommendation refusal: ").append(oneLine(d.recommendationRefusal())).append('\n');
@@ -116,6 +117,7 @@ public final class EvalReportWriter {
                 md.append("- Draft (").append(d.draft().locale()).append("): ").append(oneLine(d.draft().body()))
                         .append("\n  - Rationale: ").append(oneLine(d.draft().rationale())).append("\n  - Evidence: ")
                         .append(d.draft().evidence()).append("; warnings: ").append(d.draft().warnings()).append('\n');
+                variables(md, d.draft().draftVariables());
             }
             if (d.draftRefusal() != null) {
                 md.append("- Draft refusal: ").append(oneLine(d.draftRefusal())).append('\n');
@@ -126,6 +128,18 @@ public final class EvalReportWriter {
                 .append("`docs/verification/issue-98-ai-evaluation-verification.md`) and recorded in the JSON `rubric` ")
                 .append("blocks. They are never combined with, or allowed to offset, the hard invariants above.\n");
         return md.toString();
+    }
+
+    /** Delivered draft variables are model content that can carry factual claims; reviewers must see them. */
+    private static void variables(StringBuilder md, java.util.Map<String, String> variables) {
+        if (variables == null || variables.isEmpty()) {
+            return;
+        }
+        md.append("  - Variables: ");
+        md.append(variables.entrySet().stream()
+                .map(e -> "`" + oneLine(e.getKey()) + "` = " + oneLine(e.getValue()))
+                .collect(java.util.stream.Collectors.joining("; ")));
+        md.append('\n');
     }
 
     private static String oneLine(String text) {

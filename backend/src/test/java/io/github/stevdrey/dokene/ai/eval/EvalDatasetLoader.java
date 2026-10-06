@@ -51,6 +51,7 @@ public final class EvalDatasetLoader {
                 throw new IllegalStateException("Duplicate case display name (used as scripted-provider key): " + c.displayName());
             }
         }
+        SyntheticDataGuard.requireSynthetic(dataset);
         Set<EvalCase.Family> covered = EnumSet.noneOf(EvalCase.Family.class);
         dataset.cases().forEach(c -> covered.add(c.family()));
         if (!covered.containsAll(EnumSet.allOf(EvalCase.Family.class))) {

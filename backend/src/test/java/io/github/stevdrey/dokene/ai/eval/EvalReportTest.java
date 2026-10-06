@@ -135,6 +135,20 @@ class EvalReportTest {
     }
 
     @Test
+    void markdownShowsDeliveredDraftVariablesSoReviewersGradeTheWholeOutput(@TempDir Path dir) throws Exception {
+        MessageDraft withVariables = new MessageDraft(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Hola Lucía.",
+                DraftVariables.of(java.util.Map.of("product", "Café Molido")), "es-419", List.of(), List.of(),
+                "Basado en la compra.", RecommendationConfidence.of(0.7));
+        EvalReport report = EvalReportBuilder.build(dataset, List.of(observation("rp-01", withVariables, 20)), "live",
+                null, null, true);
+
+        EvalReportWriter.write(report, dir, "variables");
+
+        assertThat(Files.readString(dir.resolve("variables.md"))).contains("Variables: `product` = Café Molido");
+    }
+
+    @Test
     void comparatorTreatsARemovedOrRenamedHardInvariantAsARegression() {
         EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
         var invariants = new java.util.LinkedHashMap<>(baseline.summary().deliveredInvariants());

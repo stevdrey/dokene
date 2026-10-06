@@ -553,14 +553,16 @@ class DraftSafetyValidatorTest {
     void refusalMayStateThatThereIsNoOfferButNeverAdvertiseOne() {
         for (String benign : List.of("No hay una oferta relevante para este cliente",
                 "Sin descuentos ni promociones vigentes", "No existe ninguna oferta aplicable",
-                "No hay cashback disponible", "No existe ninguna liquidación vigente", "No hay opciones sin costo")) {
+                "No hay cashback disponible", "No existe ninguna liquidación vigente", "No hay opciones sin costo",
+                "No hay un precio disponible", "No aplica Black Friday", "No hay ningún 2 por 1 disponible")) {
             assertThat(DraftSafetyValidator.validate(
                     new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, benign, RecommendationConfidence.of(0.9)),
                     "Customer: Juan.")).as(benign).isEmpty();
         }
         for (String unsafe : List.of("No hay una oferta relevante, pero tenemos un descuento especial",
                 "No hay oferta; aprovecha el 20% hoy", "No hay oferta de $50, llama ya", "Hay una oferta relevante",
-                "No hay cashback, pero tienes liquidación", "Todo es gratis para este cliente")) {
+                "No hay cashback, pero tienes liquidación", "Todo es gratis para este cliente",
+                "No hay precio, cuesta 50", "Black Friday hoy", "No hay precio, pero USD 20")) {
             assertThat(DraftSafetyValidator.validate(
                     new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY, unsafe, RecommendationConfidence.of(0.9)),
                     "Customer: Juan.")).as(unsafe).isPresent();

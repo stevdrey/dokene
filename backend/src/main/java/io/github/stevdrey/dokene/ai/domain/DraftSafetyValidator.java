@@ -51,12 +51,15 @@ public final class DraftSafetyValidator {
      * immediately attached to an offer term is neutralised, and only for refusal rationales; amounts, symbols, links
      * and any affirmative or unattached offer term keep being rejected.
      */
+    private static final String NEGATABLE_OFFER_TERMS = "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?"
+            + "|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo|precios?|black\\s+friday"
+            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")";
+    private static final String NEGATION_MODIFIERS = "(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+)";
     private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
-                    + "\\s+(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo)"
-                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo))*"
+                    + "\\s+" + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS
+                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+"
+                    + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
                     + "(?![\\p{L}\\p{N}])");
 
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");

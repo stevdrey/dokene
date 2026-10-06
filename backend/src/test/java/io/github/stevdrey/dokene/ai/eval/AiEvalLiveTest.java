@@ -103,9 +103,8 @@ class AiEvalLiveTest {
     }
 
     private static EvalReportBuilder.Pricing pricing() {
-        String in = env("DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK");
-        String out = env("DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK");
-        return in == null || out == null ? null : new EvalReportBuilder.Pricing(Double.parseDouble(in), Double.parseDouble(out));
+        return EvalLiveSettings.pricing(env("DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK"),
+                env("DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK"));
     }
 
     private static String env(String name) {

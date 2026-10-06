@@ -71,12 +71,15 @@ public final class InvariantChecker {
     private static final Pattern PRICE_TERM_NUMBER = Pattern.compile(
             "(?iuU)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")");
     /** Independent twin of the gate's refusal allowance: a negation directly attached to an offer term. */
+    private static final String NEGATABLE_OFFER_TERMS = "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?"
+            + "|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo|precios?|black\\s+friday"
+            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY + ")";
+    private static final String NEGATION_MODIFIERS = "(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+)";
     private static final Pattern NEGATED_OFFER = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
-                    + "\\s+(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo)"
-                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo))*"
+                    + "\\s+" + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS
+                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+"
+                    + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
                     + "(?![\\p{L}\\p{N}])");
     private static final Pattern OFFER_SYMBOL = Pattern.compile("[%$₡€£]");
     private static final Pattern OFFER_WORD = Pattern.compile(

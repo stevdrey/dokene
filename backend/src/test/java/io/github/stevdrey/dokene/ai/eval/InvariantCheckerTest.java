@@ -248,7 +248,7 @@ class InvariantCheckerTest {
                 "No hay una oferta relevante para este cliente", RecommendationConfidence.of(0.3));
         var noDraft = new io.github.stevdrey.dokene.ai.domain.NoDraft(
                 io.github.stevdrey.dokene.ai.domain.NoDraftReason.MANUAL_REVIEW_REQUIRED,
-                "Sin descuentos ni promociones vigentes ni cashback; no hay opciones sin costo", RecommendationConfidence.of(0.3));
+                "Sin descuentos ni promociones vigentes ni cashback; no hay opciones sin costo ni un precio; no aplica Black Friday", RecommendationConfidence.of(0.3));
         var affirmative = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
                 io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT,
                 "No hay oferta, pero hay un descuento especial", RecommendationConfidence.of(0.3));
