@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 class AiEvalDatasetTest {
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
     private static final Pattern PHONE = Pattern.compile("(?<!\\d)\\+?(?:\\(?\\d\\)?[\\s.-]?){8,}(?!\\d)");
-    private static final Pattern URL = Pattern.compile("(?i)https?://([^/\\s]+)");
 
     private final EvalDataset dataset = EvalDatasetLoader.loadDefault();
 
@@ -59,7 +58,7 @@ class AiEvalDatasetTest {
         collectTexts(polluted, texts);
         assertThatThrownBy(() -> assertNoRealData(texts)).isInstanceOf(AssertionError.class);
 
-        for (String bad : List.of("Llama al +506 8888 0000", "Llama al +1 (212) 555-1234", "Tel 8888.0000", "Tel (506) 8888-0000", "Visita https://tienda-real.com/oferta", "mail a ana@gmail.com")) {
+        for (String bad : List.of("Llama al +506 8888 0000", "Llama al +1 (212) 555-1234", "Tel 8888.0000", "Tel (506) 8888-0000", "Visita https://tienda-real.com/oferta", "Compra en www.real-shop.com", "Mira promo.dev hoy", "Baja ftp://real-shop.com/file", "Ver tienda.com/promo", "mail a ana@gmail.com")) {
             assertThatThrownBy(() -> assertNoRealData(List.of(bad))).as(bad).isInstanceOf(AssertionError.class);
         }
         assertNoRealData(List.of("Visita https://promo.example.test/50", "Hola, ¿cómo te fue con tu café?"));
@@ -90,13 +89,20 @@ class AiEvalDatasetTest {
         }
     }
 
+    /** Host of a detected link: scheme, credentials, port, path, query and fragment removed. */
+    private static String hostOf(String link) {
+        String host = link.replaceFirst("^[A-Za-z][A-Za-z0-9+.-]*://", "");
+        host = host.replaceFirst("^[^/@]*@", "");
+        return host.split("[/:?#\\s]", 2)[0].toLowerCase(java.util.Locale.ROOT).replaceAll("[.,;]+$", "");
+    }
+
     static void assertNoRealData(List<String> texts) {
         assertThat(texts).allSatisfy(text -> {
             assertThat(EMAIL.matcher(text).find()).as("email in %s", text).isFalse();
             assertThat(PHONE.matcher(text).find()).as("phone number in %s", text).isFalse();
-            var urls = URL.matcher(text);
-            while (urls.find()) {
-                assertThat(urls.group(1)).as("only reserved .test hosts allowed").endsWith(".test");
+            var links = InvariantChecker.LINK.matcher(text);
+            while (links.find()) {
+                assertThat(hostOf(links.group())).as("only reserved .test hosts allowed in %s", text).endsWith(".test");
             }
         });
     }

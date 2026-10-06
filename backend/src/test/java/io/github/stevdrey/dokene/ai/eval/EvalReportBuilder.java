@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.ai.eval;
 
+import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.eval.InvariantChecker.InvariantResult;
 import io.github.stevdrey.dokene.ai.eval.InvariantChecker.RawFindings;
@@ -36,6 +37,7 @@ public final class EvalReportBuilder {
         long input = 0;
         long output = 0;
         int calls = 0;
+        int missingUsage = 0;
 
         for (CaseObservation obs : observations) {
             Map<String, InvariantResult> delivered = InvariantChecker.checkDelivered(obs);
@@ -81,8 +83,14 @@ public final class EvalReportBuilder {
                         output += call.metadata().usage().outputTokens();
                     }
                 }
-                wall.add(call.wallLatencyNanos() / 1_000_000);
+                if (call.metadata() == null || call.metadata().usage() == null) {
+                    // A completed or rejected response without token counts was probably billed: the totals and the
+                    // cost estimate are incomplete. A failure that never produced a response is not counted.
+                    missingUsage += call.outcome() != null || call.rejection() != null || call.metadata() != null ? 1 : 0;
+                }
             }
+            addWall(wall, obs, AiOperation.NEXT_BEST_ACTION, obs.recommendationWallNanos());
+            addWall(wall, obs, AiOperation.MESSAGE_DRAFT, obs.draftWallNanos());
             cases.add(new EvalReport.CaseReport(obs.evalCase().id(), obs.evalCase().family().name(),
                     obs.recommendationStatus(), obs.recommendationRejection(), obs.draftStatus(),
                     obs.draftRejection(), obs.calls().size(), verdicts, violations,
@@ -98,13 +106,13 @@ public final class EvalReportBuilder {
             deliveredTotals.put(entry.getKey(), new EvalReport.Tally(t[0], t[1], t[2]));
             allPass &= t[2] == 0;
         }
-        Double cost = pricing == null ? null
+        Double cost = pricing == null || missingUsage > 0 ? null
                 : input / 1_000_000.0 * pricing.inputUsdPerMillionTokens()
                         + output / 1_000_000.0 * pricing.outputUsdPerMillionTokens();
         EvalReport.Usage usage = new EvalReport.Usage(calls, percentile(reported, 50), percentile(reported, 95),
                 includeWallLatency ? percentile(wall, 50) : null, includeWallLatency ? percentile(wall, 95) : null,
                 input, output, cost, pricing == null ? null : pricing.inputUsdPerMillionTokens(),
-                pricing == null ? null : pricing.outputUsdPerMillionTokens());
+                pricing == null ? null : pricing.outputUsdPerMillionTokens(), missingUsage);
         EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass, unexpected,
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
                 new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]),
@@ -113,6 +121,20 @@ public final class EvalReportBuilder {
                 String.join(",", EvalRunner.sortedModels(observations, true)),
                 String.join(",", EvalRunner.sortedModels(observations, false)), EvalRunner.contractFingerprint(),
                 promptPolicyLabel, Instant.now().toString(), summary, cases);
+    }
+
+    /**
+     * End-to-end wall time of one resilient service operation (retries, backoff and the gate included), recorded once
+     * per operation that reached the provider. Falls back to the sum of the attempts when it was not measured.
+     */
+    private static void addWall(List<Long> wall, CaseObservation obs, AiOperation operation, long measuredNanos) {
+        List<EvalProviderCall> attempts = obs.calls().stream().filter(c -> c.operation() == operation).toList();
+        if (attempts.isEmpty()) {
+            return;
+        }
+        long nanos = measuredNanos >= 0 ? measuredNanos
+                : attempts.stream().mapToLong(EvalProviderCall::wallLatencyNanos).sum();
+        wall.add(nanos / 1_000_000);
     }
 
     /** Insertion-ordered so the serialized report is byte-reproducible across JVM runs. */

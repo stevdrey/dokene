@@ -74,13 +74,19 @@ public final class EvalReportWriter {
         md.append("\n## Usage and latency (no aggregate score)\n\n| Metric | Value |\n| --- | ---: |\n");
         row(md, "Provider calls", String.valueOf(usage.providerCalls()));
         row(md, "Reported latency p50/p95 (ms)", usage.reportedLatencyP50Ms() + " / " + usage.reportedLatencyP95Ms());
-        row(md, "Wall latency p50/p95 (ms)", usage.wallLatencyP50Ms() == null ? "n/a (deterministic)"
+        row(md, "Wall latency p50/p95 per operation, retries included (ms)", usage.wallLatencyP50Ms() == null ? "n/a (deterministic)"
                 : usage.wallLatencyP50Ms() + " / " + usage.wallLatencyP95Ms());
         row(md, "Input / output tokens", usage.inputTokens() + " / " + usage.outputTokens());
         row(md, "Price table (USD per 1M tokens, input / output)", usage.inputUsdPerMillionTokens() == null ? "n/a"
                 : usage.inputUsdPerMillionTokens() + " / " + usage.outputUsdPerMillionTokens());
-        row(md, "Estimated cost (USD)", usage.estimatedCostUsd() == null ? "n/a (no price table supplied)"
+        row(md, "Estimated cost (USD)", usage.estimatedCostUsd() == null
+                ? usage.callsMissingUsage() > 0 && usage.inputUsdPerMillionTokens() != null
+                        ? "n/a (incomplete: " + usage.callsMissingUsage() + " calls without token usage)"
+                        : "n/a (no price table supplied)"
                 : String.format(java.util.Locale.ROOT, "%.6f", usage.estimatedCostUsd()));
+        if (usage.callsMissingUsage() > 0) {
+            row(md, "Calls without token usage", String.valueOf(usage.callsMissingUsage()));
+        }
         md.append("\n## Cases\n\n| Case | Family | Recommendation | Draft | Calls | Invariant failures |\n")
                 .append("| --- | --- | --- | --- | ---: | --- |\n");
         for (EvalReport.CaseReport c : report.cases()) {

@@ -8,7 +8,7 @@
 | Model | scripted-v1 |
 | Contract fingerprint | a403562f65944eb4 |
 | Prompt/context policy label | scripted |
-| Generated at | 2026-10-06T01:19:36.762678986Z |
+| Generated at | 2026-10-06T06:53:49.488729842Z |
 | Cases | 31 |
 
 ## Hard invariants (delivered layer, pass/fail)
@@ -43,7 +43,7 @@ Pinned platform behavior: 31 match, 0 mismatch.
 | --- | ---: |
 | Provider calls | 45 |
 | Reported latency p50/p95 (ms) | 10 / 10 |
-| Wall latency p50/p95 (ms) | n/a (deterministic) |
+| Wall latency p50/p95 per operation, retries included (ms) | n/a (deterministic) |
 | Input / output tokens | 4500 / 1800 |
 | Price table (USD per 1M tokens, input / output) | n/a |
 | Estimated cost (USD) | n/a (no price table supplied) |

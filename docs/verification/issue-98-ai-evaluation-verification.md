@@ -54,6 +54,7 @@ Raw scripted findings (unsafe model output the gate had to absorb): schema-inval
 - Monetary tokens are bounded on both sides regardless of prefix (`$10` and `USD 10` are not grounded by `$100`/`USD 100`).
 - `aiEvalLive` requires a minimum share of provider-invoked cases (default 0.5, `DOKENE_AI_EVAL_MIN_SUCCESS_RATIO`) to deliver an outcome, so an invalid key or an outage cannot produce a green run with nothing to grade.
 - The synthetic tenant name is fixed (`Tienda Demo`), so draft prompts are identical across baseline and candidate runs.
+- Eighth review round: the comparator also fails on lower per-operation delivered coverage and on different report `schemaVersion` (now 2, with `usage.callsMissingUsage`); the cost estimate is withheld when a billable response has no token usage; wall latency is end to end per operation; the live success-ratio override is validated; the synthetic-data guard rejects any non-`.test` link form (www, bare hosts, other schemes); refusal rationales may negate every promotion term (cashback, liquidación, reembolso, gratis, sin costo) without allowing affirmative claims.
 - The pinned malformed request (`ua-02`) is honored as expected in live runs too; any other runtime exception still fails the evaluation.
 
 ### Fourth review round (Codex, PR #116)

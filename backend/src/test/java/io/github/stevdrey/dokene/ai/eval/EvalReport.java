@@ -21,7 +21,7 @@ public record EvalReport(
         Summary summary,
         List<CaseReport> cases) {
 
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     /** Report for the pinned evaluation date (see {@link EvalRunner#EVAL_DATE}). */
     public EvalReport(int schemaVersion, String datasetVersion, String mode, String provider, String model,
@@ -57,7 +57,8 @@ public record EvalReport(
 
     public record Usage(int providerCalls, Long reportedLatencyP50Ms, Long reportedLatencyP95Ms,
             Long wallLatencyP50Ms, Long wallLatencyP95Ms, long inputTokens, long outputTokens,
-            Double estimatedCostUsd, Double inputUsdPerMillionTokens, Double outputUsdPerMillionTokens) {
+            Double estimatedCostUsd, Double inputUsdPerMillionTokens, Double outputUsdPerMillionTokens,
+            int callsMissingUsage) {
     }
 
     public record CaseReport(

@@ -20,9 +20,24 @@ public record CaseObservation(
         MessageDraft deliveredDraft,
         List<EvalProviderCall> calls,
         NoRecommendation deliveredRecommendationRefusal,
-        NoDraft deliveredDraftRefusal) {
+        NoDraft deliveredDraftRefusal,
+        long recommendationWallNanos,
+        long draftWallNanos) {
+    /** Wall time not measured around the service operation (hand-built observations). */
+    public static final long NOT_MEASURED = -1;
+
     public CaseObservation {
         calls = calls == null ? List.of() : List.copyOf(calls);
+    }
+
+    /** Observation with delivered refusals but without end-to-end wall times. */
+    public CaseObservation(EvalCase evalCase, String recommendationStatus, String recommendationRejection,
+            ActionRecommendation deliveredRecommendation, String draftStatus, String draftRejection,
+            MessageDraft deliveredDraft, List<EvalProviderCall> calls, NoRecommendation deliveredRecommendationRefusal,
+            NoDraft deliveredDraftRefusal) {
+        this(evalCase, recommendationStatus, recommendationRejection, deliveredRecommendation, draftStatus,
+                draftRejection, deliveredDraft, calls, deliveredRecommendationRefusal, deliveredDraftRefusal,
+                NOT_MEASURED, NOT_MEASURED);
     }
 
     /** Observation without delivered refusals (the model produced an action/draft or nothing was delivered). */

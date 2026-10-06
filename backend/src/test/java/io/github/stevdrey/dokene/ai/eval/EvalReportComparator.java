@@ -32,6 +32,14 @@ public final class EvalReportComparator {
         List<String> warnings = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         boolean comparable = true;
+        boolean schemaMismatch = false;
+        if (baseline.schemaVersion() != candidate.schemaVersion()) {
+            // Field and tally meanings may differ between report formats: never a clean result.
+            warnings.add("report schema versions differ (" + baseline.schemaVersion() + " vs "
+                    + candidate.schemaVersion() + "): the reports are not comparable, regenerate the baseline");
+            comparable = false;
+            schemaMismatch = true;
+        }
         if (!Objects.equals(baseline.datasetVersion(), candidate.datasetVersion())) {
             warnings.add("dataset versions differ (" + baseline.datasetVersion() + " vs " + candidate.datasetVersion()
                     + "): per-case results are not comparable");
@@ -49,7 +57,7 @@ public final class EvalReportComparator {
         lines.add("Candidate: " + describe(candidate));
         lines.add("");
         lines.add("Hard invariants (delivered layer) failed count: baseline -> candidate");
-        boolean regression = false;
+        boolean regression = schemaMismatch;
         java.util.Set<String> invariantIds = new java.util.LinkedHashSet<>(baseline.summary().deliveredInvariants().keySet());
         invariantIds.addAll(candidate.summary().deliveredInvariants().keySet());
         for (String id : invariantIds) {
@@ -138,11 +146,31 @@ public final class EvalReportComparator {
                 + ", providerFailure " + rb.providerFailure() + "->" + rc.providerFailure());
         EvalReport.Usage ub = baseline.summary().usage();
         EvalReport.Usage uc = candidate.summary().usage();
+        boolean operationCoverageLost = false;
+        for (var entry : baseline.summary().operations().entrySet()) {
+            EvalReport.Coverage current = candidate.summary().operations().get(entry.getKey());
+            boolean lost = current == null || current.deliveredCases() < entry.getValue().deliveredCases();
+            lines.add("Delivered outcomes " + entry.getKey() + ": " + entry.getValue().deliveredCases() + "/"
+                    + entry.getValue().invokedCases() + " -> " + (current == null ? "MISSING"
+                    : current.deliveredCases() + "/" + current.invokedCases())
+                    + (lost && comparable ? "  <-- REGRESSION (delivery coverage lost)" : ""));
+            if (lost) {
+                if (comparable) {
+                    operationCoverageLost = true;
+                } else {
+                    warnings.add(entry.getKey() + " delivers fewer outcomes (datasets or report schemas differ)");
+                }
+            }
+        }
         candidate.summary().operations().forEach((operation, coverage) -> {
-            EvalReport.Coverage previous = baseline.summary().operations().get(operation);
-            lines.add("Delivered outcomes " + operation + ": " + (previous == null ? "n/a" : previous.deliveredCases()
-                    + "/" + previous.invokedCases()) + " -> " + coverage.deliveredCases() + "/" + coverage.invokedCases());
+            if (!baseline.summary().operations().containsKey(operation)) {
+                lines.add("Delivered outcomes " + operation + ": n/a -> " + coverage.deliveredCases() + "/"
+                        + coverage.invokedCases());
+            }
         });
+        // Fewer delivered outcomes per operation means less output was checked, even when every case-level
+        // invariant verdict still applies through the other operation.
+        regression |= operationCoverageLost;
         lines.add("Latency p50/p95 ms (reported): " + ub.reportedLatencyP50Ms() + "/" + ub.reportedLatencyP95Ms()
                 + " -> " + uc.reportedLatencyP50Ms() + "/" + uc.reportedLatencyP95Ms());
         lines.add("Tokens in/out: " + ub.inputTokens() + "/" + ub.outputTokens() + " -> " + uc.inputTokens() + "/"
@@ -151,6 +179,10 @@ public final class EvalReportComparator {
         if (!Objects.equals(ub.inputUsdPerMillionTokens(), uc.inputUsdPerMillionTokens())
                 || !Objects.equals(ub.outputUsdPerMillionTokens(), uc.outputUsdPerMillionTokens())) {
             warnings.add("price tables differ: the cost delta is not comparable (it mixes pricing and token usage)");
+        }
+        if (ub.callsMissingUsage() > 0 || uc.callsMissingUsage() > 0) {
+            warnings.add("calls without token usage (baseline " + ub.callsMissingUsage() + ", candidate "
+                    + uc.callsMissingUsage() + "): token and cost totals are incomplete");
         }
         lines.add("Cost USD: " + ub.estimatedCostUsd() + " -> " + uc.estimatedCostUsd());
         lines.add("Human rubric dimensions are compared by reviewers; no aggregate score is computed.");

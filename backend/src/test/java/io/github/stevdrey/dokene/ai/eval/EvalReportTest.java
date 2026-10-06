@@ -167,6 +167,86 @@ class EvalReportTest {
         assertThat(EvalReportComparator.compare(baseline, baseline).regression()).isFalse();
     }
 
+    private CaseObservation recommendationAndDraft(boolean draftDelivered) {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
+        var rec = new io.github.stevdrey.dokene.ai.domain.ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Cadencia cumplida", RecommendationConfidence.of(0.8),
+                DraftVariables.empty());
+        EvalProviderCall base = call(c.displayName(), rec, 10);
+        EvalProviderCall recCall = new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION, base.context(), rec,
+                null, base.metadata(), 10_000_000);
+        MessageDraft draft = draft("Hola, ¿cómo te fue con tu compra?");
+        EvalProviderCall draftCall = draftDelivered ? call(c.displayName(), draft, 10)
+                : new EvalProviderCall(c.displayName(), AiOperation.MESSAGE_DRAFT, base.context(), null,
+                        io.github.stevdrey.dokene.ai.application.AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1);
+        return new CaseObservation(c, "AVAILABLE", null, rec, draftDelivered ? "AVAILABLE" : "AI_UNAVAILABLE", null,
+                draftDelivered ? draft : null, List.of(recCall, draftCall));
+    }
+
+    @Test
+    void comparatorTreatsLowerDeliveryCoverageOfOneOperationAsARegression() {
+        EvalReport baseline = EvalReportBuilder.build(dataset, List.of(recommendationAndDraft(true)), "live", null, null, true);
+        EvalReport candidate = EvalReportBuilder.build(dataset, List.of(recommendationAndDraft(false)), "live", null, null, true);
+
+        var result = EvalReportComparator.compare(baseline, candidate);
+
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains("MESSAGE_DRAFT: 1/1 -> 0/1", "delivery coverage lost");
+        assertThat(EvalReportComparator.compare(baseline, baseline).regression()).isFalse();
+    }
+
+    @Test
+    void comparatorRefusesToCompareReportsOfDifferentSchemaVersions() {
+        EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
+        EvalReport older = new EvalReport(baseline.schemaVersion() - 1, baseline.datasetVersion(), baseline.mode(),
+                baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
+                baseline.generatedAt(), baseline.summary(), baseline.cases());
+
+        var result = EvalReportComparator.compare(older, baseline);
+
+        assertThat(result.comparable()).isFalse();
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains("report schema versions differ");
+    }
+
+    @Test
+    void costIsWithheldAndFlaggedWhenAResponseCarriesNoTokenUsage() {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
+        MessageDraft draft = draft("Hola, ¿cómo te fue con tu compra?");
+        EvalProviderCall full = call(c.displayName(), draft, 10);
+        EvalProviderCall noUsage = new EvalProviderCall(c.displayName(), AiOperation.MESSAGE_DRAFT, full.context(), draft,
+                null, new AiInvocationMetadata("test-provider", "test-model", null, Duration.ofMillis(10), null,
+                        AiCompletionStatus.SUCCEEDED), 10_000_000);
+        EvalProviderCall neverAnswered = new EvalProviderCall(c.displayName(), AiOperation.MESSAGE_DRAFT, full.context(),
+                null, io.github.stevdrey.dokene.ai.application.AiFailureCategory.UNAVAILABLE, null, 1);
+        var pricing = new EvalReportBuilder.Pricing(1.0, 2.0);
+        CaseObservation complete = new CaseObservation(c, "AVAILABLE", null, null, "AVAILABLE", null, draft, List.of(full));
+        CaseObservation partial = new CaseObservation(c, "AVAILABLE", null, null, "AVAILABLE", null, draft,
+                List.of(full, noUsage, neverAnswered));
+
+        var ok = EvalReportBuilder.build(dataset, List.of(complete), "live", null, pricing, true).summary().usage();
+        var incomplete = EvalReportBuilder.build(dataset, List.of(partial), "live", null, pricing, true).summary().usage();
+
+        assertThat(ok.estimatedCostUsd()).isNotNull();
+        assertThat(ok.callsMissingUsage()).isZero();
+        assertThat(incomplete.estimatedCostUsd()).isNull();
+        assertThat(incomplete.callsMissingUsage()).isEqualTo(1);
+    }
+
+    @Test
+    void wallLatencyIsTheEndToEndTimeOfTheOperationNotTheSumOfRawAttempts() {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
+        MessageDraft draft = draft("Hola, ¿cómo te fue con tu compra?");
+        EvalProviderCall attempt = call(c.displayName(), draft, 5);
+        // The raw attempt took 5 ms but the resilient operation (backoff included) took 2 s.
+        CaseObservation retried = new CaseObservation(c, "AVAILABLE", null, null, "AVAILABLE", null, draft,
+                List.of(attempt), null, null, CaseObservation.NOT_MEASURED, 2_000_000_000L);
+
+        var usage = EvalReportBuilder.build(dataset, List.of(retried), "live", null, null, true).summary().usage();
+
+        assertThat(usage.wallLatencyP50Ms()).isEqualTo(2000);
+    }
+
     @Test
     void comparatorTreatsADroppedBaselineCaseAsARegressionWhenTheDatasetVersionMatches() {
         EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");

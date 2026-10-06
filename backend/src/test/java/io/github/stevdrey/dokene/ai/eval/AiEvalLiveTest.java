@@ -91,8 +91,7 @@ class AiEvalLiveTest {
      * cases that reached the provider must have produced a delivered outcome (action, draft or refusal).
      */
     private static void assertEnoughSuccessfulOutputs(EvalReport report) {
-        double minRatio = env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO") == null ? 0.5
-                : Double.parseDouble(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
+        double minRatio = EvalLiveSettings.minSuccessRatio(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
         report.summary().operations().forEach((operation, coverage) -> {
             assertThat(coverage.invokedCases()).as("%s: cases that reached the provider", operation).isPositive();
             assertThat((double) coverage.deliveredCases() / coverage.invokedCases())

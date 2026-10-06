@@ -49,7 +49,7 @@ public final class InvariantChecker {
      * Every link form the production gate rejects (schemes, mailto/tel/javascript..., www, IPv4, and any bare
      * host with an alphabetic TLD such as promo.dev), not a fixed list of TLDs. Conservative on purpose.
      */
-    private static final Pattern LINK = Pattern.compile(
+    static final Pattern LINK = Pattern.compile(
             "(?iu)\\b[a-z][a-z0-9+.-]*://\\S+"
                     + "|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S*"
                     + "|\\bwww\\.\\S+"
@@ -74,9 +74,9 @@ public final class InvariantChecker {
     private static final Pattern NEGATED_OFFER = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
                     + "\\s+(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?)"
-                    + "(?:\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?))*"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo)"
+                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo))*"
                     + "(?![\\p{L}\\p{N}])");
     private static final Pattern OFFER_SYMBOL = Pattern.compile("[%$₡€£]");
     private static final Pattern OFFER_WORD = Pattern.compile(

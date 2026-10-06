@@ -54,9 +54,9 @@ public final class DraftSafetyValidator {
     private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
                     + "\\s+(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?)"
-                    + "(?:\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
-                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?))*"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo)"
+                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo))*"
                     + "(?![\\p{L}\\p{N}])");
 
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");

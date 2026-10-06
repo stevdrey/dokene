@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "datasetVersion": "1.3.0",
   "evaluationDate": "2026-10-05",
   "mode": "deterministic",
@@ -78,7 +78,8 @@
       "outputTokens": 1800,
       "estimatedCostUsd": null,
       "inputUsdPerMillionTokens": null,
-      "outputUsdPerMillionTokens": null
+      "outputUsdPerMillionTokens": null,
+      "callsMissingUsage": 0
     }
   },
   "cases": [

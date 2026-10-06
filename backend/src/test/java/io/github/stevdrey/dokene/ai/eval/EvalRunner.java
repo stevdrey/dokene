@@ -113,6 +113,7 @@ public final class EvalRunner {
         String recRejection = null;
         ActionRecommendation delivered = null;
         io.github.stevdrey.dokene.ai.domain.NoRecommendation recommendationRefusal = null;
+        long recommendationStart = System.nanoTime();
         try {
             FollowUpRecommendationResult result = inContext(tenantContext,
                     () -> recommendations.recommendSafe(customer.id(), null, null));
@@ -124,6 +125,7 @@ public final class EvalRunner {
         } catch (RuntimeException ex) {
             recStatus = "EXCEPTION_" + ex.getClass().getSimpleName();
         }
+        long recommendationWallNanos = System.nanoTime() - recommendationStart;
 
         EvalCase.Request request = evalCase.request();
         var draftAction = request != null && request.draftAction() != null ? request.draftAction()
@@ -135,6 +137,7 @@ public final class EvalRunner {
         String draftRejection = null;
         io.github.stevdrey.dokene.ai.domain.MessageDraft deliveredDraft = null;
         io.github.stevdrey.dokene.ai.domain.NoDraft draftRefusal = null;
+        long draftStart = System.nanoTime();
         try {
             FollowUpDraftResult result = inContext(tenantContext,
                     () -> drafts.draftSafe(customer.id(), draftAction, draftIntent, null, null));
@@ -145,8 +148,10 @@ public final class EvalRunner {
         } catch (RuntimeException ex) {
             draftStatus = "EXCEPTION_" + ex.getClass().getSimpleName();
         }
+        long draftWallNanos = System.nanoTime() - draftStart;
         return new CaseObservation(evalCase, recStatus, recRejection, delivered, draftStatus, draftRejection,
-                deliveredDraft, recorder.callsFor(evalCase.displayName()), recommendationRefusal, draftRefusal);
+                deliveredDraft, recorder.callsFor(evalCase.displayName()), recommendationRefusal, draftRefusal,
+                recommendationWallNanos, draftWallNanos);
     }
 
     private Customer seed(TenantContext tenantContext, EvalCase evalCase, int index) throws Exception {
