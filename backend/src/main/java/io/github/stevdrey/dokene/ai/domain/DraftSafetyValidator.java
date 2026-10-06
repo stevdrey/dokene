@@ -46,6 +46,22 @@ public final class DraftSafetyValidator {
             Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)\\b")
     );
 
+    /**
+     * A refusal rationale may state that there is no offer ("No hay una oferta relevante"). Only a negation
+     * immediately attached to an offer term is neutralised, and only for refusal rationales; amounts, symbols, links
+     * and any affirmative or unattached offer term keep being rejected.
+     */
+    private static final String NEGATABLE_OFFER_TERMS = "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?"
+            + "|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo|precios?|black\\s+friday"
+            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")";
+    private static final String NEGATION_MODIFIERS = "(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+)";
+    private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
+            "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
+                    + "\\s+" + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS
+                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*,?\\s+(?:ni|o)\\s+"
+                    + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
+                    + "(?![\\p{L}\\p{N}])");
+
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
             "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)" + SP + NUM
@@ -111,11 +127,43 @@ public final class DraftSafetyValidator {
             DraftGroundingContext grounding) {
         Objects.requireNonNull(noDraft, "No-draft outcome is required");
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
-        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, offerContext);
+        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, offerContext, true);
+    }
+
+    /**
+     * Validates the operator-visible rationale of a model refusal ({@code NoRecommendation}) with the same URL,
+     * provider identifier, offer and quantity checks applied to draft text.
+     */
+    public static Optional<DraftSafetyViolation> validate(NoRecommendation refusal, String allowedContextText,
+            DraftGroundingContext grounding) {
+        Objects.requireNonNull(refusal, "No-recommendation outcome is required");
+        String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
+        return validateTexts(Map.of("rationale", refusal.rationale()), allowedContextText, offerContext, true);
+    }
+
+    /**
+     * Validates the operator-visible rationale and draft variables of an action recommendation with the same
+     * URL, provider identifier, offer and quantity checks applied to draft text.
+     */
+    public static Optional<DraftSafetyViolation> validate(ActionRecommendation recommendation,
+            String allowedContextText, DraftGroundingContext grounding) {
+        Objects.requireNonNull(recommendation, "Recommendation is required");
+        Map<String, String> texts = new LinkedHashMap<>();
+        texts.put("rationale", recommendation.rationale());
+        for (DraftVariableEntry entry : recommendation.draftVariables().entries()) {
+            texts.put("variable '" + entry.key() + "'", entry.key() + "\n" + entry.value());
+        }
+        String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
+        return validateTexts(texts, allowedContextText, offerContext, false);
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText) {
+        return validateTexts(texts, allowedContextText, offerContextText, false);
+    }
+
+    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
+            String offerContextText, boolean refusalRationale) {
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
         String offerContextLower = offerContextText != null ? offerContextText.toLowerCase(Locale.ROOT) : "";
         String normalizedContext = normalizeQuantities(offerContextLower);
@@ -191,8 +239,11 @@ public final class DraftSafetyValidator {
             }
         }
 
+        String offerWordText = refusalRationale
+                ? NEGATED_OFFER_PATTERN.matcher(combinedDraftText).replaceAll(" ")
+                : combinedDraftText;
         for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
-            Matcher draftMatcher = wordPattern.matcher(combinedDraftText);
+            Matcher draftMatcher = wordPattern.matcher(offerWordText);
             while (draftMatcher.find()) {
                 String word = draftMatcher.group().toLowerCase(Locale.ROOT);
                 Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");

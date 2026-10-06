@@ -190,4 +190,13 @@ the provider ([ADR 0019](../docs/adr/0019-ai-failure-handling-telemetry-and-audi
 - Each request has a server-generated correlation id in the log MDC, the `X-Request-Id` response header and the
   provider `X-Client-Request-Id` header. Inbound `X-Request-Id` is ignored. CORS exposes `X-Request-Id` to browsers.
 
+## AI evaluation harness
+
+Synthetic, versioned evaluation of recommendations and drafts ([ADR 0021](../docs/adr/0021-ai-evaluation-harness-and-quality-baseline.md)).
+
+- `./gradlew test --tests '*ai.eval*'` runs the deterministic evaluation (scripted provider, real services, Action Gate and PostgreSQL via Testcontainers). It needs no API key and is part of the normal `./gradlew test`.
+- `./gradlew aiEvalLive` runs the **opt-in** live evaluation. It is skipped unless `DOKENE_AI_EVAL_LIVE=true` and `DOKENE_AI_OPENAI_API_KEY` are set, spends provider tokens and sends only synthetic data. Optional: `DOKENE_AI_EVAL_PROMPT_POLICY`, `DOKENE_AI_EVAL_REPORT_NAME`, `DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK`, `DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK`.
+- `./gradlew aiEvalCompare -Pbaseline=<report.json> -Pcandidate=<report.json>` compares two reports and exits non-zero on a hard-invariant regression.
+- Reports are written to `build/reports/ai-eval/` (`.json` and `.md`). See `docs/verification/issue-98-ai-evaluation-verification.md` for the procedure, rubric and known limitations.
+
 Flyway does not baseline a non-empty schema, validates applied migrations, and has clean disabled. The migration callback provisions the active signing key into a migration-owned database table via parameterized JDBC binding, and Migration V3 installs the verifier that makes signed, 60-second tenant capabilities authoritative for RLS; the runtime role cannot read the stored key. A startup failure on an unexpected schema must be investigated rather than bypassed.

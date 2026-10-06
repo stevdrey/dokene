@@ -72,7 +72,7 @@ Draft generation requires a structured `DraftContext` (`io.github.stevdrey.doken
 Deterministic validation is enforced by `DraftSafetyValidator` before accepting any model draft:
 - **Prohibited URLs/Links**: Rejects any draft body containing `http://`, `https://`, `ftp://`, `www.`, or URL-like domain references.
 - **Prohibited Provider Template IDs**: Rejects provider-specific template identifiers, such as WhatsApp/Meta template namespace strings (`template_id`, `hsm_id`, `waba_`).
-- **Hallucinated Discounts & Offers**: Rejects terms like `descuento`, `rebaja`, `oferta`, `cupón`, `gratis`, `%`, `$`, `USD`, `CRC` unless explicitly present in the grounding context (e.g., in customer purchase descriptions or notes).
+- **Hallucinated Discounts & Offers**: Rejects terms like `descuento`, `rebaja`, `oferta`, `cupón`, `gratis`, `%`, `$`, `USD`, `CRC` unless explicitly present in the grounding context (only in customer purchase descriptions; customer notes are untrusted and do not ground offers, see ADR 0021).
 
 ### 5. Strict Structured Outputs via JSON Schema
 

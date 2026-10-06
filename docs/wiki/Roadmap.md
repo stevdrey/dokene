@@ -54,9 +54,11 @@ Key outcomes:
 - prompt-injection-aware context assembly;
 - recommendation rationale and editable draft visible to the operator in the follow-up workbench, with no approve/send path ([ADR 0020](../adr/0020-frontend-ai-assistance-panel.md));
 - safe AI failure handling with bounded retry, privacy-safe metrics and audit ([ADR 0019](../adr/0019-ai-failure-handling-telemetry-and-audit.md));
-- AI quality/evaluation baseline.
+- AI quality/evaluation baseline: synthetic dataset, hard-invariant harness, opt-in live evaluation and baseline comparison ([ADR 0021](../adr/0021-ai-evaluation-harness-and-quality-baseline.md)).
 
 Exit condition: the system produces useful, explainable drafts without granting the model direct side-effect authority.
+
+Exit evidence: the deterministic evaluation (`./gradlew test --tests '*ai.eval*'`) passes with every delivered-layer hard invariant at 100% and matches the committed baseline. Before a provider/model is chosen for production, the opt-in live evaluation (`./gradlew aiEvalLive`) must still be run for it and its report, human rubric grades and known limitations recorded in [`docs/verification/issue-98-ai-evaluation-verification.md`](../verification/issue-98-ai-evaluation-verification.md); no live baseline has been captured yet. Evaluation informs a human decision; it never triggers a rollout.
 
 ## Phase 3 — WhatsApp integration with manual approval
 

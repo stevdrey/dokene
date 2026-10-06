@@ -28,6 +28,7 @@ import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
+import io.github.stevdrey.dokene.ai.application.AiOutputRejection;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
@@ -48,6 +49,8 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
+import java.util.Set;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -194,9 +197,23 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
 
             if (outcome instanceof ActionRecommendation actionRec) {
                 if (!request.context().trusted().allowedActions().contains(actionRec.action())) {
+                    // The outcome is not returned, so an unsafe rationale/variables must be reported here too.
+                    Set<AiOutputRejection> rejections = EnumSet.of(AiOutputRejection.ACTION_NOT_ALLOWED);
+                    RecommendationContext context = request.context();
+                    var grounding = new DraftGroundingContext(
+                            context.untrusted().displayName(),
+                            context.untrusted().notes(),
+                            context.untrusted().purchaseDescriptions(),
+                            context.trusted().purchaseDates().stream().map(Object::toString).toList(),
+                            context.trusted().followUpStatus(),
+                            context.trusted().tenantDate().toString());
+                    if (DraftSafetyValidator.validate(actionRec, formatInput(context), grounding).isPresent()) {
+                        rejections.add(AiOutputRejection.UNSAFE_CONTENT);
+                    }
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
+                            rejections);
                 }
             }
 
@@ -371,19 +388,20 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             if (outcome instanceof MessageDraft draft) {
-                if (draft.action() != request.context().action()
-                        || draft.templateIntent() != request.context().templateIntent()) {
-                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
-                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                // Every violated rule is kept (closed reasons, no model text), so a draft with an action mismatch and
+                // unsafe content is reported as both rather than hiding the unsafe content behind the first check.
+                Set<AiOutputRejection> rejections = EnumSet.noneOf(AiOutputRejection.class);
+                if (draft.action() != request.context().action()) {
+                    rejections.add(AiOutputRejection.ACTION_MISMATCH);
+                }
+                if (draft.templateIntent() != request.context().templateIntent()) {
+                    rejections.add(AiOutputRejection.INTENT_MISMATCH);
                 }
 
                 String expectedLocale = request.context().businessFacts() != null
                         ? request.context().businessFacts().preferredLocale() : "es-419";
                 if (draft.locale() == null || !draft.locale().trim().equalsIgnoreCase(expectedLocale.trim())) {
-                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
-                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                    rejections.add(AiOutputRejection.LOCALE_MISMATCH);
                 }
 
                 String allowedContext = formatDraftInput(request.context());
@@ -397,9 +415,13 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                         customerContext.trusted().tenantDate().toString());
                 var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
                 if (violation.isPresent()) {
+                    rejections.add(AiOutputRejection.UNSAFE_CONTENT);
+                }
+                if (!rejections.isEmpty()) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
+                            rejections);
                 }
             }
 

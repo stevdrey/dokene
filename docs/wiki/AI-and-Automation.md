@@ -338,3 +338,16 @@ Useful evaluation dimensions include:
 - provider failure behavior (see [AI Failure Handling, Telemetry and Audit](#ai-failure-handling-telemetry-and-audit) for the operational signals).
 
 A better model is not a reason to weaken deterministic controls.
+
+### Evaluation harness and baseline
+
+[ADR 0021](../adr/0021-ai-evaluation-harness-and-quality-baseline.md) defines a versioned **synthetic** dataset (31 cases, 11 scenario families: repeat purchase, dormant, recent purchase, explicit next follow-up, consent revoked, do-not-contact, archived, missing facts, adversarial notes, Spanish wording, unsupported action/template) that runs through the production services, Action Gate and PostgreSQL.
+
+- **Hard invariants (pass/fail, delivered layer):** schema validity, action/template allowlist, no contact when policy forbids it, no invented provider template ID, no unsupported link/discount/price, bounded length, safe gate outcome. They are never traded against language quality.
+- **Raw model findings (informational):** schema-invalid output, allowlist violations, unsafe drafts, refusals and provider failures before the gate.
+- **Rubric (human, 1-5):** recommendation relevance, rationale usefulness, draft quality, factual grounding, editability/tone. No exact-text matching and no single aggregate score.
+- **Reports:** JSON and Markdown in `backend/build/reports/ai-eval/` with provider/model, latency, token usage and optional cost.
+- **CI** runs only the deterministic scripted evaluation (no key, no cost). **Live evaluation is opt-in** (`./gradlew aiEvalLive`, `DOKENE_AI_EVAL_LIVE=true` plus a local API key).
+- **Before changing the model, the prompt/context policy or the structured contract:** capture a live baseline with the current configuration, change one thing, capture a candidate and run `./gradlew aiEvalCompare -Pbaseline=... -Pcandidate=...`. A hard-invariant regression blocks the change.
+
+Procedure, baseline results and known limitations: [`docs/verification/issue-98-ai-evaluation-verification.md`](../verification/issue-98-ai-evaluation-verification.md).
