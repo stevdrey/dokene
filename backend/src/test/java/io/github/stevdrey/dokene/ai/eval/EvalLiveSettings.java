@@ -3,6 +3,8 @@ package io.github.stevdrey.dokene.ai.eval;
 /** Validation of the opt-in live evaluation settings. */
 final class EvalLiveSettings {
     static final double DEFAULT_MIN_SUCCESS_RATIO = 0.5;
+    static final String DEFAULT_REPORT_NAME = "live";
+    private static final java.util.regex.Pattern REPORT_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
 
     private EvalLiveSettings() {
     }
@@ -57,5 +59,21 @@ final class EvalLiveSettings {
             throw new IllegalArgumentException(name + " must be finite and non-negative: " + raw);
         }
         return rate;
+    }
+
+    /**
+     * Basename of the report files. A separator or traversal would fail or escape the report directory only after
+     * the paid run, so it must be a plain safe name.
+     */
+    static String reportName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_REPORT_NAME;
+        }
+        String name = raw.trim();
+        if (!REPORT_NAME.matcher(name).matches() || name.contains("..")) {
+            throw new IllegalArgumentException("DOKENE_AI_EVAL_REPORT_NAME must be a plain file name "
+                    + "([A-Za-z0-9][A-Za-z0-9._-]{0,63}, no separators or '..'): " + raw);
+        }
+        return name;
     }
 }

@@ -16,6 +16,10 @@ final class SyntheticDataGuard {
     static final String EMAIL_VIOLATION = "email address";
     static final String PHONE_VIOLATION = "phone number";
     static final String LINK_VIOLATION = "link outside reserved .test hosts";
+    static final String DISPLAY_NAME_VIOLATION = "display name not marked Demo-NN";
+
+    /** Synthetic customers carry a visible demo marker so a real person's name can never be sent unnoticed. */
+    private static final Pattern DEMO_NAME = Pattern.compile("\\bDemo-\\d+\\b");
 
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
     /** Unicode-aware: NBSP and other Unicode spaces, dots, slashes and every Unicode dash separate digit groups. */
@@ -76,6 +80,9 @@ final class SyntheticDataGuard {
             List<String> texts = new ArrayList<>();
             collectTexts(evalCase, texts);
             List<String> kinds = violations(texts);
+            if (evalCase.displayName() == null || !DEMO_NAME.matcher(evalCase.displayName()).find()) {
+                kinds.add(DISPLAY_NAME_VIOLATION);
+            }
             if (!kinds.isEmpty()) {
                 problems.add(evalCase.id() + ": " + String.join(", ", kinds));
             }
@@ -88,7 +95,7 @@ final class SyntheticDataGuard {
         }
         if (!problems.isEmpty()) {
             throw new IllegalStateException(
-                    "Dataset is not synthetic (real-looking personal data or live links): " + String.join("; ", problems));
+                    "Dataset is not synthetic (real-looking personal data, live links or unmarked names): " + String.join("; ", problems));
         }
     }
 

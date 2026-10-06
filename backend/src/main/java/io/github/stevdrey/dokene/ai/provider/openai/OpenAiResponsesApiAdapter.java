@@ -197,9 +197,23 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
 
             if (outcome instanceof ActionRecommendation actionRec) {
                 if (!request.context().trusted().allowedActions().contains(actionRec.action())) {
+                    // The outcome is not returned, so an unsafe rationale/variables must be reported here too.
+                    Set<AiOutputRejection> rejections = EnumSet.of(AiOutputRejection.ACTION_NOT_ALLOWED);
+                    RecommendationContext context = request.context();
+                    var grounding = new DraftGroundingContext(
+                            context.untrusted().displayName(),
+                            context.untrusted().notes(),
+                            context.untrusted().purchaseDescriptions(),
+                            context.trusted().purchaseDates().stream().map(Object::toString).toList(),
+                            context.trusted().followUpStatus(),
+                            context.trusted().tenantDate().toString());
+                    if (DraftSafetyValidator.validate(actionRec, formatInput(context), grounding).isPresent()) {
+                        rejections.add(AiOutputRejection.UNSAFE_CONTENT);
+                    }
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE), AiOutputRejection.ACTION_NOT_ALLOWED);
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
+                            rejections);
                 }
             }
 

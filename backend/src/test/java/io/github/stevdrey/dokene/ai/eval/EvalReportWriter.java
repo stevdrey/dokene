@@ -137,6 +137,8 @@ public final class EvalReportWriter {
             return;
         }
         md.append("Scenario: ").append(oneLine(scenario.description())).append('\n');
+        md.append("- Customer (synthetic): ").append(oneLine(scenario.displayName())).append(", locale ")
+                .append(scenario.locale()).append('\n');
         EvalCase.Setup setup = scenario.setup();
         if (setup != null) {
             md.append("- Setup: consent ").append(setup.consent()).append(", do-not-contact ").append(setup.doNotContact())

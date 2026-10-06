@@ -34,4 +34,16 @@ class EvalLiveSettingsTest {
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }
+
+    @Test
+    void reportNameMustBeAPlainSafeBasename() {
+        assertThat(EvalLiveSettings.reportName(null)).isEqualTo("live");
+        assertThat(EvalLiveSettings.reportName("  ")).isEqualTo("live");
+        assertThat(EvalLiveSettings.reportName("candidate-oct-6.v2")).isEqualTo("candidate-oct-6.v2");
+        for (String bad : new String[] {"candidate/oct-6", "../name", "a\\b", "..", "a..b", ".hidden", "x".repeat(65),
+                "name with space"}) {
+            assertThatThrownBy(() -> EvalLiveSettings.reportName(bad)).as(bad)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }

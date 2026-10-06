@@ -58,7 +58,7 @@ public final class DraftSafetyValidator {
     private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
                     + "\\s+" + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS
-                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*(?:,|ni|o|y)\\s+"
+                    + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*,?\\s+(?:ni|o)\\s+"
                     + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
                     + "(?![\\p{L}\\p{N}])");
 

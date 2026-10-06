@@ -68,14 +68,14 @@ class AiEvalLiveTest {
         // Every live setting is validated before the first paid provider call: a typo must not cost a full run.
         double minSuccessRatio = EvalLiveSettings.minSuccessRatio(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
         EvalReportBuilder.Pricing pricing = pricing();
+        String reportName = EvalLiveSettings.reportName(env("DOKENE_AI_EVAL_REPORT_NAME"));
         EvalDataset dataset = EvalDatasetLoader.loadDefault();
         List<CaseObservation> observations = new EvalRunner(followUps, recommendations, drafts, customers, contacts,
                 purchases, tenants, memberships, contexts, auditExecution, provider).run(dataset);
 
         EvalReport report = EvalReportBuilder.build(dataset, observations, "live", env("DOKENE_AI_EVAL_PROMPT_POLICY"),
                 pricing, true);
-        String name = env("DOKENE_AI_EVAL_REPORT_NAME") == null ? "live" : env("DOKENE_AI_EVAL_REPORT_NAME");
-        Path json = EvalReportWriter.write(report, Path.of("build", "reports", "ai-eval"), name);
+        Path json = EvalReportWriter.write(report, Path.of("build", "reports", "ai-eval"), reportName);
 
         assertThat(json).exists();
         assertThat(report.summary().unexpectedFailures())

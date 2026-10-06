@@ -434,6 +434,42 @@ class OpenAiResponsesApiAdapterTest {
     }
 
     @Test
+    void rejectsActionOutsideAllowedActionsAlsoReportsUnsafeRationale() {
+        // RELATED_PRODUCT_OFFER is a valid SemanticAction enum value, but NOT in sampleRequest allowedActions
+        String outcomeJson = """
+                {
+                  "recommendation": {
+                    "outcome": "ACTION",
+                    "action": "RELATED_PRODUCT_OFFER",
+                    "templateIntent": "GENERAL_FOLLOW_UP",
+                    "rationale": "Visita https://promo.example.test ahora",
+                    "confidence": 0.85,
+                    "draftVariables": []
+                  }
+                }
+                """;
+
+        responseBody.set(buildWireResponse("resp_disallowed_unsafe", "gpt-6-luna", outcomeJson, 40, 20));
+        responseStatusCode.set(200);
+
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+
+        assertThatThrownBy(() -> adapter.recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> {
+                    AiProviderException ape = (AiProviderException) ex;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.rejections()).containsExactlyInAnyOrder(
+                            io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_NOT_ALLOWED,
+                            io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT);
+                    assertThat(ape.getMessage()).doesNotContain("promo.example");
+                    assertThat(ape.metadata().providerRequestId()).isEqualTo("resp_disallowed_unsafe");
+                    assertThat(ape.metadata().modelId()).isEqualTo("gpt-6-luna");
+                    assertThat(ape.metadata().usage().inputTokens()).isEqualTo(40);
+                });
+    }
+
+    @Test
     void rejectsResponseWithIncompleteStatus() {
         String outcomeJson = """
                 {

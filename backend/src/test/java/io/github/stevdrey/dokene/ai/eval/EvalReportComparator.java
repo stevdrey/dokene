@@ -32,13 +32,13 @@ public final class EvalReportComparator {
         List<String> warnings = new ArrayList<>();
         List<String> lines = new ArrayList<>();
         boolean comparable = true;
-        boolean schemaMismatch = false;
         if (baseline.schemaVersion() != candidate.schemaVersion()) {
             // Field and tally meanings may differ between report formats: never a clean result.
             warnings.add("report schema versions differ (" + baseline.schemaVersion() + " vs "
                     + candidate.schemaVersion() + "): the reports are not comparable, regenerate the baseline");
-            comparable = false;
-            schemaMismatch = true;
+            // Version-specific fields (operations, usage, tallies) may be absent in the other format: stop here.
+            return new Comparison(true, false, warnings,
+                    List.of("Baseline : " + describe(baseline), "Candidate: " + describe(candidate)));
         }
         if (!Objects.equals(baseline.datasetVersion(), candidate.datasetVersion())) {
             warnings.add("dataset versions differ (" + baseline.datasetVersion() + " vs " + candidate.datasetVersion()
@@ -65,7 +65,7 @@ public final class EvalReportComparator {
         lines.add("Candidate: " + describe(candidate));
         lines.add("");
         lines.add("Hard invariants (delivered layer) failed count: baseline -> candidate");
-        boolean regression = schemaMismatch;
+        boolean regression = false;
         java.util.Set<String> invariantIds = new java.util.LinkedHashSet<>(baseline.summary().deliveredInvariants().keySet());
         invariantIds.addAll(candidate.summary().deliveredInvariants().keySet());
         for (String id : invariantIds) {

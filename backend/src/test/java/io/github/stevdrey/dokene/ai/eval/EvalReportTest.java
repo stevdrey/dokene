@@ -224,6 +224,24 @@ class EvalReportTest {
     }
 
     @Test
+    void anOlderReportWithoutOperationsIsReportedAsNotComparableInsteadOfCrashing() {
+        EvalReport current = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
+        EvalReport.Summary s = current.summary();
+        EvalReport legacy = new EvalReport(1, current.datasetVersion(), current.datasetFingerprint(), current.mode(),
+                current.provider(), current.model(), current.contractFingerprint(), current.promptPolicyLabel(),
+                current.generatedAt(), new EvalReport.Summary(s.totalCases(), s.deliveredInvariants(), true,
+                s.unexpectedFailures(), s.behaviorMatches(), s.behaviorMismatches(), s.rawModelFindings(), null, null),
+                current.cases());
+
+        for (var result : List.of(EvalReportComparator.compare(legacy, current),
+                EvalReportComparator.compare(current, legacy))) {
+            assertThat(result.regression()).isTrue();
+            assertThat(result.comparable()).isFalse();
+            assertThat(result.render()).contains("report schema versions differ");
+        }
+    }
+
+    @Test
     void costIsWithheldAndFlaggedWhenAResponseCarriesNoTokenUsage() {
         EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
         MessageDraft draft = draft("Hola, ¿cómo te fue con tu compra?");
@@ -360,7 +378,7 @@ class EvalReportTest {
         assertThat(scenario.rubricHints()).isNotBlank();
 
         EvalReportWriter.write(report, dir, "scenario");
-        assertThat(Files.readString(dir.resolve("scenario.md"))).contains("Scenario:", "Purchases:", "Grading hint:",
+        assertThat(Files.readString(dir.resolve("scenario.md"))).contains("Scenario:", "Customer (synthetic): Lucía Demo-01", "Purchases:", "Grading hint:",
                 scenario.setup().purchases().getFirst().description());
         assertThat(EvalReportWriter.read(dir.resolve("scenario.json"))).isEqualTo(report);
     }

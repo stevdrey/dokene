@@ -93,4 +93,19 @@ class AiEvalDatasetTest {
                     .hasMessageContaining(base.id()).hasMessageNotContaining(bad);
         }
     }
+
+    @Test
+    void theLoaderRejectsCustomerNamesWithoutTheDemoMarker() {
+        EvalCase base = dataset.cases().getFirst();
+        EvalCase real = new EvalCase(base.id(), base.family(), base.description(), "Lucía Fernández", base.locale(),
+                base.setup(), base.request(), base.script(), base.expect(), base.rubricHints());
+        List<EvalCase> cases = new java.util.ArrayList<>(dataset.cases());
+        cases.set(0, real);
+
+        assertThatThrownBy(() -> EvalDatasetLoader.validate(
+                new EvalDataset(dataset.datasetVersion(), true, dataset.description(), cases)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining(base.id())
+                .hasMessageContaining(SyntheticDataGuard.DISPLAY_NAME_VIOLATION)
+                .hasMessageNotContaining("Fernández");
+    }
 }

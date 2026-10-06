@@ -268,6 +268,26 @@ class InvariantCheckerTest {
     }
 
     @Test
+    void aNegationDoesNotPropagateThroughACommaOrAnAnd() {
+        for (String benign : List.of("No hay descuento, ni oferta", "Sin descuentos o promociones vigentes")) {
+            var refusal = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
+                    io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT, benign,
+                    RecommendationConfidence.of(0.3));
+            assertThat(InvariantChecker.checkDelivered(new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null,
+                    "NO_DRAFT", null, null, List.of(call(refusal)), refusal, null))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(benign).isEqualTo(Verdict.PASS);
+        }
+        for (String unsafe : List.of("No hay descuento, oferta vigente para ti", "No hay descuento y oferta vigente")) {
+            var refusal = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
+                    io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT, unsafe,
+                    RecommendationConfidence.of(0.3));
+            assertThat(InvariantChecker.checkDelivered(new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null,
+                    "NO_DRAFT", null, null, List.of(call(refusal)), refusal, null))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(unsafe).isEqualTo(Verdict.FAIL);
+        }
+    }
+
+    @Test
     void flagsRawDraftsThatDeviateFromTheRequestedActionEvenWhenActionAndIntentArePaired() {
         MessageDraft seasonal = new MessageDraft(SemanticAction.SEASONAL_GREETING, SemanticTemplateIntent.SEASONAL_EVENT,
                 "Hola, ¡felices fiestas!", DraftVariables.empty(), "es-419", List.of(), List.of(), "Saludo.",
