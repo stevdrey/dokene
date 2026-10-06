@@ -50,7 +50,8 @@ class InvariantCheckerParityTest {
                 new Probe("Paquete de $10", "Ahora $10\u00a0000"), new Probe("Paquete de $100", "Ahora $10"),
                 new Probe("Plan de USD 100", "Ahora USD 10"), new Probe("Paquete con ofertas", "Tenemos una oferta"),
                 new Probe("Con descuentos", "Un descuento"), new Probe("Con bonos", "Un bono"),
-                new Probe("Con precios", "El precio"));
+                new Probe("Con precios", "El precio"), new Probe("Paquete de $10,50", "Ahora $10.5000"),
+                new Probe("Paquete de $10,50", "Ahora $1050"));
         for (Probe probe : probes) {
             EvalCase grounded = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
                     .map(c -> new EvalCase(c.id(), c.family(), c.description(), c.displayName(), c.locale(),
@@ -65,6 +66,22 @@ class InvariantCheckerParityTest {
             assertThat(InvariantChecker.contentViolations(draft, grounded))
                     .as("independent invariants must flag %s grounded by %s", probe.body(), probe.purchase())
                     .isNotEmpty();
+        }
+    }
+
+    @Test
+    void localeEquivalentAmountsAreAcceptedByBothProductionAndTheIndependentInvariants() {
+        for (String[] pair : new String[][] {{"$10,00", "$10.00"}, {"10,5%", "10.5%"}, {"$1 250,50", "$1250.50"}}) {
+            EvalCase grounded = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                    .map(c -> new EvalCase(c.id(), c.family(), c.description(), c.displayName(), c.locale(),
+                            new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                                    List.of(new EvalCase.PurchaseSpec(40, "Paquete de " + pair[0]))),
+                            c.request(), c.script(), c.expect(), c.rubricHints())).findFirst().orElseThrow();
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                    List.of("Paquete de " + pair[0]), List.of(), "DUE", "2026-09-29");
+            MessageDraft draft = draft("Recuerda el paquete de " + pair[1]);
+            assertThat(DraftSafetyValidator.validate(draft, "Paquete de " + pair[0], grounding)).as(pair[0]).isEmpty();
+            assertThat(InvariantChecker.contentViolations(draft, grounded)).as(pair[0]).isEmpty();
         }
     }
 }

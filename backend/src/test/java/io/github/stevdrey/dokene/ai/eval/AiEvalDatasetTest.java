@@ -39,17 +39,58 @@ class AiEvalDatasetTest {
     }
 
     @Test
-    void containsNoRealLookingPersonalDataOrLiveLinks() {
-        List<String> texts = dataset.cases().stream().flatMap(c -> {
-            var texts2 = new java.util.ArrayList<String>();
-            texts2.add(c.displayName());
-            texts2.add(c.setup().notes() == null ? "" : c.setup().notes());
-            c.setup().purchases().forEach(p -> texts2.add(p.description()));
-            if (c.script().draft() != null && c.script().draft().body() != null) {
-                texts2.add(c.script().draft().body());
+    void containsNoRealLookingPersonalDataOrLiveLinksInAnyTextField() {
+        List<String> texts = new java.util.ArrayList<>();
+        dataset.cases().forEach(c -> collectTexts(c, texts));
+        assertThat(texts).as("traversal reaches scripted and expectation fields").hasSizeGreaterThan(dataset.cases().size() * 8);
+        assertNoRealData(texts);
+    }
+
+    @Test
+    void theGuardCatchesRealLookingDataInScriptedFieldsThatAreNotSetupOrDraftBody() {
+        EvalCase base = dataset.cases().stream().filter(c -> c.id().equals("rp-01")).findFirst().orElseThrow();
+        var rec = base.script().recommendation();
+        EvalCase polluted = new EvalCase(base.id(), base.family(), base.description(), base.displayName(), base.locale(),
+                base.setup(), base.request(), new EvalCase.Script(new EvalCase.RecommendationScript(rec.kind(), rec.action(),
+                rec.templateIntent(), rec.reason(), rec.rationale(), rec.confidence(), rec.failure(),
+                java.util.Map.of("contact", "ventas@tienda-real.com"), rec.rejection()), base.script().draft()),
+                base.expect(), base.rubricHints());
+        List<String> texts = new java.util.ArrayList<>();
+        collectTexts(polluted, texts);
+        assertThatThrownBy(() -> assertNoRealData(texts)).isInstanceOf(AssertionError.class);
+
+        for (String bad : List.of("Llama al +506 8888 0000", "Visita https://tienda-real.com/oferta", "mail a ana@gmail.com")) {
+            assertThatThrownBy(() -> assertNoRealData(List.of(bad))).as(bad).isInstanceOf(AssertionError.class);
+        }
+        assertNoRealData(List.of("Visita https://promo.example.test/50", "Hola, ¿cómo te fue con tu café?"));
+    }
+
+    /** Collects every String reachable from a record graph (records, lists, maps), so no text field is skipped. */
+    static void collectTexts(Object value, List<String> out) {
+        if (value == null) {
+            return;
+        }
+        if (value instanceof String text) {
+            out.add(text);
+        } else if (value instanceof java.util.Collection<?> items) {
+            items.forEach(item -> collectTexts(item, out));
+        } else if (value instanceof java.util.Map<?, ?> map) {
+            map.forEach((k, v) -> {
+                collectTexts(k, out);
+                collectTexts(v, out);
+            });
+        } else if (value.getClass().isRecord()) {
+            for (var component : value.getClass().getRecordComponents()) {
+                try {
+                    collectTexts(component.getAccessor().invoke(value), out);
+                } catch (ReflectiveOperationException ex) {
+                    throw new IllegalStateException(ex);
+                }
             }
-            return texts2.stream();
-        }).toList();
+        }
+    }
+
+    static void assertNoRealData(List<String> texts) {
         assertThat(texts).allSatisfy(text -> {
             assertThat(EMAIL.matcher(text).find()).as("email in %s", text).isFalse();
             assertThat(PHONE.matcher(text).find()).as("phone number in %s", text).isFalse();

@@ -7,7 +7,7 @@
   "model" : "scripted-v1",
   "contractFingerprint" : "a403562f65944eb4",
   "promptPolicyLabel" : "scripted",
-  "generatedAt" : "2026-10-06T00:47:15.887137969Z",
+  "generatedAt" : "2026-10-06T01:19:36.762678986Z",
   "summary" : {
     "totalCases" : 31,
     "deliveredInvariants" : {
@@ -76,7 +76,9 @@
       "wallLatencyP95Ms" : null,
       "inputTokens" : 4500,
       "outputTokens" : 1800,
-      "estimatedCostUsd" : null
+      "estimatedCostUsd" : null,
+      "inputUsdPerMillionTokens" : null,
+      "outputUsdPerMillionTokens" : null
     }
   },
   "cases" : [ {

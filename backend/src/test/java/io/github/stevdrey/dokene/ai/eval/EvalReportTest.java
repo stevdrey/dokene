@@ -224,4 +224,24 @@ class EvalReportTest {
                 .anyMatch(w -> w.contains("evaluation dates differ"));
         assertThat(baseline.evaluationDate()).isEqualTo(EvalRunner.EVAL_DATE.toString());
     }
+
+    @Test
+    void reportRecordsThePriceTableUsedAndTheComparatorWarnsWhenTablesDiffer(@TempDir Path dir) throws Exception {
+        EvalReport priced = report(draft("Hola"), "live");
+        assertThat(priced.summary().usage().inputUsdPerMillionTokens()).isEqualTo(1.0);
+        assertThat(priced.summary().usage().outputUsdPerMillionTokens()).isEqualTo(2.0);
+        assertThat(EvalReportWriter.toMarkdown(priced)).contains("Price table", "1.0 / 2.0");
+
+        EvalReport repriced = EvalReportBuilder.build(dataset, List.of(observation("rp-01", draft("Hola"), 20),
+                observation("dc-01", draft("Hola"), 40)), "live", "policy-a", new EvalReportBuilder.Pricing(3.0, 4.0), true);
+        EvalReport unpriced = EvalReportBuilder.build(dataset, List.of(observation("rp-01", draft("Hola"), 20)),
+                "deterministic", null, null, false);
+
+        assertThat(EvalReportComparator.compare(priced, priced).warnings()).noneMatch(w -> w.contains("price tables"));
+        assertThat(EvalReportComparator.compare(priced, repriced).warnings())
+                .anyMatch(w -> w.contains("price tables differ"));
+        assertThat(EvalReportComparator.compare(priced, repriced).render()).contains("1.0/2.0 -> 3.0/4.0");
+        assertThat(EvalReportComparator.compare(priced, unpriced).warnings()).anyMatch(w -> w.contains("price tables differ"));
+        assertThat(unpriced.summary().usage().inputUsdPerMillionTokens()).isNull();
+    }
 }

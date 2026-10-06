@@ -375,7 +375,16 @@ public final class InvariantChecker {
         return contentViolations(visibleTexts(draft), evalCase);
     }
 
-    private static boolean ungroundedOffer(String text, String grounded) {
+    /** Mirrors production {@code normalizeQuantities}: one space, no thousands-group spaces, comma as period. */
+    private static String normalizeQuantities(String text) {
+        return text.replaceAll("[\\s\\u00a0\\u2007\\u202f\\u2009]+", " ")
+                .replaceAll("(?<=\\d)[ \\u00a0\\u202f](?=\\d{3})", "").replace(',', '.');
+    }
+
+    private static boolean ungroundedOffer(String rawText, String rawGrounded) {
+        // Both sides use the same numeric equivalence as the production validator ($10,00 grounds $10.00).
+        String text = normalizeQuantities(rawText);
+        String grounded = normalizeQuantities(rawGrounded);
         var amounts = AMOUNT.matcher(text);
         StringBuilder rest = new StringBuilder();
         int last = 0;

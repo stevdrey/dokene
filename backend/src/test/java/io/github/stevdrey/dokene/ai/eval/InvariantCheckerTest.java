@@ -366,4 +366,22 @@ class InvariantCheckerTest {
         assertThat(InvariantChecker.rawFindings(new CaseObservation(evalCase, "AVAILABLE", null, null, "AI_UNAVAILABLE",
                 null, null, List.of(malformed))).schemaInvalid()).isTrue();
     }
+
+    @Test
+    void locale_specificAmountPunctuationIsEquivalentOnBothSidesLikeProduction() {
+        for (String[] pair : new String[][] {{"$10,00", "$10.00"}, {"$10.00", "$10,00"}, {"10,5%", "10.5%"},
+                {"$1 250,50", "$1250.50"}}) {
+            EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                    List.of(new EvalCase.PurchaseSpec(40, "Paquete de " + pair[0] + " vigente"))));
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft("Recuerda el paquete de " + pair[1])))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(pair[0] + " vs " + pair[1])
+                    .isEqualTo(Verdict.PASS);
+        }
+        EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                List.of(new EvalCase.PurchaseSpec(40, "Paquete de $10,50"))));
+        for (String body : List.of("Ahora $10.5000", "Ahora $1050", "Ahora $10.5 0", "Ahora $10")) {
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft(body)))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.FAIL);
+        }
+    }
 }

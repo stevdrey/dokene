@@ -57,7 +57,7 @@ public record EvalReport(
 
     public record Usage(int providerCalls, Long reportedLatencyP50Ms, Long reportedLatencyP95Ms,
             Long wallLatencyP50Ms, Long wallLatencyP95Ms, long inputTokens, long outputTokens,
-            Double estimatedCostUsd) {
+            Double estimatedCostUsd, Double inputUsdPerMillionTokens, Double outputUsdPerMillionTokens) {
     }
 
     public record CaseReport(

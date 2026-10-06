@@ -133,9 +133,19 @@ public final class EvalReportComparator {
                 + " -> " + uc.reportedLatencyP50Ms() + "/" + uc.reportedLatencyP95Ms());
         lines.add("Tokens in/out: " + ub.inputTokens() + "/" + ub.outputTokens() + " -> " + uc.inputTokens() + "/"
                 + uc.outputTokens());
+        lines.add("Price table USD/1M tokens (in/out): " + rates(ub) + " -> " + rates(uc));
+        if (!Objects.equals(ub.inputUsdPerMillionTokens(), uc.inputUsdPerMillionTokens())
+                || !Objects.equals(ub.outputUsdPerMillionTokens(), uc.outputUsdPerMillionTokens())) {
+            warnings.add("price tables differ: the cost delta is not comparable (it mixes pricing and token usage)");
+        }
         lines.add("Cost USD: " + ub.estimatedCostUsd() + " -> " + uc.estimatedCostUsd());
         lines.add("Human rubric dimensions are compared by reviewers; no aggregate score is computed.");
         return new Comparison(regression, comparable, warnings, lines);
+    }
+
+    private static String rates(EvalReport.Usage usage) {
+        return usage.inputUsdPerMillionTokens() == null ? "n/a"
+                : usage.inputUsdPerMillionTokens() + "/" + usage.outputUsdPerMillionTokens();
     }
 
     private static String describe(EvalReport report) {

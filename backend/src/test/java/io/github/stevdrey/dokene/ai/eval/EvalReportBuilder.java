@@ -103,7 +103,8 @@ public final class EvalReportBuilder {
                         + output / 1_000_000.0 * pricing.outputUsdPerMillionTokens();
         EvalReport.Usage usage = new EvalReport.Usage(calls, percentile(reported, 50), percentile(reported, 95),
                 includeWallLatency ? percentile(wall, 50) : null, includeWallLatency ? percentile(wall, 95) : null,
-                input, output, cost);
+                input, output, cost, pricing == null ? null : pricing.inputUsdPerMillionTokens(),
+                pricing == null ? null : pricing.outputUsdPerMillionTokens());
         EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass, unexpected,
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
                 new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]),

@@ -76,7 +76,9 @@
       "wallLatencyP95Ms": null,
       "inputTokens": 4500,
       "outputTokens": 1800,
-      "estimatedCostUsd": null
+      "estimatedCostUsd": null,
+      "inputUsdPerMillionTokens": null,
+      "outputUsdPerMillionTokens": null
     }
   },
   "cases": [

@@ -67,6 +67,12 @@ Raw scripted findings (unsafe model output the gate had to absorb): schema-inval
 
 - The evaluation runs on a pinned clock: `EvalProviderConfiguration` provides a fixed `@Primary Clock` (2026-10-05, Costa Rica midday) to the production services, and all case seeding uses the same date (`EvalRunner.EVAL_DATE`). Prompts (tenant date, purchase and due dates) are therefore identical across baseline and candidate runs, on different days, and across midnight. The tenant-context capability signer keeps its own system clock, so database validation is unaffected. Reports carry `evaluationDate`; `aiEvalCompare` warns when the dates of two reports differ. Bump the date together with the dataset version.
 
+### Sixth review round (Codex, PR #116)
+
+- Amounts are normalized on both sides before grounding, like production `normalizeQuantities` (`$10,00` grounds `$10.00`, `10,5%` grounds `10.5%`), so live runs do not fail a hard invariant on output the gate correctly delivers; `$10.5000` or `$1050` are still not grounded by `$10,50`.
+- The synthetic-data guard traverses every text field of every case (scripted recommendation and draft fields, variables, evidence, expectations), with a self-test proving that real-looking data in a non-setup field is caught.
+- Reports record the price table used (`usage.inputUsdPerMillionTokens` / `outputUsdPerMillionTokens`); `aiEvalCompare` shows both tables and warns when they differ, since the cost delta would then mix pricing and token usage.
+
 ## Procedure
 
 Deterministic (CI, offline): `cd backend && ./gradlew test --tests '*ai.eval*'`. If a deliberate dataset/contract/gate change makes the baseline test fail, review the diff and copy `build/reports/ai-eval/deterministic.json` over `src/test/resources/ai-eval/baselines/deterministic-v1.json` with `generatedAt` set to `normalized`.

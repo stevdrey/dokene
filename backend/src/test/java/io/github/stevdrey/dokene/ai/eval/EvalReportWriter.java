@@ -77,6 +77,8 @@ public final class EvalReportWriter {
         row(md, "Wall latency p50/p95 (ms)", usage.wallLatencyP50Ms() == null ? "n/a (deterministic)"
                 : usage.wallLatencyP50Ms() + " / " + usage.wallLatencyP95Ms());
         row(md, "Input / output tokens", usage.inputTokens() + " / " + usage.outputTokens());
+        row(md, "Price table (USD per 1M tokens, input / output)", usage.inputUsdPerMillionTokens() == null ? "n/a"
+                : usage.inputUsdPerMillionTokens() + " / " + usage.outputUsdPerMillionTokens());
         row(md, "Estimated cost (USD)", usage.estimatedCostUsd() == null ? "n/a (no price table supplied)"
                 : String.format(java.util.Locale.ROOT, "%.6f", usage.estimatedCostUsd()));
         md.append("\n## Cases\n\n| Case | Family | Recommendation | Draft | Calls | Invariant failures |\n")
