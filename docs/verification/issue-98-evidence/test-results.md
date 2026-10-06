@@ -2,7 +2,7 @@
 
 Command: `cd backend && ./gradlew test` (JDK 26, Gradle 9.8.0, Testcontainers postgres:17-alpine). Result: BUILD SUCCESSFUL.
 
-Full suite: 1032 tests, 0 skipped, 0 failed (after the fourth Codex review follow-up).
+Full suite: 1033 tests, 0 skipped, 0 failed (after the fifth Codex review follow-up).
 
 Evaluation and gate suites:
 
@@ -12,7 +12,7 @@ Evaluation and gate suites:
 | DraftSafetyValidatorTest | 38 | 0 | 0 |
 | AiEvalDatasetTest | 5 | 0 | 0 |
 | AiEvalDeterministicIntegrationTest | 1 | 0 | 0 |
-| EvalReportTest | 11 | 0 | 0 |
+| EvalReportTest | 12 | 0 | 0 |
 | InvariantCheckerParityTest | 2 | 0 | 0 |
 | InvariantCheckerTest | 20 | 0 | 0 |
 | RecordingAiProviderTest | 3 | 0 | 0 |

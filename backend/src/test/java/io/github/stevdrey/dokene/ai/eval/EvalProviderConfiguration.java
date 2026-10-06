@@ -3,7 +3,10 @@ package io.github.stevdrey.dokene.ai.eval;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.context.TestConfiguration;
+import java.time.Clock;
+import java.time.ZoneOffset;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 
 /**
@@ -14,6 +17,16 @@ import org.springframework.core.env.Environment;
 @TestConfiguration
 public class EvalProviderConfiguration {
     public static final String MODE_PROPERTY = "dokene.eval.mode";
+
+    /**
+     * Fixed business clock (the capability signer keeps its own system clock, so database context validation is
+     * unaffected). Rate-limit windows never advance under it, which is why the evaluation raises the limits.
+     */
+    @Bean
+    @Primary
+    Clock evalClock() {
+        return Clock.fixed(EvalRunner.EVAL_INSTANT, ZoneOffset.UTC);
+    }
 
     @Bean
     static BeanPostProcessor evalProviderRecorder(Environment environment) {

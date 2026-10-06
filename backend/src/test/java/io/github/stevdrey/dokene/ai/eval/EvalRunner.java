@@ -51,6 +51,13 @@ public final class EvalRunner {
     /** Fixed so every draft prompt is identical across runs; isolation comes from the random tenant id. */
     static final String SYNTHETIC_BUSINESS_NAME = "Tienda Demo";
     static final ZoneId ZONE = ZoneId.of("America/Costa_Rica");
+    /**
+     * Pinned evaluation date shared by the production services (via the fixed {@code Clock} bean in
+     * {@link EvalProviderConfiguration}) and all case seeding, so prompts (tenant date, purchase and due dates) are
+     * identical across baseline and candidate runs and across midnight. Bump it only with the dataset version.
+     */
+    static final LocalDate EVAL_DATE = LocalDate.of(2026, 10, 5);
+    static final Instant EVAL_INSTANT = EVAL_DATE.atTime(12, 0).atZone(ZONE).toInstant();
 
     private final FollowUpService followUps;
     private final FollowUpRecommendationService recommendations;
@@ -86,7 +93,7 @@ public final class EvalRunner {
 
     /** Runs all cases in dataset order inside one fresh synthetic tenant and returns the observations. */
     public List<CaseObservation> run(EvalDataset dataset) throws Exception {
-        Instant now = Instant.now();
+        Instant now = EVAL_INSTANT;
         Tenant tenant = TenantSecurityIntegrationFixture.seedTenant(tenants, SYNTHETIC_BUSINESS_NAME, now);
         TenantContext tenantContext = TenantSecurityIntegrationFixture.context(
                 TenantSecurityIntegrationFixture.seedMembership(memberships, contexts, tenant.id(),
@@ -156,7 +163,7 @@ public final class EvalRunner {
             inContext(tenantContext, () -> contacts.changeDoNotContact(customer.id(), true,
                     ContactIntentSource.CUSTOMER_WRITTEN, contacts.get(customer.id()).version()));
         }
-        LocalDate today = LocalDate.now(ZONE);
+        LocalDate today = EVAL_DATE;
         int purchaseIndex = 0;
         for (EvalCase.PurchaseSpec spec : setup.purchases()) {
             Instant when = today.minusDays(spec.daysAgo()).atStartOfDay(ZONE).toInstant();

@@ -57,6 +57,7 @@ class AiEvalDeterministicIntegrationTest {
     @Autowired TenantContextProvider contexts;
     @Autowired AuditExecutionContext auditExecution;
     @Autowired AiProvider provider;
+    @Autowired java.time.Clock clock;
 
     @Test
     void datasetRunsThroughRealGateWithAllDeliveredHardInvariantsHolding() throws Exception {
@@ -71,6 +72,8 @@ class AiEvalDeterministicIntegrationTest {
         assertThat(report.summary().totalCases()).isEqualTo(dataset.cases().size());
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.violations())
                 .as("hard invariant violations for case %s", c.id()).isEmpty());
+        assertThat(clock.instant()).as("services run on the pinned evaluation clock").isEqualTo(EvalRunner.EVAL_INSTANT);
+        assertThat(report.evaluationDate()).isEqualTo("2026-10-05");
         assertThat(report.summary().unexpectedFailures()).isZero();
         assertThat(report.summary().allDeliveredInvariantsPass()).isTrue();
         assertMatchesCommittedBaseline(report);
@@ -97,7 +100,7 @@ class AiEvalDeterministicIntegrationTest {
     }
 
     private static EvalReport withoutTimestamp(EvalReport r) {
-        return new EvalReport(r.schemaVersion(), r.datasetVersion(), r.mode(), r.provider(), r.model(),
+        return new EvalReport(r.schemaVersion(), r.datasetVersion(), r.evaluationDate(), r.mode(), r.provider(), r.model(),
                 r.contractFingerprint(), r.promptPolicyLabel(), "normalized", r.summary(), r.cases());
     }
 }

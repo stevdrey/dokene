@@ -37,6 +37,10 @@ public final class EvalReportComparator {
                     + "): per-case results are not comparable");
             comparable = false;
         }
+        if (!Objects.equals(baseline.evaluationDate(), candidate.evaluationDate())) {
+            warnings.add("evaluation dates differ (" + baseline.evaluationDate() + " vs " + candidate.evaluationDate()
+                    + "): prompts contain different dates, so quality deltas are confounded");
+        }
         if (!Objects.equals(baseline.contractFingerprint(), candidate.contractFingerprint())) {
             warnings.add("structured-output contract fingerprint changed (" + baseline.contractFingerprint() + " -> "
                     + candidate.contractFingerprint() + ")");

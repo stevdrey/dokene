@@ -1,12 +1,13 @@
 {
   "schemaVersion" : 1,
   "datasetVersion" : "1.3.0",
+  "evaluationDate" : "2026-10-05",
   "mode" : "deterministic",
   "provider" : "scripted-eval",
   "model" : "scripted-v1",
   "contractFingerprint" : "a403562f65944eb4",
   "promptPolicyLabel" : "scripted",
-  "generatedAt" : "2026-10-06T00:31:41.761172947Z",
+  "generatedAt" : "2026-10-06T00:47:15.887137969Z",
   "summary" : {
     "totalCases" : 31,
     "deliveredInvariants" : {

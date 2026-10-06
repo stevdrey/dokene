@@ -212,4 +212,16 @@ class EvalReportTest {
         assertThat(operations.get("NEXT_BEST_ACTION")).isEqualTo(new EvalReport.Coverage(1, 1));
         assertThat(operations.get("MESSAGE_DRAFT")).isEqualTo(new EvalReport.Coverage(1, 0));
     }
+
+    @Test
+    void comparatorWarnsWhenEvaluationDatesDifferBecausePromptsAreConfounded() {
+        EvalReport baseline = report(draft("Hola"), "live");
+        EvalReport other = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), "2030-01-01",
+                baseline.mode(), baseline.provider(), baseline.model(), baseline.contractFingerprint(),
+                baseline.promptPolicyLabel(), baseline.generatedAt(), baseline.summary(), baseline.cases());
+
+        assertThat(EvalReportComparator.compare(baseline, other).warnings())
+                .anyMatch(w -> w.contains("evaluation dates differ"));
+        assertThat(baseline.evaluationDate()).isEqualTo(EvalRunner.EVAL_DATE.toString());
+    }
 }

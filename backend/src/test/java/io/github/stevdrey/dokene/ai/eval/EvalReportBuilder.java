@@ -108,7 +108,7 @@ public final class EvalReportBuilder {
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
                 new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]),
                 operations(recCoverage, draftCoverage), usage);
-        return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), mode,
+        return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), EvalRunner.EVAL_DATE.toString(), mode,
                 String.join(",", EvalRunner.sortedModels(observations, true)),
                 String.join(",", EvalRunner.sortedModels(observations, false)), EvalRunner.contractFingerprint(),
                 promptPolicyLabel, Instant.now().toString(), summary, cases);

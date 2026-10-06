@@ -41,6 +41,7 @@ Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md`
 - The harness lives in the test source set; promoting it to production code would need a new ADR.
 - Evaluation configures a connection pool larger than the shared integration fixture's default of one (gate-rejection audits use an independent transaction) and a high AI rate limit for the single synthetic actor; rate limiting is verified elsewhere.
 
+- The evaluation uses a fixed business clock and date so prompts are identical across runs; the report records `evaluationDate`.
 - `AiProviderException` carries an optional closed `AiOutputRejection` (no model text) so live raw findings can tell adapter-rejected unsafe or off-request output from malformed output; live runs require delivered outcomes per operation (recommendation and draft separately).
 - Evaluation found that the gate did not validate recommendation rationale/draft variables or refusal rationales; `DefaultAiActionGate` now applies `DraftSafetyValidator` to them.
 

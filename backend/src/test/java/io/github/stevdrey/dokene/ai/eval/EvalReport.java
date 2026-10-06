@@ -11,6 +11,7 @@ import java.util.Map;
 public record EvalReport(
         int schemaVersion,
         String datasetVersion,
+        String evaluationDate,
         String mode,
         String provider,
         String model,
@@ -21,6 +22,14 @@ public record EvalReport(
         List<CaseReport> cases) {
 
     public static final int SCHEMA_VERSION = 1;
+
+    /** Report for the pinned evaluation date (see {@link EvalRunner#EVAL_DATE}). */
+    public EvalReport(int schemaVersion, String datasetVersion, String mode, String provider, String model,
+            String contractFingerprint, String promptPolicyLabel, String generatedAt, Summary summary,
+            List<CaseReport> cases) {
+        this(schemaVersion, datasetVersion, EvalRunner.EVAL_DATE.toString(), mode, provider, model, contractFingerprint,
+                promptPolicyLabel, generatedAt, summary, cases);
+    }
 
     public record Summary(
             int totalCases,

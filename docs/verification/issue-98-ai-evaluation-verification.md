@@ -63,6 +63,10 @@ Raw scripted findings (unsafe model output the gate had to absorb): schema-inval
 - `aiEvalLive` checks recommendation and draft coverage separately (`summary.operations`), so a healthy recommendation path cannot hide wholesale draft failure.
 - **Production:** `AiProviderException` can carry a closed, content-free `AiOutputRejection` (`ACTION_NOT_ALLOWED`, `ACTION_MISMATCH`, `INTENT_MISMATCH`, `LOCALE_MISMATCH`, `UNSAFE_CONTENT`) set by `OpenAiResponsesApiAdapter` for its local validation of parseable output. Live raw findings count these as unsafe/allowlist model output instead of schema failures; genuinely malformed responses still report schema-invalid. Covered by `OpenAiResponsesApiAdapterTest`, `AiProviderExceptionTest` and dataset case `ua-06`.
 
+### Fifth review round (Codex, PR #116)
+
+- The evaluation runs on a pinned clock: `EvalProviderConfiguration` provides a fixed `@Primary Clock` (2026-10-05, Costa Rica midday) to the production services, and all case seeding uses the same date (`EvalRunner.EVAL_DATE`). Prompts (tenant date, purchase and due dates) are therefore identical across baseline and candidate runs, on different days, and across midnight. The tenant-context capability signer keeps its own system clock, so database validation is unaffected. Reports carry `evaluationDate`; `aiEvalCompare` warns when the dates of two reports differ. Bump the date together with the dataset version.
+
 ## Procedure
 
 Deterministic (CI, offline): `cd backend && ./gradlew test --tests '*ai.eval*'`. If a deliberate dataset/contract/gate change makes the baseline test fail, review the diff and copy `build/reports/ai-eval/deterministic.json` over `src/test/resources/ai-eval/baselines/deterministic-v1.json` with `generatedAt` set to `normalized`.
