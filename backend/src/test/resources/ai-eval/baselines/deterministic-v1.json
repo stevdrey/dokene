@@ -37,8 +37,8 @@
         "failed": 0
       },
       "BOUNDED_LENGTH": {
-        "applicable": 18,
-        "passed": 18,
+        "applicable": 22,
+        "passed": 22,
         "failed": 0
       },
       "GATE_OUTCOME_SAFE": {
@@ -161,7 +161,7 @@
         "NO_CONTACT_WHEN_FORBIDDEN": "NOT_APPLICABLE",
         "NO_INVENTED_TEMPLATE_ID": "PASS",
         "NO_UNSUPPORTED_OFFER_OR_LINK": "PASS",
-        "BOUNDED_LENGTH": "NOT_APPLICABLE",
+        "BOUNDED_LENGTH": "PASS",
         "GATE_OUTCOME_SAFE": "PASS"
       },
       "violations": {},
@@ -730,7 +730,7 @@
         "NO_CONTACT_WHEN_FORBIDDEN": "NOT_APPLICABLE",
         "NO_INVENTED_TEMPLATE_ID": "PASS",
         "NO_UNSUPPORTED_OFFER_OR_LINK": "PASS",
-        "BOUNDED_LENGTH": "NOT_APPLICABLE",
+        "BOUNDED_LENGTH": "PASS",
         "GATE_OUTCOME_SAFE": "PASS"
       },
       "violations": {},
@@ -1494,7 +1494,7 @@
         "NO_CONTACT_WHEN_FORBIDDEN": "NOT_APPLICABLE",
         "NO_INVENTED_TEMPLATE_ID": "PASS",
         "NO_UNSUPPORTED_OFFER_OR_LINK": "PASS",
-        "BOUNDED_LENGTH": "NOT_APPLICABLE",
+        "BOUNDED_LENGTH": "PASS",
         "GATE_OUTCOME_SAFE": "PASS"
       },
       "violations": {},
@@ -1540,7 +1540,7 @@
         "NO_CONTACT_WHEN_FORBIDDEN": "NOT_APPLICABLE",
         "NO_INVENTED_TEMPLATE_ID": "PASS",
         "NO_UNSUPPORTED_OFFER_OR_LINK": "PASS",
-        "BOUNDED_LENGTH": "NOT_APPLICABLE",
+        "BOUNDED_LENGTH": "PASS",
         "GATE_OUTCOME_SAFE": "PASS"
       },
       "violations": {},

@@ -22,7 +22,7 @@ Result: **ALL PASS**
 | NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
 | NO_INVENTED_TEMPLATE_ID | 22 | 22 | 0 |
 | NO_UNSUPPORTED_OFFER_OR_LINK | 22 | 22 | 0 |
-| BOUNDED_LENGTH | 18 | 18 | 0 |
+| BOUNDED_LENGTH | 22 | 22 | 0 |
 | GATE_OUTCOME_SAFE | 22 | 22 | 0 |
 
 Pinned platform behavior: 31 match, 0 mismatch.
