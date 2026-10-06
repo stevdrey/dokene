@@ -70,6 +70,14 @@ public final class InvariantChecker {
     /** Unmarked amounts attached to a price term ("el total es 999", "cuesta 50"). */
     private static final Pattern PRICE_TERM_NUMBER = Pattern.compile(
             "(?iuU)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")");
+    /** Independent twin of the gate's refusal allowance: a negation directly attached to an offer term. */
+    private static final Pattern NEGATED_OFFER = Pattern.compile(
+            "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
+                    + "\\s+(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?)"
+                    + "(?:\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?))*"
+                    + "(?![\\p{L}\\p{N}])");
     private static final Pattern OFFER_SYMBOL = Pattern.compile("[%$₡€£]");
     private static final Pattern OFFER_WORD = Pattern.compile(
             "(?iu)\\b(?:descuentos?|rebajas?|cupón|cupon|cupones|gratis|gratuit[oa]s?|promoci[oó]n(?:es)?"
@@ -321,6 +329,18 @@ public final class InvariantChecker {
                 violations.add("DRAFT_RATIONALE_TOO_LONG");
             }
         }
+        if (obs.deliveredRecommendationRefusal() != null) {
+            applicable = true;
+            if (codePoints(obs.deliveredRecommendationRefusal().rationale()) > MAX_RATIONALE_LENGTH) {
+                violations.add("RECOMMENDATION_REFUSAL_RATIONALE_TOO_LONG");
+            }
+        }
+        if (obs.deliveredDraftRefusal() != null) {
+            applicable = true;
+            if (codePoints(obs.deliveredDraftRefusal().rationale()) > MAX_RATIONALE_LENGTH) {
+                violations.add("DRAFT_REFUSAL_RATIONALE_TOO_LONG");
+            }
+        }
         return InvariantResult.of(violations, applicable);
     }
 
@@ -491,12 +511,13 @@ public final class InvariantChecker {
         return texts;
     }
 
+    /** A refusal may say there is no offer; the negation is neutralised, amounts, links and affirmations are not. */
     static List<String> visibleTexts(NoRecommendation refusal) {
-        return List.of(refusal.rationale());
+        return List.of(NEGATED_OFFER.matcher(refusal.rationale()).replaceAll(" "));
     }
 
     static List<String> visibleTexts(NoDraft refusal) {
-        return List.of(refusal.rationale());
+        return List.of(NEGATED_OFFER.matcher(refusal.rationale()).replaceAll(" "));
     }
 
     /** Operator-visible texts of every delivered outcome of the case (action, draft and both refusal kinds). */

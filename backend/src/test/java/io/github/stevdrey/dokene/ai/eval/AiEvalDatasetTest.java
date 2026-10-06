@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 class AiEvalDatasetTest {
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-    private static final Pattern PHONE = Pattern.compile("(?<!\\d)(?:\\+?\\d[\\s-]?){8,}(?!\\d)");
+    private static final Pattern PHONE = Pattern.compile("(?<!\\d)\\+?(?:\\(?\\d\\)?[\\s.-]?){8,}(?!\\d)");
     private static final Pattern URL = Pattern.compile("(?i)https?://([^/\\s]+)");
 
     private final EvalDataset dataset = EvalDatasetLoader.loadDefault();
@@ -59,7 +59,7 @@ class AiEvalDatasetTest {
         collectTexts(polluted, texts);
         assertThatThrownBy(() -> assertNoRealData(texts)).isInstanceOf(AssertionError.class);
 
-        for (String bad : List.of("Llama al +506 8888 0000", "Visita https://tienda-real.com/oferta", "mail a ana@gmail.com")) {
+        for (String bad : List.of("Llama al +506 8888 0000", "Llama al +1 (212) 555-1234", "Tel 8888.0000", "Tel (506) 8888-0000", "Visita https://tienda-real.com/oferta", "mail a ana@gmail.com")) {
             assertThatThrownBy(() -> assertNoRealData(List.of(bad))).as(bad).isInstanceOf(AssertionError.class);
         }
         assertNoRealData(List.of("Visita https://promo.example.test/50", "Hola, ¿cómo te fue con tu café?"));

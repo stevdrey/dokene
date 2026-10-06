@@ -58,7 +58,7 @@ Key outcomes:
 
 Exit condition: the system produces useful, explainable drafts without granting the model direct side-effect authority.
 
-Exit evidence: the deterministic evaluation (`./gradlew test --tests '*ai.eval*'`) passes with every delivered-layer hard invariant at 100% and matches the committed baseline; the live evaluation (`./gradlew aiEvalLive`, opt-in) has been run for the chosen provider/model and its report, human rubric grades and known limitations are recorded in [`docs/verification/issue-98-ai-evaluation-verification.md`](../verification/issue-98-ai-evaluation-verification.md). Evaluation informs a human decision; it never triggers a rollout.
+Exit evidence: the deterministic evaluation (`./gradlew test --tests '*ai.eval*'`) passes with every delivered-layer hard invariant at 100% and matches the committed baseline. Before a provider/model is chosen for production, the opt-in live evaluation (`./gradlew aiEvalLive`) must still be run for it and its report, human rubric grades and known limitations recorded in [`docs/verification/issue-98-ai-evaluation-verification.md`](../verification/issue-98-ai-evaluation-verification.md); no live baseline has been captured yet. Evaluation informs a human decision; it never triggers a rollout.
 
 ## Phase 3 — WhatsApp integration with manual approval
 

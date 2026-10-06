@@ -103,6 +103,6 @@ Compare before changing model, prompt/context policy or structured contract: run
 - The committed baseline measures platform controls (contract, gate, policy) with a scripted provider; it says nothing about model quality. **No live baseline is captured in this change**: it requires a real API key, spends tokens and needs reviewers for the rubric, so it must be run locally with explicit opt-in.
 - Invariants cannot prove free-text product claims (ADR 0018 residual risk); the draft prompt is Spanish-only (`es-419`), so multilingual coverage is limited to rejecting other locales.
 - The recommendation path reports the generic `FOLLOW_UP_INELIGIBLE` for consent-revoked/do-not-contact/archived customers while the draft path reports the specific reason (`NO_CONTACT_CONSENT`, `DO_NOT_CONTACT`, `CUSTOMER_ARCHIVED`); the baseline pins this observed behavior.
-- 26 cases are enough to detect regressions in controls, not to rank models statistically.
+- 31 cases are enough to detect regressions in controls, not to rank models statistically.
 - Live latency is wall/provider-reported and not reproducible; deterministic runs use constants.
 - Cost is reported only when a price table is supplied.

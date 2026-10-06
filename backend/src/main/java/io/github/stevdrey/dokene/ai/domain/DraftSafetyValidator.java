@@ -46,6 +46,19 @@ public final class DraftSafetyValidator {
             Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)\\b")
     );
 
+    /**
+     * A refusal rationale may state that there is no offer ("No hay una oferta relevante"). Only a negation
+     * immediately attached to an offer term is neutralised, and only for refusal rationales; amounts, symbols, links
+     * and any affirmative or unattached offer term keep being rejected.
+     */
+    private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
+            "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
+                    + "\\s+(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?)"
+                    + "(?:\\s*(?:,|ni|o|y)\\s+(?:(?:una?|unos|unas|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+){0,2}"
+                    + "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?))*"
+                    + "(?![\\p{L}\\p{N}])");
+
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
             "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)" + SP + NUM
@@ -111,7 +124,7 @@ public final class DraftSafetyValidator {
             DraftGroundingContext grounding) {
         Objects.requireNonNull(noDraft, "No-draft outcome is required");
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
-        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, offerContext);
+        return validateTexts(Map.of("rationale", noDraft.rationale()), allowedContextText, offerContext, true);
     }
 
     /**
@@ -122,7 +135,7 @@ public final class DraftSafetyValidator {
             DraftGroundingContext grounding) {
         Objects.requireNonNull(refusal, "No-recommendation outcome is required");
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
-        return validateTexts(Map.of("rationale", refusal.rationale()), allowedContextText, offerContext);
+        return validateTexts(Map.of("rationale", refusal.rationale()), allowedContextText, offerContext, true);
     }
 
     /**
@@ -138,11 +151,16 @@ public final class DraftSafetyValidator {
             texts.put("variable '" + entry.key() + "'", entry.key() + "\n" + entry.value());
         }
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
-        return validateTexts(texts, allowedContextText, offerContext);
+        return validateTexts(texts, allowedContextText, offerContext, false);
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText) {
+        return validateTexts(texts, allowedContextText, offerContextText, false);
+    }
+
+    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
+            String offerContextText, boolean refusalRationale) {
         String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
         String offerContextLower = offerContextText != null ? offerContextText.toLowerCase(Locale.ROOT) : "";
         String normalizedContext = normalizeQuantities(offerContextLower);
@@ -218,8 +236,11 @@ public final class DraftSafetyValidator {
             }
         }
 
+        String offerWordText = refusalRationale
+                ? NEGATED_OFFER_PATTERN.matcher(combinedDraftText).replaceAll(" ")
+                : combinedDraftText;
         for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
-            Matcher draftMatcher = wordPattern.matcher(combinedDraftText);
+            Matcher draftMatcher = wordPattern.matcher(offerWordText);
             while (draftMatcher.find()) {
                 String word = draftMatcher.group().toLowerCase(Locale.ROOT);
                 Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");

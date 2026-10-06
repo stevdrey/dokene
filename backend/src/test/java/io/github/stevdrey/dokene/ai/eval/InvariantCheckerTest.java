@@ -242,6 +242,32 @@ class InvariantCheckerTest {
     }
 
     @Test
+    void deliveredRefusalsAreBoundedAndMayStateThatThereIsNoOffer() {
+        var refusal = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
+                io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT,
+                "No hay una oferta relevante para este cliente", RecommendationConfidence.of(0.3));
+        var noDraft = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                io.github.stevdrey.dokene.ai.domain.NoDraftReason.MANUAL_REVIEW_REQUIRED,
+                "Sin descuentos ni promociones vigentes", RecommendationConfidence.of(0.3));
+        var affirmative = new io.github.stevdrey.dokene.ai.domain.NoRecommendation(
+                io.github.stevdrey.dokene.ai.domain.NoRecommendationReason.UNCERTAIN_INTENT,
+                "No hay oferta, pero hay un descuento especial", RecommendationConfidence.of(0.3));
+
+        var recRefusal = InvariantChecker.checkDelivered(new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null,
+                "NO_DRAFT", null, null, List.of(call(refusal)), refusal, null));
+        var draftRefusal = InvariantChecker.checkDelivered(new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null,
+                "NO_DRAFT", null, null, List.of(call(noDraft)), null, noDraft));
+        var advertised = InvariantChecker.checkDelivered(new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null,
+                "NO_DRAFT", null, null, List.of(call(affirmative)), affirmative, null));
+
+        for (var results : List.of(recRefusal, draftRefusal)) {
+            assertThat(results.get(InvariantChecker.BOUNDED_LENGTH).verdict()).isEqualTo(Verdict.PASS);
+            assertThat(results.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).isEqualTo(Verdict.PASS);
+        }
+        assertThat(advertised.get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).isEqualTo(Verdict.FAIL);
+    }
+
+    @Test
     void flagsRawDraftsThatDeviateFromTheRequestedActionEvenWhenActionAndIntentArePaired() {
         MessageDraft seasonal = new MessageDraft(SemanticAction.SEASONAL_GREETING, SemanticTemplateIntent.SEASONAL_EVENT,
                 "Hola, ¡felices fiestas!", DraftVariables.empty(), "es-419", List.of(), List.of(), "Saludo.",

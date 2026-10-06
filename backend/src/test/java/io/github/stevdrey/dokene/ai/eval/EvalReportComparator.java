@@ -67,8 +67,17 @@ public final class EvalReportComparator {
             }
             lines.add("  " + id + ": " + beforeFailed + " -> " + after.failed()
                     + (after.failed() > beforeFailed ? "  <-- REGRESSION" : after.failed() > 0 ? "  <-- FAILING" : ""));
-            if (before != null && before.applicable() > 0 && after.applicable() == 0) {
-                warnings.add(id + " no longer applies to any case (was " + before.applicable() + "): coverage dropped");
+            if (before != null && after.applicable() < before.applicable()) {
+                // Fewer applicable cases means less delivered output was checked: zero failures no longer prove the
+                // same safety coverage (a live run may legitimately deliver only a share of the cases).
+                String coverage = "  " + id + " applicability: " + before.applicable() + " -> " + after.applicable();
+                if (comparable || after.applicable() == 0) {
+                    regression = true;
+                    lines.add(coverage + "  <-- REGRESSION (coverage lost)");
+                } else {
+                    warnings.add(id + " applies to fewer cases (" + before.applicable() + " -> " + after.applicable()
+                            + "): coverage dropped, datasets differ");
+                }
             }
         }
         int unexpectedBefore = baseline.summary().unexpectedFailures();
@@ -105,6 +114,11 @@ public final class EvalReportComparator {
                     if (!"FAIL".equals(old) && "FAIL".equals(verdict.getValue())) {
                         regression = true;
                         lines.add("  case " + current.id() + " regressed on " + verdict.getKey());
+                    }
+                    if ("PASS".equals(old) && "NOT_APPLICABLE".equals(verdict.getValue())) {
+                        regression = true;
+                        lines.add("  case " + current.id() + " lost coverage on " + verdict.getKey()
+                                + " (PASS -> NOT_APPLICABLE)  <-- REGRESSION");
                     }
                 }
                 if (!Objects.equals(previous.recommendationStatus(), current.recommendationStatus())

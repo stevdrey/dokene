@@ -153,6 +153,21 @@ class EvalReportTest {
     }
 
     @Test
+    void comparatorTreatsPartialLossOfInvariantCoverageAsARegression() {
+        MessageDraft safe = draft("Hola, ¿cómo te fue con tu compra?");
+        EvalReport baseline = report(safe, "live");
+        EvalReport candidate = EvalReportBuilder.build(dataset,
+                List.of(observation("rp-01", safe, 20), observation("dc-01", null, 40)), "live", "policy-a",
+                new EvalReportBuilder.Pricing(1.0, 2.0), true);
+
+        var result = EvalReportComparator.compare(baseline, candidate);
+
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains("applicability: 2 -> 1", "PASS -> NOT_APPLICABLE");
+        assertThat(EvalReportComparator.compare(baseline, baseline).regression()).isFalse();
+    }
+
+    @Test
     void comparatorTreatsADroppedBaselineCaseAsARegressionWhenTheDatasetVersionMatches() {
         EvalReport baseline = report(draft("Hola, ¿cómo te fue con tu compra?"), "live");
         EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
