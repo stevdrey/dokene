@@ -8,7 +8,7 @@
 | Model | scripted-v1 |
 | Contract fingerprint | a403562f65944eb4 |
 | Prompt/context policy label | scripted |
-| Generated at | 2026-10-06T18:08:48.771198824Z |
+| Generated at | 2026-10-06T18:26:47.173708342Z |
 | Cases | 31 |
 
 ## Hard invariants (delivered layer, pass/fail)

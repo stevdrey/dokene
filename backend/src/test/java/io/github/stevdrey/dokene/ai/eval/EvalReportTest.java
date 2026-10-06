@@ -340,6 +340,16 @@ class EvalReportTest {
     }
 
     @Test
+    void datasetFingerprintTracksCaseAndListOrderButNotJsonKeyOrder() {
+        List<EvalCase> reordered = new java.util.ArrayList<>(dataset.cases());
+        java.util.Collections.reverse(reordered);
+        EvalDataset reversed = new EvalDataset(dataset.datasetVersion(), true, dataset.description(), reordered);
+
+        assertThat(EvalRunner.datasetFingerprint(reversed)).isNotEqualTo(EvalRunner.datasetFingerprint(dataset));
+        assertThat(EvalRunner.datasetFingerprint(dataset)).isEqualTo(EvalRunner.datasetFingerprint(dataset));
+    }
+
+    @Test
     void theGradingReportCarriesTheScenarioFactsBehindEachCase(@TempDir Path dir) throws Exception {
         EvalReport report = EvalReportBuilder.build(dataset,
                 List.of(observation("rp-01", draft("Hola Lucía, ¿cómo te fue con tu compra?"), 20)), "live", null,

@@ -18,8 +18,8 @@ final class SyntheticDataGuard {
     static final String LINK_VIOLATION = "link outside reserved .test hosts";
 
     private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-    /** Unicode-aware so NBSP, narrow NBSP, figure and thin spaces separate digit groups like a plain space. */
-    private static final Pattern PHONE = Pattern.compile("(?U)(?<!\\d)\\+?(?:\\(?\\d\\)?[\\s.-]?){8,}(?!\\d)");
+    /** Unicode-aware: NBSP and other Unicode spaces, dots, slashes and every Unicode dash separate digit groups. */
+    private static final Pattern PHONE = Pattern.compile("(?U)(?<!\\d)\\+?(?:\\(?\\d\\)?[\\s./\\p{Pd}]?){8,}(?!\\d)");
 
     private SyntheticDataGuard() {
     }

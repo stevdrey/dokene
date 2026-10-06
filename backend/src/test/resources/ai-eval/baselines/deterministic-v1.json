@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "datasetVersion": "1.3.0",
-  "datasetFingerprint": "f6a486bb441f5709",
+  "datasetFingerprint": "fb5d2d0bc514b231",
   "evaluationDate": "2026-10-05",
   "mode": "deterministic",
   "provider": "scripted-eval",

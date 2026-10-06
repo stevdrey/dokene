@@ -204,7 +204,7 @@ public final class EvalRunner {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             for (String schema : List.of(RecommendationJsonSchema.generateSchemaJson(), DraftJsonSchema.generateSchemaJson())) {
-                digest.update(canonical(FINGERPRINT_MAPPER.readTree(schema)).getBytes(StandardCharsets.UTF_8));
+                digest.update(canonical(FINGERPRINT_MAPPER.readTree(schema), true).getBytes(StandardCharsets.UTF_8));
             }
             return HexFormat.of().formatHex(digest.digest()).substring(0, 16);
         } catch (java.security.NoSuchAlgorithmException ex) {
@@ -219,7 +219,7 @@ public final class EvalRunner {
     public static String datasetFingerprint(EvalDataset dataset) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(canonical(FINGERPRINT_MAPPER.valueToTree(dataset)).getBytes(StandardCharsets.UTF_8));
+            digest.update(canonical(FINGERPRINT_MAPPER.valueToTree(dataset), false).getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest.digest()).substring(0, 16);
         } catch (java.security.NoSuchAlgorithmException ex) {
             throw new IllegalStateException(ex);
@@ -229,20 +229,27 @@ public final class EvalRunner {
     private static final tools.jackson.databind.json.JsonMapper FINGERPRINT_MAPPER =
             tools.jackson.databind.json.JsonMapper.builder().build();
 
-    private static String canonical(tools.jackson.databind.JsonNode node) {
+    /**
+     * Sorted object keys always; array items are sorted only for the schema fingerprint (generation order is not
+     * stable there). The dataset fingerprint preserves array order: cases run in list order and purchase order shapes
+     * the prompt, so a reorder is a different experiment.
+     */
+    private static String canonical(tools.jackson.databind.JsonNode node, boolean sortArrays) {
         if (node.isObject()) {
             List<String> names = new ArrayList<>(node.propertyNames());
             java.util.Collections.sort(names);
             StringBuilder out = new StringBuilder("{");
             for (String name : names) {
-                out.append('"').append(name).append("\":").append(canonical(node.get(name))).append(',');
+                out.append('"').append(name).append("\":").append(canonical(node.get(name), sortArrays)).append(',');
             }
             return out.append('}').toString();
         }
         if (node.isArray()) {
             List<String> items = new ArrayList<>();
-            node.forEach(item -> items.add(canonical(item)));
-            java.util.Collections.sort(items);
+            node.forEach(item -> items.add(canonical(item, sortArrays)));
+            if (sortArrays) {
+                java.util.Collections.sort(items);
+            }
             return "[" + String.join(",", items) + "]";
         }
         return node.toString();
