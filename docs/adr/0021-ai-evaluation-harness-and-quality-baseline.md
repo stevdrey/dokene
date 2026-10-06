@@ -31,7 +31,7 @@ Recommendation relevance, rationale usefulness, draft quality, factual grounding
 
 ### 5. Reports and comparison
 
-Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md` (human-readable), including the content delivered after the gate so humans can grade it later (model output about invented synthetic customers only). The report carries the dataset version, a canonicalized fingerprint of the strict structured-output schemas, an optional prompt/context policy label and per-case status/rejection reasons. `./gradlew aiEvalCompare -Pbaseline=… -Pcandidate=…` shows invariant, raw-finding, latency, token and cost deltas side by side and exits non-zero on any hard-invariant regression, including a baseline invariant that is missing from the candidate; it warns when dataset version or contract fingerprint differ. Before changing model, prompt/context policy or contract, capture a baseline with the current configuration and compare.
+Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md` (human-readable), including the content delivered after the gate so humans can grade it later (model output about invented synthetic customers only). The report carries the dataset version, a canonicalized fingerprint of the strict structured-output schemas, an optional prompt/context policy label and per-case status/rejection reasons. `./gradlew aiEvalCompare -Pbaseline=… -Pcandidate=…` shows invariant, raw-finding, latency, token and cost deltas side by side and exits non-zero on any hard-invariant regression, including a dropped baseline case, unexpected runtime exceptions, a baseline invariant that is missing from the candidate; it warns when dataset version or contract fingerprint differ. Before changing model, prompt/context policy or contract, capture a baseline with the current configuration and compare.
 
 ## Consequences
 
@@ -41,6 +41,7 @@ Each run writes `build/reports/ai-eval/<name>.json` (machine-readable) and `.md`
 - The harness lives in the test source set; promoting it to production code would need a new ADR.
 - Evaluation configures a connection pool larger than the shared integration fixture's default of one (gate-rejection audits use an independent transaction) and a high AI rate limit for the single synthetic actor; rate limiting is verified elsewhere.
 
+- `AiProviderException` carries an optional closed `AiOutputRejection` (no model text) so live raw findings can tell adapter-rejected unsafe or off-request output from malformed output; live runs require delivered outcomes per operation (recommendation and draft separately).
 - Evaluation found that the gate did not validate recommendation rationale/draft variables or refusal rationales; `DefaultAiActionGate` now applies `DraftSafetyValidator` to them.
 
 ## Out of scope

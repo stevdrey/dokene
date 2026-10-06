@@ -78,4 +78,25 @@ class RecordingAiProviderTest {
                 EvalDatasetLoader.loadDefault().cases().getFirst(), "AI_UNAVAILABLE", null, null, "AI_UNAVAILABLE", null,
                 null, recorder.callsFor("Lucía Demo-01"))).providerFailure()).isTrue();
     }
+
+    @Test
+    void copiesTheAdapterRejectionDetailFromTheException() {
+        AiProvider rejecting = new AiProvider() {
+            @Override
+            public AiRecommendationResponse recommend(AiRecommendationRequest request) {
+                throw new io.github.stevdrey.dokene.ai.application.AiProviderException(
+                        AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
+                        new io.github.stevdrey.dokene.ai.application.AiInvocationMetadata("p", "m", null,
+                                Duration.ofMillis(3), null, io.github.stevdrey.dokene.ai.application.AiCompletionStatus.FAILED),
+                        io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_NOT_ALLOWED);
+            }
+        };
+        RecordingAiProvider recorder = new RecordingAiProvider(rejecting);
+
+        assertThatThrownBy(() -> recorder.recommend(new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION, context(),
+                Duration.ofSeconds(1)))).isInstanceOf(io.github.stevdrey.dokene.ai.application.AiProviderException.class);
+
+        assertThat(recorder.callsFor("Lucía Demo-01")).singleElement().satisfies(call ->
+                assertThat(call.rejection()).isEqualTo(io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_NOT_ALLOWED));
+    }
 }

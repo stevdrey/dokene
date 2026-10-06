@@ -86,19 +86,21 @@ class AiEvalLiveTest {
 
     /**
      * Provider outages, invalid keys or wholesale invalid output surface as AI_UNAVAILABLE results, not exceptions,
-     * which would leave every output-dependent invariant not applicable. Require a minimum share of the cases that
-     * reached the provider to have produced a delivered outcome (action, draft or refusal).
+     * which would leave every output-dependent invariant not applicable. Each operation is checked separately so a
+     * healthy recommendation path cannot mask a wholesale draft failure (or the reverse): a minimum share of the
+     * cases that reached the provider must have produced a delivered outcome (action, draft or refusal).
      */
     private static void assertEnoughSuccessfulOutputs(EvalReport report) {
-        long invoked = report.cases().stream().filter(c -> c.providerCalls() > 0).count();
-        long delivered = report.cases().stream().filter(c -> c.providerCalls() > 0 && c.delivered() != null).count();
         double minRatio = env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO") == null ? 0.5
                 : Double.parseDouble(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
-        assertThat(invoked).as("cases that reached the provider").isPositive();
-        assertThat((double) delivered / invoked)
-                .as("share of provider-invoked cases with a delivered outcome (%s of %s); provider unavailable or "
-                        + "output invalid?", delivered, invoked)
-                .isGreaterThanOrEqualTo(minRatio);
+        report.summary().operations().forEach((operation, coverage) -> {
+            assertThat(coverage.invokedCases()).as("%s: cases that reached the provider", operation).isPositive();
+            assertThat((double) coverage.deliveredCases() / coverage.invokedCases())
+                    .as("%s: share of provider-invoked cases with a delivered outcome (%s of %s); provider "
+                            + "unavailable or output invalid?", operation, coverage.deliveredCases(),
+                            coverage.invokedCases())
+                    .isGreaterThanOrEqualTo(minRatio);
+        });
     }
 
     private static EvalReportBuilder.Pricing pricing() {

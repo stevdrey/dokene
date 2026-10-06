@@ -297,4 +297,73 @@ class InvariantCheckerTest {
                     .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.FAIL);
         }
     }
+
+    @Test
+    void deliveredDraftIsValidatedAgainstTheRuntimeRequestNotJustTheDatasetRequest() {
+        MessageDraft seasonal = new MessageDraft(SemanticAction.SEASONAL_GREETING, SemanticTemplateIntent.SEASONAL_EVENT,
+                "Hola, ¡felices fiestas!", DraftVariables.empty(), "es-419", List.of(), List.of(), "Saludo.",
+                RecommendationConfidence.of(0.8));
+        EvalProviderCall call = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(), seasonal, null,
+                new AiInvocationMetadata("p", "m", null, Duration.ofMillis(5), null, AiCompletionStatus.SUCCEEDED), 1,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE);
+        CaseObservation obs = new CaseObservation(evalCase, "NO_RECOMMENDATION", null, null, "AVAILABLE", null, seasonal,
+                List.of(call));
+
+        var results = InvariantChecker.checkDelivered(obs);
+
+        assertThat(results.get(InvariantChecker.ALLOWLIST_COMPLIANT).verdict()).isEqualTo(Verdict.FAIL);
+        assertThat(results.get(InvariantChecker.ALLOWLIST_COMPLIANT).violations())
+                .contains("DRAFT_ACTION_DIFFERS_FROM_RUNTIME_REQUEST", "DRAFT_INTENT_DIFFERS_FROM_RUNTIME_REQUEST");
+        assertThat(results.get(InvariantChecker.GATE_OUTCOME_SAFE).verdict()).isEqualTo(Verdict.FAIL);
+    }
+
+    @Test
+    void groupedAmountsAreCompleteTokensIncludingUnicodeGroupingSpaces() {
+        EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                List.of(new EvalCase.PurchaseSpec(40, "Paquete de $10 y plan de $2 500"))));
+        for (String body : List.of("Ahora $10 000", "Ahora $10\u00a0000", "Ahora $10\u202f000", "Solo $2 500 000")) {
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft(body)))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.FAIL);
+        }
+        for (String body : List.of("Tu paquete de $10 sigue", "Tu plan de $2 500 sigue", "Tu plan de $2\u00a0500 sigue")) {
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft(body)))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(body).isEqualTo(Verdict.PASS);
+        }
+    }
+
+    @Test
+    void offerTermsAreGroundedAsWholeWordsLikeTheProductionValidator() {
+        for (String[] pair : new String[][] {{"ofertas", "oferta"}, {"descuentos", "descuento"}, {"bonos", "bono"},
+                {"precios", "precio"}}) {
+            EvalCase grounded = withSetup(evalCase, new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                    List.of(new EvalCase.PurchaseSpec(40, "Paquete con " + pair[0] + " vigentes"))));
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft("Hay un " + pair[1] + " nuevo")))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(pair[1]).isEqualTo(Verdict.FAIL);
+            assertThat(InvariantChecker.checkDelivered(observe(grounded, null, draft("Recuerda las " + pair[0])))
+                    .get(InvariantChecker.NO_UNSUPPORTED_OFFER_OR_LINK).verdict()).as(pair[0]).isEqualTo(Verdict.PASS);
+        }
+    }
+
+    @Test
+    void adapterLocalRejectionsBecomeRawModelFindingsNotSchemaFailures() {
+        for (var entry : java.util.Map.of(
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT, "unsafe",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_MISMATCH, "allowlist",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.INTENT_MISMATCH, "allowlist",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.LOCALE_MISMATCH, "allowlist",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_NOT_ALLOWED, "allowlist").entrySet()) {
+            EvalProviderCall call = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(), null,
+                    AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1, null, null, entry.getKey());
+            var raw = InvariantChecker.rawFindings(new CaseObservation(evalCase, "AVAILABLE", null, null,
+                    "AI_UNAVAILABLE", null, null, List.of(call)));
+
+            assertThat(raw.schemaInvalid()).as(entry.getKey().name()).isFalse();
+            assertThat("unsafe".equals(entry.getValue()) ? raw.unsafeDraft() : raw.allowlistViolation())
+                    .as(entry.getKey().name()).isTrue();
+        }
+        EvalProviderCall malformed = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(), null,
+                AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1);
+        assertThat(InvariantChecker.rawFindings(new CaseObservation(evalCase, "AVAILABLE", null, null, "AI_UNAVAILABLE",
+                null, null, List.of(malformed))).schemaInvalid()).isTrue();
+    }
 }

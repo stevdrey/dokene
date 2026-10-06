@@ -76,7 +76,8 @@ public record EvalCase(
             String rationale,
             double confidence,
             String failure,
-            java.util.Map<String, String> variables) {
+            java.util.Map<String, String> variables,
+            String rejection) {
     }
 
     /** {@code kind}: DRAFT, NO_DRAFT or FAILURE. */
@@ -92,7 +93,8 @@ public record EvalCase(
             String reason,
             String rationale,
             double confidence,
-            String failure) {
+            String failure,
+            String rejection) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = false)

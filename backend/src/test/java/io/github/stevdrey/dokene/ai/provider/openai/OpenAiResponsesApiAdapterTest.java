@@ -426,6 +426,7 @@ class OpenAiResponsesApiAdapterTest {
                 .satisfies(ex -> {
                     AiProviderException ape = (AiProviderException) ex;
                     assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.rejection()).isEqualTo(io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_NOT_ALLOWED);
                     assertThat(ape.metadata().providerRequestId()).isEqualTo("resp_disallowed");
                     assertThat(ape.metadata().modelId()).isEqualTo("gpt-6-luna");
                     assertThat(ape.metadata().usage().inputTokens()).isEqualTo(40);
@@ -686,8 +687,56 @@ class OpenAiResponsesApiAdapterTest {
                 .isInstanceOf(AiProviderException.class)
                 .satisfies(e -> {
                     AiProviderException ape = (AiProviderException) e;
+                    assertThat(ape.rejection()).isEqualTo(io.github.stevdrey.dokene.ai.application.AiOutputRejection.LOCALE_MISMATCH);
                     assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
                 });
+    }
+
+    private void assertDraftRejection(String id, String action, String intent, String body,
+            io.github.stevdrey.dokene.ai.application.AiOutputRejection expected) {
+        String draftJson = """
+                {
+                  "draft": {
+                    "outcome": "DRAFT",
+                    "action": "%s",
+                    "templateIntent": "%s",
+                    "body": "%s",
+                    "draftVariables": [],
+                    "locale": "es-419",
+                    "evidence": [],
+                    "warnings": [],
+                    "rationale": "Mensaje basado en la compra.",
+                    "confidence": 0.90
+                  }
+                }
+                """.formatted(action, intent, body);
+        responseBody.set(buildWireResponse(id, "gpt-6-luna", draftJson, 50, 50));
+        responseStatusCode.set(200);
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        AiDraftRequest request = new AiDraftRequest(new DraftContext(sampleContext,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
+                new TrustedBusinessFacts("Dokene", "es-419")), Duration.ofSeconds(5));
+
+        assertThatThrownBy(() -> adapter.draft(request))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(e -> {
+                    AiProviderException ape = (AiProviderException) e;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.rejection()).isEqualTo(expected);
+                    assertThat(ape.getMessage()).doesNotContain(body);
+                });
+    }
+
+    @Test
+    void draft_localValidationFailuresCarryAClosedRejectionDetail() {
+        assertDraftRejection("resp_rej_action", "SEASONAL_GREETING", "SEASONAL_EVENT", "Felices fiestas a todos.",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.ACTION_MISMATCH);
+        assertDraftRejection("resp_rej_intent", "REPEAT_PURCHASE_FOLLOW_UP", "GENERAL_FOLLOW_UP",
+                "Hola, como te fue con tu compra.",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.INTENT_MISMATCH);
+        assertDraftRejection("resp_rej_unsafe", "REPEAT_PURCHASE_FOLLOW_UP", "REPEAT_PURCHASE",
+                "Visita https://promo.example.test ahora.",
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT);
     }
 
     @Test

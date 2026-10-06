@@ -25,6 +25,8 @@ public final class EvalReportBuilder {
         List<EvalReport.CaseReport> cases = new ArrayList<>();
         Map<String, int[]> tallies = new LinkedHashMap<>();
         InvariantChecker.DELIVERED_INVARIANTS.forEach(id -> tallies.put(id, new int[3]));
+        int[] recCoverage = new int[2];
+        int[] draftCoverage = new int[2];
         int unexpected = 0;
         int matches = 0;
         int mismatches = 0;
@@ -51,6 +53,12 @@ public final class EvalReportBuilder {
                     violations.put(id, result.violations());
                 }
             });
+            boolean recInvoked = obs.calls().stream().anyMatch(c -> c.operation() == io.github.stevdrey.dokene.ai.application.AiOperation.NEXT_BEST_ACTION);
+            boolean draftInvoked = obs.calls().stream().anyMatch(c -> c.operation() == io.github.stevdrey.dokene.ai.application.AiOperation.MESSAGE_DRAFT);
+            recCoverage[0] += recInvoked ? 1 : 0;
+            recCoverage[1] += recInvoked && (obs.deliveredRecommendation() != null || obs.deliveredRecommendationRefusal() != null) ? 1 : 0;
+            draftCoverage[0] += draftInvoked ? 1 : 0;
+            draftCoverage[1] += draftInvoked && (obs.deliveredDraft() != null || obs.deliveredDraftRefusal() != null) ? 1 : 0;
             boolean unexpectedFailure = unexpectedFailure(obs);
             unexpected += unexpectedFailure ? 1 : 0;
             Boolean behaviorMatch = "deterministic".equals(mode) ? behaviorMatches(obs) : null;
@@ -98,11 +106,20 @@ public final class EvalReportBuilder {
                 input, output, cost);
         EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass, unexpected,
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
-                new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]), usage);
+                new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]),
+                operations(recCoverage, draftCoverage), usage);
         return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), mode,
                 String.join(",", EvalRunner.sortedModels(observations, true)),
                 String.join(",", EvalRunner.sortedModels(observations, false)), EvalRunner.contractFingerprint(),
                 promptPolicyLabel, Instant.now().toString(), summary, cases);
+    }
+
+    /** Insertion-ordered so the serialized report is byte-reproducible across JVM runs. */
+    private static Map<String, EvalReport.Coverage> operations(int[] recommendation, int[] draft) {
+        Map<String, EvalReport.Coverage> operations = new LinkedHashMap<>();
+        operations.put("NEXT_BEST_ACTION", new EvalReport.Coverage(recommendation[0], recommendation[1]));
+        operations.put("MESSAGE_DRAFT", new EvalReport.Coverage(draft[0], draft[1]));
+        return operations;
     }
 
     /**

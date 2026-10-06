@@ -8,7 +8,7 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 
 | Criterion | Evidence |
 |---|---|
-| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (30 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
+| Versioned synthetic fixtures cover positive, negative and adversarial cases | `backend/src/test/resources/ai-eval/v1/dataset.json` (31 cases, 11 families); `AiEvalDatasetTest` (all families, positive/negative/adversarial present, unique ids) |
 | Hard invariants evaluated independently from language quality | `InvariantChecker`, `InvariantCheckerTest` (passing and failing example per invariant, grounded vs injected offers, forbidden-contact variants); rubric dimensions live in a separate blank `rubric` block |
 | Harness records schema validity, allowlist compliance, gate outcome, latency and usage | `EvalReport` (`deliveredInvariants`, per-case status/rejection, `usage` with reported/wall latency, tokens, optional cost), `EvalReportTest` |
 | Live evaluation opt-in, no key needed for normal CI | `AiEvalLiveTest` (`@Tag("ai-eval-live")`, `DOKENE_AI_EVAL_LIVE=true` + API key); `test` task `excludeTags 'ai-eval-live'`; `aiEvalLive` is not wired into `check`. `./gradlew aiEvalLive` without opt-in finishes with the test skipped |
@@ -17,21 +17,21 @@ Test evidence (full-suite result, evaluation suites, final deterministic report)
 | Baseline results and known limitations documented | below |
 | Roadmap/Phase 2 docs updated with procedure and exit evidence | `docs/wiki/Roadmap.md` (Phase 2), `docs/wiki/AI-and-Automation.md` ("Evaluation"), `backend/README.md` |
 
-## Deterministic baseline (dataset 1.2.0, scripted provider)
+## Deterministic baseline (dataset 1.3.0, scripted provider)
 
-30 cases through the real services, Action Gate and PostgreSQL. All 30 match the pinned platform behavior.
+31 cases through the real services, Action Gate and PostgreSQL. All 31 match the pinned platform behavior.
 
 | Delivered-layer invariant | Applicable | Passed | Failed |
 |---|---:|---:|---:|
-| SCHEMA_VALID | 21 | 21 | 0 |
-| ALLOWLIST_COMPLIANT | 17 | 17 | 0 |
+| SCHEMA_VALID | 22 | 22 | 0 |
+| ALLOWLIST_COMPLIANT | 18 | 18 | 0 |
 | NO_CONTACT_WHEN_FORBIDDEN | 4 | 4 | 0 |
-| NO_INVENTED_TEMPLATE_ID | 21 | 21 | 0 |
-| NO_UNSUPPORTED_OFFER_OR_LINK | 21 | 21 | 0 |
-| BOUNDED_LENGTH | 17 | 17 | 0 |
-| GATE_OUTCOME_SAFE | 21 | 21 | 0 |
+| NO_INVENTED_TEMPLATE_ID | 22 | 22 | 0 |
+| NO_UNSUPPORTED_OFFER_OR_LINK | 22 | 22 | 0 |
+| BOUNDED_LENGTH | 18 | 18 | 0 |
+| GATE_OUTCOME_SAFE | 22 | 22 | 0 |
 
-Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 2 (incompatible pair; draft deviating from the requested action), unsafe content 7 (the 6 above plus a recommendation rationale repeating an offer taken from customer notes,injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
+Raw scripted findings (unsafe model output the gate had to absorb): schema-invalid 1, allowlist/intent violation 2 (incompatible pair; draft deviating from the requested action), unsafe content 8 (an adapter-rejected unsafe draft, the 6 above plus a recommendation rationale repeating an offer taken from customer notes,injected 50% + link, injected template ID, invented 20% discount, a link in recommendation draft variables, an offer + link in a refusal rationale, a template ID in a no-draft rationale), refusals 5. Ineligible customers (recent purchase, future explicit date, consent revoked/unknown, do-not-contact, archived, no history) never reached the provider.
 
 ## Review follow-up (Codex, PR #116)
 
@@ -55,6 +55,13 @@ Raw scripted findings (unsafe model output the gate had to absorb): schema-inval
 - `aiEvalLive` requires a minimum share of provider-invoked cases (default 0.5, `DOKENE_AI_EVAL_MIN_SUCCESS_RATIO`) to deliver an outcome, so an invalid key or an outage cannot produce a green run with nothing to grade.
 - The synthetic tenant name is fixed (`Tienda Demo`), so draft prompts are identical across baseline and candidate runs.
 - The pinned malformed request (`ua-02`) is honored as expected in live runs too; any other runtime exception still fails the evaluation.
+
+### Fourth review round (Codex, PR #116)
+
+- Delivered drafts are validated against the action/intent the application actually requested at runtime (recorded per provider call), not only the dataset's optional request; a gate regression accepting a compatible-but-different draft now fails `ALLOWLIST_COMPLIANT` and `GATE_OUTCOME_SAFE`.
+- Grouped amounts (`$10 000`, with NBSP/narrow-NBSP/figure/thin spaces) are complete tokens, and offer terms are grounded as whole words (`ofertas` does not ground `oferta`), mirroring the production validator; both are cross-checked in `InvariantCheckerParityTest`.
+- `aiEvalLive` checks recommendation and draft coverage separately (`summary.operations`), so a healthy recommendation path cannot hide wholesale draft failure.
+- **Production:** `AiProviderException` can carry a closed, content-free `AiOutputRejection` (`ACTION_NOT_ALLOWED`, `ACTION_MISMATCH`, `INTENT_MISMATCH`, `LOCALE_MISMATCH`, `UNSAFE_CONTENT`) set by `OpenAiResponsesApiAdapter` for its local validation of parseable output. Live raw findings count these as unsafe/allowlist model output instead of schema failures; genuinely malformed responses still report schema-invalid. Covered by `OpenAiResponsesApiAdapterTest`, `AiProviderExceptionTest` and dataset case `ua-06`.
 
 ## Procedure
 

@@ -120,6 +120,11 @@ public final class EvalReportComparator {
                 + ", providerFailure " + rb.providerFailure() + "->" + rc.providerFailure());
         EvalReport.Usage ub = baseline.summary().usage();
         EvalReport.Usage uc = candidate.summary().usage();
+        candidate.summary().operations().forEach((operation, coverage) -> {
+            EvalReport.Coverage previous = baseline.summary().operations().get(operation);
+            lines.add("Delivered outcomes " + operation + ": " + (previous == null ? "n/a" : previous.deliveredCases()
+                    + "/" + previous.invokedCases()) + " -> " + coverage.deliveredCases() + "/" + coverage.invokedCases());
+        });
         lines.add("Latency p50/p95 ms (reported): " + ub.reportedLatencyP50Ms() + "/" + ub.reportedLatencyP95Ms()
                 + " -> " + uc.reportedLatencyP50Ms() + "/" + uc.reportedLatencyP95Ms());
         lines.add("Tokens in/out: " + ub.inputTokens() + "/" + ub.outputTokens() + " -> " + uc.inputTokens() + "/"

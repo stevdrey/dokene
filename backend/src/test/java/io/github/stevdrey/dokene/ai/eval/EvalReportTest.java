@@ -144,7 +144,7 @@ class EvalReportTest {
         EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.mode(),
                 baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
                 baseline.generatedAt(), new EvalReport.Summary(s.totalCases(), invariants, true, s.unexpectedFailures(), s.behaviorMatches(),
-                s.behaviorMismatches(), s.rawModelFindings(), s.usage()), baseline.cases());
+                s.behaviorMismatches(), s.rawModelFindings(), s.operations(), s.usage()), baseline.cases());
 
         var result = EvalReportComparator.compare(baseline, candidate);
 
@@ -191,5 +191,25 @@ class EvalReportTest {
                 .summary().unexpectedFailures()).isZero();
         assertThat(EvalReportBuilder.build(dataset, List.of(rejected), "live", null, null, true)
                 .summary().unexpectedFailures()).isZero();
+    }
+
+    @Test
+    void operationsAreCoveredSeparatelySoAHealthyRecommendationPathCannotMaskFailingDrafts() {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals("rp-01")).findFirst().orElseThrow();
+        var rec = new io.github.stevdrey.dokene.ai.domain.ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Cadencia cumplida", RecommendationConfidence.of(0.8),
+                DraftVariables.empty());
+        EvalProviderCall recCall = call(c.displayName(), rec, 10);
+        recCall = new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION, recCall.context(), rec, null,
+                recCall.metadata(), 1);
+        EvalProviderCall failedDraft = new EvalProviderCall(c.displayName(), AiOperation.MESSAGE_DRAFT, recCall.context(),
+                null, io.github.stevdrey.dokene.ai.application.AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1);
+        CaseObservation obs = new CaseObservation(c, "AVAILABLE", null, rec, "AI_UNAVAILABLE", null, null,
+                List.of(recCall, failedDraft));
+
+        var operations = EvalReportBuilder.build(dataset, List.of(obs), "live", null, null, true).summary().operations();
+
+        assertThat(operations.get("NEXT_BEST_ACTION")).isEqualTo(new EvalReport.Coverage(1, 1));
+        assertThat(operations.get("MESSAGE_DRAFT")).isEqualTo(new EvalReport.Coverage(1, 0));
     }
 }

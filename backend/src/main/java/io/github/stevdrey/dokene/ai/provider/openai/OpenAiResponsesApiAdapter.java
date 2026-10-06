@@ -28,6 +28,7 @@ import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiDraftResponse;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
+import io.github.stevdrey.dokene.ai.application.AiOutputRejection;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
@@ -196,7 +197,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 if (!request.context().trusted().allowedActions().contains(actionRec.action())) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE), AiOutputRejection.ACTION_NOT_ALLOWED);
                 }
             }
 
@@ -371,11 +372,17 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             }
 
             if (outcome instanceof MessageDraft draft) {
-                if (draft.action() != request.context().action()
-                        || draft.templateIntent() != request.context().templateIntent()) {
+                if (draft.action() != request.context().action()) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
+                            AiOutputRejection.ACTION_MISMATCH);
+                }
+                if (draft.templateIntent() != request.context().templateIntent()) {
+                    throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
+                            failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE),
+                            AiOutputRejection.INTENT_MISMATCH);
                 }
 
                 String expectedLocale = request.context().businessFacts() != null
@@ -383,7 +390,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 if (draft.locale() == null || !draft.locale().trim().equalsIgnoreCase(expectedLocale.trim())) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE), AiOutputRejection.LOCALE_MISMATCH);
                 }
 
                 String allowedContext = formatDraftInput(request.context());
@@ -399,7 +406,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 if (violation.isPresent()) {
                     throw new AiProviderException(AiFailureCategory.INVALID_STRUCTURED_RESPONSE,
                             failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE));
+                                    latency, extractUsage(response), AiFailureCategory.INVALID_STRUCTURED_RESPONSE), AiOutputRejection.UNSAFE_CONTENT);
                 }
             }
 

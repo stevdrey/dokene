@@ -42,4 +42,29 @@ class InvariantCheckerParityTest {
                     .as("independent invariants must flag: %s", body).isNotEmpty();
         }
     }
+
+    @Test
+    void groupedAmountsAndWholeWordOffersMatchTheProductionGroundingBehavior() {
+        record Probe(String purchase, String body) { }
+        List<Probe> probes = List.of(new Probe("Paquete de $10", "Ahora $10 000"),
+                new Probe("Paquete de $10", "Ahora $10\u00a0000"), new Probe("Paquete de $100", "Ahora $10"),
+                new Probe("Plan de USD 100", "Ahora USD 10"), new Probe("Paquete con ofertas", "Tenemos una oferta"),
+                new Probe("Con descuentos", "Un descuento"), new Probe("Con bonos", "Un bono"),
+                new Probe("Con precios", "El precio"));
+        for (Probe probe : probes) {
+            EvalCase grounded = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                    .map(c -> new EvalCase(c.id(), c.family(), c.description(), c.displayName(), c.locale(),
+                            new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                                    List.of(new EvalCase.PurchaseSpec(40, probe.purchase()))),
+                            c.request(), c.script(), c.expect(), c.rubricHints())).findFirst().orElseThrow();
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                    List.of(probe.purchase()), List.of(), "DUE", "2026-09-29");
+            MessageDraft draft = draft(probe.body());
+            assertThat(DraftSafetyValidator.validate(draft, probe.purchase(), grounding))
+                    .as("production must reject %s grounded by %s", probe.body(), probe.purchase()).isPresent();
+            assertThat(InvariantChecker.contentViolations(draft, grounded))
+                    .as("independent invariants must flag %s grounded by %s", probe.body(), probe.purchase())
+                    .isNotEmpty();
+        }
+    }
 }

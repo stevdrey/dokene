@@ -53,7 +53,7 @@ public final class ScriptedEvalAiProvider implements AiProvider {
             case "NO_RECOMMENDATION" -> new AiRecommendationResponse(new NoRecommendation(
                     NoRecommendationReason.valueOf(script.reason()), script.rationale(),
                     RecommendationConfidence.of(script.confidence())), metadata());
-            case "FAILURE" -> throw failure(AiFailureCategory.valueOf(script.failure()));
+            case "FAILURE" -> throw failure(AiFailureCategory.valueOf(script.failure()), script.rejection());
             default -> throw new IllegalStateException("Unknown recommendation script kind: " + script.kind());
         };
     }
@@ -72,7 +72,7 @@ public final class ScriptedEvalAiProvider implements AiProvider {
                     metadata());
             case "NO_DRAFT" -> new AiDraftResponse(new NoDraft(NoDraftReason.valueOf(script.reason()),
                     script.rationale(), RecommendationConfidence.of(script.confidence())), metadata());
-            case "FAILURE" -> throw failure(AiFailureCategory.valueOf(script.failure()));
+            case "FAILURE" -> throw failure(AiFailureCategory.valueOf(script.failure()), script.rejection());
             default -> throw new IllegalStateException("Unknown draft script kind: " + script.kind());
         };
     }
@@ -82,8 +82,15 @@ public final class ScriptedEvalAiProvider implements AiProvider {
     }
 
     private static AiProviderException failure(AiFailureCategory category) {
-        return new AiProviderException(category, new AiInvocationMetadata(PROVIDER_ID, MODEL_ID, "scripted-request",
-                Duration.ofMillis(10), new AiTokenUsage(100, 40), AiCompletionStatus.FAILED));
+        return failure(category, null);
+    }
+
+    private static AiProviderException failure(AiFailureCategory category, String rejection) {
+        var metadata = new AiInvocationMetadata(PROVIDER_ID, MODEL_ID, "scripted-request", Duration.ofMillis(10),
+                new AiTokenUsage(100, 40), AiCompletionStatus.FAILED);
+        return rejection == null ? new AiProviderException(category, metadata)
+                : new AiProviderException(category, metadata,
+                        io.github.stevdrey.dokene.ai.application.AiOutputRejection.valueOf(rejection));
     }
 
     private static AiInvocationMetadata metadata() {

@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.ai.eval;
 
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
+import io.github.stevdrey.dokene.ai.application.AiOutputRejection;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
@@ -21,11 +22,20 @@ public record EvalProviderCall(
         AiInvocationMetadata metadata,
         long wallLatencyNanos,
         SemanticAction requestedAction,
-        SemanticTemplateIntent requestedIntent) {
+        SemanticTemplateIntent requestedIntent,
+        AiOutputRejection rejection) {
+
+    /** Call without an adapter rejection detail. */
+    public EvalProviderCall(String displayName, AiOperation operation, RecommendationContext context, Object outcome,
+            AiFailureCategory failure, AiInvocationMetadata metadata, long wallLatencyNanos,
+            SemanticAction requestedAction, SemanticTemplateIntent requestedIntent) {
+        this(displayName, operation, context, outcome, failure, metadata, wallLatencyNanos, requestedAction,
+                requestedIntent, null);
+    }
 
     /** Call without a requested draft action/intent (recommendations, failures before a request existed). */
     public EvalProviderCall(String displayName, AiOperation operation, RecommendationContext context, Object outcome,
             AiFailureCategory failure, AiInvocationMetadata metadata, long wallLatencyNanos) {
-        this(displayName, operation, context, outcome, failure, metadata, wallLatencyNanos, null, null);
+        this(displayName, operation, context, outcome, failure, metadata, wallLatencyNanos, null, null, null);
     }
 }

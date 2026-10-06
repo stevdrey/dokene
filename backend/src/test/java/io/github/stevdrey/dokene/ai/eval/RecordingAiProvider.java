@@ -33,7 +33,7 @@ public final class RecordingAiProvider implements AiProvider {
             return response;
         } catch (AiProviderException ex) {
             calls.add(new EvalProviderCall(name, AiOperation.NEXT_BEST_ACTION, request.context(), null,
-                    ex.category(), ex.metadata(), System.nanoTime() - start));
+                    ex.category(), ex.metadata(), System.nanoTime() - start, null, null, ex.rejection()));
             throw ex;
         } catch (RuntimeException ex) {
             // Untyped failures are normalized to UNAVAILABLE by the resilience layer; the attempt still happened.
@@ -56,7 +56,7 @@ public final class RecordingAiProvider implements AiProvider {
         } catch (AiProviderException ex) {
             calls.add(new EvalProviderCall(name, AiOperation.MESSAGE_DRAFT, request.context().customerContext(),
                     null, ex.category(), ex.metadata(), System.nanoTime() - start, request.context().action(),
-                    request.context().templateIntent()));
+                    request.context().templateIntent(), ex.rejection()));
             throw ex;
         } catch (RuntimeException ex) {
             calls.add(new EvalProviderCall(name, AiOperation.MESSAGE_DRAFT, request.context().customerContext(),

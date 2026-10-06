@@ -30,7 +30,12 @@ public record EvalReport(
             Integer behaviorMatches,
             Integer behaviorMismatches,
             RawTotals rawModelFindings,
+            Map<String, Coverage> operations,
             Usage usage) {
+    }
+
+    /** Per operation: cases that reached the provider and cases with a delivered outcome (action/draft or refusal). */
+    public record Coverage(int invokedCases, int deliveredCases) {
     }
 
     public record Tally(int applicable, int passed, int failed) {
