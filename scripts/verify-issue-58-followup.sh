@@ -237,7 +237,8 @@ echo ""
 echo "--- 2. Purchase History Boundary, Stale States & Idempotency ---"
 
 # Setup: Create target customer
-RANDOM_DIGITS="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%08d\n", ($1 % 90000000) + 10000000}')"
+# Suffix kept in [20000000, 99999999]: Chilean mobiles +5691... are invalid and rejected by the phone normalizer.
+RANDOM_DIGITS="$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%08d\n", ($1 % 80000000) + 20000000}')"
 PURCHASE_CUST="$(curl -s -b "$OWNER_JAR" -X POST "$BFF_URL/api/customers" \
     -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OWNER_CSRF" -H "Content-Type: application/json" \
     -d "{\"displayName\":\"Cliente QA Compras\",\"phones\":[{\"number\":\"+569$RANDOM_DIGITS\",\"region\":\"CL\",\"primary\":true}]}")"
