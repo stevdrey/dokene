@@ -243,7 +243,7 @@ public final class RecommendationJsonSchema {
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", RecommendationOutcome.MAX_RATIONALE_LENGTH);
         rationaleProps.put("pattern", RecommendationRationale.NON_WHITESPACE_PATTERN);
-        rationaleProps.put("description", "Concise non-blank reasoning for the recommendation, written in Latin American Spanish (es-419) (1 to "
+        rationaleProps.put("description", "Concise non-blank reasoning for the recommendation, written in the operator locale stated in the instructions (1 to "
                 + RecommendationOutcome.MAX_RATIONALE_LENGTH + " characters)");
         properties.put("rationale", rationaleProps);
 
@@ -310,7 +310,7 @@ public final class RecommendationJsonSchema {
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", RecommendationOutcome.MAX_RATIONALE_LENGTH);
         rationaleProps.put("pattern", RecommendationRationale.NON_WHITESPACE_PATTERN);
-        rationaleProps.put("description", "Concise non-blank explanation of why no action was recommended, written in Latin American Spanish (es-419) (1 to "
+        rationaleProps.put("description", "Concise non-blank explanation of why no action was recommended, written in the operator locale stated in the instructions (1 to "
                 + RecommendationOutcome.MAX_RATIONALE_LENGTH + " characters)");
         properties.put("rationale", rationaleProps);
 

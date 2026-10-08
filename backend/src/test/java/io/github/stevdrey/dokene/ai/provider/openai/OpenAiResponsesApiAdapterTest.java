@@ -180,7 +180,8 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(capturedRequestBody.get()).contains("<untrusted_customer_data>");
         assertThat(capturedRequestBody.get()).contains("Acme Corp");
         assertThat(capturedRequestBody.get()).contains("\"store\":false");
-        assertThat(capturedRequestBody.get()).contains("Latin American Spanish (locale: es-419)");
+        assertThat(capturedRequestBody.get()).contains("interface locale is \\\"es-419\\\"");
+        assertThat(capturedRequestBody.get()).contains("NEVER mention offers, discounts, promotions");
     }
 
     @Test
@@ -846,7 +847,18 @@ class OpenAiResponsesApiAdapterTest {
         MessageDraft draft = (MessageDraft) response.outcome();
         assertThat(draft.locale()).isEqualTo("es-419");
         assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
-        assertThat(capturedRequestBody.get()).contains("The rationale and any warnings are read by the business operator");
+        assertThat(capturedRequestBody.get()).contains("the rationale and any warnings");
+        assertThat(capturedRequestBody.get()).contains("NEVER mention offers, discounts, promotions");
+    }
+
+    @Test
+    void operatorTextInstructionsFollowTheLocaleAndStayLanguageNeutral() {
+        for (String instructions : List.of(OpenAiResponsesApiAdapter.systemInstructions("pt-BR"),
+                OpenAiResponsesApiAdapter.draftSystemInstructions("pt-BR"))) {
+            assertThat(instructions).contains("pt-BR").doesNotContain("es-419").doesNotContain("Spanish");
+            assertThat(instructions).contains("in any language and not even to state that there are none");
+            assertThat(instructions).doesNotContain("sin ofertas").doesNotContain("descuentos ni");
+        }
     }
 
     private AiProviderException throttled(java.util.function.Consumer<OpenAiResponsesApiAdapter> call) {

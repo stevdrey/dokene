@@ -6,7 +6,7 @@
   "mode": "deterministic",
   "provider": "scripted-eval",
   "model": "scripted-v1",
-  "contractFingerprint": "091e358beba672c7",
+  "contractFingerprint": "23b8614d31ef2022",
   "promptPolicyLabel": "scripted",
   "generatedAt": "normalized",
   "summary": {
