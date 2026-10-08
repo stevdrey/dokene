@@ -43,18 +43,21 @@ describe('CustomerFormModal', () => {
       archivedAt: null
     });
 
-    render(<CustomerFormModal isOpen={true} onClose={vi.fn()} onSaved={onSaved} />);
+    try {
+      render(<CustomerFormModal isOpen={true} onClose={vi.fn()} onSaved={onSaved} />);
 
-    expect(screen.getByRole('option', { name: 'Costa Rica (+506)' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Costa Rica (+506)' })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), { target: { value: 'Ana Rojas' } });
-    fireEvent.change(screen.getByRole('combobox', { name: /región|país|prefijo/i }), { target: { value: 'CR' } });
-    fireEvent.change(screen.getByLabelText(/Número de teléfono 1/i), { target: { value: '8888 1234' } });
-    fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+      fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), { target: { value: 'Ana Rojas' } });
+      fireEvent.change(screen.getByLabelText('Región para teléfono 1'), { target: { value: 'CR' } });
+      fireEvent.change(screen.getByLabelText(/Número de teléfono 1/i), { target: { value: '8888 1234' } });
+      fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(spy.mock.calls[0][0].phones[0].region).toBe('CR');
-    spy.mockRestore();
+      await waitFor(() => expect(onSaved).toHaveBeenCalled());
+      expect(spy.mock.calls[0][0].phones[0].region).toBe('CR');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('submits valid customer data and calls onSaved', async () => {

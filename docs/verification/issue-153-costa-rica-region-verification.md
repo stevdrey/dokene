@@ -9,7 +9,7 @@ Scope: frontend only (`frontend/src/features/customers`). The backend already ac
 
 ## Automated
 
-`npm test` in `frontend/`: 22 files, 361 tests passed (new: CR validation rule, search selector option, form submission with region `CR`). `npm run build` succeeds.
+`npm test` in `frontend/`: all frontend tests pass (new: CR validation rule, search selector option, form submission with region `CR`). `npm run build` succeeds.
 
 ## Manual browser verification
 

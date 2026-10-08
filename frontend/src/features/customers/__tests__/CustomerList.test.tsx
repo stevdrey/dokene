@@ -331,11 +331,11 @@ describe('CustomerList', () => {
     expect(regionSelect).toBeInTheDocument();
 
     // Must include PE (+51) and ES (+34) alongside CL, AR, CO, MX, US
-    expect(screen.getByRole('option', { name: /PE/i })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /ES/i })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /CR \(\+506\)/ })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /CL/i })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /US/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^PE \(\+51\)$/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^ES \(\+34\)$/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^CR \(\+506\)$/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^CL \(\+56\)$/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^US \(\+1\)$/ })).toBeInTheDocument();
   });
 
   it('clears customers and reloads when the active workspace changes', async () => {
