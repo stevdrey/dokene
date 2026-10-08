@@ -10,7 +10,7 @@
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
 #   ./scripts/dev-env.sh down
 #   ./scripts/dev-env.sh restart [--seed]
-#   ./scripts/dev-env.sh restart-backend [--no-build]   (recreates backend + oidc-bridge, keeps the rest running)
+#   ./scripts/dev-env.sh restart-backend [--no-build]   (backend-only settings; recreates backend + oidc-bridge)
 #   ./scripts/dev-env.sh status
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
@@ -361,7 +361,8 @@ cmd_up() {
 }
 
 # Recreates the backend together with its oidc-bridge sidecar (which shares the backend's network namespace and
-# would otherwise stay attached to the old, dead one). Use it after changing backend settings such as DOKENE_AI_*.
+# would otherwise stay attached to the old, dead one). Use it after changing settings read only by the backend
+# (e.g. DOKENE_AI_*); values shared with Keycloak need a full `up`.
 cmd_restart_backend() {
   NO_BUILD=false; ASSUME_YES=false
   while [ $# -gt 0 ]; do

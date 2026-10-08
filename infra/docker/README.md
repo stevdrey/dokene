@@ -49,8 +49,11 @@ see an identical issuer, containers and host-run backends produce the same ident
 special hostname configuration. The backend entrypoint waits for the discovery document before starting.
 
 Because the sidecar lives in the backend's network namespace, it must be recreated whenever the backend is.
-To apply a backend setting change (for example `DOKENE_AI_PROVIDER`), use
-`./scripts/dev-env.sh restart-backend`, or name both services: `docker compose up -d backend oidc-bridge`.
+To apply a change to a setting consumed only by the backend (for example `DOKENE_AI_*`, `DOKENE_SESSION_*` or
+`DOKENE_CORS_*`), use `./scripts/dev-env.sh restart-backend`, or recreate both services explicitly:
+`docker compose up -d --force-recreate backend oidc-bridge`. Values shared with Keycloak (`KEYCLOAK_PORT`, the
+OIDC client secret, `KC_*`) are also read by Keycloak, so changing them needs `./scripts/dev-env.sh up` (see
+Troubleshooting for credential changes).
 Recreating only `backend` can leave the sidecar on the dead namespace, and the backend then waits 180 s for the
 OIDC discovery document and exits.
 
