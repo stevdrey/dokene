@@ -48,6 +48,12 @@ network namespace and forwards `localhost:${KEYCLOAK_PORT}` to the Keycloak serv
 see an identical issuer, containers and host-run backends produce the same identities, and Keycloak needs no
 special hostname configuration. The backend entrypoint waits for the discovery document before starting.
 
+Because the sidecar lives in the backend's network namespace, it must be recreated whenever the backend is.
+To apply a backend setting change (for example `DOKENE_AI_PROVIDER`), use
+`./scripts/dev-env.sh restart-backend`, or name both services: `docker compose up -d backend oidc-bridge`.
+Recreating only `backend` can leave the sidecar on the dead namespace, and the backend then waits 180 s for the
+OIDC discovery document and exits.
+
 ### Troubleshooting
 
 - `Host port N is already in use`: another process owns the port (for PostgreSQL, often a locally installed

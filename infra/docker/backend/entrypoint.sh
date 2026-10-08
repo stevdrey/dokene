@@ -26,6 +26,8 @@ if [[ -n "$issuer" ]]; then
     if (( SECONDS >= deadline )); then
       echo "Error: OIDC discovery document is not reachable at ${issuer} after ${timeout}s." >&2
       echo "Check that the keycloak and oidc-bridge containers are running (docker compose ps)." >&2
+      echo "If only the backend was recreated, oidc-bridge may be attached to its old network namespace:" >&2
+      echo "run ./scripts/dev-env.sh restart-backend (or: docker compose up -d backend oidc-bridge)." >&2
       exit 1
     fi
     sleep 2

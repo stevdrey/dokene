@@ -10,6 +10,7 @@
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
 #   ./scripts/dev-env.sh down
 #   ./scripts/dev-env.sh restart [--seed]
+#   ./scripts/dev-env.sh restart-backend [--no-build]   (recreates backend + oidc-bridge, keeps the rest running)
 #   ./scripts/dev-env.sh status
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
@@ -45,7 +46,7 @@ fail() { printf '%s[error]%s %s\n' "$RED" "$RESET" "$*" >&2; }
 die()  { fail "$*"; exit 1; }
 
 usage() {
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # ------------------------------------------------------------------------------
@@ -359,6 +360,33 @@ cmd_up() {
   print_summary
 }
 
+# Recreates the backend together with its oidc-bridge sidecar (which shares the backend's network namespace and
+# would otherwise stay attached to the old, dead one). Use it after changing backend settings such as DOKENE_AI_*.
+cmd_restart_backend() {
+  NO_BUILD=false; ASSUME_YES=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-build) NO_BUILD=true ;;
+      --yes|-y) ASSUME_YES=true ;;
+      *) die "Unknown option for 'restart-backend': $1" ;;
+    esac
+    shift
+  done
+
+  preflight || exit 1
+
+  local build_flag="--build"
+  [ "$NO_BUILD" = "true" ] && build_flag=""
+  info "Recreating backend and oidc-bridge..."
+  # shellcheck disable=SC2086
+  if ! compose up -d $build_flag --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT" backend oidc-bridge; then
+    report_failure
+    exit 1
+  fi
+  ok "Backend and oidc-bridge are healthy"
+  compose ps backend oidc-bridge
+}
+
 cmd_down() {
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
@@ -426,6 +454,7 @@ case "$command" in
   up|start)     cmd_up "$@" ;;
   down|stop)    cmd_down ;;
   restart)      cmd_down && cmd_up "$@" ;;
+  restart-backend) cmd_restart_backend "$@" ;;
   status)       cmd_status ;;
   logs)         cmd_logs "$@" ;;
   seed)         cmd_seed "$@" ;;
