@@ -90,7 +90,7 @@ class CustomerControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.field").value("displayName"))
-                    .andExpect(jsonPath("$.message").value("El nombre del cliente es obligatorio y debe tener como máximo 160 caracteres."));
+                    .andExpect(jsonPath("$.message").value("El nombre del cliente es obligatorio, debe tener como máximo 160 caracteres y no puede contener caracteres nulos ni Unicode inválido."));
             mvc.perform(put("/api/customers/{id}", customer.id().value()).contentType(MediaType.APPLICATION_JSON)
                             .content("{\"displayName\":\"" + name + "\",\"version\":0," + phones + "}"))
                     .andExpect(status().isBadRequest())

@@ -35,7 +35,7 @@ public class CustomerExceptionHandler {
     ResponseEntity<CustomerValidationErrorResponse> invalidDisplayName() {
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "El nombre del cliente es obligatorio y debe tener como máximo 160 caracteres.",
+                "El nombre del cliente es obligatorio, debe tener como máximo 160 caracteres y no puede contener caracteres nulos ni Unicode inválido.",
                 "displayName"
         ));
     }
