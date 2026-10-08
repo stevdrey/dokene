@@ -49,6 +49,13 @@ export const REGION_RULES: Record<string, RegionRule> = {
     maxDigits: 10,
     ruleDescription: 'México requiere 10 dígitos'
   },
+  CR: {
+    countryName: 'Costa Rica',
+    callingCode: '506',
+    minDigits: 8,
+    maxDigits: 8,
+    ruleDescription: 'Costa Rica requiere 8 dígitos'
+  },
   ES: {
     countryName: 'España',
     callingCode: '34',

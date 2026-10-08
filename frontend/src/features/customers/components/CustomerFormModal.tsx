@@ -21,6 +21,7 @@ export const SUPPORTED_REGIONS = [
   { code: 'CO', label: 'Colombia (+57)' },
   { code: 'PE', label: 'Perú (+51)' },
   { code: 'MX', label: 'México (+52)' },
+  { code: 'CR', label: 'Costa Rica (+506)' },
   { code: 'ES', label: 'España (+34)' },
   { code: 'US', label: 'Estados Unidos (+1)' }
 ];

@@ -324,7 +324,7 @@ describe('CustomerList', () => {
     });
   });
 
-  it('exposes all creatable regions including PE and ES in phone search selector', async () => {
+  it('exposes all creatable regions including PE, ES and CR in phone search selector', async () => {
     render(<CustomerList onSelectCustomer={vi.fn()} />);
 
     const regionSelect = screen.getByLabelText(/Región telefónica/i);
@@ -333,6 +333,7 @@ describe('CustomerList', () => {
     // Must include PE (+51) and ES (+34) alongside CL, AR, CO, MX, US
     expect(screen.getByRole('option', { name: /PE/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /ES/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /CR \(\+506\)/ })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /CL/i })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /US/i })).toBeInTheDocument();
   });
