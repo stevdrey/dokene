@@ -29,6 +29,37 @@ describe('CustomerFormModal', () => {
     expect(nameInput).toBeRequired();
   });
 
+  it('creates a Costa Rican customer by selecting Costa Rica (+506) and sends region CR [Issue #153]', async () => {
+    const onSaved = vi.fn();
+    const spy = vi.spyOn(customerApi, 'createCustomer').mockResolvedValueOnce({
+      id: 'cust-cr',
+      displayName: 'Ana Rojas',
+      notes: null,
+      phones: [{ id: 'p-cr', e164: '+50688881234', primary: true }],
+      status: 'ACTIVE',
+      version: 0,
+      createdAt: '2026-10-08T00:00:00Z',
+      updatedAt: '2026-10-08T00:00:00Z',
+      archivedAt: null
+    });
+
+    try {
+      render(<CustomerFormModal isOpen={true} onClose={vi.fn()} onSaved={onSaved} />);
+
+      expect(screen.getByRole('option', { name: 'Costa Rica (+506)' })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), { target: { value: 'Ana Rojas' } });
+      fireEvent.change(screen.getByLabelText('Región para teléfono 1'), { target: { value: 'CR' } });
+      fireEvent.change(screen.getByLabelText(/Número de teléfono 1/i), { target: { value: '8888 1234' } });
+      fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalled());
+      expect(spy.mock.calls[0][0].phones[0].region).toBe('CR');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('submits valid customer data and calls onSaved', async () => {
     const onSaved = vi.fn();
     const onClose = vi.fn();
