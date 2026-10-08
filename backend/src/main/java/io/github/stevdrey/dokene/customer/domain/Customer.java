@@ -95,9 +95,11 @@ public final class Customer implements TenantScopedResource {
     }
 
     private static String validateDisplayName(String value) {
-        Objects.requireNonNull(value, "Display name is required");
+        if (value == null) {
+            throw new InvalidCustomerDisplayNameException(InvalidCustomerDisplayNameException.Reason.REQUIRED);
+        }
         if (value.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("Invalid customer display name");
+            throw new InvalidCustomerDisplayNameException(InvalidCustomerDisplayNameException.Reason.INVALID_CHARACTERS);
         }
         validateUnicodeScalars(value);
 
@@ -119,8 +121,11 @@ public final class Customer implements TenantScopedResource {
         }
 
         String normalized = value.substring(start, end);
-        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > DISPLAY_NAME_MAX_LENGTH) {
-            throw new IllegalArgumentException("Invalid customer display name");
+        if (normalized.isEmpty()) {
+            throw new InvalidCustomerDisplayNameException(InvalidCustomerDisplayNameException.Reason.REQUIRED);
+        }
+        if (normalized.codePointCount(0, normalized.length()) > DISPLAY_NAME_MAX_LENGTH) {
+            throw new InvalidCustomerDisplayNameException(InvalidCustomerDisplayNameException.Reason.TOO_LONG);
         }
         return normalized;
     }
@@ -134,11 +139,11 @@ public final class Customer implements TenantScopedResource {
             char codeUnit = value.charAt(index);
             if (Character.isHighSurrogate(codeUnit)) {
                 if (index + 1 == value.length() || !Character.isLowSurrogate(value.charAt(index + 1))) {
-                    throw new IllegalArgumentException("Invalid customer display name");
+                    throw new InvalidCustomerDisplayNameException(InvalidCustomerDisplayNameException.Reason.INVALID_CHARACTERS);
                 }
                 index++;
             } else if (Character.isLowSurrogate(codeUnit)) {
-                throw new IllegalArgumentException("Invalid customer display name");
+                throw new InvalidCustomerDisplayNameException(InvalidCustomerDisplayNameException.Reason.INVALID_CHARACTERS);
             }
         }
     }

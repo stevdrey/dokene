@@ -119,8 +119,8 @@ public class CustomerService {
                     boolean isRegion = ex.getMessage() != null && ex.getMessage().toLowerCase(Locale.ROOT).contains("region");
                     String fieldName = isRegion ? "phones[" + i + "].region" : "phones[" + i + "].number";
                     String message = isRegion
-                            ? "La región del teléfono es inválida o no está soportada."
-                            : "El formato del teléfono es inválido para la región seleccionada.";
+                            ? CustomerValidationMessages.PHONE_REGION_INVALID
+                            : CustomerValidationMessages.PHONE_INVALID;
                     throw new CustomerValidationException(fieldName, message);
                 }
             }

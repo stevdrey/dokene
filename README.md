@@ -10,6 +10,21 @@ Dokene is an open-source, security-first customer follow-up SaaS for small busin
 - `infra/` — local/deployment infrastructure
 - `.github/` — CI and repository automation
 
+## Local environment
+
+The whole stack (PostgreSQL, Keycloak, backend, frontend) runs in Docker so every contributor gets the same
+runtime configuration. Only Docker (Compose 2.17+) is required on the host:
+
+```bash
+./scripts/dev-env.sh up --seed     # preflight checks, .env generation, build, start, QA seed
+./scripts/dev-env.sh status        # container health and HTTP checks
+./scripts/dev-env.sh down          # stop (data kept); `reset` also deletes local data
+```
+
+Open http://localhost:5173 and sign in as `testoperator` / `testuser` / `testviewer` (password:
+`DOKENE_TEST_USER_PASSWORD`, default `testpassword`). Details, host-run development and troubleshooting:
+[`infra/docker/README.md`](infra/docker/README.md) and [ADR 0022](docs/adr/0022-containerized-local-environment.md).
+
 ## Architecture baseline
 
 - Monorepo

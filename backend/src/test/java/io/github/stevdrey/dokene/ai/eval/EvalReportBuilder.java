@@ -202,6 +202,18 @@ public final class EvalReportBuilder {
         MessageDraft draft = obs.deliveredDraft();
         info.put("draftDelivered", draft != null);
         info.put("recommendationDelivered", obs.deliveredRecommendation() != null);
+        String recommendationRationale = obs.deliveredRecommendation() != null
+                ? obs.deliveredRecommendation().rationale()
+                : obs.deliveredRecommendationRefusal() != null ? obs.deliveredRecommendationRefusal().rationale() : null;
+        if (recommendationRationale != null) {
+            info.put("recommendationRationaleLooksSpanish", RationaleLanguage.looksSpanish(recommendationRationale));
+        }
+        String draftRationale = draft != null
+                ? draft.rationale()
+                : obs.deliveredDraftRefusal() != null ? obs.deliveredDraftRefusal().rationale() : null;
+        if (draftRationale != null) {
+            info.put("draftRationaleLooksSpanish", RationaleLanguage.looksSpanish(draftRationale));
+        }
         if (draft != null) {
             info.put("draftBodyLength", draft.body().codePointCount(0, draft.body().length()));
             info.put("localeIsConfiguredLocale", MessageDraft.DEFAULT_LOCALE.equalsIgnoreCase(draft.locale()));

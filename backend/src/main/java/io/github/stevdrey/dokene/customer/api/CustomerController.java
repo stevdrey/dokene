@@ -4,6 +4,8 @@ import io.github.stevdrey.dokene.customer.application.CustomerCursor;
 import io.github.stevdrey.dokene.customer.application.CustomerSearch;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationException;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationMessages;
 import io.github.stevdrey.dokene.customer.application.PhoneNormalizer;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
@@ -64,7 +66,8 @@ public class CustomerController {
         } else if (request.version() != null) {
             version = request.version();
         } else {
-            throw new IllegalArgumentException("Customer version is required");
+            throw new CustomerValidationException("version",
+                    CustomerValidationMessages.VERSION_REQUIRED);
         }
         Customer customer = customers.update(new CustomerId(customerId), version, request.displayName(),
                 request.notes(), inputs(request.phones()));
@@ -116,11 +119,11 @@ public class CustomerController {
         try {
             long version = Long.parseLong(unquoted);
             if (version < 0) {
-                throw new IllegalArgumentException("Invalid customer version");
+                throw new CustomerValidationException("If-Match", CustomerValidationMessages.VERSION_INVALID);
             }
             return version;
         } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("Invalid customer version");
+            throw new CustomerValidationException("If-Match", CustomerValidationMessages.VERSION_INVALID);
         }
     }
 

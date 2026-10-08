@@ -141,7 +141,7 @@ class OpenAiResponsesApiAdapterTest {
                     "outcome": "ACTION",
                     "action": "REPEAT_PURCHASE_FOLLOW_UP",
                     "templateIntent": "REPEAT_PURCHASE",
-                    "rationale": "Customer order cadence suggests reorder time.",
+                    "rationale": "La cadencia de pedidos del cliente indica que toca reponer.",
                     "confidence": 0.88,
                     "draftVariables": [
                       {"key": "product_name", "value": "Widget Pro"}
@@ -160,7 +160,7 @@ class OpenAiResponsesApiAdapterTest {
         ActionRecommendation action = (ActionRecommendation) response.outcome();
         assertThat(action.action()).isEqualTo(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP);
         assertThat(action.templateIntent()).isEqualTo(SemanticTemplateIntent.REPEAT_PURCHASE);
-        assertThat(action.rationale()).isEqualTo("Customer order cadence suggests reorder time.");
+        assertThat(action.rationale()).isEqualTo("La cadencia de pedidos del cliente indica que toca reponer.");
         assertThat(action.confidence()).isEqualTo(RecommendationConfidence.of(0.88));
         assertThat(action.draftVariables().entries()).hasSize(1);
         assertThat(action.draftVariables().entries().getFirst().key()).isEqualTo("product_name");
@@ -180,6 +180,8 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(capturedRequestBody.get()).contains("<untrusted_customer_data>");
         assertThat(capturedRequestBody.get()).contains("Acme Corp");
         assertThat(capturedRequestBody.get()).contains("\"store\":false");
+        assertThat(capturedRequestBody.get()).contains("interface locale is \\\"es-419\\\"");
+        assertThat(capturedRequestBody.get()).contains("NEVER mention offers, discounts, promotions");
     }
 
     @Test
@@ -845,6 +847,18 @@ class OpenAiResponsesApiAdapterTest {
         MessageDraft draft = (MessageDraft) response.outcome();
         assertThat(draft.locale()).isEqualTo("es-419");
         assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+        assertThat(capturedRequestBody.get()).contains("the rationale and any warnings");
+        assertThat(capturedRequestBody.get()).contains("NEVER mention offers, discounts, promotions");
+    }
+
+    @Test
+    void operatorTextInstructionsFollowTheLocaleAndStayLanguageNeutral() {
+        for (String instructions : List.of(OpenAiResponsesApiAdapter.systemInstructions("pt-BR"),
+                OpenAiResponsesApiAdapter.draftSystemInstructions("pt-BR"))) {
+            assertThat(instructions).contains("pt-BR").doesNotContain("es-419").doesNotContain("Spanish");
+            assertThat(instructions).contains("in any language and not even to state that there are none");
+            assertThat(instructions).doesNotContain("sin ofertas").doesNotContain("descuentos ni");
+        }
     }
 
     private AiProviderException throttled(java.util.function.Consumer<OpenAiResponsesApiAdapter> call) {

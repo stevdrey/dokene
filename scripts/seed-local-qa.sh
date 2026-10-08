@@ -287,7 +287,8 @@ if [ "$VERIFY_MODE" = true ]; then
     echo "AUTOMATED RBAC CONSTRAINT VERIFICATION"
     echo "======================================================================"
 
-    RANDOM_SUFFIX="$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | awk '{printf "%08d\n", ($1 % 90000000) + 10000000}' || printf "%08d\n" "$(( (10#$(date +%s%N | cut -b 10-17)) % 90000000 + 10000000 ))")"
+    # Suffix kept in [20000000, 99999999]: Chilean mobiles +5691... are invalid and rejected by the phone normalizer.
+    RANDOM_SUFFIX="$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | awk '{printf "%08d\n", ($1 % 80000000) + 20000000}' || printf "%08d\n" "$(( (10#$(date +%s%N | cut -b 10-17)) % 80000000 + 20000000 ))")"
     RANDOM_PHONE="+569${RANDOM_SUFFIX}"
 
     # Verify OPERATOR constraints

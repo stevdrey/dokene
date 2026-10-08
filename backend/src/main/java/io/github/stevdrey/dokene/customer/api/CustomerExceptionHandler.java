@@ -3,6 +3,8 @@ package io.github.stevdrey.dokene.customer.api;
 import io.github.stevdrey.dokene.customer.application.CustomerConflictException;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.application.CustomerValidationException;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationMessages;
+import io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +23,7 @@ public class CustomerExceptionHandler {
     ResponseEntity<CustomerValidationErrorResponse> validationError(CustomerValidationException ex) {
         String message = ex.getMessage();
         if ("Invalid phone number".equalsIgnoreCase(message)) {
-            message = "El formato del teléfono es inválido para la región seleccionada.";
+            message = CustomerValidationMessages.PHONE_INVALID;
         }
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -30,19 +32,30 @@ public class CustomerExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(InvalidCustomerDisplayNameException.class)
+    ResponseEntity<CustomerValidationErrorResponse> invalidDisplayName(InvalidCustomerDisplayNameException ex) {
+        String message = switch (ex.reason()) {
+            case REQUIRED -> CustomerValidationMessages.DISPLAY_NAME_REQUIRED;
+            case TOO_LONG -> CustomerValidationMessages.DISPLAY_NAME_TOO_LONG;
+            case INVALID_CHARACTERS -> CustomerValidationMessages.DISPLAY_NAME_INVALID_CHARACTERS;
+        };
+        return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
+                HttpStatus.BAD_REQUEST.value(), message, "displayName"));
+    }
+
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
             MissingRequestHeaderException.class, MissingServletRequestParameterException.class})
     ResponseEntity<CustomerValidationErrorResponse> frameworkBindingError(Exception ex) {
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Invalid request payload or parameters",
+                CustomerValidationMessages.REQUEST_INVALID,
                 null
         ));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<CustomerValidationErrorResponse> invalidInput(IllegalArgumentException ex) {
-        String message = (ex.getMessage() != null && !ex.getMessage().isBlank()) ? ex.getMessage() : "Invalid input";
+        String message = CustomerValidationMessages.INPUT_INVALID;
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 message,

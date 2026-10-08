@@ -1,6 +1,66 @@
 # Docker infrastructure
 
-Container definitions will live here as the application becomes deployable.
+## Containerized local environment
+
+`compose.yaml` runs the complete local stack so that every contributor runs the same configuration:
+
+| Service | Image | Host address | Notes |
+| --- | --- | --- | --- |
+| `postgres` | `postgres:17-alpine` | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
+| `keycloak` | `infra/docker/keycloak` | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm |
+| `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | Flyway runs at startup |
+| `oidc-bridge` | `alpine/socat` | none | shares the backend network namespace, see below |
+| `frontend` | `infra/docker/frontend` (unprivileged nginx) | `127.0.0.1:5173` | static build + same-origin proxy of `/api`, `/oauth2`, `/login`, `/logout` |
+
+All published ports are bound to loopback. The images drop all Linux capabilities, use `no-new-privileges` and
+read-only root filesystems (`/tmp` is a tmpfs).
+
+### Quick start
+
+```bash
+./scripts/dev-env.sh doctor        # preflight only: Docker/Compose, .env, free ports
+./scripts/dev-env.sh up --seed     # build + start everything and create the QA workspace
+./scripts/dev-env.sh status
+./scripts/dev-env.sh logs backend
+./scripts/dev-env.sh down          # data is kept
+./scripts/dev-env.sh reset         # also deletes the PostgreSQL and Keycloak volumes
+```
+
+`up` checks that Docker and Compose are installed and running, validates `.env` (and creates it from
+`.env.example` with generated local-only secrets when it does not exist), verifies that the required host ports
+are free and waits for every container to become healthy. `--infra-only` starts only PostgreSQL and Keycloak for
+backends/frontends run from the host (JDK 26 / Node 24):
+
+```bash
+./scripts/dev-env.sh up --infra-only
+set -a; . ./.env; set +a; (cd backend && ./gradlew bootRun)
+(cd frontend && npm ci && npm run dev)
+```
+
+The first image build downloads dependencies and takes several minutes; later builds use the Docker cache.
+
+### Why `oidc-bridge`?
+
+The browser reaches Keycloak at `http://localhost:8081`, and that exact URL is the OIDC issuer: Spring Security
+validates it and the backend stores it with every identity mapping. Inside a container `localhost` is the
+container itself, so the backend could not use the same URL. The `oidc-bridge` sidecar shares the backend's
+network namespace and forwards `localhost:${KEYCLOAK_PORT}` to the Keycloak service. Browser and backend therefore
+see an identical issuer, containers and host-run backends produce the same identities, and Keycloak needs no
+special hostname configuration. The backend entrypoint waits for the discovery document before starting.
+
+### Troubleshooting
+
+- `Host port N is already in use`: another process owns the port (for PostgreSQL, often a locally installed
+  server). Stop it, or for PostgreSQL set `DOKENE_DB_HOST_PORT` in `.env`; containers always reach the database
+  through the Compose network, so only host-side tools are affected.
+- `password authentication failed` in the backend logs, or login fails after editing `.env`: PostgreSQL and
+  Keycloak fix their passwords when their volumes are first created. Restore the old `.env` or run
+  `./scripts/dev-env.sh reset`.
+- Rebuild after code changes with `./scripts/dev-env.sh up` (the build step runs every time and is cached).
+
+## Legacy notes
+
+Container definitions for production deployment will also live here as the application becomes deployable.
 
 Security baseline for runtime images:
 
@@ -11,7 +71,7 @@ Security baseline for runtime images:
 - dropped Linux capabilities unless explicitly required,
 - separate build and runtime stages.
 
-Local PostgreSQL is currently defined in the root `compose.yaml`.
+Local PostgreSQL, Keycloak, the backend and the frontend are defined in the root `compose.yaml`.
 
 ## Local database roles and clean startup
 
@@ -22,7 +82,7 @@ The PostgreSQL initialization script creates two non-superuser roles:
 - `dokene_migration` owns the `dokene` schema and can run Flyway DDL.
 - `dokene_runtime` has only `USAGE` plus required table DML privileges. It owns no application tables and has `NOBYPASSRLS`.
 
-For a clean local verification, remove only the disposable Compose volume, start PostgreSQL, then launch the backend with the variables from `.env` exported:
+For a clean local verification, remove only the disposable Compose volume, start PostgreSQL, then launch the backend with the variables from `.env` exported (host-run backend; the containerized backend is started by `./scripts/dev-env.sh up`):
 
 ```bash
 docker compose down --volumes --remove-orphans
@@ -41,11 +101,13 @@ A reproducible local Keycloak service is provided for OIDC BFF authorization-cod
 
 Keycloak is built from `infra/docker/keycloak/Dockerfile` on top of `quay.io/keycloak/keycloak:26.7.3` with Quarkus ahead-of-time augmentation (`kc.sh build`) and runs in optimized mode (`start --optimized --http-enabled=true --hostname-strict=false --import-realm`). Its HTTP port is bound to loopback only (`127.0.0.1:${KEYCLOAK_PORT:-8081}:8080`) to prevent collisions with the Spring Boot application on port 8080. Local bootstrap administrator credentials are configured via `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` in `.env`.
 
-To start both PostgreSQL and Keycloak together:
+To start only PostgreSQL and Keycloak (for a backend run from the host):
 
 ```bash
-docker compose up --wait
+docker compose up -d --wait postgres keycloak
 ```
+
+`docker compose up` without service names now also builds and starts the backend and frontend containers.
 
 Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/import/dokene-realm.json`.
 
