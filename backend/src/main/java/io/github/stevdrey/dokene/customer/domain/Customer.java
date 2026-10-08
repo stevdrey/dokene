@@ -95,7 +95,9 @@ public final class Customer implements TenantScopedResource {
     }
 
     private static String validateDisplayName(String value) {
-        Objects.requireNonNull(value, "Display name is required");
+        if (value == null) {
+            throw new InvalidCustomerDisplayNameException();
+        }
         if (value.indexOf('\0') >= 0) {
             throw new InvalidCustomerDisplayNameException();
         }

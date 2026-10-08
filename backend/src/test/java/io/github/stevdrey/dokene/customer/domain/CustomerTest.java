@@ -42,6 +42,13 @@ class CustomerTest {
     }
 
     @Test
+    void rejectsNullDisplayNameWithDisplayNameException() {
+        assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), null, null,
+                List.of(phone("+50688887777", true)), now))
+                .isInstanceOf(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class);
+    }
+
+    @Test
     void rejectsUnicodeBlankNamesAndUnpairedSurrogates() {
         assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "\u00A0", null,
                 List.of(phone("+50688887777", true)), now))
