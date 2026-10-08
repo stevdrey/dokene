@@ -208,6 +208,19 @@ describe('phoneValidation utility', () => {
       );
     });
 
+    it('validates Costa Rica (CR) numbers: requires 8 digits with or without +506', () => {
+      expect(validatePhoneNumber('88881234', 'CR').isValid).toBe(true);
+      expect(validatePhoneNumber('8888 1234', 'CR').isValid).toBe(true);
+      expect(validatePhoneNumber('+506 8888 1234', 'CR').isValid).toBe(true);
+      expect(validatePhoneNumber('00506 8888 1234', 'CR').isValid).toBe(true);
+
+      expect(validatePhoneNumber('123', 'CR').isValid).toBe(false);
+      expect(validatePhoneNumber('123', 'CR').message).toBe(
+        'El número ingresado no es válido para la región seleccionada (Costa Rica requiere 8 dígitos).'
+      );
+      expect(validatePhoneNumber('888812345', 'CR').isValid).toBe(false);
+    });
+
     it('validates España (ES) numbers: requires 9 digits and accepts international 00 and 011 prefixes', () => {
       expect(validatePhoneNumber('612345678', 'ES').isValid).toBe(true);
       expect(validatePhoneNumber('+34 612 345 678', 'ES').isValid).toBe(true);
