@@ -1,6 +1,48 @@
 # Issue 119 verification: regression revalidation after Phase 2 AI changes
 
-Campaign: #118. Suite: #119. Status at the time of writing: executed, awaiting defect fixes and retest (no clean PASS).
+Campaign: #118. Suite: #119. This record has two parts: the **full re-execution on the release candidate `main` @ `90045a1`** (current) and the initial run on `2e0a254` (historical, kept below).
+
+## Full re-execution on `main` @ `90045a1`
+
+Includes the fixes for #125, #126 and #127, the containerized environment (ADR 0022) and #153 (Costa Rica). Clean stack: `./scripts/dev-env.sh reset --yes && ./scripts/dev-env.sh up --seed`. Real OpenAI Responses API (`gpt-6-luna`, default base URL); the backend container held an established TLS connection to api.openai.com (162.159.140.245:443, read from `/proc/net/tcp`). Synthetic data only.
+
+Environment: Fedora (Linux 7.2), Docker 29.8.2, Compose 5.6.0, containers: postgres:17-alpine (PG 17.x), Keycloak 26.7.3, backend (Temurin 26 JRE, Spring Boot 4.1.1, Tomcat 11.0.25, libphonenumber 9.0.40, openai-java 4.73.0, okhttp 4.12.0, Gradle 9.8.0), frontend (Node 24 build, React 19.3.0, libphonenumber-js 1.13.14, Vite 8.3.1, nginx 1.29), Chrome in the in-app browser.
+
+| Case | Result | Evidence / notes |
+|---|---|---|
+| REG-01 clean environment, migrations, runtime role (#64, #66) | PASS | clean `up --seed` healthy in 54 s; Flyway 15 versions all successful; `dokene_runtime`/`dokene_migration` are not superusers and `bypassrls=f` (one check of my API script failed only because of shell quoting and was re-verified directly); two tenants; OWNER/OPERATOR/VIEWER roles; OPERATOR gets 403 on the other tenant |
+| REG-01 `seed-local-qa.sh --verify` (#125) | PASS | 10/10 (25/25 on `01bcbea`) |
+| REG-02 login, logout | PASS | after logout `/api/session` and `/api/customers` return 401, no data on screen; local logout leaves the Keycloak SSO session so the next login is silent (ADR 0007: provider logout is opt-in) |
+| REG-02 stale callback (#68) | PASS | 302 to `http://localhost:5173/?error=login_failed`; UI shows the recoverable error alert |
+| REG-02 expired-session mutation (#70) | PASS | API 401; UI write with an invalidated session shows the session-expired warning and keeps the form values. Wording says "inactivity" even when it is not: #156 |
+| REG-02 two tabs | PASS | sign out in tab 2, write in tab 1 -> session-expired warning (wording: #156) |
+| REG-02 refresh on deep link, Back/Forward | NOT APPLICABLE | the SPA has no URL routing (known limitation recorded in #57) |
+| REG-03 customer/contact | PASS | API: CL, CR (region added in #153), US; duplicate 409 including an archived record; same phone allowed in another tenant; invalid phone -> 400 `phones[0].number` (#72); blank/161-char name -> 400 `displayName` (#127); stale If-Match 409; OPERATOR cannot archive (403, by design), OWNER archive 204; search by phone/name. UI: created a Costa Rican customer (region selector), stored as `+50688885544` |
+| REG-04 consent | PASS | unknown -> granted -> revoked; DNC overrides grant; clearing DNC with revoked consent stays `CONSENT_REVOKED`; changing the phone resets consent to UNKNOWN; stale 409; VIEWER 403; UI grant |
+| REG-05 purchases | PASS | backdated, corrected and voided purchases; last purchase always the latest valid; history keeps RECORDED/VOIDED; idempotent replay and key conflict; future date 400; UI backdated entry did not replace the latest purchase |
+| REG-06 follow-ups | PASS (partial scope) | overdue/due/explicit date, tenant timezone date boundaries (Kiritimati/Pago_Pago), snooze (past 400, future 200, leaves queue), dismissal success + replay (201/200), completion + replay, stale 409, invalid key 400, single completion row; UI: dismissal, completion and snooze executed. Not executed: a second recurrence cycle (needs clock control) |
+| REG-07 integrated journey with live OpenAI | PASS with limitation | UI: create (CR) -> consent -> two purchases -> correction -> queue (OVERDUE) -> real recommendation (Spanish rationale) + draft -> edit -> manual completion -> logout/login; list/detail/queue consistent. Business state identical before/after the AI calls; audit gained only 2 `AI_INVOCATION_OUTCOME`. "Copy draft" success path BLOCKED (clipboard-write denied in the in-app browser; the app shows a clear failure message) |
+| REG-08 AI dependency independence | PASS | live (REG-07), disabled (`AI_UNAVAILABLE`, clear message, dismissal executed), unreachable provider (fault injection, **not live evidence**: "assistant unavailable" + Retry, snooze executed) |
+| REG-09 visual fixes | PASS | 320 px customer search (#83), 768 px shell (#82), 1024 px workbench detail (PR #111): no horizontal overflow, controls 44 px high |
+| REG-10 new dependencies | PASS | versions above; images built from `main`; backend jar and frontend bundle built inside Docker; phone normalization and live OpenAI round trip exercised. Automated suites were not re-run in this suite |
+
+### Findings
+- [#155](https://github.com/stevdrey/dokene/issues/155) (Low): recreating only the `backend` service leaves `oidc-bridge` on a dead network namespace; workaround `docker compose up -d backend oidc-bridge`.
+- [#156](https://github.com/stevdrey/dokene/issues/156) (Low): session-expired message always says "inactivity".
+- Previously found #125, #126, #127 and the Costa Rica gap (#153) are fixed and verified above.
+
+### Live OpenAI usage in this re-execution
+1 recommendation and 1 draft (UI). Campaign total so far: 8 provider calls (first run 2, retest 4, this run 2); token counts are not exposed by the app; estimated cost well below US$0.05.
+
+### Not covered / limitations
+Second recurrence cycle (REG-06), clipboard copy success (REG-07), browsers other than the in-app Chrome and real devices, keyboard/screen-reader accessibility (suite #122), OPERATOR archive control visibility in the UI. Observation kept open: an OPERATOR can change the tenant-wide follow-up policy (`FOLLOWUP_WRITE`); not documented as owner-only.
+
+### Evidence files
+[`issue-119-evidence/rerun-90045a1/`](issue-119-evidence/rerun-90045a1/): `api-checks-output.txt` (76 API checks: 76 pass, with the one harness quoting error re-verified), AI side-effect snapshots and audit counts, and the text of the findings. All sanitized (synthetic data; no cookies, tokens, passwords or API keys).
+
+---
+
+# Initial run on `2e0a254` (historical)
 
 ## Environment
 Fedora (Linux 7.2), JDK 26.0.2 Temurin (build toolchain; shell default was 27), Node 24.21.0 / npm 11.19, Docker 29.8.2, postgres:17-alpine (PG 17.11), Keycloak via `compose.yaml`, backend `./gradlew bootRun` (Spring Boot 4.1.1, Gradle 9.8.0), frontend Vite 8.3.1 (React 19.3.0, TypeScript 7.0.2), Chrome in the in-app browser. AI: `DOKENE_AI_PROVIDER=openai`, model `gpt-6-luna`, empty base URL; the backend process held an established TLS connection to api.openai.com (172.66.0.243:443, checked with `ss -tnp`). Synthetic data only; no secrets or tokens included.
