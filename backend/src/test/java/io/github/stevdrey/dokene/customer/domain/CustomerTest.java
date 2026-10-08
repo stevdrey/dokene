@@ -45,17 +45,17 @@ class CustomerTest {
     void rejectsUnicodeBlankNamesAndUnpairedSurrogates() {
         assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "\u00A0", null,
                 List.of(phone("+50688887777", true)), now))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class)
                 .hasMessage("Invalid customer display name");
 
         assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "\u2000\u3000\u0085", null,
                 List.of(phone("+50688887777", true)), now))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class)
                 .hasMessage("Invalid customer display name");
 
         assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "Name\uD800", null,
                 List.of(phone("+50688887777", true)), now))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class)
                 .hasMessage("Invalid customer display name");
     }
 

@@ -4,6 +4,7 @@ import io.github.stevdrey.dokene.customer.application.CustomerCursor;
 import io.github.stevdrey.dokene.customer.application.CustomerSearch;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationException;
 import io.github.stevdrey.dokene.customer.application.PhoneNormalizer;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
@@ -64,7 +65,8 @@ public class CustomerController {
         } else if (request.version() != null) {
             version = request.version();
         } else {
-            throw new IllegalArgumentException("Customer version is required");
+            throw new CustomerValidationException("version",
+                    "La versión del cliente es obligatoria (encabezado If-Match o campo version).");
         }
         Customer customer = customers.update(new CustomerId(customerId), version, request.displayName(),
                 request.notes(), inputs(request.phones()));

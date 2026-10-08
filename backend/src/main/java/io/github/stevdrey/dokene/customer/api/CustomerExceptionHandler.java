@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.customer.api;
 import io.github.stevdrey.dokene.customer.application.CustomerConflictException;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.application.CustomerValidationException;
+import io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,12 +31,21 @@ public class CustomerExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(InvalidCustomerDisplayNameException.class)
+    ResponseEntity<CustomerValidationErrorResponse> invalidDisplayName() {
+        return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "El nombre del cliente es obligatorio y debe tener como máximo 160 caracteres.",
+                "displayName"
+        ));
+    }
+
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
             MissingRequestHeaderException.class, MissingServletRequestParameterException.class})
     ResponseEntity<CustomerValidationErrorResponse> frameworkBindingError(Exception ex) {
         return ResponseEntity.badRequest().body(new CustomerValidationErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
-                "Invalid request payload or parameters",
+                "La solicitud o sus parámetros son inválidos.",
                 null
         ));
     }
