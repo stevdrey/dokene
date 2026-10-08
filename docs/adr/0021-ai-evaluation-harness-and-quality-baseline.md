@@ -18,7 +18,7 @@ Raw (pre-gate) model findings — schema-invalid output, allowlist violations, u
 
 ### 2. Quality is a rubric, not a score
 
-Recommendation relevance, rationale usefulness, draft quality, factual grounding and editability/tone are graded 1–5 by humans against documented anchors and recorded in a per-case `rubric` block of the report. No exact-text matching and no aggregate "best model" number is produced. A few labelled informational heuristics (locale, name present, body length) never gate anything.
+Recommendation relevance, rationale usefulness, draft quality, factual grounding and editability/tone are graded 1–5 by humans against documented anchors and recorded in a per-case `rubric` block of the report. No exact-text matching and no aggregate "best model" number is produced. A few labelled informational heuristics (locale, name present, body length, and whether the recommendation/draft rationale looks like Spanish, see ADR 0015 "Operator Language") never gate anything.
 
 ### 3. Versioned synthetic dataset, real stack
 
