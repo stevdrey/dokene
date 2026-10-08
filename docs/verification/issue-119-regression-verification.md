@@ -57,3 +57,15 @@ No screenshots were captured in this run; UI results were read from the DOM (acc
 3. Backend with JDK 26: `cd backend && ./gradlew bootRun` (export the `.env` variables first).
 4. Frontend with Node 24: `cd frontend && npm ci && npm run dev`
 5. `./scripts/seed-local-qa.sh` (a second workspace was provisioned through `POST /api/tenants` as `testuser`).
+
+## Retest of the defects found in this run
+
+Retested on `main` @ `01bcbea` (includes the fixes for #125, #126 and #127) with the containerized stack started by `./scripts/dev-env.sh up --seed`. Only the affected cases and their adjacent workflows were re-run; the rest of this suite is **not** re-executed on the new SHA, so the evidence above remains tied to `2e0a254`.
+
+| Defect | Fix | Retest | Result |
+|---|---|---|---|
+| #125 seed script intermittently fails | #129 | `seed-local-qa.sh --verify` x25 | PASS (25/25; was about 1 in 9) |
+| #126 rationale in English | #150 | live OpenAI (`gpt-6-luna`): UI recommendation + draft, 2 more API recommendations | PASS (3/3 Spanish rationales; no change to customer/contact-policy versions or queue) |
+| #127 non-actionable display-name error | #152 | API: blank, missing, 300, 160/161-character names, PUT without If-Match, phone error regression | PASS (Spanish message with `field: displayName` / `version`; 160 accepted, 161 rejected) |
+
+Follow-up from REG-03: Costa Rica was missing in the UI region selectors; tracked in #153 and implemented in PR #154.
