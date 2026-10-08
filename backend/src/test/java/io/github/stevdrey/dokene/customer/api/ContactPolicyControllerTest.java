@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.stevdrey.dokene.customer.application.ContactPolicyPage;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationMessages;
 import io.github.stevdrey.dokene.customer.application.CustomerConflictException;
 import io.github.stevdrey.dokene.customer.domain.ContactChannel;
 import io.github.stevdrey.dokene.customer.domain.ContactConsent;
@@ -70,7 +71,9 @@ class ContactPolicyControllerTest {
         mvc.perform(put("/api/customers/{customerId}/contacts/{contactId}/consents/WHATSAPP", customerId, contactId)
                 .header("If-Match", "1").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"UNKNOWN\",\"source\":\"CUSTOMER_WRITTEN\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("status"))
+                .andExpect(jsonPath("$.message").value(CustomerValidationMessages.CONSENT_REQUIRED));
     }
 
     @Test
@@ -84,7 +87,8 @@ class ContactPolicyControllerTest {
         mvc.perform(put("/api/customers/{id}/do-not-contact", customerId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(CustomerValidationMessages.REQUEST_INVALID));
     }
 
     @Test
@@ -101,6 +105,8 @@ class ContactPolicyControllerTest {
         mvc.perform(get("/api/customers/{id}/contact-policy/history", customerId).param("cursor", "bad"))
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/customers/{id}/contact-policy/history", customerId).param("limit", "101"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("limit"))
+                .andExpect(jsonPath("$.message").value(CustomerValidationMessages.HISTORY_LIMIT_INVALID));
     }
 }
