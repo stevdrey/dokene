@@ -21,6 +21,13 @@ class RationaleLanguageTest {
     }
 
     @Test
+    void wordsSharedWithEnglishAreNeutral() {
+        assertThat(RationaleLanguage.looksSpanish("No trusted context provided")).isFalse();
+        assertThat(RationaleLanguage.looksSpanish("No se proporcionó contexto confiable")).isTrue();
+        assertThat(RationaleLanguage.looksSpanish("No hay acciones permitidas para el cliente")).isTrue();
+    }
+
+    @Test
     void nullOrBlankIsNotSpanish() {
         assertThat(RationaleLanguage.looksSpanish(null)).isFalse();
         assertThat(RationaleLanguage.looksSpanish("  ")).isFalse();

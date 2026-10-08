@@ -115,9 +115,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 137,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -205,7 +205,8 @@
       "informational": {
         "draftDelivered": false,
         "recommendationDelivered": false,
-        "recommendationRationaleLooksSpanish": true
+        "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true
       },
       "delivered": {
         "recommendation": null,
@@ -281,9 +282,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 146,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -372,9 +373,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 150,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -658,9 +659,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 142,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -1068,7 +1069,8 @@
       "informational": {
         "draftDelivered": false,
         "recommendationDelivered": false,
-        "recommendationRationaleLooksSpanish": true
+        "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true
       },
       "delivered": {
         "recommendation": null,
@@ -1294,9 +1296,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 141,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -1384,7 +1386,8 @@
       "informational": {
         "draftDelivered": false,
         "recommendationDelivered": true,
-        "recommendationRationaleLooksSpanish": true
+        "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true
       },
       "delivered": {
         "recommendation": {
@@ -1462,9 +1465,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 152,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -1630,9 +1633,9 @@
         "draftDelivered": true,
         "recommendationDelivered": true,
         "recommendationRationaleLooksSpanish": true,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 89,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -1720,9 +1723,9 @@
       "informational": {
         "draftDelivered": true,
         "recommendationDelivered": false,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 142,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": true
       },
       "delivered": {
@@ -2100,9 +2103,9 @@
       "informational": {
         "draftDelivered": true,
         "recommendationDelivered": false,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 137,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": false
       },
       "delivered": {
@@ -2183,7 +2186,8 @@
       "behaviorMatch": true,
       "informational": {
         "draftDelivered": false,
-        "recommendationDelivered": false
+        "recommendationDelivered": false,
+        "draftRationaleLooksSpanish": true
       },
       "delivered": {
         "recommendation": null,
@@ -2325,9 +2329,9 @@
       "informational": {
         "draftDelivered": true,
         "recommendationDelivered": false,
+        "draftRationaleLooksSpanish": true,
         "draftBodyLength": 137,
         "localeIsConfiguredLocale": true,
-        "draftRationaleLooksSpanish": true,
         "addressesCustomerByName": false
       },
       "delivered": {

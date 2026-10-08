@@ -208,10 +208,15 @@ public final class EvalReportBuilder {
         if (recommendationRationale != null) {
             info.put("recommendationRationaleLooksSpanish", RationaleLanguage.looksSpanish(recommendationRationale));
         }
+        String draftRationale = draft != null
+                ? draft.rationale()
+                : obs.deliveredDraftRefusal() != null ? obs.deliveredDraftRefusal().rationale() : null;
+        if (draftRationale != null) {
+            info.put("draftRationaleLooksSpanish", RationaleLanguage.looksSpanish(draftRationale));
+        }
         if (draft != null) {
             info.put("draftBodyLength", draft.body().codePointCount(0, draft.body().length()));
             info.put("localeIsConfiguredLocale", MessageDraft.DEFAULT_LOCALE.equalsIgnoreCase(draft.locale()));
-            info.put("draftRationaleLooksSpanish", RationaleLanguage.looksSpanish(draft.rationale()));
             String firstName = obs.evalCase().displayName().split("\\s+")[0].toLowerCase(Locale.ROOT);
             info.put("addressesCustomerByName", draft.body().toLowerCase(Locale.ROOT).contains(firstName));
         }
