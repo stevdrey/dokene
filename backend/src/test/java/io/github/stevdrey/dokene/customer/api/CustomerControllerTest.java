@@ -17,11 +17,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.stevdrey.dokene.customer.application.CustomerConflictException;
 import io.github.stevdrey.dokene.customer.application.CustomerPage;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationMessages;
 import io.github.stevdrey.dokene.customer.application.PhoneNormalizer;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
-import io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Instant;
 import java.util.List;
@@ -79,22 +79,37 @@ class CustomerControllerTest {
     }
 
     @Test
-    void invalidDisplayNameOnCreateAndUpdateIdentifiesFieldAndRule() throws Exception {
-        when(service.create(any(), any(), any())).thenThrow(new InvalidCustomerDisplayNameException());
-        when(service.update(any(), eq(0L), any(), any(), any())).thenThrow(new InvalidCustomerDisplayNameException());
+    void invalidDisplayNameOnCreateAndUpdateIdentifiesFieldAndSpecificRule() throws Exception {
+        // Run the real domain validation so the handler is exercised with the exceptions Customer actually raises.
+        when(service.create(any(), any(), any())).thenAnswer(inv -> Customer.create(new CustomerId(UUID.randomUUID()),
+                TenantId.random(), inv.getArgument(0), null, List.of(), Instant.now()));
+        when(service.update(any(), eq(0L), any(), any(), any())).thenAnswer(inv -> {
+            Customer existing = customer;
+            existing.update(inv.getArgument(2), null, List.of(new CustomerPhone(UUID.randomUUID(), "+50688887777", true)),
+                    Instant.now());
+            return existing;
+        });
         String phones = "\"phones\":[{\"number\":\"8888 7777\",\"region\":\"CR\",\"primary\":true}]";
+        record Case(String nameJson, String message) { }
+        List<Case> cases = List.of(
+                new Case("\"displayName\":\"  \",", CustomerValidationMessages.DISPLAY_NAME_REQUIRED),
+                new Case("\"displayName\":null,", CustomerValidationMessages.DISPLAY_NAME_REQUIRED),
+                new Case("", CustomerValidationMessages.DISPLAY_NAME_REQUIRED),
+                new Case("\"displayName\":\"" + "x".repeat(300) + "\",", CustomerValidationMessages.DISPLAY_NAME_TOO_LONG),
+                new Case("\"displayName\":\"Ana\\u0000\",", CustomerValidationMessages.DISPLAY_NAME_INVALID_CHARACTERS));
 
-        for (String name : List.of("  ", "x".repeat(300))) {
+        for (Case c : cases) {
             mvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"displayName\":\"" + name + "\"," + phones + "}"))
+                            .content("{" + c.nameJson() + phones + "}"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.field").value("displayName"))
-                    .andExpect(jsonPath("$.message").value("El nombre del cliente es obligatorio, debe tener como máximo 160 caracteres y no puede contener caracteres nulos ni Unicode inválido."));
+                    .andExpect(jsonPath("$.message").value(c.message()));
             mvc.perform(put("/api/customers/{id}", customer.id().value()).contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"displayName\":\"" + name + "\",\"version\":0," + phones + "}"))
+                            .content("{" + c.nameJson() + "\"version\":0," + phones + "}"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.field").value("displayName"));
+                    .andExpect(jsonPath("$.field").value("displayName"))
+                    .andExpect(jsonPath("$.message").value(c.message()));
         }
     }
 
@@ -104,7 +119,7 @@ class CustomerControllerTest {
                 {"displayName":"Ana","phones":[{"number":"8888 7777","region":"CR","primary":true}]}
                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("La versión del cliente es obligatoria (encabezado If-Match o campo version)."))
+                .andExpect(jsonPath("$.message").value(CustomerValidationMessages.VERSION_REQUIRED))
                 .andExpect(jsonPath("$.field").value("version"));
 
         when(service.update(eq(customer.id()), eq(0L), eq("Ana"), eq(null), any()))
@@ -246,7 +261,7 @@ class CustomerControllerTest {
         mvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content("{\"invalid-json: raw-secret-data"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value("La solicitud o sus parámetros son inválidos."))
+                .andExpect(jsonPath("$.message").value(CustomerValidationMessages.REQUEST_INVALID))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("raw-secret-data"))))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("com.fasterxml.jackson"))));
     }

@@ -2,6 +2,8 @@ package io.github.stevdrey.dokene.customer.api;
 
 import io.github.stevdrey.dokene.customer.application.ContactPolicyCursor;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationException;
+import io.github.stevdrey.dokene.customer.application.CustomerValidationMessages;
 import io.github.stevdrey.dokene.customer.domain.ContactChannel;
 import io.github.stevdrey.dokene.customer.domain.ContactConsent;
 import io.github.stevdrey.dokene.customer.domain.ContactEligibilityReason;
@@ -43,7 +45,7 @@ public class ContactPolicyController {
             @RequestHeader("If-Match") String ifMatch, @RequestBody ConsentRequest request) {
         if (request == null || request.status() == null || request.status() == ConsentStatus.UNKNOWN
                 || request.source() == null) {
-            throw new IllegalArgumentException("Consent status and source are required");
+            throw new CustomerValidationException("status", CustomerValidationMessages.CONSENT_REQUIRED);
         }
         return response(policies.changeConsent(new CustomerId(customerId), contactId, channel,
                 request.status(), request.source(), parseVersion(ifMatch)));
@@ -53,7 +55,7 @@ public class ContactPolicyController {
     public ResponseEntity<ContactPolicyResponse> changeDoNotContact(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch, @RequestBody DoNotContactRequest request) {
         if (request == null || request.enabled() == null || request.source() == null) {
-            throw new IllegalArgumentException("Do-not-contact state and source are required");
+            throw new CustomerValidationException("enabled", CustomerValidationMessages.DO_NOT_CONTACT_REQUIRED);
         }
         return response(policies.changeDoNotContact(new CustomerId(customerId), request.enabled(),
                 request.source(), parseVersion(ifMatch)));
@@ -70,7 +72,7 @@ public class ContactPolicyController {
     public HistoryResponse history(@PathVariable UUID customerId,
             @RequestParam(required = false) String cursor, @RequestParam(defaultValue = "50") int limit) {
         if (limit < 1 || limit > 100) {
-            throw new IllegalArgumentException("History limit must be between 1 and 100");
+            throw new CustomerValidationException("limit", CustomerValidationMessages.HISTORY_LIMIT_INVALID);
         }
         var page = policies.history(new CustomerId(customerId),
                 cursor == null ? null : ContactPolicyCursor.decode(cursor), limit);
@@ -95,17 +97,17 @@ public class ContactPolicyController {
     }
 
     private long parseVersion(String value) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException("If-Match is required");
+        if (value == null || value.isBlank()) throw new CustomerValidationException("If-Match", CustomerValidationMessages.IF_MATCH_REQUIRED);
         String unquoted = value.strip();
         if (unquoted.length() >= 2 && unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
             unquoted = unquoted.substring(1, unquoted.length() - 1);
         }
         try {
             long version = Long.parseLong(unquoted);
-            if (version < 0) throw new IllegalArgumentException("Invalid contact policy version");
+            if (version < 0) throw new CustomerValidationException("If-Match", CustomerValidationMessages.CONTACT_POLICY_VERSION_INVALID);
             return version;
         } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("Invalid contact policy version");
+            throw new CustomerValidationException("If-Match", CustomerValidationMessages.CONTACT_POLICY_VERSION_INVALID);
         }
     }
 

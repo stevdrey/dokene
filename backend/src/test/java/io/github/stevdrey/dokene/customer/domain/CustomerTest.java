@@ -45,7 +45,20 @@ class CustomerTest {
     void rejectsNullDisplayNameWithDisplayNameException() {
         assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), null, null,
                 List.of(phone("+50688887777", true)), now))
-                .isInstanceOf(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class);
+                .isInstanceOfSatisfying(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class,
+                        ex -> assertThat(ex.reason()).isEqualTo(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.Reason.REQUIRED));
+    }
+
+    @Test
+    void rejectsOverlongAndNulDisplayNamesWithSpecificReason() {
+        assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(),
+                "x".repeat(Customer.DISPLAY_NAME_MAX_LENGTH + 1), null, List.of(phone("+50688887777", true)), now))
+                .isInstanceOfSatisfying(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class,
+                        ex -> assertThat(ex.reason()).isEqualTo(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.Reason.TOO_LONG));
+        assertThatThrownBy(() -> Customer.create(new CustomerId(UUID.randomUUID()), TenantId.random(), "Ana\0", null,
+                List.of(phone("+50688887777", true)), now))
+                .isInstanceOfSatisfying(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.class,
+                        ex -> assertThat(ex.reason()).isEqualTo(io.github.stevdrey.dokene.customer.domain.InvalidCustomerDisplayNameException.Reason.INVALID_CHARACTERS));
     }
 
     @Test
