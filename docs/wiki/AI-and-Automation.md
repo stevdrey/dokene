@@ -36,7 +36,7 @@ FollowUpDecision
 └── recommendation: ActionRecommendation
     ├── action: REPEAT_PURCHASE_FOLLOW_UP
     ├── templateIntent: REPEAT_PURCHASE
-    ├── rationale: "Customer bought a repeat-purchase item 63 days ago"
+    ├── rationale: "El cliente compró un artículo de recompra hace 63 días"
     ├── confidence: 0.84
     └── draftVariables: {...}
 ```

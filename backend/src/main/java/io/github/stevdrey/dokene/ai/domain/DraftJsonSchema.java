@@ -302,7 +302,7 @@ public final class DraftJsonSchema {
                 "maxItems", MessageDraft.MAX_METADATA_ITEMS,
                 "items", Map.of("type", "string", "minLength", 1, "maxLength", MessageDraft.MAX_METADATA_ITEM_LENGTH,
                         "pattern", RecommendationRationale.NON_WHITESPACE_PATTERN),
-                "description", "Caveats or warnings noticed during drafting"
+                "description", "Caveats or warnings noticed during drafting, written in the operator locale stated in the instructions"
         ));
 
         Map<String, Object> rationaleProps = new LinkedHashMap<>();
@@ -310,7 +310,7 @@ public final class DraftJsonSchema {
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", DraftOutcome.MAX_RATIONALE_LENGTH);
         rationaleProps.put("pattern", RecommendationRationale.NON_WHITESPACE_PATTERN);
-        rationaleProps.put("description", "Concise reasoning for the drafted wording (1 to " + DraftOutcome.MAX_RATIONALE_LENGTH + " chars)");
+        rationaleProps.put("description", "Concise reasoning for the drafted wording, written in the operator locale stated in the instructions (1 to " + DraftOutcome.MAX_RATIONALE_LENGTH + " chars)");
         properties.put("rationale", rationaleProps);
 
         properties.put("confidence", Map.of(
@@ -348,7 +348,7 @@ public final class DraftJsonSchema {
         rationaleProps.put("minLength", 1);
         rationaleProps.put("maxLength", DraftOutcome.MAX_RATIONALE_LENGTH);
         rationaleProps.put("pattern", RecommendationRationale.NON_WHITESPACE_PATTERN);
-        rationaleProps.put("description", "Concise explanation of why no draft was produced");
+        rationaleProps.put("description", "Concise explanation of why no draft was produced, written in the operator locale stated in the instructions");
         properties.put("rationale", rationaleProps);
 
         properties.put("confidence", Map.of(

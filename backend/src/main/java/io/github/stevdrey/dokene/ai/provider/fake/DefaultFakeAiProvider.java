@@ -65,14 +65,14 @@ public final class DefaultFakeAiProvider implements AiProvider {
         if (request.context() == null || request.context().trusted() == null) {
             return new NoRecommendation(
                     NoRecommendationReason.INSUFFICIENT_HISTORY,
-                    "No trusted context provided",
+                    "No se proporcionó contexto confiable",
                     RecommendationConfidence.of(0.5));
         }
         List<SemanticAction> allowed = request.context().trusted().allowedActions();
         if (allowed == null || allowed.isEmpty()) {
             return new NoRecommendation(
                     NoRecommendationReason.NO_RELEVANT_OFFER,
-                    "No allowed actions for customer",
+                    "No hay acciones permitidas para el cliente",
                     RecommendationConfidence.of(0.5));
         }
 
@@ -86,7 +86,7 @@ public final class DefaultFakeAiProvider implements AiProvider {
         return new ActionRecommendation(
                 action,
                 intent,
-                "Automated cadence follow-up recommendation",
+                "Recomendación automática de seguimiento según la cadencia de compra",
                 RecommendationConfidence.of(0.85),
                 DraftVariables.empty());
     }
@@ -95,7 +95,7 @@ public final class DefaultFakeAiProvider implements AiProvider {
         if (request.context() == null || request.context().customerContext() == null) {
             return new NoDraft(
                     NoDraftReason.MISSING_TRUSTED_FACTS,
-                    "No context supplied for drafting",
+                    "No se proporcionó contexto para redactar el borrador",
                     RecommendationConfidence.of(0.5));
         }
         var cust = request.context().customerContext();
@@ -104,7 +104,7 @@ public final class DefaultFakeAiProvider implements AiProvider {
         if (notes != null && (notes.contains("IGNORE ALL PREVIOUS") || notes.contains("<script>") || notes.contains("OVERRIDE POLICY"))) {
             return new NoDraft(
                     NoDraftReason.SAFETY_VIOLATION,
-                    "Adversarial or prompt injection instruction detected in customer notes",
+                    "Se detectaron instrucciones sospechosas en las notas del cliente",
                     RecommendationConfidence.of(0.95));
         }
 
@@ -113,7 +113,7 @@ public final class DefaultFakeAiProvider implements AiProvider {
         if (!MessageDraft.DEFAULT_LOCALE.equalsIgnoreCase(requestedLocale.strip())) {
             return new NoDraft(
                     NoDraftReason.UNSUPPORTED_ACTION,
-                    "Fake provider only supports the " + MessageDraft.DEFAULT_LOCALE + " locale",
+                    "El proveedor simulado solo admite el idioma " + MessageDraft.DEFAULT_LOCALE,
                     RecommendationConfidence.of(0.5));
         }
 
@@ -152,7 +152,7 @@ public final class DefaultFakeAiProvider implements AiProvider {
                 "es-419",
                 evidence,
                 List.of(),
-                "Deterministic Latin American Spanish follow-up draft",
+                "Borrador determinista de seguimiento en español latinoamericano",
                 RecommendationConfidence.of(0.85));
     }
 
