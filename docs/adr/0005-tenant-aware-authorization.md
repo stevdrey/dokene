@@ -38,6 +38,7 @@ Alternatives rejected: (A) leave it open to OPERATOR and only document it (least
 3. **Provider-Neutral Domain Abstraction**: Core authorization (`TenantAuthorizationService`, `AuthorizationDecision`, `AuthorizationDeniedEvent`) is decoupled from Spring Security and identity providers.
 4. **Adapter Integration**: Spring Security integration is provided through `TenantPermissionEvaluator`, `@EnableMethodSecurity`, and `@tenantAuth` SpEL expressions (`@PreAuthorize("@tenantAuth.hasPermission('CUSTOMER_READ')")`).
 5. **Auditing without Information Leakage**: Denied authorization evaluations trigger notifications to `AuthorizationAuditListener` capturing complete security context (actor, tenant, membership, required permission, failure reason) while returning a generic `TenantAccessDeniedException` (HTTP 403) to clients to prevent reconnaissance.
+6. **Authorization Before Binding and Validation**: Mutating controller methods declare their permission with `@RequiredPermission`; `RequiredPermissionInterceptor` enforces it in `preHandle`, before argument resolution. An unauthorized caller therefore always receives 403 and an audited denial, even when required headers (`If-Match`, `Idempotency-Key`) are missing or the body or path variables are malformed, and never learns an endpoint's validation rules (issue #162). Service-level `require*` checks and resource-level checks remain as defense in depth. New mutating endpoints must carry the annotation.
 
 ## Durable audit integration
 

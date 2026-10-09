@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
+import io.github.stevdrey.dokene.tenant.security.RequiredPermission;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -109,6 +110,7 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @RequiredPermission(TenantPermission.TENANT_UPDATE)
     @PutMapping("/follow-up-policy")
     public ResponseEntity<TenantPolicyResponse> configureTenant(@RequestHeader("If-Match") String ifMatch,
             @RequestBody TenantPolicyRequest request) {
@@ -125,6 +127,7 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PutMapping("/customers/{customerId}/follow-up-policy")
     public ResponseEntity<CustomerPolicyResponse> configureCustomer(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
@@ -160,6 +163,7 @@ public class FollowUpController {
         return response(followUps.evaluate(new CustomerId(customerId)));
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PostMapping("/customers/{customerId}/manual-follow-ups")
     public ResponseEntity<ManualFollowUpResponse> recordManualFollowUp(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
@@ -177,6 +181,7 @@ public class FollowUpController {
                 .eTag(etag(completion.policyVersion())).body(response);
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PostMapping("/customers/{customerId}/follow-up-dismissals")
     public ResponseEntity<DismissalResponse> dismiss(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
@@ -194,6 +199,7 @@ public class FollowUpController {
                 .eTag(etag(dismissal.policyVersion())).body(response);
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PutMapping("/customers/{customerId}/follow-up-snooze")
     public ResponseEntity<CustomerPolicyResponse> snooze(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch, @RequestBody SnoozeRequest request) {

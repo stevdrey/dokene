@@ -10,6 +10,8 @@ import io.github.stevdrey.dokene.customer.application.PhoneNormalizer;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.security.RequiredPermission;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -38,6 +40,7 @@ public class CustomerController {
         this.phoneNormalizer = phoneNormalizer;
     }
 
+    @RequiredPermission(TenantPermission.CUSTOMER_WRITE)
     @PostMapping
     public ResponseEntity<CustomerResponse> create(@RequestBody CustomerWriteRequest request) {
         Customer customer = customers.create(request.displayName(), request.notes(), inputs(request.phones()));
@@ -54,6 +57,7 @@ public class CustomerController {
                 .body(response(customer));
     }
 
+    @RequiredPermission(TenantPermission.CUSTOMER_WRITE)
     @PutMapping("/{customerId}")
     public ResponseEntity<CustomerResponse> update(
             @PathVariable UUID customerId,
@@ -76,6 +80,7 @@ public class CustomerController {
                 .body(response(customer));
     }
 
+    @RequiredPermission(TenantPermission.CUSTOMER_DELETE)
     @DeleteMapping("/{customerId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void archive(@PathVariable UUID customerId, @RequestHeader("If-Match") String ifMatch) {
