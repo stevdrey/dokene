@@ -26,7 +26,9 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   sidecar owns the namespace so that recreating the backend, the routine operation, does not orphan it.
 - `scripts/dev-env.sh` is the single entry point (`up`, `down`, `restart-backend`, `status`, `logs`, `seed`, `doctor`, `reset`). It
   performs preflight checks (Docker and Compose versions, daemon, `.env` completeness, secret format, free host ports,
-  stale data volumes) and generates a git-ignored `.env` with local-only secrets when none exists.
+  stale data volumes) and generates a git-ignored `.env` with local-only secrets when none exists. Port detection
+  uses `ss`/`nc`, which need no privileges and see root-owned `docker-proxy` sockets; `lsof` and `docker ps` only name
+  the owner (`lsof` run as a regular user on Linux cannot see them).
 - Published ports are bound to loopback only (PostgreSQL previously listened on all interfaces).
 - `DOKENE_DB_URL` for containers is derived by Compose (`postgres:5432`); the `.env` value remains for host-run backends.
 

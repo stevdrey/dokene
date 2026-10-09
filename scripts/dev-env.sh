@@ -113,16 +113,41 @@ confirm() {
   case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
-port_listener() {
-  # Prints a description of the process listening on TCP port $1, or nothing when free.
+port_in_use() {
+  # True when something listens on TCP port $1. Needs no privileges: `ss -ltn` and a connect probe see sockets of
+  # every user (e.g. root-owned docker-proxy), whereas `lsof` as a regular user does not on Linux.
   local port="$1"
-  if have lsof; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $1" (pid "$2")"; exit}'
-  elif have ss; then
-    ss -ltnp 2>/dev/null | awk -v p=":$port" '$4 ~ p"$" {print ($6 == "" ? "unknown process" : $6); exit}'
+  if have ss; then
+    ss -ltn 2>/dev/null | awk -v p=":$port" '$4 ~ p"$" {found=1} END {exit !found}'
   elif have nc; then
-    nc -z 127.0.0.1 "$port" >/dev/null 2>&1 && echo "unknown process"
+    nc -z 127.0.0.1 "$port" >/dev/null 2>&1
+  elif have lsof; then
+    [ -n "$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print "x"; exit}')" ]
+  else
+    return 1
   fi
+}
+
+docker_container_publishing() {
+  # Prints the name of a running container that publishes host port $1, if any.
+  docker ps --format '{{.Names}}	{{.Ports}}' 2>/dev/null \
+    | awk -F'\t' -v p="$1" '$2 ~ "(^|[ ,])(127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::\\]):" p "->" {print $1; exit}'
+}
+
+port_listener() {
+  # Prints a best-effort description of the owner of TCP port $1. Naming only: use port_in_use to decide.
+  local port="$1" name=""
+  if have docker; then
+    name="$(docker_container_publishing "$port")"
+    [ -n "$name" ] && { echo "Docker container '$name'"; return; }
+  fi
+  if have lsof; then
+    name="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $1" (pid "$2")"; exit}')"
+  fi
+  if [ -z "$name" ] && have ss; then
+    name="$(ss -ltnp 2>/dev/null | awk -v p=":$port" '$4 ~ p"$" && $6 != "" {print $6; exit}')"
+  fi
+  echo "${name:-an unknown process (owned by another user; try: sudo ss -ltnp)}"
 }
 
 port_owned_by_compose() {
@@ -250,12 +275,15 @@ check_ports() {
     [ -z "$(env_get DOKENE_DB_HOST_PORT)" ] && ports="$ports 5432"
   fi
   for port in $ports; do
-    listener="$(port_listener "$port")"
-    [ -n "$listener" ] || continue
+    port_in_use "$port" || continue
     if port_owned_by_compose "$port"; then
       continue
     fi
+    listener="$(port_listener "$port")"
     check_fail "Host port $port is already in use by: $listener"
+    case "$listener" in
+      "Docker container "*) info "      Stop it with 'docker stop <name>' (or 'docker compose -p <project> down' if it belongs to another Compose project)." ;;
+    esac
     case "$port" in
       5432) info "      Another PostgreSQL is running locally. Stop it, or set DOKENE_DB_HOST_PORT=5433 in .env (host-run tools only; the containers always use the internal network)." ;;
       *)    info "      Stop that process, or free the port before starting Dokene (ports 5173, 8080 and KEYCLOAK_PORT are registered in Keycloak and cannot be remapped freely)." ;;
@@ -309,7 +337,11 @@ print_summary() {
 }
 
 report_failure() {
-  fail "The environment did not become healthy within ${WAIT_TIMEOUT}s."
+  if [ "${START_FAILED:-false}" = "true" ]; then
+    fail "Containers failed to start (see the Docker error above); this is not a health-check timeout."
+  else
+    fail "The environment did not become healthy within ${WAIT_TIMEOUT}s."
+  fi
   compose ps || true
   local svc
   for svc in $(compose ps --services --filter status=exited 2>/dev/null) \
@@ -331,10 +363,19 @@ compose_up_services() {
   shift 2
   [ "$no_build" = "true" ] && build_flag=""
   # shellcheck disable=SC2086
-  if ! compose up -d $build_flag $extra --wait --wait-timeout "$WAIT_TIMEOUT" "$@"; then
+  local log status
+  log="$(mktemp)"
+  compose up -d $build_flag $extra --wait --wait-timeout "$WAIT_TIMEOUT" "$@" 2>&1 | tee "$log"
+  status="${PIPESTATUS[0]}"
+  if [ "$status" -ne 0 ]; then
+    # Bind/create errors fail immediately; only a real timeout deserves the "did not become healthy" wording.
+    grep -Eqi 'port is already allocated|Bind for|Error response from daemon|failed to (start|create)' "$log" \
+      && START_FAILED=true
+    rm -f "$log"
     report_failure
     exit 1
   fi
+  rm -f "$log"
 }
 
 cmd_up() {
@@ -455,6 +496,8 @@ cmd_doctor() {
 # ------------------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------------------
+# Sourcing the file (smoke tests) defines the functions without running a command.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || true; fi
 command="${1:-help}"
 [ $# -gt 0 ] && shift
 case "$command" in

@@ -54,6 +54,24 @@ assert "backend" in bridge["networks"]["default"]["aliases"], "bridge must carry
 }
 check "compose: backend joins the oidc-bridge namespace (topology from #155)" topology_is_inverted
 
+port_detection_is_privilege_free() {
+  # Sourcing defines the functions without running a command.
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  local port pid
+  port="$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')" || return 1
+  port_in_use "$port" && return 1   # free before the listener starts
+  python3 -I -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(); time.sleep(30)' "$port" &
+  pid=$!
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do port_in_use "$port" && break; sleep 0.2; done
+  local used=1
+  port_in_use "$port" && used=0
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  [ "$used" -eq 0 ] && [ -n "$(port_listener "$port")" ]
+}
+check "port_in_use detects a listener without lsof/root (#163)" bash -c "$(declare -f port_detection_is_privilege_free) ; SCRIPT='$SCRIPT'; port_detection_is_privilege_free"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1
