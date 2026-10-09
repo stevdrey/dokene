@@ -338,12 +338,12 @@ describe('CustomerFormModal', () => {
     expect(detectRegionFromE164('+74951234567')).toBe('RU');
   });
 
-  it('displays session expired error rather than workspace permission error when mutation fails with 401', async () => {
+  it('displays the session-ended error rather than workspace permission error when mutation fails with 401', async () => {
     const onSaved = vi.fn();
     const onClose = vi.fn();
 
     vi.spyOn(customerApi, 'createCustomer').mockRejectedValueOnce(
-      new Error('Sesión no autorizada o expirada')
+      new Error('Tu sesión ya no está activa. Por favor inicia sesión nuevamente.')
     );
 
     render(
@@ -364,9 +364,40 @@ describe('CustomerFormModal', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('Sesión no autorizada o expirada');
+      expect(screen.getByRole('alert')).toHaveTextContent('Tu sesión ya no está activa. Por favor inicia sesión nuevamente.');
       expect(screen.queryByText('Acceso denegado en este espacio de trabajo.')).not.toBeInTheDocument();
     });
+  });
+
+  it('preserves every entered form value and allows a retry when the mutation fails with 401 [Issue #156]', async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    const createSpy = vi.spyOn(customerApi, 'createCustomer').mockRejectedValueOnce(
+      new ApiError(401, 'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.')
+    );
+
+    try {
+      render(<CustomerFormModal isOpen={true} onClose={onClose} onSaved={onSaved} />);
+
+      fireEvent.change(screen.getByLabelText(/Nombre completo \/ Razón social/i), { target: { value: 'Test Customer' } });
+      fireEvent.change(screen.getByLabelText(/Número de teléfono 1/i), { target: { value: '984521190' } });
+      fireEvent.change(screen.getByLabelText(/Notas operativas del cliente/i), { target: { value: 'Prefiere contacto por la tarde' } });
+      fireEvent.click(screen.getByRole('button', { name: /Crear cliente/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('Tu sesión ya no está activa. Por favor inicia sesión nuevamente.');
+      });
+
+      expect(screen.getByLabelText(/Nombre completo \/ Razón social/i)).toHaveValue('Test Customer');
+      expect(screen.getByLabelText(/Número de teléfono 1/i)).toHaveValue('984521190');
+      expect(screen.getByLabelText(/Notas operativas del cliente/i)).toHaveValue('Prefiere contacto por la tarde');
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: /Crear cliente/i })).toBeEnabled();
+      expect(createSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      createSpy.mockRestore();
+    }
   });
 
   it('validates Chilean phone length (rejecting 123 with actionable error and preserving input without API call) [Issue #72]', async () => {

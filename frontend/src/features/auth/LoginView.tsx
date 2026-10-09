@@ -2,7 +2,7 @@ import React from 'react';
 import { useSession } from './SessionContext';
 
 export const LoginView: React.FC = () => {
-  const { wasExpired, loginUrl } = useSession();
+  const { wasSessionEnded, loginUrl } = useSession();
 
   const [authError] = React.useState<boolean>(() => {
     if (typeof window === 'undefined' || !window.location.search) {
@@ -81,7 +81,7 @@ export const LoginView: React.FC = () => {
           Gestión de relaciones y seguimiento a clientes para pequeños negocios.
         </p>
 
-        {wasExpired && (
+        {wasSessionEnded && (
           <div
             role="alert"
             style={{
@@ -101,7 +101,7 @@ export const LoginView: React.FC = () => {
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
               warning
             </span>
-            <span>Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente.</span>
+            <span>Tu sesión ya no está activa. Por favor inicia sesión nuevamente.</span>
           </div>
         )}
 

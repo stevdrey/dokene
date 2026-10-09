@@ -21,8 +21,10 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   unchanged. The BFF contract (same-origin cookies, no tokens in the browser) is not altered.
 - The OIDC issuer remains `http://localhost:${KEYCLOAK_PORT}/realms/dokene` for both browser and backend, because the
   issuer is validated by Spring Security and is part of the persisted identity mapping key. An `oidc-bridge` sidecar
-  (socat) shares the backend's network namespace and forwards that localhost port to the Keycloak container.
-- `scripts/dev-env.sh` is the single entry point (`up`, `down`, `status`, `logs`, `seed`, `doctor`, `reset`). It
+  (socat) forwards that localhost port to the Keycloak container and owns the network namespace the backend joins
+  (`network_mode: service:oidc-bridge`), together with the published port 8080 and the `backend` DNS alias. The
+  sidecar owns the namespace so that recreating the backend, the routine operation, does not orphan it.
+- `scripts/dev-env.sh` is the single entry point (`up`, `down`, `restart-backend`, `status`, `logs`, `seed`, `doctor`, `reset`). It
   performs preflight checks (Docker and Compose versions, daemon, `.env` completeness, secret format, free host ports,
   stale data volumes) and generates a git-ignored `.env` with local-only secrets when none exists.
 - Published ports are bound to loopback only (PostgreSQL previously listened on all interfaces).

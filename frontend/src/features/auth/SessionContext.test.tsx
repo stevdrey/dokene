@@ -5,12 +5,12 @@ import { SessionProvider, useSession } from './SessionContext';
 import { apiClient } from '../../api/apiClient';
 
 const TestSessionConsumer: React.FC = () => {
-  const { status, identityId, wasExpired, error, logout, checkSession } = useSession();
+  const { status, identityId, wasSessionEnded, error, logout, checkSession } = useSession();
   return (
     <div>
       <div data-testid="status">{status}</div>
       <div data-testid="identityId">{identityId || 'none'}</div>
-      <div data-testid="wasExpired">{wasExpired ? 'yes' : 'no'}</div>
+      <div data-testid="wasSessionEnded">{wasSessionEnded ? 'yes' : 'no'}</div>
       <div data-testid="error">{error || 'none'}</div>
       <button onClick={() => logout().catch(() => {})}>Cerrar sesión</button>
       <button onClick={() => checkSession()}>Reintentar sesión</button>
@@ -43,7 +43,7 @@ describe('SessionContext', () => {
       expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
     });
     expect(screen.getByTestId('identityId')).toHaveTextContent('none');
-    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+    expect(screen.getByTestId('wasSessionEnded')).toHaveTextContent('no');
   });
 
   it('transitions to error (not unauthenticated) when /api/session fails with network/500 error', async () => {
@@ -65,7 +65,7 @@ describe('SessionContext', () => {
     });
     expect(screen.getByTestId('error')).not.toHaveTextContent('none');
     expect(screen.getByTestId('identityId')).toHaveTextContent('none');
-    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+    expect(screen.getByTestId('wasSessionEnded')).toHaveTextContent('no');
   });
 
   it('recovers from error state when checkSession succeeds on retry', async () => {
@@ -137,7 +137,7 @@ describe('SessionContext', () => {
       expect(screen.getByTestId('status')).toHaveTextContent('authenticated');
     });
     expect(screen.getByTestId('identityId')).toHaveTextContent(mockIdentity);
-    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+    expect(screen.getByTestId('wasSessionEnded')).toHaveTextContent('no');
   });
 
   it('handles expired session triggered by API 401 response', async () => {
@@ -180,7 +180,7 @@ describe('SessionContext', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
-      expect(screen.getByTestId('wasExpired')).toHaveTextContent('yes');
+      expect(screen.getByTestId('wasSessionEnded')).toHaveTextContent('yes');
     });
   });
 
@@ -265,7 +265,7 @@ describe('SessionContext', () => {
 
     // Session status immediately becomes unauthenticated
     expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
-    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+    expect(screen.getByTestId('wasSessionEnded')).toHaveTextContent('no');
     expect(screen.getByTestId('error')).toHaveTextContent('none');
 
     // Now the slow checkSession resolves (returning authenticated data)
@@ -287,7 +287,7 @@ describe('SessionContext', () => {
     expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
     expect(screen.getByTestId('identityId')).toHaveTextContent('none');
     expect(screen.getByTestId('error')).toHaveTextContent('none');
-    expect(screen.getByTestId('wasExpired')).toHaveTextContent('no');
+    expect(screen.getByTestId('wasSessionEnded')).toHaveTextContent('no');
   });
 
   it('retains authenticated state and surfaces error when logout fails', async () => {
