@@ -1,4 +1,4 @@
-# Issue #162 local end-to-end results (BFF, synthetic data, SHA f46dc33+working tree)
+# Issue #162 local end-to-end results (BFF, synthetic data, SHA 5ef3ecb+working tree)
 == Unauthorized + malformed => 403
 VIEW PUT follow-up-policy no If-Match                 expect 403 got 403 PASS
 OPER PUT follow-up-policy bad timezone                expect 403 got 403 PASS
@@ -12,6 +12,10 @@ VIEW PUT consent unknown channel                      expect 403 got 403 PASS
 VIEW POST manual-follow-ups no headers                expect 403 got 403 PASS
 VIEW POST follow-up-dismissals no headers             expect 403 got 403 PASS
 VIEW PUT follow-up-snooze no If-Match                 expect 403 got 403 PASS
+VIEW POST recommendation malformed JSON               expect 403 got 403 PASS
+VIEW POST recommendation malformed customer id        expect 403 got 403 PASS
+VIEW POST draft malformed JSON                        expect 403 got 403 PASS
+VIEW POST draft malformed customer id                 expect 403 got 403 PASS
 VIEW POST purchase no Idempotency-Key                 expect 403 got 403 PASS
 VIEW PUT purchase no If-Match                         expect 403 got 403 PASS
 VIEW DELETE purchase no If-Match                      expect 403 got 403 PASS
@@ -23,6 +27,7 @@ OWNR DELETE customer no If-Match                      expect 400 got 400 PASS
 OWNR POST customer malformed JSON                     expect 400 got 400 PASS
 OWNR POST manual-follow-ups no headers                expect 400 got 400 PASS
 OWNR POST purchase no Idempotency-Key                 expect 400 got 400 PASS
+OWNR POST recommendation malformed JSON               expect 400 got 400 PASS
 == Happy paths still work
 OWNR POST customer valid                              expect 201 got 201 PASS
 OWNR PUT follow-up-policy valid (GET etag)            expect 200 got 200 PASS

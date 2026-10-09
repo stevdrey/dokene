@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
@@ -22,7 +23,9 @@ public class RequiredPermissionInterceptor implements HandlerInterceptor {
         if (handler instanceof HandlerMethod method) {
             RequiredPermission required = method.getMethodAnnotation(RequiredPermission.class);
             if (required != null) {
-                authorization.requirePermission(required.value());
+                for (TenantPermission permission : required.value()) {
+                    authorization.requirePermission(permission);
+                }
             }
         }
         return true;

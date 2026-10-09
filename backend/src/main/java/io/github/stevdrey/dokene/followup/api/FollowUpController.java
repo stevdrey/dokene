@@ -208,6 +208,7 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_EVALUATE)
     @PostMapping({"/customers/{customerId}/recommendation", "/customers/{customerId}/follow-up-recommendation"})
     public ResponseEntity<RecommendationResponse> requestRecommendation(
             @PathVariable UUID customerId,
@@ -367,6 +368,7 @@ public class FollowUpController {
             AiUnavailableReason unavailableReason,
             boolean retryable) { }
 
+    @RequiredPermission({TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE})
     @PostMapping({"/customers/{customerId}/draft", "/customers/{customerId}/follow-up-draft"})
     public ResponseEntity<DraftResponse> requestDraft(
             @PathVariable UUID customerId,
