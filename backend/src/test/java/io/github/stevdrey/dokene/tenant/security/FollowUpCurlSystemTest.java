@@ -70,6 +70,31 @@ class FollowUpCurlSystemTest {
     }
 
     @Test
+    void tenantPolicyUpdateRequiresTenantUpdatePermission() throws Exception {
+        Instant now = Instant.now();
+        var operator = new IdentityId(UUID.randomUUID());
+        seedMembership(memberships, contexts, new io.github.stevdrey.dokene.tenant.domain.TenantId(tenantId),
+                operator, TenantRole.OPERATOR, now);
+        var admin = new IdentityId(UUID.randomUUID());
+        seedMembership(memberships, contexts, new io.github.stevdrey.dokene.tenant.domain.TenantId(tenantId),
+                admin, TenantRole.ADMIN, now);
+        String body = "{\"cadenceDays\":21,\"timeZone\":\"UTC\"}";
+
+        for (UUID denied : List.of(operator.value(), viewerIdentityId)) {
+            assertStatus(curlRaw("PUT", "/api/follow-up-policy", List.of("X-Test-Identity: " + denied,
+                    "X-Tenant-Id: " + tenantId, "If-Match: \"0\""), body), 403);
+        }
+        assertStatus(curlAs("GET", "/api/follow-up-policy", operator.value(), tenantId, null), 200);
+        assertThat(json.readTree(curl("GET", "/api/follow-up-policy", null).body()).get("cadenceDays").asInt())
+                .isEqualTo(30);
+
+        assertStatus(curlRaw("PUT", "/api/follow-up-policy", List.of("X-Test-Identity: " + admin.value(),
+                "X-Tenant-Id: " + tenantId, "If-Match: \"0\""), body), 200);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
+                "{\"cadenceDays\":22,\"timeZone\":\"UTC\"}"), 200);
+    }
+
+    @Test
     void exercisesFollowUpEndpointsWithRealCurl() throws Exception {
         CurlResult customer = curl("POST", "/api/customers", """
                 {"displayName":"Curl follow-up customer","phones":[{"number":"88887777","region":"CR","primary":true}]}

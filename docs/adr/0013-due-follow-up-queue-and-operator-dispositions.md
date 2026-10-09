@@ -93,7 +93,9 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
 
 ### Security, Tenant Isolation, and Privacy Invariants
 
-- Access requires trusted `TenantContext`, `FOLLOWUP_READ` for queue access, and `FOLLOWUP_WRITE` for dispositions.
+- Access requires trusted `TenantContext`, `FOLLOWUP_READ` for queue access, and `FOLLOWUP_WRITE` for dispositions
+  (per-customer policy, snooze, dismissal, manual completion). The tenant-wide policy (`PUT /api/follow-up-policy`)
+  requires `TENANT_UPDATE` (OWNER/ADMIN only); see ADR 0005.
 - Strict multi-tenant isolation is enforced in every SQL query using tenant ID predicates and forced PostgreSQL Row
   Level Security (RLS) with `dokene.current_verified_tenant_id()`.
 - Dispositions emit typed, durable audit events (`FOLLOW_UP_DISMISSED`, `FOLLOW_UP_SNOOZED`, `MANUAL_FOLLOW_UP_RECORDED`).

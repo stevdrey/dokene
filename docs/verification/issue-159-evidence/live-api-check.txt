@@ -1,0 +1,15 @@
+# Live API check through the BFF, local stack rebuilt from this branch (synthetic users only; ids and etags vary per run)
+tenant=<qa-tenant-id>
+GET /api/follow-up-policy as testuser                          expected 200 got 200 PASS
+GET /api/follow-up-policy as testoperator                      expected 200 got 200 PASS
+GET /api/follow-up-policy as testviewer                        expected 200 got 200 PASS
+etag="8"
+PUT tenant policy as OPERATOR                                  expected 403 got 403 PASS
+PUT tenant policy as VIEWER                                    expected 403 got 403 PASS
+PUT tenant policy as OWNER (200)                               expected 200 got 200 PASS
+PUT tenant policy stale If-Match as OWNER (409)                expected 409 got 409 PASS
+customer=<new-customer-id>
+GET customer policy as OPERATOR                                expected 200 got 200 PASS
+PUT customer policy as OPERATOR                                expected 200 got 200 PASS
+GET follow-up queue as OPERATOR                                expected 200 got 200 PASS
+PUT customer policy as VIEWER                                  expected 403 got 403 PASS

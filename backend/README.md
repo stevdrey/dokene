@@ -162,7 +162,9 @@ this module adds no scheduler, messaging dispatch, or AI drafting. See
 [ADR 0012](../docs/adr/0012-deterministic-follow-up-eligibility.md) and
 [ADR 0013](../docs/adr/0013-due-follow-up-queue-and-operator-dispositions.md).
 
-- `GET` and `PUT /api/follow-up-policy` read or configure the tenant cadence and IANA time zone.
+- `GET` and `PUT /api/follow-up-policy` read or configure the tenant cadence and IANA time zone. `GET` requires
+  `FOLLOWUP_READ`; `PUT` requires `TENANT_UPDATE` (OWNER/ADMIN only), since it changes the due classification of every
+  customer in the workspace. OPERATOR and VIEWER receive `403` on `PUT`.
 - `GET` and `PUT /api/customers/{customerId}/follow-up-policy` read or configure a customer cadence/date override.
 - `GET /api/customers/{customerId}/follow-up-eligibility` returns the typed current decision.
 - `GET /api/follow-up-queue` returns a cursor-paginated list of due and overdue follow-ups with customer context.

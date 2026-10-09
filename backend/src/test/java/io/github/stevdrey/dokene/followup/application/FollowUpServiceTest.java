@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -25,6 +28,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
@@ -248,6 +252,28 @@ class FollowUpServiceTest {
                 1, false, null, null, List.of()));
         assertThatThrownBy(() -> service.snooze(customerId, fixedInstant.atZone(tenantZone).toLocalDate().plusDays(5), 0))
                 .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void configureTenantRequiresTenantUpdatePermissionNotFollowUpWrite() {
+        when(policies.updateTenantPolicy(any(), eq(0L)))
+                .thenReturn(new TenantFollowUpPolicy(tenantId, 14, tenantZone, 1));
+
+        service.configureTenant(14, tenantZone, 0);
+
+        verify(authorization).requirePermission(TenantPermission.TENANT_UPDATE);
+        verify(authorization, never()).requirePermission(TenantPermission.FOLLOWUP_WRITE);
+    }
+
+    @Test
+    void configureTenantDoesNotMutateWhenPermissionIsDenied() {
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.TENANT_UPDATE);
+
+        assertThatThrownBy(() -> service.configureTenant(14, tenantZone, 0))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        verify(policies, never()).updateTenantPolicy(any(), anyLong());
     }
 
     @Test

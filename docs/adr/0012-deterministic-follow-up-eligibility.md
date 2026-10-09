@@ -45,6 +45,9 @@ The first request stores its server-derived local date, resulting policy version
 an exact replay returns that original completion even when its `If-Match` is now stale. Reusing a key for another
 customer conflicts. A new key with a stale version rolls back both completion and policy mutation.
 
+Configuring the tenant-wide policy requires `TENANT_UPDATE` (OWNER/ADMIN); customer-policy changes, snoozes and
+manual completions require `FOLLOWUP_WRITE` (see ADR 0005).
+
 Tenant-policy changes, customer-policy changes, snoozes, and first-time manual completions emit typed durable
 audit events with trusted attribution in the same transaction. Audit persistence failure aborts the business
 mutation, and an idempotent replay does not append another event.

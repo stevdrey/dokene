@@ -99,6 +99,18 @@ class FollowUpControllerTest {
         verify(service).configureTenant(14, ZoneId.of("UTC"), 0);
     }
 
+    @Test
+    void configureTenantReturnsForbiddenWhenServiceDeniesPermission() throws Exception {
+        when(service.configureTenant(14, ZoneId.of("UTC"), 0))
+                .thenThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("Forbidden"));
+
+        mvc.perform(put("/api/follow-up-policy")
+                .header("If-Match", "\"0\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"))
+                .andExpect(status().isForbidden());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"\"01\"", "\"00\"", "\"007\""})
     void configureCustomerRejectsNoncanonicalEtags(String invalidEtag) throws Exception {
