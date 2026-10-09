@@ -113,10 +113,21 @@ confirm() {
   case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
+docker_container_publishing() {
+  # Prints the name of a running container that publishes host port $1, if any.
+  docker ps --format '{{.Names}}	{{.Ports}}' 2>/dev/null \
+    | awk -F'\t' -v p="$1" '$2 ~ "(^|[ ,])(127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::\\]):" p "->" {print $1; exit}'
+}
+
 port_in_use() {
-  # True when something listens on TCP port $1. Needs no privileges: `ss -ltn` and a connect probe see sockets of
-  # every user (e.g. root-owned docker-proxy), whereas `lsof` as a regular user does not on Linux.
+  # True when TCP port $1 is taken. Needs no privileges: `ss -ltn` and a connect probe see sockets of every user
+  # (e.g. root-owned docker-proxy), whereas `lsof` as a regular user does not on Linux.
   local port="$1"
+  # With userland-proxy=false Docker publishes through NAT and opens no listening socket, yet it still rejects a
+  # second mapping of the same address and port, so a published mapping counts as occupancy on its own.
+  if have docker && [ -n "$(docker_container_publishing "$port")" ]; then
+    return 0
+  fi
   if have ss; then
     ss -ltn 2>/dev/null | awk -v p=":$port" '$4 ~ p"$" {found=1} END {exit !found}'
   elif have nc; then
@@ -126,12 +137,6 @@ port_in_use() {
   else
     return 1
   fi
-}
-
-docker_container_publishing() {
-  # Prints the name of a running container that publishes host port $1, if any.
-  docker ps --format '{{.Names}}	{{.Ports}}' 2>/dev/null \
-    | awk -F'\t' -v p="$1" '$2 ~ "(^|[ ,])(127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::\\]):" p "->" {print $1; exit}'
 }
 
 port_listener() {

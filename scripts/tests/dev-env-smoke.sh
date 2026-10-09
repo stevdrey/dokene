@@ -72,6 +72,18 @@ port_detection_is_privilege_free() {
 }
 check "port_in_use detects a listener without lsof/root (#163)" bash -c "$(declare -f port_detection_is_privilege_free) ; SCRIPT='$SCRIPT'; port_detection_is_privilege_free"
 
+docker_mapping_counts_as_occupancy() {
+  # userland-proxy=false: Docker publishes via NAT and no socket listens, but the mapping still blocks the port.
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  docker() { printf 'other-project-web\t127.0.0.1:%s->8080/tcp\n' "$FAKE_PORT"; }
+  have() { [ "$1" = "docker" ]; }
+  FAKE_PORT=45999
+  port_in_use 45999 && ! port_in_use 45998 && [ "$(port_listener 45999)" = "Docker container 'other-project-web'" ]
+}
+check "port_in_use counts a Docker-published mapping without a listening socket" \
+  bash -c "$(declare -f docker_mapping_counts_as_occupancy) ; SCRIPT='$SCRIPT'; docker_mapping_counts_as_occupancy"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1
