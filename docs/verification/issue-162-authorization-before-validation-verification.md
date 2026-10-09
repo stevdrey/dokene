@@ -6,7 +6,7 @@ Mutating endpoints guarded by a tenant permission are annotated with `@RequiredP
 Covered: AI recommendation and draft endpoints (`FOLLOWUP_EVALUATE`; `MESSAGE_DRAFT` + `FOLLOWUP_EVALUATE`), customers (create/update/archive), contact policy (consent, do-not-contact), follow-up (tenant policy, customer policy, manual follow-up, dismissal, snooze), purchases (record/correct/void), memberships (invite/role/revoke). `POST /api/tenants` is authentication-only and unchanged.
 
 ## Evidence
-`AuthorizationBeforeValidationIntegrationTest` (22 cases, full HTTP stack with Testcontainers PostgreSQL): VIEWER/OPERATOR requests with missing `If-Match`/`Idempotency-Key`, malformed JSON, invalid time zone or unknown channel return 403 and record an authorization denial with the expected permission.
+`AuthorizationBeforeValidationIntegrationTest` (22 cases, full HTTP stack with Testcontainers PostgreSQL; asserts exactly one audited denial per request): VIEWER/OPERATOR requests with missing `If-Match`/`Idempotency-Key`, malformed JSON, invalid time zone or unknown channel return 403 and record an authorization denial with the expected permission.
 
 Local end-to-end run (`./scripts/dev-env.sh up --seed`, VIEWER/OPERATOR/OWNER sessions through the BFF, synthetic data):
 
@@ -14,3 +14,5 @@ Local end-to-end run (`./scripts/dev-env.sh up --seed`, VIEWER/OPERATOR/OWNER se
 - `issue-162-evidence/audit-rows.txt`: one `AUTHORIZATION_DENIED` / `INSUFFICIENT_PERMISSION` row per denied request, with the required permission, no duplicates.
 - `./gradlew check` passes.
 - Frontend/BFF: no code depends on a 400 for unauthorized callers (`apiClient.ts` / `httpClient.ts` map any 403 to the generic access-denied message; the 400 handlers in `WorkspaceSelector`/`NoMembershipsView` belong to `/api/tenants`, unchanged). Manual UI check as VIEWER: read-only notices and the AI assistant's "role not allowed" message render normally and the session stays active.
+- `RequiredPermissionCoverageTest` (no Spring context): fails the build when any mutating controller method lacks `@RequiredPermission`; the only exception is the authentication-only `POST /api/tenants`. `RequiredPermissionInterceptorTest` covers the interceptor (no annotation, several permissions in order, first denial short-circuits).
+- Evidence provenance: both files under `issue-162-evidence/` record the code commit under test (clean working tree) and the audit query window; the audit counts are for one run of `http-results.txt`.

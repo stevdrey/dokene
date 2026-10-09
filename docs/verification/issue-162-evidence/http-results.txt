@@ -1,4 +1,5 @@
-# Issue #162 local end-to-end results (BFF, synthetic data, SHA 5ef3ecb+working tree)
+# Issue #162 local end-to-end results (BFF, synthetic data)
+# Code under test: 7ceb1db0146f53922b69d9c24c00ba81c0b599b8 (clean working tree), run started 2026-10-09T18:30:57Z
 == Unauthorized + malformed => 403
 VIEW PUT follow-up-policy no If-Match                 expect 403 got 403 PASS
 OPER PUT follow-up-policy bad timezone                expect 403 got 403 PASS
