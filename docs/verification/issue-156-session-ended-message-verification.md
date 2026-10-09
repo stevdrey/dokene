@@ -1,6 +1,6 @@
 # Issue 156 verification: neutral message when the session is no longer active
 
-Scope: frontend wording only. The 401 handling, form-value preservation and login button are unchanged.
+Scope: frontend wording only. The 401 handling and login button are unchanged.
 
 Problem: the login view said "Tu sesión ha expirado por inactividad…" whenever a previously authenticated session became unauthenticated, including a sign-out in another tab or a server-side invalidation (backend restart). The BFF does not signal an idle timeout, so the message now states only what is known: "Tu sesión ya no está activa. Por favor inicia sesión nuevamente."
 
@@ -23,4 +23,4 @@ Same browser profile, two tabs, user `testoperator` (OPERATOR):
 2. First run: tab 2 "Cerrar sesión" (`01-tab2-signed-out.jpg`), then tab 1 navigates to Clientes. The list request returns 401 and the login view shows the neutral message (`02-tab1-neutral-session-message.jpg`).
 3. Second run (the issue's exact repro, with the rebuilt image): on tab 1 open Clientes → Nuevo cliente and fill name and phone; sign out on tab 2; on tab 1 click "Crear cliente". The mutation returns 401 and the login view shows the neutral message with the "Iniciar sesión con OIDC" button (`03-tab1-create-customer-stale-session.jpg`).
 
-Not verified visually: that the filled form values survive the redirect (the modal is no longer on screen once the login view renders). Preservation of values on a 401 is covered by the existing `CustomerFormModal.test.tsx` 401 test, which asserts the session error is shown instead of the workspace-permission message.
+Not verified: that the filled form values survive the redirect. The modal is no longer on screen once the login view renders, and no automated test asserts it: `CustomerFormModal.test.tsx` (401 case) only checks that the session error is shown instead of the workspace-permission message. The issue description reports the values as kept; this PR does not change that behavior and does not re-verify it.
