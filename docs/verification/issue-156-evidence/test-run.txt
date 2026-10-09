@@ -1,0 +1,18 @@
+ RUN  v5.0.3 /home/stevdrey/Projects/Java/dokene/frontend
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to unauthenticated when /api/session returns 401 30ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to error (not unauthenticated) when /api/session fails with network/500 error 8ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > recovers from error state when checkSession succeeds on retry 14ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to authenticated when /api/session returns active session 6ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > handles expired session triggered by API 401 response 6ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > calls /logout and clears session on logout 7ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > prevents a stale checkSession() from overwriting unauthenticated state after logout 5ms
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > retains authenticated state and surfaces error when logout fails 6ms
+ ✓ src/features/auth/LoginView.test.tsx > LoginView > renders default branding, description, and OIDC login button 124ms
+ ✓ src/features/auth/LoginView.test.tsx > LoginView > navigates to loginUrl when clicking the login button 13ms
+ ✓ src/features/auth/LoginView.test.tsx > LoginView > displays session expiration alert when wasExpired is true 8ms
+ ✓ src/features/auth/LoginView.test.tsx > LoginView > displays recoverable authentication error alert when ?error=login_failed is in URL 9ms
+ ✓ src/features/auth/LoginView.test.tsx > LoginView > does not display authentication error alert for unrelated error query parameter 4ms
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+   Start at  23:12:18
+   Duration  917ms (environment 64%, tests 15%, setup 10%, transform 8%, import 2%, worker 1%)

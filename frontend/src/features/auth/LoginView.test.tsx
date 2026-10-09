@@ -89,8 +89,9 @@ describe('LoginView', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(
-      'Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente.'
+      'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.'
     );
+    expect(alert).not.toHaveTextContent(/inactividad/i);
   });
 
   it('displays recoverable authentication error alert when ?error=login_failed is in URL', () => {

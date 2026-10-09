@@ -101,7 +101,7 @@ export const LoginView: React.FC = () => {
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
               warning
             </span>
-            <span>Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente.</span>
+            <span>Tu sesión ya no está activa. Por favor inicia sesión nuevamente.</span>
           </div>
         )}
 
