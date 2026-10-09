@@ -1,0 +1,7 @@
+# Audit rows written by the single live check above (occurred_at >= start of that run; one run: OPERATOR denied, VIEWER denied, OWNER changed)
+           event_type            | outcome |  permission   |      denial_reason      | count 
+---------------------------------+---------+---------------+-------------------------+-------
+ AUTHORIZATION_DENIED            | DENIED  | TENANT_UPDATE | INSUFFICIENT_PERMISSION |     2
+ TENANT_FOLLOW_UP_POLICY_CHANGED | SUCCESS |               |                         |     1
+(2 rows)
+

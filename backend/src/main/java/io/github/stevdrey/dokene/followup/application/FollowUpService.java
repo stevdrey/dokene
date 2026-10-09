@@ -87,7 +87,7 @@ public class FollowUpService {
 
     @Transactional
     public TenantFollowUpPolicy configureTenant(int cadenceDays, ZoneId zoneId, long expectedVersion) {
-        authorization.requirePermission(TenantPermission.FOLLOWUP_WRITE);
+        authorization.requirePermission(TenantPermission.TENANT_UPDATE);
         var tenantId = contexts.requireCurrent().tenantId();
         var updated = policies.updateTenantPolicy(
                 new TenantFollowUpPolicy(tenantId, cadenceDays, zoneId, expectedVersion), expectedVersion);

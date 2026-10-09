@@ -1,0 +1,92 @@
+# ./gradlew check (JDK 26.0.2) - follow-up classes touched by Issue 159, one line per test (timings removed)
+PASS FollowUpServiceTest > dispositionsAcquireCustomerLockForUpdate()
+PASS FollowUpServiceTest > configureTenantDoesNotMutateWhenPermissionIsDenied()
+PASS FollowUpServiceTest > recordManualFollowUpDerivesDateAndTimestampFromSingleInstant()
+PASS FollowUpServiceTest > recordManualFollowUpAllowsEligibleCustomerWithoutPurchaseHistory()
+PASS FollowUpServiceTest > snoozeRejectsPastDateBasedOnTenantZone()
+PASS FollowUpServiceTest > configureCustomerAllowsValidCadenceAndNullCadence()
+PASS FollowUpServiceTest > [1] invalidCadence = 0
+PASS FollowUpServiceTest > [2] invalidCadence = -1
+PASS FollowUpServiceTest > [3] invalidCadence = 3651
+PASS FollowUpServiceTest > [4] invalidCadence = 10000
+PASS FollowUpServiceTest > snoozeRejectsIneligibleOrNotYetDueCustomer()
+PASS FollowUpServiceTest > dismissRejectsIneligibleOrNotYetDueCustomer()
+PASS FollowUpServiceTest > recordManualFollowUpRejectsIneligibleCustomer()
+PASS FollowUpServiceTest > configureTenantRequiresTenantUpdatePermissionNotFollowUpWrite()
+PASS FollowUpServiceTest > dispositionsRejectOversizedNotesBeforePersistence()
+PASS FollowUpServiceTest > dueQueueRequiresPermissionAndDelegatesToRepository()
+PASS FollowUpServiceTest > configureCustomerRejectsNegativeExpectedVersion()
+PASS FollowUpServiceTest > dismissRecordsDismissalAndEmitsAudit()
+PASS FollowUpControllerTest > requestRecommendationReturnsAvailableWithEtag()
+PASS FollowUpControllerTest > successfulRecommendationIsNotFlaggedRetryable()
+PASS FollowUpControllerTest > requestRecommendationReturnsAiUnavailableWithEvaluation()
+PASS FollowUpControllerTest > requestRecommendationReturnsIneligible()
+PASS FollowUpControllerTest > unexpectedFailuresAreLoggedWithClassAndLocationButNeverWithTheirMessage()
+PASS FollowUpControllerTest > generateDraftReturnsAvailableMessageDraftWithETag()
+PASS FollowUpControllerTest > [1] invalidEtag = &quot;\&quot;01\&quot;&quot;
+PASS FollowUpControllerTest > [2] invalidEtag = &quot;\&quot;00\&quot;&quot;
+PASS FollowUpControllerTest > [3] invalidEtag = &quot;\&quot;007\&quot;&quot;
+PASS FollowUpControllerTest > recordManualFollowUpRejectsOversizedNotesBeforeServiceInvocation()
+PASS FollowUpControllerTest > generateDraftAliasEndpointReturnsDraft()
+PASS FollowUpControllerTest > draftAiUnavailableCarriesStableReasonAndRetryHint()
+PASS FollowUpControllerTest > configureTenantReturnsForbiddenWhenCallerLacksTenantUpdateEvenWithFollowUpWrite()
+PASS FollowUpControllerTest > dismissRejectsOversizedNotesBeforeServiceInvocation()
+PASS FollowUpControllerTest > [1] invalidEtag = &quot;\&quot;01\&quot;&quot;
+PASS FollowUpControllerTest > [2] invalidEtag = &quot;\&quot;00\&quot;&quot;
+PASS FollowUpControllerTest > requestRecommendationReturnsRefusal()
+PASS FollowUpControllerTest > aiUnavailableReasonsAreStableAndFlagWhetherRetryingIsReasonable()
+PASS FollowUpControllerTest > requestRecommendationRejectsNonpositiveTimeoutWithBadRequest()
+PASS FollowUpControllerTest > requestRecommendationRejectsMalformedEtag()
+PASS FollowUpControllerTest > requestRecommendationReturnsStaleState()
+PASS FollowUpControllerTest > dueQueueReturnsPaginatedItemsAndFiltersByStatus()
+PASS FollowUpControllerTest > generateDraftReturnsConflictOnStaleVersion()
+PASS FollowUpControllerTest > requestRecommendationReturnsTooManyRequestsWhenRateLimited()
+PASS FollowUpControllerTest > dismissReplayReturnsOk()
+PASS FollowUpControllerTest > unexpectedProviderOrStateFailuresNeverLeakTextAcrossTheHttpBoundary()
+PASS FollowUpControllerTest > requestRecommendationReturnsRefusalWithRationaleAndConfidence()
+PASS FollowUpControllerTest > requestRecommendationRejectsUnauthorizedCallerWithoutInvokingService()
+PASS FollowUpControllerTest > [1] invalidEtag = &quot;\&quot;01\&quot;&quot;
+PASS FollowUpControllerTest > [2] invalidEtag = &quot;\&quot;0001\&quot;&quot;
+PASS FollowUpControllerTest > [3] invalidEtag = &quot;\&quot;00\&quot;&quot;
+PASS FollowUpControllerTest > [4] invalidEtag = &quot;\&quot;bad\&quot;&quot;
+PASS FollowUpControllerTest > [5] invalidEtag = &quot;\&quot;\&quot;&quot;
+PASS FollowUpControllerTest > [6] invalidEtag = &quot;1&quot;
+PASS FollowUpControllerTest > [7] invalidEtag = &quot;\&quot;1.0\&quot;&quot;
+PASS FollowUpControllerTest > [8] invalidEtag = &quot;\&quot;-1\&quot;&quot;
+PASS FollowUpControllerTest > requestRecommendationSupportsAliasPath()
+PASS FollowUpControllerTest > dismissRecordsDismissalWithETagAndNotes()
+PASS FollowUpControllerTest > configureCustomerAcceptsCanonicalEtag()
+PASS FollowUpControllerTest > requestRecommendationReturnsConflictOnVersionMismatch()
+PASS FollowUpControllerTest > generateDraftReturnsRefusalWhenModelRefuses()
+PASS FollowUpControllerTest > [1] invalidEtag = &quot;\&quot;01\&quot;&quot;
+PASS FollowUpControllerTest > [2] invalidEtag = &quot;\&quot;00\&quot;&quot;
+PASS FollowUpControllerTest > configureTenantAcceptsCanonicalEtags()
+PASS FollowUpControllerTest > generateDraftRejectsUnauthorizedCallerWithoutInvokingService()
+PASS FollowUpControllerTest > generateDraftWithIfMatchHeaderPassesVersion()
+PASS FollowUpManagementIntegrationTest > purchaseCommitBeforeDispositionInvalidatesStaleDueState()
+PASS FollowUpManagementIntegrationTest > databaseLevelEligibilityPredicatesRejectDispositionsOnIneligibleCustomers()
+PASS FollowUpManagementIntegrationTest > recommendationRejectsVersionMismatchWithConflict()
+PASS FollowUpManagementIntegrationTest > sameDaySnoozeRemainsNotYetDueAndOutsideQueue()
+PASS FollowUpManagementIntegrationTest > adminCanUpdateTenantPolicyWithVersionChecking()
+PASS FollowUpManagementIntegrationTest > timeTransitionsClassifyOverdueAndDue()
+PASS FollowUpManagementIntegrationTest > dismissAdvancesCadenceCycleAndClearsExpiredSnooze()
+PASS FollowUpManagementIntegrationTest > auditFailureRollsBackPolicySnoozeAndCompletion()
+PASS FollowUpManagementIntegrationTest > purchaseCommitBeforeSnoozeInvalidatesStaleDueState()
+PASS FollowUpManagementIntegrationTest > recommendationEnforcesTenantIsolation()
+PASS FollowUpManagementIntegrationTest > queueReturnsDueCustomersAndIsolatesTenants()
+PASS FollowUpManagementIntegrationTest > recommendationSucceedsAndMutatesNoBusinessState()
+PASS FollowUpManagementIntegrationTest > operatorKeepsReadAndDailyFollowUpActionsAfterTenantPolicyRestriction()
+PASS FollowUpManagementIntegrationTest > queueReturnsConsentedPhonePreferringPrimary()
+PASS FollowUpManagementIntegrationTest > manualCompletionIsIdempotentAndAuditsEachTransitionOnce()
+PASS FollowUpManagementIntegrationTest > queueAndEvaluatorUseSameTenantDateNearUtcBoundary()
+PASS FollowUpManagementIntegrationTest > oneConcurrentWriterWinsAndOwnedColumnsAreNotRestored()
+PASS FollowUpManagementIntegrationTest > revokedConsentOrArchivedCustomerDropsFromQueueAndRejectsDispositions()
+PASS FollowUpManagementIntegrationTest > recommendationEnforcesAuthorizationDenialForViewer()
+PASS FollowUpManagementIntegrationTest > reflectsCurrentPurchaseAndConsentAndIsolatesPolicyAccess()
+PASS FollowUpManagementIntegrationTest > recommendationReturnsIneligibleWhenOptedOut()
+PASS FollowUpTenantPolicyAuthorizationIntegrationTest > [1] role = OPERATOR
+PASS FollowUpTenantPolicyAuthorizationIntegrationTest > [2] role = VIEWER
+PASS FollowUpCurlSystemTest > exercisesFollowUpEndpointsWithRealCurl()
+PASS FollowUpCurlSystemTest > tenantPolicyUpdateRequiresTenantUpdatePermission()
+
+# Listed: 89 tests in the 5 classes. Full backend suite: 1085 tests, 0 skipped, 0 failed/errors (BUILD SUCCESSFUL).
