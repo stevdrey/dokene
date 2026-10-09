@@ -48,6 +48,8 @@ class FollowUpCurlSystemTest {
     private UUID tenantId;
     private UUID identityId;
     private UUID viewerIdentityId;
+    private UUID operatorIdentityId;
+    private UUID adminIdentityId;
     private UUID foreignTenantId;
     private UUID foreignIdentityId;
 
@@ -62,6 +64,12 @@ class FollowUpCurlSystemTest {
         var viewer = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), viewer, TenantRole.VIEWER, now);
         viewerIdentityId = viewer.value();
+        var operator = new IdentityId(UUID.randomUUID());
+        seedMembership(memberships, contexts, tenant.id(), operator, TenantRole.OPERATOR, now);
+        operatorIdentityId = operator.value();
+        var admin = new IdentityId(UUID.randomUUID());
+        seedMembership(memberships, contexts, tenant.id(), admin, TenantRole.ADMIN, now);
+        adminIdentityId = admin.value();
         var foreignTenant = seedTenant(tenants, "Foreign follow-up curl " + UUID.randomUUID(), now);
         var foreignIdentity = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, foreignTenant.id(), foreignIdentity, TenantRole.OWNER, now);
@@ -71,26 +79,22 @@ class FollowUpCurlSystemTest {
 
     @Test
     void tenantPolicyUpdateRequiresTenantUpdatePermission() throws Exception {
-        Instant now = Instant.now();
-        var operator = new IdentityId(UUID.randomUUID());
-        seedMembership(memberships, contexts, new io.github.stevdrey.dokene.tenant.domain.TenantId(tenantId),
-                operator, TenantRole.OPERATOR, now);
-        var admin = new IdentityId(UUID.randomUUID());
-        seedMembership(memberships, contexts, new io.github.stevdrey.dokene.tenant.domain.TenantId(tenantId),
-                admin, TenantRole.ADMIN, now);
+        CurlResult current = curl("GET", "/api/follow-up-policy", null);
+        String etag = current.header("etag");
         String body = "{\"cadenceDays\":21,\"timeZone\":\"UTC\"}";
 
-        for (UUID denied : List.of(operator.value(), viewerIdentityId)) {
+        for (UUID denied : List.of(operatorIdentityId, viewerIdentityId)) {
             assertStatus(curlRaw("PUT", "/api/follow-up-policy", List.of("X-Test-Identity: " + denied,
-                    "X-Tenant-Id: " + tenantId, "If-Match: \"0\""), body), 403);
+                    "X-Tenant-Id: " + tenantId, "If-Match: " + etag), body), 403);
         }
-        assertStatus(curlAs("GET", "/api/follow-up-policy", operator.value(), tenantId, null), 200);
+        assertStatus(curlAs("GET", "/api/follow-up-policy", operatorIdentityId, tenantId, null), 200);
         assertThat(json.readTree(curl("GET", "/api/follow-up-policy", null).body()).get("cadenceDays").asInt())
-                .isEqualTo(30);
+                .isEqualTo(json.readTree(current.body()).get("cadenceDays").asInt());
 
-        assertStatus(curlRaw("PUT", "/api/follow-up-policy", List.of("X-Test-Identity: " + admin.value(),
-                "X-Tenant-Id: " + tenantId, "If-Match: \"0\""), body), 200);
-        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", "\"1\"",
+        CurlResult byAdmin = curlRaw("PUT", "/api/follow-up-policy", List.of("X-Test-Identity: " + adminIdentityId,
+                "X-Tenant-Id: " + tenantId, "If-Match: " + etag), body);
+        assertStatus(byAdmin, 200);
+        assertStatus(curlWithHeader("PUT", "/api/follow-up-policy", "If-Match", byAdmin.header("etag"),
                 "{\"cadenceDays\":22,\"timeZone\":\"UTC\"}"), 200);
     }
 

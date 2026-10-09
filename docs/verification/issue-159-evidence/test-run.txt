@@ -20,7 +20,6 @@ PASS FollowUpServiceTest > dismissRecordsDismissalAndEmitsAudit()
 PASS FollowUpControllerTest > requestRecommendationReturnsAvailableWithEtag()
 PASS FollowUpControllerTest > successfulRecommendationIsNotFlaggedRetryable()
 PASS FollowUpControllerTest > requestRecommendationReturnsAiUnavailableWithEvaluation()
-PASS FollowUpControllerTest > configureTenantReturnsForbiddenWhenServiceDeniesPermission()
 PASS FollowUpControllerTest > requestRecommendationReturnsIneligible()
 PASS FollowUpControllerTest > unexpectedFailuresAreLoggedWithClassAndLocationButNeverWithTheirMessage()
 PASS FollowUpControllerTest > generateDraftReturnsAvailableMessageDraftWithETag()
@@ -30,6 +29,7 @@ PASS FollowUpControllerTest > [3] invalidEtag = &quot;\&quot;007\&quot;&quot;
 PASS FollowUpControllerTest > recordManualFollowUpRejectsOversizedNotesBeforeServiceInvocation()
 PASS FollowUpControllerTest > generateDraftAliasEndpointReturnsDraft()
 PASS FollowUpControllerTest > draftAiUnavailableCarriesStableReasonAndRetryHint()
+PASS FollowUpControllerTest > configureTenantReturnsForbiddenWhenCallerLacksTenantUpdateEvenWithFollowUpWrite()
 PASS FollowUpControllerTest > dismissRejectsOversizedNotesBeforeServiceInvocation()
 PASS FollowUpControllerTest > [1] invalidEtag = &quot;\&quot;01\&quot;&quot;
 PASS FollowUpControllerTest > [2] invalidEtag = &quot;\&quot;00\&quot;&quot;
@@ -84,7 +84,9 @@ PASS FollowUpManagementIntegrationTest > revokedConsentOrArchivedCustomerDropsFr
 PASS FollowUpManagementIntegrationTest > recommendationEnforcesAuthorizationDenialForViewer()
 PASS FollowUpManagementIntegrationTest > reflectsCurrentPurchaseAndConsentAndIsolatesPolicyAccess()
 PASS FollowUpManagementIntegrationTest > recommendationReturnsIneligibleWhenOptedOut()
+PASS FollowUpTenantPolicyAuthorizationIntegrationTest > [1] role = OPERATOR
+PASS FollowUpTenantPolicyAuthorizationIntegrationTest > [2] role = VIEWER
 PASS FollowUpCurlSystemTest > exercisesFollowUpEndpointsWithRealCurl()
 PASS FollowUpCurlSystemTest > tenantPolicyUpdateRequiresTenantUpdatePermission()
 
-# Listed: 87 tests in the 4 classes. Full backend suite: 1083 tests, 0 skipped, 0 failed/errors (BUILD SUCCESSFUL).
+# Listed: 89 tests in the 5 classes. Full backend suite: 1085 tests, 0 skipped, 0 failed/errors (BUILD SUCCESSFUL).

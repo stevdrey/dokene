@@ -1,8 +1,7 @@
-# Audit rows for the live check (last 20 minutes)
+# Audit rows written by the single live check above (occurred_at >= start of that run; one run: OPERATOR denied, VIEWER denied, OWNER changed)
            event_type            | outcome |  permission   |      denial_reason      | count 
 ---------------------------------+---------+---------------+-------------------------+-------
- AUTHORIZATION_DENIED            | DENIED  | TENANT_UPDATE | INSUFFICIENT_PERMISSION |     4
- TENANT_FOLLOW_UP_POLICY_CHANGED | SUCCESS |               |                         |     2
+ AUTHORIZATION_DENIED            | DENIED  | TENANT_UPDATE | INSUFFICIENT_PERMISSION |     2
+ TENANT_FOLLOW_UP_POLICY_CHANGED | SUCCESS |               |                         |     1
 (2 rows)
 
-# Note: the live check ran twice inside the 20-minute window, so counts are cumulative (2 runs x [OPERATOR denied, VIEWER denied, OWNER changed]).

@@ -663,9 +663,11 @@ class FollowUpManagementIntegrationTest {
                 new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, Instant.now()));
         grantWhatsAppConsent(customer);
         inContext(contextA, () -> followUps.configureTenant(14, ZoneId.of("UTC"), 0));
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = inContext(operatorContext, () -> followUps.evaluate(customer.id())).tenantDate();
 
-        assertThat(inContext(operatorContext, () -> followUps.tenantPolicy())).isNotNull();
+        var tenantPolicy = inContext(operatorContext, () -> followUps.tenantPolicy());
+        assertThat(tenantPolicy.cadenceDays()).isEqualTo(14);
+        assertThat(tenantPolicy.zoneId()).isEqualTo(ZoneId.of("UTC"));
         var configured = inContext(operatorContext,
                 () -> followUps.configureCustomer(customer.id(), 7, today, 0));
         var snoozed = inContext(operatorContext,
