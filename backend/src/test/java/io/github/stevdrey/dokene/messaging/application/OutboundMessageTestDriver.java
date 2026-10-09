@@ -88,6 +88,14 @@ public final class OutboundMessageTestDriver {
         return completeAttempt(context, messageId, new ProviderSendResult.Accepted(providerMessageId));
     }
 
+    /** T6 to T8 ending in an unknown outcome (T11) that still carries the provider id, so a later report can land. */
+    public OutboundMessage sendUnknownOutcome(TenantContext context, UUID messageId, String providerMessageId) {
+        requestSend(context, messageId);
+        startAttempt(context, messageId);
+        return completeAttempt(context, messageId,
+                new ProviderSendResult.OutcomeUnknown(java.util.Optional.of(providerMessageId)));
+    }
+
     private OutboundMessage locked(TenantContext context, UUID messageId) {
         return messages.findByIdForUpdate(context.tenantId().value(), messageId)
                 .orElseThrow(() -> new IllegalStateException("Message not found: " + messageId));

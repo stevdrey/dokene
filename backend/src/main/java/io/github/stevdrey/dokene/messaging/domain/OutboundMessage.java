@@ -169,7 +169,7 @@ public record OutboundMessage(UUID id, UUID tenantId, UUID customerId, UUID cont
     public DeliveryOutcome applyDeliveryReport(DeliveryStatusReport report, Instant now) {
         Objects.requireNonNull(report, "Report is required");
         Objects.requireNonNull(now, "Time is required");
-        Instant at = report.occurredAt();
+        Instant at = boundReportTime(report.occurredAt(), now);
         OutboundMessage next = switch (status) {
             case SENDING -> !outcomeUnknown ? null : switch (report.status()) {
                 case SENT -> copy(MessageStatus.SENT, false, attemptCount, providerMessageId, null, at, deliveredAt,
@@ -205,6 +205,21 @@ public record OutboundMessage(UUID id, UUID tenantId, UUID customerId, UUID cont
         }
         return new DeliveryOutcome.Applied(new Transition(next, event(next, MessageEventType.DELIVERY_UPDATED,
                 MessageActorKind.PROVIDER, null, next.failureCategory(), null, now)));
+    }
+
+    /**
+     * AC-14: a provider supplied time drives sent_at and the follow up cadence anchor, so it is kept inside
+     * [createdAt, now]. A future value would hide the customer from the due queue; a value before the message
+     * existed would pull the anchor backwards. Values inside the window are trusted as given.
+     */
+    private Instant boundReportTime(Instant reported, Instant now) {
+        if (reported.isAfter(now)) {
+            return now;
+        }
+        if (reported.isBefore(createdAt)) {
+            return createdAt;
+        }
+        return reported;
     }
 
     /** True while the message blocks another submit for the same customer. */

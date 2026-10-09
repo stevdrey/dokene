@@ -56,7 +56,7 @@ Transitions are validated in the aggregate; arbitrary status mutation is refused
 
 | Table | Purpose | Runtime grants |
 | --- | --- | --- |
-| `outbound_messages` | One row per message: status, body, recipient snapshot, send key, attempt count, provider message id, timestamps, version. | `SELECT, INSERT, UPDATE` |
+| `outbound_messages` | One row per message: status, body, recipient snapshot (`contact_id` plus `recipient_phone`, with no foreign key to the contact row so phone corrections still work; readers derive `contactRemoved` from whether the contact row still exists), send key, attempt count, provider message id, timestamps, version. | `SELECT, INSERT, UPDATE` |
 | `outbound_message_approvals` | One row per approve or reject decision, with the operator note. | `SELECT, INSERT` |
 | `outbound_message_cancellations` | One row per cancellation, with the operator note. | `SELECT, INSERT` |
 | `outbound_send_attempts` | One row per provider call, committed before the call and completed after it. | `SELECT, INSERT, UPDATE` |

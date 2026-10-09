@@ -38,9 +38,9 @@ CREATE TABLE dokene.outbound_messages (
         REFERENCES dokene.tenants(id) ON DELETE RESTRICT,
     CONSTRAINT fk_outbound_messages_customer FOREIGN KEY (tenant_id, customer_id)
         REFERENCES dokene.customers(tenant_id, id) ON DELETE RESTRICT,
-    -- The three column key also proves the contact belongs to the customer.
-    CONSTRAINT fk_outbound_messages_contact FOREIGN KEY (tenant_id, customer_id, contact_id)
-        REFERENCES dokene.customer_phone_contacts(tenant_id, customer_id, id) ON DELETE RESTRICT,
+    -- contact_id is a snapshot of the contact chosen at submit, not a live reference: no foreign key, so the
+    -- customer module can still delete a contact row when an operator corrects a phone (spec 0001, AC-13).
+    -- Ownership is proven by the service under the customer lock at submit, approve and send.
     CONSTRAINT ck_outbound_messages_recipient_e164 CHECK (recipient_phone ~ '^\+[1-9][0-9]{7,14}$'),
     CONSTRAINT ck_outbound_messages_channel CHECK (channel IN ('WHATSAPP')),
     CONSTRAINT ck_outbound_messages_status CHECK (status IN (

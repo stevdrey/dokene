@@ -1,5 +1,6 @@
 // ABOUTME: Exhaustive proof of AC-3 for delivery reports: ten states by four statuses match the spec 0001 table.
 // ABOUTME: Applied cells move state; every other cell yields Ignored with a non applied event and a version bump.
+// ABOUTME: Also proves AC-14: report times are bounded to the window between creation and the applying instant.
 package io.github.stevdrey.dokene.messaging.domain;
 
 import static io.github.stevdrey.dokene.messaging.domain.OutboundMessageTransitionMatrixTest.message;
@@ -86,6 +87,82 @@ class OutboundMessageDeliveryReportMatrixTest {
                 APPLIED_AT);
         assertThat(read.transition().next().readAt()).isEqualTo(REPORTED.plusSeconds(1));
         assertThat(read.transition().next().sentAt()).isEqualTo(REPORTED);
+    }
+
+    @Test
+    void futureReportTimeIsBoundedToTheInstantTheReportIsApplied() {
+        // AC-14: a provider cannot say a thing happened in the future.
+        Instant future = APPLIED_AT.plusSeconds(3600);
+        var sent = (DeliveryOutcome.Applied) message(MessageStatus.SENDING, true, 1).applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.SENT, future, Optional.empty()), APPLIED_AT);
+        assertThat(sent.transition().next().sentAt()).isEqualTo(APPLIED_AT);
+
+        var delivered = (DeliveryOutcome.Applied) message(MessageStatus.SENT, false, 1).applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.DELIVERED, future, Optional.empty()), APPLIED_AT);
+        assertThat(delivered.transition().next().deliveredAt()).isEqualTo(APPLIED_AT);
+
+        var read = (DeliveryOutcome.Applied) message(MessageStatus.DELIVERED, false, 1).applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.READ, future, Optional.empty()), APPLIED_AT);
+        assertThat(read.transition().next().readAt()).isEqualTo(APPLIED_AT);
+    }
+
+    @Test
+    void reportTimeBeforeTheMessageExistedIsBoundedToItsCreation() {
+        // AC-14: nothing about a message happened before the message was created.
+        OutboundMessage unknown = message(MessageStatus.SENDING, true, 1);
+        Instant beforeCreation = unknown.createdAt().minusSeconds(86400);
+        var delivered = (DeliveryOutcome.Applied) unknown.applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.DELIVERED, beforeCreation, Optional.empty()),
+                APPLIED_AT);
+        assertThat(delivered.transition().next().sentAt()).isEqualTo(unknown.createdAt());
+        assertThat(delivered.transition().next().deliveredAt()).isEqualTo(unknown.createdAt());
+    }
+
+    @Test
+    void reportTimeInsideTheWindowIsKeptAsGiven() {
+        OutboundMessage sent = message(MessageStatus.SENT, false, 1);
+        Instant inside = sent.createdAt().plusSeconds(30);
+        var delivered = (DeliveryOutcome.Applied) sent.applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.DELIVERED, inside, Optional.empty()), APPLIED_AT);
+        assertThat(delivered.transition().next().deliveredAt()).isEqualTo(inside);
+    }
+
+    @Test
+    void reportTimeOnEitherEdgeOfTheWindowIsKeptAsGiven() {
+        // AC-14: the window is closed on both ends, so a report dated exactly now or exactly at creation is trusted.
+        OutboundMessage sent = message(MessageStatus.SENT, false, 1);
+        var atNow = (DeliveryOutcome.Applied) sent.applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.DELIVERED, APPLIED_AT, Optional.empty()),
+                APPLIED_AT);
+        assertThat(atNow.transition().next().deliveredAt()).isEqualTo(APPLIED_AT);
+
+        var atCreation = (DeliveryOutcome.Applied) sent.applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.DELIVERED, sent.createdAt(), Optional.empty()),
+                APPLIED_AT);
+        assertThat(atCreation.transition().next().deliveredAt()).isEqualTo(sent.createdAt());
+    }
+
+    @Test
+    void futureReportThatFillsTwoTimestampsBoundsBoth() {
+        // AC-14: a READ report on an unknown outcome fills sent_at and read_at from the same bounded instant.
+        Instant future = APPLIED_AT.plusSeconds(3600);
+        var read = (DeliveryOutcome.Applied) message(MessageStatus.SENDING, true, 1).applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.READ, future, Optional.empty()), APPLIED_AT);
+        assertThat(read.transition().next().sentAt()).isEqualTo(APPLIED_AT);
+        assertThat(read.transition().next().readAt()).isEqualTo(APPLIED_AT);
+        assertThat(read.transition().next().deliveredAt()).isNull();
+    }
+
+    @Test
+    void ignoredReportWithAnOutOfWindowTimeLeavesStoredTimestampsAlone() {
+        // AC-14 only shapes applied cells; an ignored late report must not rewrite what is already stored.
+        OutboundMessage delivered = message(MessageStatus.DELIVERED, false, 1);
+        Instant future = APPLIED_AT.plusSeconds(3600);
+        var ignored = (DeliveryOutcome.Ignored) delivered.applyDeliveryReport(
+                new DeliveryStatusReport("wamid.seed", DeliveryStatus.SENT, future, Optional.empty()), APPLIED_AT);
+        assertThat(ignored.next().sentAt()).isEqualTo(delivered.sentAt());
+        assertThat(ignored.next().deliveredAt()).isEqualTo(delivered.deliveredAt());
+        assertThat(ignored.next().status()).isEqualTo(MessageStatus.DELIVERED);
     }
 
     @Test

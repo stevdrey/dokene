@@ -21,7 +21,7 @@ The governing decision for everything planned below is [ADR 0023](../adr/0023-ph
 | F | Follow up eligibility, queue and dispositions | Phase 1 | existing |
 | G | AI recommendations and drafts | Phase 2 | existing |
 | H | Containerized local environment | Phase 0 | existing |
-| 1 | Message data model and state machine | Slice 1 | in-progress |
+| 1 | Message data model and state machine | Slice 1 | done |
 | 2 | Submission and approval API | Slice 1 | planned |
 | 3 | Send pipeline with a local test provider | Slice 1 | planned |
 | 4 | Approval queue and message UI | Slice 1 | planned |
@@ -63,23 +63,23 @@ Whole stack in containers with one entry script and QA seed. code in `infra/dock
 
 The thinnest real thread: an operator submits a draft, someone approves it, the operator sends it, and the message shows `SENT` then `DELIVERED`, all through real tables, RLS, audit, idempotency and UI. The provider is a local test adapter inside the dev stack, so no external credentials are needed to prove the pipe (basis: Tracer Bullet, prove the layers connect before thickening any one of them).
 
-### 1. Message data model and state machine · in-progress
+### 1. Message data model and state machine · done
 The `messaging` module's aggregate and tables: messages, approvals, cancellations, send attempts, event log, idempotency keys, plus the new audit event types and the follow up cadence anchor. This is the ground every later strand stands on.
 **Done when:** migrations apply with forced RLS on every new table, the one open message per customer index holds, every transition in the ADR 0023 table is enforced in domain code and refused otherwise, and audit rows commit atomically with transitions carrying only closed metadata.
-spec [0001](../specs/0001-message-data-model-and-state-machine.md)
+spec [0001](../specs/0001-message-data-model-and-state-machine/index.md)
 code `backend/src/main/java/io/github/stevdrey/dokene/messaging` (domain, application, persistence/jdbc), migrations `V16__create_outbound_messaging.sql` and `V17__extend_audit_for_outbound_messaging.sql`
 - [x] Design it (spec): `/architect message data model and state machine`
-- [ ] Build it: `/develop message data model and state machine`
+- [x] Build it: `/develop message data model and state machine`
   - [x] Schema and domain: V16 with RLS and the open message index, the `OutboundMessage` record with both exhaustive transition matrices (AC-1, AC-2, AC-3, AC-8)
   - [x] Submit thin thread: V17 audit extension, repository, idempotency store, template gate stand in, `submit` end to end against Postgres (AC-2, AC-4, AC-5, AC-6, AC-10, AC-12)
   - [x] Approve, reject, cancel and the follow up cadence anchor (AC-4, AC-5, AC-6, AC-9)
   - [x] Ports, provider context, delivery sink and event read model (AC-6, AC-7, AC-9, AC-10)
   - [x] ArchUnit dependency test and documentation updates (AC-11, AC-1)
-  - [ ] Amendment of 2026-10-09: drop the contact foreign key from V16, T2 contact ownership guard, report time window and monotonic cadence anchor, with their tests (AC-13, AC-14)
-- [ ] Verify it: `/check verify message data model and state machine`
-- [ ] Test it: `/test message data model and state machine`
+  - [x] Amendment of 2026-10-09: drop the contact foreign key from V16, T2 contact ownership guard, report time window and monotonic cadence anchor, with their tests (AC-13, AC-14)
+- [x] Verify it: `/check verify message data model and state machine`
+- [x] Test it: `/test message data model and state machine`
 - [x] Review it (fresh model): `/check review message data model and state machine`
-- [ ] Document it: `/document message data model and state machine`
+- [x] Document it: `/document message data model and state machine`
 (basis: ADR 0023 §2, §4.5, §4.7; the data model is the costliest thing to redo)
 
 ### 2. Submission and approval API · needs a decision

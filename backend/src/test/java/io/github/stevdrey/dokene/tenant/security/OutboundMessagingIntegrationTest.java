@@ -362,6 +362,140 @@ class OutboundMessagingIntegrationTest {
                 new ProviderContext(tenantA.id()), () -> sink.apply(report))), MessagingErrorCode.FORBIDDEN);
     }
 
+    @Test
+    void phoneCorrectionAfterSubmitSucceedsAndStrandsThePendingMessage() throws Exception {
+        // AC-13: no foreign key to the contact, so the customer edit still deletes the old contact row.
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(submit(BODY, "pc-" + UUID.randomUUID()))).message();
+        assertThat(message.contactId()).isEqualTo(contactId);
+
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        // Same valid CR mobile prefix as setUp, a different suffix, so the edit is a real number change.
+        String originalSuffix = current.phones().getFirst().e164().substring(current.phones().getFirst().e164().length() - 4);
+        String replacement = "8888" + String.format("%04d", (Integer.parseInt(originalSuffix) + 1) % 10000);
+        Customer edited = inContext(ownerA, () -> customers.update(customer.id(), current.version(),
+                current.displayName(), current.notes(), List.of(new PhoneInput(replacement, "CR", true))));
+        assertThat(edited.phones()).hasSize(1);
+        assertThat(edited.phones().getFirst().id()).isNotEqualTo(contactId);
+        assertThat(inContext(ownerA, () -> jdbc.queryForObject(
+                "SELECT count(*) FROM dokene.customer_phone_contacts WHERE tenant_id = ? AND id = ?",
+                Integer.class, tenantA.id().value(), contactId))).isZero();
+
+        OutboundMessage stored = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())).orElseThrow();
+        assertThat(stored.contactId()).isEqualTo(contactId);
+        assertThat(stored.recipientPhone()).isEqualTo(message.recipientPhone());
+        assertThat(stored.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+
+        assertThatRefused(() -> inContext(ownerA, () -> commands.approve(
+                new ApprovalCommand(message.id(), NOTE, "1", "pa-" + UUID.randomUUID()))),
+                MessagingErrorCode.CONTACT_NOT_OWNED);
+        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
+        assertThat(inContext(ownerA, () -> auditReader.read(null, 100).events()))
+                .extracting(AuditEvent::type).doesNotContain(AuditEventType.MESSAGE_APPROVED);
+        assertThat(rowCount("outbound_message_approvals")).isZero();
+    }
+
+    @Test
+    void deliveryReportTimesAreBoundedAndTheCadenceAnchorNeverMovesBackwards() throws Exception {
+        // AC-14. The tenant zone is UTC here, so the asserted day is the day of the bounded instant itself.
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(submit(BODY, "rt-" + UUID.randomUUID()))).message();
+        inContext(ownerA, () -> commands.approve(new ApprovalCommand(message.id(), NOTE, "1", "ra-" + UUID.randomUUID())));
+        String providerMessageId = "wamid." + UUID.randomUUID();
+        inContext(ownerA, () -> driver.sendUnknownOutcome(ownerA, message.id(), providerMessageId));
+
+        Instant before = clock.instant();
+        Instant farFuture = before.plusSeconds(7 * 86400);
+        DeliveryStatusResult sent = asProvider(() -> sink.apply(new DeliveryStatusReport(providerMessageId,
+                DeliveryStatus.SENT, farFuture, Optional.empty())));
+        Instant after = clock.instant();
+        assertThat(sent).isEqualTo(new DeliveryStatusResult.Applied(MessageStatus.SENDING, MessageStatus.SENT));
+        OutboundMessage sentMessage = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())).orElseThrow();
+        assertThat(sentMessage.sentAt()).isBetween(before, after).isBefore(farFuture);
+        LocalDate anchorDay = sentMessage.sentAt().atZone(ZoneId.of("UTC")).toLocalDate();
+        assertThat(inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate())
+                .isEqualTo(anchorDay);
+
+        Instant beforeCreation = message.createdAt().minusSeconds(30 * 86400);
+        DeliveryStatusResult delivered = asProvider(() -> sink.apply(new DeliveryStatusReport(providerMessageId,
+                DeliveryStatus.DELIVERED, beforeCreation, Optional.empty())));
+        assertThat(delivered).isEqualTo(new DeliveryStatusResult.Applied(MessageStatus.SENT, MessageStatus.DELIVERED));
+        OutboundMessage deliveredMessage = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())).orElseThrow();
+        assertThat(deliveredMessage.deliveredAt()).isEqualTo(message.createdAt());
+        assertThat(deliveredMessage.sentAt()).isEqualTo(sentMessage.sentAt());
+
+        // The anchor itself refuses to move backwards even when a caller hands it an older day.
+        inContext(ownerA, () -> new TransactionTemplate(transactionManager).execute(status -> {
+            touches.recordOutboundMessage(customer.id(), beforeCreation);
+            return null;
+        }));
+        assertThat(inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate())
+                .isEqualTo(anchorDay);
+    }
+
+    @Test
+    void outboundMessagesCarryNoForeignKeyToTheContact() {
+        // AC-13: the schema itself must let the customer module delete a corrected phone row.
+        List<String> foreignKeys = jdbc.queryForList("""
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'dokene.outbound_messages'::regclass AND contype = 'f'
+                ORDER BY conname
+                """, String.class);
+        assertThat(foreignKeys).containsExactly("fk_outbound_messages_customer", "fk_outbound_messages_tenant");
+    }
+
+    @Test
+    void strandedMessageCanBeRejectedAndTheCustomerMessagedAgainOnTheCorrectedPhone() throws Exception {
+        // AC-13 recovery: reject skips the contact guard, which frees the one open slot for a fresh submit.
+        OutboundMessage stranded = inContext(ownerA, () -> commands.submit(submit(BODY, "st-" + UUID.randomUUID()))).message();
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        String originalSuffix = current.phones().getFirst().e164().substring(current.phones().getFirst().e164().length() - 4);
+        String replacement = "8888" + String.format("%04d", (Integer.parseInt(originalSuffix) + 2) % 10000);
+        Customer edited = inContext(ownerA, () -> customers.update(customer.id(), current.version(),
+                current.displayName(), current.notes(), List.of(new PhoneInput(replacement, "CR", true))));
+        UUID replacementContactId = edited.phones().getFirst().id();
+        var policy = inContext(ownerA, () -> contacts.get(customer.id()));
+        inContext(ownerA, () -> contacts.changeConsent(customer.id(), replacementContactId, ContactChannel.WHATSAPP,
+                ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, policy.version()));
+
+        long currentPolicyVersion = inContext(ownerA, () -> followUps.evaluateSnapshot(customer.id())).policyVersion();
+        assertThatRefused(() -> inContext(ownerA, () -> commands.submit(new SubmitMessageCommand(customer.id().value(),
+                replacementContactId, "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", BODY, "es-419", "MANUAL",
+                Long.toString(currentPolicyVersion), "blocked-" + UUID.randomUUID()))), MessagingErrorCode.MESSAGE_ALREADY_OPEN);
+
+        CommandResult rejected = inContext(ownerA, () -> commands.reject(
+                new ApprovalCommand(stranded.id(), NOTE, "1", "sr-" + UUID.randomUUID())));
+        assertThat(rejected.message().status()).isEqualTo(MessageStatus.REJECTED);
+        assertThat(rejected.message().contactId()).isEqualTo(contactId);
+
+        CommandResult resubmitted = inContext(ownerA, () -> commands.submit(new SubmitMessageCommand(
+                customer.id().value(), replacementContactId, "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", BODY, "es-419",
+                "MANUAL", Long.toString(currentPolicyVersion), "again-" + UUID.randomUUID())));
+        assertThat(resubmitted.created()).isTrue();
+        assertThat(resubmitted.message().contactId()).isEqualTo(replacementContactId);
+        assertThat(resubmitted.message().recipientPhone()).isEqualTo(edited.phones().getFirst().e164());
+        assertThat(resubmitted.message().status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+    }
+
+    @Test
+    void cadenceAnchorStillAdvancesWhenANewerInstantArrives() throws Exception {
+        // AC-14: the anchor is monotonic, not frozen; a later send must move it forward.
+        LocalDate baseline = inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate();
+        assertThat(baseline).isNull();
+        Instant first = clock.instant();
+        Instant later = first.plusSeconds(3 * 86400);
+        inContext(ownerA, () -> new TransactionTemplate(transactionManager).execute(status -> {
+            touches.recordOutboundMessage(customer.id(), first);
+            return null;
+        }));
+        assertThat(inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate())
+                .isEqualTo(first.atZone(ZoneId.of("UTC")).toLocalDate());
+        inContext(ownerA, () -> new TransactionTemplate(transactionManager).execute(status -> {
+            touches.recordOutboundMessage(customer.id(), later);
+            return null;
+        }));
+        assertThat(inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate())
+                .isEqualTo(later.atZone(ZoneId.of("UTC")).toLocalDate());
+    }
+
     private SubmitMessageCommand submit(String body, String idempotencyKey) {
         return new SubmitMessageCommand(customer.id().value(), contactId, "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP",
                 body, "es-419", "MANUAL", Long.toString(policyVersion), idempotencyKey);

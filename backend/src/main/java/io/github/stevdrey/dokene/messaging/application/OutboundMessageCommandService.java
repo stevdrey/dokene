@@ -209,6 +209,10 @@ public class OutboundMessageCommandService {
         if (decision == ApprovalDecision.APPROVE) {
             Customer customer = customers.findById(context.tenantId(), new CustomerId(message.customerId()))
                     .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
+            // T2 step 4 (AC-13): the contact has no foreign key, so a phone correction may have removed it.
+            if (customer.phones().stream().noneMatch(phone -> phone.id().equals(message.contactId()))) {
+                throw refuse(MessagingErrorCode.CONTACT_NOT_OWNED);
+            }
             runSharedGuards(customer, message.contactId(), message.action(), message.templateIntent(),
                     message.body(), message.locale(), Optional.empty());
             if (messages.findOpenByCustomer(tenantId, message.customerId(), Optional.of(message.id())).isPresent()) {

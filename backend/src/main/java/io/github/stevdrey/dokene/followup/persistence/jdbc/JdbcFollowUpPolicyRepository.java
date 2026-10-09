@@ -389,7 +389,8 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                     (tenant_id, customer_id, last_outbound_message_date, version)
                 VALUES (?, ?, ?, 1)
                 ON CONFLICT (tenant_id, customer_id) DO UPDATE
-                SET last_outbound_message_date = EXCLUDED.last_outbound_message_date,
+                SET last_outbound_message_date = GREATEST(customer_follow_up_policies.last_outbound_message_date,
+                                                          EXCLUDED.last_outbound_message_date),
                     explicit_next_date = NULL, snoozed_until = NULL,
                     version = customer_follow_up_policies.version + 1
                 """, tenantId.value(), customerId.value(), sqlDate(tenantDate));
