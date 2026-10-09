@@ -91,11 +91,19 @@ services:
   # Same-origin address for the OIDC issuer inside Docker.
   # The browser reaches Keycloak at http://localhost:${KEYCLOAK_PORT}; the backend must use the very same
   # issuer URL (it is also the key of the stored OIDC identity mappings), but `localhost` inside the backend
-  # container is the container itself. This sidecar shares the backend's network namespace and forwards
-  # localhost:${KEYCLOAK_PORT} to the Keycloak service, so both sides see an identical issuer.
+  # container is the container itself. This sidecar forwards localhost:${KEYCLOAK_PORT} to the Keycloak service
+  # and owns the network namespace that the backend joins (`network_mode: service:oidc-bridge`), so both sides see
+  # an identical issuer. The sidecar, not the backend, owns the namespace because the backend is the service that is
+  # recreated routinely (code or DOKENE_* changes); the namespace must outlive those recreations. The backend's
+  # published port and its `backend` DNS alias therefore live here.
   oidc-bridge:
     image: alpine/socat:1.8.0.3
-    network_mode: "service:backend"
+    networks:
+      default:
+        aliases: [backend]
+    ports:
+      # Published for the OIDC callback (registered in Keycloak) and for API tools such as seed-local-qa.sh.
+      - "127.0.0.1:8080:8080"
     user: "65534:65534"
     command: ["-d", "TCP-LISTEN:${KEYCLOAK_PORT:-8081},fork,reuseaddr,bind=127.0.0.1", "TCP:keycloak:8080"]
     read_only: true
@@ -113,7 +121,10 @@ services:
       additional_contexts:
         entrypoint: ./infra/docker/backend
     image: dokene-backend:local
+    network_mode: "service:oidc-bridge"
     depends_on:
+      oidc-bridge:
+        condition: service_started
       postgres:
         condition: service_healthy
       keycloak:
@@ -150,9 +161,6 @@ services:
       DOKENE_AI_RETRY_INITIAL_BACKOFF: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:-250ms}
       DOKENE_AI_RETRY_MAX_BACKOFF: ${DOKENE_AI_RETRY_MAX_BACKOFF:-2s}
       DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:-1s}
-    ports:
-      # Published for the OIDC callback (registered in Keycloak) and for API tools such as seed-local-qa.sh.
-      - "127.0.0.1:8080:8080"
     read_only: true
     tmpfs:
       - /tmp

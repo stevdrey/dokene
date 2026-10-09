@@ -10,6 +10,7 @@
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
 #   ./scripts/dev-env.sh down
 #   ./scripts/dev-env.sh restart [--seed]
+#   ./scripts/dev-env.sh restart-backend [--no-build] [--yes]   (recreates backend + oidc-bridge only)
 #   ./scripts/dev-env.sh status
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
@@ -45,7 +46,9 @@ fail() { printf '%s[error]%s %s\n' "$RED" "$RESET" "$*" >&2; }
 die()  { fail "$*"; exit 1; }
 
 usage() {
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Print the leading comment block (up to and including the closing rule), without the leading "# ".
+  awk 'NR > 1 && /^#/ { print; if (/^# =+$/ && ++rules == 2) exit } NR > 1 && !/^#/ { exit }' "${BASH_SOURCE[0]}" \
+    | sed 's/^# \{0,1\}//'
 }
 
 # ------------------------------------------------------------------------------
@@ -321,6 +324,19 @@ report_failure() {
   info "Full logs: ./scripts/dev-env.sh logs <service>"
 }
 
+# compose_up_services NO_BUILD EXTRA_FLAGS [service...]: starts (and, unless NO_BUILD=true, builds) the given
+# services, or all of them when none are named; waits for health and prints diagnostics on failure.
+compose_up_services() {
+  local no_build="$1" extra="$2" build_flag="--build"
+  shift 2
+  [ "$no_build" = "true" ] && build_flag=""
+  # shellcheck disable=SC2086
+  if ! compose up -d $build_flag $extra --wait --wait-timeout "$WAIT_TIMEOUT" "$@"; then
+    report_failure
+    exit 1
+  fi
+}
+
 cmd_up() {
   WANT_SEED=false; INFRA_ONLY=false; NO_BUILD=false; ASSUME_YES=false
   while [ $# -gt 0 ]; do
@@ -336,16 +352,12 @@ cmd_up() {
 
   preflight || exit 1
 
-  local services="" build_flag="--build"
-  [ "$NO_BUILD" = "true" ] && build_flag=""
+  local services=""
   [ "$INFRA_ONLY" = "true" ] && services="postgres keycloak"
 
   info "Starting containers (the first build downloads images and dependencies and can take several minutes)..."
   # shellcheck disable=SC2086
-  if ! compose up -d $build_flag --wait --wait-timeout "$WAIT_TIMEOUT" $services; then
-    report_failure
-    exit 1
-  fi
+  compose_up_services "$NO_BUILD" "" $services
   ok "All requested containers are healthy"
   compose ps
 
@@ -357,6 +369,29 @@ cmd_up() {
     fi
   fi
   print_summary
+}
+
+# Recreates the backend together with its oidc-bridge sidecar, whose network namespace the backend joins. The
+# backend is recreated routinely; --no-deps leaves postgres and keycloak untouched. Recreating both also repairs a
+# backend left attached to a replaced bridge. Use it after changing settings read only by the backend (e.g.
+# DOKENE_AI_*); values shared with Keycloak need a full `up`.
+cmd_restart_backend() {
+  NO_BUILD=false; ASSUME_YES=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-build) NO_BUILD=true ;;
+      --yes|-y) ASSUME_YES=true ;;
+      *) die "Unknown option for 'restart-backend': $1" ;;
+    esac
+    shift
+  done
+
+  preflight || exit 1
+
+  info "Recreating backend and oidc-bridge..."
+  compose_up_services "$NO_BUILD" "--force-recreate --no-deps" oidc-bridge backend
+  ok "Backend and oidc-bridge are healthy"
+  compose ps backend oidc-bridge
 }
 
 cmd_down() {
@@ -426,6 +461,7 @@ case "$command" in
   up|start)     cmd_up "$@" ;;
   down|stop)    cmd_down ;;
   restart)      cmd_down && cmd_up "$@" ;;
+  restart-backend) cmd_restart_backend "$@" ;;
   status)       cmd_status ;;
   logs)         cmd_logs "$@" ;;
   seed)         cmd_seed "$@" ;;
