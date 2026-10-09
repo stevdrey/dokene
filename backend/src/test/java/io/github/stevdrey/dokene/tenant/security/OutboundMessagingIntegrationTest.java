@@ -419,7 +419,8 @@ class OutboundMessagingIntegrationTest {
                 DeliveryStatus.DELIVERED, beforeCreation, Optional.empty())));
         assertThat(delivered).isEqualTo(new DeliveryStatusResult.Applied(MessageStatus.SENT, MessageStatus.DELIVERED));
         OutboundMessage deliveredMessage = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())).orElseThrow();
-        assertThat(deliveredMessage.deliveredAt()).isEqualTo(message.createdAt());
+        // Compare with the stored created_at: Postgres keeps microseconds, the in memory instant may carry nanos.
+        assertThat(deliveredMessage.deliveredAt()).isEqualTo(sentMessage.createdAt());
         assertThat(deliveredMessage.sentAt()).isEqualTo(sentMessage.sentAt());
 
         // The anchor itself refuses to move backwards even when a caller hands it an older day.
