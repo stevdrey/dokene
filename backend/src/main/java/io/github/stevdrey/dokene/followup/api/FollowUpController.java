@@ -8,7 +8,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
-import io.github.stevdrey.dokene.tenant.security.RequiredPermission;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -43,7 +43,6 @@ import java.time.Duration;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter;
@@ -57,7 +56,6 @@ public class FollowUpController {
     private final FollowUpDraftService drafts;
     private final TenantContextProvider contexts;
     private final FollowUpRecommendationRateLimiter rateLimiter;
-    private final TenantAuthorizationService authorization;
 
     @org.springframework.beans.factory.annotation.Autowired
     public FollowUpController(
@@ -65,23 +63,12 @@ public class FollowUpController {
             FollowUpRecommendationService recommendations,
             FollowUpDraftService drafts,
             TenantContextProvider contexts,
-            FollowUpRecommendationRateLimiter rateLimiter,
-            TenantAuthorizationService authorization) {
+            FollowUpRecommendationRateLimiter rateLimiter) {
         this.followUps = followUps;
         this.recommendations = recommendations;
         this.drafts = drafts;
         this.contexts = contexts;
         this.rateLimiter = rateLimiter;
-        this.authorization = authorization;
-    }
-
-    public FollowUpController(
-            FollowUpService followUps,
-            FollowUpRecommendationService recommendations,
-            TenantContextProvider contexts,
-            FollowUpRecommendationRateLimiter rateLimiter,
-            TenantAuthorizationService authorization) {
-        this(followUps, recommendations, null, contexts, rateLimiter, authorization);
     }
 
     public FollowUpController(
@@ -89,11 +76,11 @@ public class FollowUpController {
             FollowUpRecommendationService recommendations,
             TenantContextProvider contexts,
             FollowUpRecommendationRateLimiter rateLimiter) {
-        this(followUps, recommendations, null, contexts, rateLimiter, null);
+        this(followUps, recommendations, null, contexts, rateLimiter);
     }
 
     public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations, FollowUpDraftService drafts) {
-        this(followUps, recommendations, drafts, null, null, null);
+        this(followUps, recommendations, drafts, null, null);
     }
 
     public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
@@ -216,9 +203,6 @@ public class FollowUpController {
             @RequestBody(required = false) RecommendationRequest request) {
         if (recommendations == null) {
             throw new IllegalStateException("Recommendation service is not configured");
-        }
-        if (authorization != null) {
-            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
         Duration timeout = null;
@@ -376,10 +360,6 @@ public class FollowUpController {
             @RequestBody(required = false) DraftRequest request) {
         if (drafts == null) {
             throw new IllegalStateException("Draft service is not configured");
-        }
-        if (authorization != null) {
-            authorization.requirePermission(TenantPermission.MESSAGE_DRAFT);
-            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
         Duration timeout = null;

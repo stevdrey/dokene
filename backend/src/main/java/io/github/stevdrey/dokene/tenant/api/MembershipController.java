@@ -7,7 +7,7 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
-import io.github.stevdrey.dokene.tenant.security.RequiredPermission;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;

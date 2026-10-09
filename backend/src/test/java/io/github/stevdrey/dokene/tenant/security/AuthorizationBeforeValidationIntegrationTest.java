@@ -4,8 +4,8 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -157,7 +157,9 @@ class AuthorizationBeforeValidationIntegrationTest {
 
         mvc.perform(builder).andExpect(status().isForbidden());
 
-        verify(auditRecorder, atLeastOnce()).authorizationDenied(eq(c.permission()), any());
+        // Exactly one denial, for the first permission the endpoint requires: no duplicates from the service layer.
+        verify(auditRecorder, times(1)).authorizationDenied(eq(c.permission()), any());
+        verify(auditRecorder, times(1)).authorizationDenied(any(), any());
     }
 
     private RequestPostProcessor user(IdentityId identityId) {

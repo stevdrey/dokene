@@ -9,7 +9,7 @@ import io.github.stevdrey.dokene.purchase.domain.PurchaseEvent;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
-import io.github.stevdrey.dokene.tenant.security.RequiredPermission;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;

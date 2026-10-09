@@ -13,7 +13,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactPolicyEvent;
 import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
-import io.github.stevdrey.dokene.tenant.security.RequiredPermission;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

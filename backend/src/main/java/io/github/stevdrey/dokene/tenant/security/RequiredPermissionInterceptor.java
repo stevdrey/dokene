@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.tenant.security;
 
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletRequest;
