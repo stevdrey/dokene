@@ -54,6 +54,52 @@ assert "backend" in bridge["networks"]["default"]["aliases"], "bridge must carry
 }
 check "compose: backend joins the oidc-bridge namespace (topology from #155)" topology_is_inverted
 
+port_detection_is_privilege_free() {
+  # Sourcing defines the functions without running a command.
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  local port pid
+  port="$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')" || return 1
+  port_in_use "$port" && return 1   # free before the listener starts
+  python3 -I -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(); time.sleep(30)' "$port" &
+  pid=$!
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do port_in_use "$port" && break; sleep 0.2; done
+  local used=1
+  port_in_use "$port" && used=0
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  [ "$used" -eq 0 ] && [ -n "$(port_listener "$port")" ]
+}
+check "port_in_use detects a listener without lsof/root (#163)" bash -c "$(declare -f port_detection_is_privilege_free) ; SCRIPT='$SCRIPT'; port_detection_is_privilege_free"
+
+docker_mapping_counts_as_occupancy() {
+  # userland-proxy=false: Docker publishes via NAT and no socket listens, but the mapping still blocks the port.
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  docker() { printf 'other-project-web\t127.0.0.1:%s->8080/tcp\n' "$FAKE_PORT"; }
+  have() { [ "$1" = "docker" ]; }
+  FAKE_PORT=45999
+  port_in_use 45999 && ! port_in_use 45998 && [ "$(port_listener 45999)" = "Docker container 'other-project-web'" ]
+}
+check "port_in_use counts a Docker-published mapping without a listening socket" \
+  bash -c "$(declare -f docker_mapping_counts_as_occupancy) ; SCRIPT='$SCRIPT'; docker_mapping_counts_as_occupancy"
+
+published_mapping_parsing() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  hit()  { [ -n "$(printf 'web\t%s\n' "$2" | publishes_tcp_port "$1")" ]; }
+  hit 8080 "127.0.0.1:8080->8080/tcp" \
+    && hit 8080 "0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp" \
+    && hit 8080 "127.0.0.1:8079-8081->8079-8081/tcp" \
+    && hit 8080 "127.0.0.1:8080->9999/udp, 127.0.0.1:8080->8080/tcp" \
+    && ! hit 8080 "127.0.0.1:8080->9999/udp" \
+    && ! hit 8082 "127.0.0.1:8079-8081->8079-8081/tcp" \
+    && ! hit 8080 "127.0.0.1:18080->8080/tcp" \
+    && ! hit 8080 "8080/tcp"
+}
+check "published mappings: TCP only, ranges honoured" \
+  bash -c "$(declare -f published_mapping_parsing) ; SCRIPT='$SCRIPT'; published_mapping_parsing"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1
