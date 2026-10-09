@@ -338,12 +338,12 @@ describe('CustomerFormModal', () => {
     expect(detectRegionFromE164('+74951234567')).toBe('RU');
   });
 
-  it('displays session expired error rather than workspace permission error when mutation fails with 401', async () => {
+  it('displays the session-ended error rather than workspace permission error when mutation fails with 401', async () => {
     const onSaved = vi.fn();
     const onClose = vi.fn();
 
     vi.spyOn(customerApi, 'createCustomer').mockRejectedValueOnce(
-      new Error('Sesión no autorizada o expirada')
+      new Error('Tu sesión ya no está activa. Por favor inicia sesión nuevamente.')
     );
 
     render(
@@ -364,7 +364,7 @@ describe('CustomerFormModal', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('Sesión no autorizada o expirada');
+      expect(screen.getByRole('alert')).toHaveTextContent('Tu sesión ya no está activa. Por favor inicia sesión nuevamente.');
       expect(screen.queryByText('Acceso denegado en este espacio de trabajo.')).not.toBeInTheDocument();
     });
   });

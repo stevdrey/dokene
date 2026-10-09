@@ -2,7 +2,7 @@ import React from 'react';
 import { useSession } from './SessionContext';
 
 export const LoginView: React.FC = () => {
-  const { wasExpired, loginUrl } = useSession();
+  const { wasSessionEnded, loginUrl } = useSession();
 
   const [authError] = React.useState<boolean>(() => {
     if (typeof window === 'undefined' || !window.location.search) {
@@ -81,7 +81,7 @@ export const LoginView: React.FC = () => {
           Gestión de relaciones y seguimiento a clientes para pequeños negocios.
         </p>
 
-        {wasExpired && (
+        {wasSessionEnded && (
           <div
             role="alert"
             style={{

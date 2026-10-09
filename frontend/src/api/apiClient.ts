@@ -1,5 +1,5 @@
 function getFriendlyStatusText(status: number, statusText?: string): string {
-  if (status === 401) return 'Sesión no autorizada o expirada.';
+  if (status === 401) return 'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.';
   if (status === 403) return 'Acceso denegado en este espacio de trabajo.';
   if (status === 404) return 'El recurso solicitado no fue encontrado.';
   if (status === 409 || status === 412) return 'Conflicto de concurrencia: los datos fueron modificados por otro usuario. Por favor recarga.';

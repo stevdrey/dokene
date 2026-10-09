@@ -37,7 +37,7 @@ describe('NoMembershipsView', () => {
       status: 'authenticated',
       identityId: 'user-1',
       csrfToken: 'csrf-1',
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),

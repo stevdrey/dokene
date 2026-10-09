@@ -56,7 +56,7 @@ Manual scenarios targeted actual service interruption, live multi-tab concurrenc
   - Operator opened customer creation form with data filled.
   - Backend process was terminated (simulating service restart/crash).
   - Form submission failed closed with `502 Bad Gateway`, preserving all user-entered fields (`issue-62-evidence/12-backend-interruption-502-preserved.png`).
-  - Backend was restarted. Submitting form again detected invalidated server-side session, safely redirecting to login with message *"Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente"* without leaking stack traces (`issue-62-evidence/13-backend-restart-session-invalidation.png`).
+  - Backend was restarted. Submitting form again detected invalidated server-side session, safely redirecting to login with message *"Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente"* without leaking stack traces (`issue-62-evidence/13-backend-restart-session-invalidation.png`). (wording replaced by *"Tu sesión ya no está activa. Por favor inicia sesión nuevamente."* in #156; screenshots are historical)
 - **Workspace/session races & concurrent logout:**
   - Tab 1 and Tab 2 opened in different workspaces in same session. Tab 2 logged out.
   - Tab 1 attempted subsequent navigation; request received `401 Unauthorized` and UI immediately redirected to login screen with expiration notice (`issue-62-evidence/07-stale-session-denial.png`).
@@ -82,7 +82,7 @@ Manual scenarios targeted actual service interruption, live multi-tab concurrenc
 | Keycloak interruption | PARTIAL PASS / ARCHITECTURAL LIMITATION | Established BFF sessions persist and operate normally (PASS, `08-keycloak-stopped-session-persists.png`); local logout during outage de-authenticates safely (PASS, `22-keycloak-logout-interruption.png`). Unauthenticated new logins during complete IdP outage redirect to IdP endpoint producing browser network error `ERR_CONNECTION_REFUSED` without in-app recovery UI (ARCHITECTURAL LIMITATION / EXPECTED OIDC REDIRECT BEHAVIOR, `09-keycloak-stopped-login-failure.png`). |
 | Stale authorization | PASS | Demoting membership to VIEWER causes stale form submit to fail-closed with 403 *"Acceso denegado en este espacio de trabajo"*, preserving user inputs (`10-stale-authorization-denial.png`). |
 | Stale business eligibility | PASS | Archiving customer causes stale purchase submit to fail-closed with 409 Conflict, preserving form data (`11-stale-business-eligibility-conflict.png`). |
-| Workspace/session races | PASS | Concurrent tab logout invalidates session; other tabs catch 401 and redirect to login with *"Tu sesión ha expirado por inactividad"* (`07-stale-session-denial.png`). |
+| Workspace/session races | PASS | Concurrent tab logout invalidates session; other tabs catch 401 and redirect to login with *"Tu sesión ha expirado por inactividad"* (`07-stale-session-denial.png`; wording replaced by *"Tu sesión ya no está activa…"* in #156, screenshot is historical). |
 | Recovery quality | PASS | User form data is strictly preserved across all failure modes (502, 500, 409, 403, offline); clear Spanish messaging verified in post-fix tree (`23-post-fix-friendly-error-ux.png`; pre-fix technical strings in `01`/`12` superseded); no SQL or stack traces exposed; retry workflows behave predictably. |
 
 ## Follow-up focused resilience validations (September 22 maintainer review)

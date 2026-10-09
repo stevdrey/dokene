@@ -15,7 +15,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -37,7 +37,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -73,12 +73,12 @@ describe('LoginView', () => {
     });
   });
 
-  it('displays session expiration alert when wasExpired is true', () => {
+  it('displays the session-ended alert when wasSessionEnded is true', () => {
     vi.spyOn(SessionContextModule, 'useSession').mockReturnValue({
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: true,
+      wasSessionEnded: true,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -101,7 +101,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -124,7 +124,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
