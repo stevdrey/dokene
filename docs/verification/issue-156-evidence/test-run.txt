@@ -14,8 +14,6 @@
  ✓ src/features/customers/__tests__/customerApi.test.ts > customerApi and httpClient > provides user-friendly message for bodyless 500 Internal Server Error responses instead of raw HTTP status
  ✓ src/features/customers/__tests__/customerApi.test.ts > customerApi and httpClient > passes AbortSignal to fetch in listCustomers
  ✓ src/features/customers/__tests__/customerApi.test.ts > customerApi and httpClient > triggers notifyUnauthorized and throws ApiError(401) when mutation fails with 401
- ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to unauthenticated when /api/session returns 401
- ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to error (not unauthenticated) when /api/session fails with network/500 error
  ✓ src/features/customers/__tests__/phoneValidation.test.ts > phoneValidation utility > normalizeUnicodeDigits > normalizes Arabic-Indic digits to ASCII digits
  ✓ src/features/customers/__tests__/phoneValidation.test.ts > phoneValidation utility > normalizeUnicodeDigits > normalizes Eastern Arabic-Indic, Devanagari, and Fullwidth digits
  ✓ src/features/customers/__tests__/phoneValidation.test.ts > phoneValidation utility > normalizeUnicodeDigits > normalizes mathematical bold and double-struck digits across adjacent Nd blocks
@@ -41,74 +39,77 @@
  ✓ src/features/customers/__tests__/phoneValidation.test.ts > phoneValidation utility > validatePhoneNumber > validates Estados Unidos (US) and Canadá (CA) numbers: requires 10 digits and supports vanity phonewords and extensions
  ✓ src/features/customers/__tests__/phoneValidation.test.ts > phoneValidation utility > validatePhoneNumber > validates Brasil (BR) numbers: requires 10 to 11 digits and accepts carrier selection codes and trunk 0
  ✓ src/features/customers/__tests__/phoneValidation.test.ts > phoneValidation utility > validatePhoneNumber > validates generic/unlisted regions using E.164 7-15 digit boundaries
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to unauthenticated when /api/session returns 401
+ ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to error (not unauthenticated) when /api/session fails with network/500 error
  ✓ src/features/auth/SessionContext.test.tsx > SessionContext > recovers from error state when checkSession succeeds on retry
  ✓ src/features/auth/SessionContext.test.tsx > SessionContext > transitions to authenticated when /api/session returns active session
  ✓ src/features/auth/SessionContext.test.tsx > SessionContext > handles expired session triggered by API 401 response
  ✓ src/features/auth/SessionContext.test.tsx > SessionContext > calls /logout and clears session on logout
  ✓ src/features/auth/SessionContext.test.tsx > SessionContext > prevents a stale checkSession() from overwriting unauthenticated state after logout
  ✓ src/features/auth/SessionContext.test.tsx > SessionContext > retains authenticated state and surfaces error when logout fails
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > renders purchase history with valid and void status badges
  ✓ src/features/auth/LoginView.test.tsx > LoginView > renders default branding, description, and OIDC login button
  ✓ src/features/auth/LoginView.test.tsx > LoginView > navigates to loginUrl when clicking the login button
  ✓ src/features/auth/LoginView.test.tsx > LoginView > displays the session-ended alert when wasSessionEnded is true
  ✓ src/features/auth/LoginView.test.tsx > LoginView > displays recoverable authentication error alert when ?error=login_failed is in URL
  ✓ src/features/auth/LoginView.test.tsx > LoginView > does not display authentication error alert for unrelated error query parameter
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > renders purchase history with valid and void status badges
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > renders consent card with WhatsApp status and source
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders customer header with name, badges, and back navigation
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > displays summary card with last purchase information
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > renders correctly and validates required name
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > creates a Costa Rican customer by selecting Costa Rica (+506) and sends region CR [Issue #153]
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders customer header with name, badges, and back navigation
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > displays summary card with last purchase information
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > opens record purchase modal and submits with idempotency key
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > allows changing consent status with mandatory source selection
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > requires an explicit consent choice without preselecting the opposite state
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > opens record purchase modal and submits with idempotency key
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > validates invalid or missing purchase date without throwing unhandled exceptions
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > submits valid customer data and calls onSaved
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > displays conflict error message when telephone is duplicated
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders "Sin compras registradas" when getLastPurchase returns null
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > validates invalid or missing purchase date without throwing unhandled exceptions
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > allows toggling protocol No contactar with source confirmation
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > renders audit history modal with correct labels for DO_NOT_CONTACT_CHANGED
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders "Sin compras registradas" when getLastPurchase returns null
  ✓ src/features/customers/__tests__/CustomerList.test.tsx > CustomerList > renders customer directory header, search filters, and customer list
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders error alert and retry button when getLastPurchase fails, and allows retrying
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders archive button for OWNER and ADMIN roles
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > retains the same idempotency key across submit retries of the same attempt, and rotates when edited
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > preserves purchase seconds and fractional instant when only description is corrected
+ ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > renders multiple contacts independently with their own WhatsApp consent status
+ ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > allows managing consent for a secondary contact and passes correct contactId to changeConsent
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > detects region correctly and preserves international country code when editing
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > renders phone controls with responsive flex wrapping and permitted shrinkage
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > preserves notes verbatim with leading/trailing whitespace during profile edits
  ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > counts display name in Unicode code points and allows supplementary characters
- ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > renders multiple contacts independently with their own WhatsApp consent status
- ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > allows managing consent for a secondary contact and passes correct contactId to changeConsent
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > retains the same idempotency key across submit retries of the same attempt, and rotates when edited
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > preserves purchase seconds and fractional instant when only description is corrected
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > detects and preserves Brazilian (+55) and Canadian (+1) phone regions when editing
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > accurately detects Ukraine (UA), Kazakhstan (KZ), and Russia (RU) phone regions
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > displays the session-ended error rather than workspace permission error when mutation fails with 401
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders error alert and retry button when getLastPurchase fails, and allows retrying
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > renders archive button for OWNER and ADMIN roles
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > renders both historical purchase timestamp and revision timestamp in audit history modal
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > hides create, edit, and void controls when canWrite is false
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > ensures customer-wide Do Not Contact overrides individual phone consent status
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > hides consent and Do Not Contact mutation controls when canWrite is false
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > reloads contact policy when phones prop changes to prevent stale If-Match 409 conflicts
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > renders radio options with minimum 44px interactive target sizing
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > detects and preserves Brazilian (+55) and Canadian (+1) phone regions when editing
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > accurately detects Ukraine (UA), Kazakhstan (KZ), and Russia (RU) phone regions
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > displays the session-ended error rather than workspace permission error when mutation fails with 401
  ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > hides archive buttons from operators without delete permission
  ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > hides edit and archive buttons for VIEWER role
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > validates Chilean phone length (rejecting 123 with actionable error and preserving input without API call) [Issue #72]
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > associates backend validation error to specific phone input when API returns field-level error [Issue #72]
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > renders both historical purchase timestamp and revision timestamp in audit history modal
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > hides create, edit, and void controls when canWrite is false
  ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > provides descriptive accessible names on row action buttons
+ ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > paginates purchase revision history in audit modal when historyNextCursor is present
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > preserves every entered form value and allows a retry when the mutation fails with 401 [Issue #156]
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > validates Chilean phone length (rejecting 123 with actionable error and preserving input without API call) [Issue #72]
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > identifies the contact in consent history: displays phone E.164 when matched and fallback ID when absent
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > renders exact time as well as date in consent policy audit cards
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > distinguishes eligibility dependency failures from negative restrictions and offers retry
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > translates eligibility reason codes into Spanish before rendering
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > formats each eligibility reason code correctly and falls back to original value for unknown codes
  ✓ src/features/customers/__tests__/CustomerList.test.tsx > CustomerList > triggers onSelectCustomer when clicking customer name or "Ver ficha"
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > notifies parent via onPolicyUpdated when consent or DNC status changes
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > paginates contact policy history using nextCursor when loading more events
- ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > paginates purchase revision history in audit modal when historyNextCursor is present
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > preserves existing unchanged phone from uncommon/unlisted region during customer edit without validation error
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > retains field-level error and aria-invalid state when toggling phone primary status
- ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > remaps and shifts validation errors when deleting a phone row with multiple errors
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > distinguishes eligibility dependency failures from negative restrictions and offers retry
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > translates eligibility reason codes into Spanish before rendering
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > formats each eligibility reason code correctly and falls back to original value for unknown codes
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > disables consent status radio options and source select while mutation is submitting
  ✓ src/features/customers/__tests__/ConsentSection.test.tsx > ConsentSection > disables DNC source select while DNC mutation is submitting
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > associates backend validation error to specific phone input when API returns field-level error [Issue #72]
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > preserves existing unchanged phone from uncommon/unlisted region during customer edit without validation error
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > retains field-level error and aria-invalid state when toggling phone primary status
  ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > discards stale purchase pagination responses when a refresh supersedes it
- ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > discards superseded eligibility requests if a newer request completes first
  ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > discards stale purchase-list responses from superseded loads
+ ✓ src/features/customers/__tests__/CustomerFormModal.test.tsx > CustomerFormModal > remaps and shifts validation errors when deleting a phone row with multiple errors
+ ✓ src/features/customers/__tests__/CustomerProfile.test.tsx > CustomerProfile > discards superseded eligibility requests if a newer request completes first
  ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > scopes history responses to the selected purchase and discards superseded history loads
  ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > renders correct labels and error badge for VOIDED revisions matching backend enum
  ✓ src/features/customers/__tests__/PurchaseSection.test.tsx > PurchaseSection > displays modal error inside the void confirmation dialog when voidPurchase fails
@@ -129,4 +130,4 @@
  ✓ src/features/customers/__tests__/CustomerList.test.tsx > CustomerList > resets pagination loading state if a superseding search starts during loadMore
  ✓ src/features/customers/__tests__/CustomerList.test.tsx > CustomerList > applies defensive responsive styles (min-width: 0 and bounded flex-basis) to prevent horizontal overflow on 320px viewports
  Test Files  9 passed (9)
-      Tests  129 passed (129)
+      Tests  130 passed (130)
