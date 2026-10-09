@@ -29,7 +29,7 @@ describe('AppShell', () => {
       status: 'authenticated',
       identityId: 'd45b7f64-9917-4a62-b3fc-2c963f66afa6',
       csrfToken: 'csrf-123',
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/login',
       checkSession: vi.fn(),

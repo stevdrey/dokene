@@ -13,7 +13,7 @@ export interface SessionContextValue {
   status: SessionStatus;
   identityId: string | null;
   csrfToken: string | null;
-  wasExpired: boolean;
+  wasSessionEnded: boolean;
   error: string | null;
   loginUrl: string;
   checkSession: () => Promise<void>;
@@ -34,7 +34,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [identityId, setIdentityId] = useState<string | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
-  const [wasExpired, setWasExpired] = useState(false);
+  const [wasSessionEnded, setWasExpired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wasAuthenticatedRef = useRef(false);
   const checkSessionGenerationRef = useRef(0);
@@ -152,7 +152,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({
         status,
         identityId,
         csrfToken,
-        wasExpired,
+        wasSessionEnded,
         error,
         loginUrl,
         checkSession,

@@ -20,7 +20,7 @@ export function getFriendlyErrorMessage(status: number, method?: string): string
     return 'La solicitud no pudo ser procesada. Revisa los datos ingresados.';
   }
   if (status === 401) {
-    return 'Sesión no autorizada o expirada.';
+    return 'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.';
   }
   if (status === 403) {
     return 'Acceso denegado en este espacio de trabajo.';
@@ -169,7 +169,7 @@ class HttpClient {
         if (this.onUnauthorizedCallback) {
           this.onUnauthorizedCallback();
         }
-        throw new ApiError(401, 'Sesión no autorizada o expirada');
+        throw new ApiError(401, 'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.');
       }
 
       if (!response.ok) {

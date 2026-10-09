@@ -267,7 +267,7 @@ describe('customerApi and httpClient', () => {
         notes: null,
         phones: [{ number: '984521190', region: 'CL', primary: true }]
       })
-    ).rejects.toThrow('Sesión no autorizada o expirada');
+    ).rejects.toThrow('Tu sesión ya no está activa. Por favor inicia sesión nuevamente.');
 
     expect(notifySpy).toHaveBeenCalledTimes(1);
   });

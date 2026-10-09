@@ -15,7 +15,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -37,7 +37,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -73,12 +73,12 @@ describe('LoginView', () => {
     });
   });
 
-  it('displays session expiration alert when wasExpired is true', () => {
+  it('displays the session-ended alert when wasSessionEnded is true', () => {
     vi.spyOn(SessionContextModule, 'useSession').mockReturnValue({
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: true,
+      wasSessionEnded: true,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -89,8 +89,9 @@ describe('LoginView', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent(
-      'Tu sesión ha expirado por inactividad. Por favor inicia sesión nuevamente.'
+      'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.'
     );
+    expect(alert).not.toHaveTextContent(/inactividad/i);
   });
 
   it('displays recoverable authentication error alert when ?error=login_failed is in URL', () => {
@@ -100,7 +101,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
@@ -123,7 +124,7 @@ describe('LoginView', () => {
       status: 'unauthenticated',
       identityId: null,
       csrfToken: null,
-      wasExpired: false,
+      wasSessionEnded: false,
       error: null,
       loginUrl: '/oauth2/authorization/dokene',
       checkSession: vi.fn(),
