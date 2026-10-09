@@ -287,12 +287,17 @@ check_ports() {
     listener="$(port_listener "$port")"
     check_fail "Host port $port is already in use by: $listener"
     case "$listener" in
-      "Docker container "*) info "      Stop it with 'docker stop <name>' (or 'docker compose -p <project> down' if it belongs to another Compose project)." ;;
+      "Docker container "*)
+        info "      Stop it with 'docker stop <name>' (or 'docker compose -p <project> down' if it belongs to another Compose project)." ;;
+      *)
+        if [ "$port" = "5432" ]; then
+          info "      A PostgreSQL installed on the host is running. Stop its service (e.g. 'sudo systemctl stop postgresql')."
+        else
+          info "      Stop that process, or free the port before starting Dokene (ports 5173, 8080 and KEYCLOAK_PORT are registered in Keycloak and cannot be remapped freely)."
+        fi ;;
     esac
-    case "$port" in
-      5432) info "      Another PostgreSQL is running locally. Stop it, or set DOKENE_DB_HOST_PORT=5433 in .env (host-run tools only; the containers always use the internal network)." ;;
-      *)    info "      Stop that process, or free the port before starting Dokene (ports 5173, 8080 and KEYCLOAK_PORT are registered in Keycloak and cannot be remapped freely)." ;;
-    esac
+    [ "$port" = "5432" ] \
+      && info "      Or set DOKENE_DB_HOST_PORT=5433 in .env (host-run tools only; the containers always use the internal network)."
   done
   [ "$CHECK_FAILURES" -eq 0 ] && ok "Required host ports are free"
 }
