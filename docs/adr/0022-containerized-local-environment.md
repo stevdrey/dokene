@@ -26,9 +26,12 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   sidecar owns the namespace so that recreating the backend, the routine operation, does not orphan it.
 - `scripts/dev-env.sh` is the single entry point (`up`, `down`, `restart-backend`, `status`, `logs`, `seed`, `doctor`, `reset`). It
   performs preflight checks (Docker and Compose versions, daemon, `.env` completeness, secret format, free host ports,
-  stale data volumes) and generates a git-ignored `.env` with local-only secrets when none exists. Port detection
-  uses `ss`/`nc`, which need no privileges and see root-owned `docker-proxy` sockets; `lsof` and `docker ps` only name
-  the owner (`lsof` run as a regular user on Linux cannot see them).
+  stale data volumes) and generates a git-ignored `.env` with local-only secrets when none exists. A host port counts as taken when `docker ps` reports a TCP mapping that covers it (including
+  `start-end` ranges; UDP-only mappings are ignored), or when `ss`/`nc` see a listener. The mapping check is required because
+  with `userland-proxy=false` Docker publishes through NAT and opens no listening socket, yet still rejects a second
+  mapping; `ss`/`nc` need no privileges and see root-owned `docker-proxy` sockets. `lsof`, `ss -p` and `docker ps`
+  also name the owner (`lsof` run as a regular user on Linux cannot see root-owned sockets), and the advice differs
+  for containers and host processes.
 - Published ports are bound to loopback only (PostgreSQL previously listened on all interfaces).
 - `DOKENE_DB_URL` for containers is derived by Compose (`postgres:5432`); the `.env` value remains for host-run backends.
 

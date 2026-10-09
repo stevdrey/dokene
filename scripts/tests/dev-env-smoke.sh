@@ -84,6 +84,22 @@ docker_mapping_counts_as_occupancy() {
 check "port_in_use counts a Docker-published mapping without a listening socket" \
   bash -c "$(declare -f docker_mapping_counts_as_occupancy) ; SCRIPT='$SCRIPT'; docker_mapping_counts_as_occupancy"
 
+published_mapping_parsing() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  hit()  { [ -n "$(printf 'web\t%s\n' "$2" | publishes_tcp_port "$1")" ]; }
+  hit 8080 "127.0.0.1:8080->8080/tcp" \
+    && hit 8080 "0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp" \
+    && hit 8080 "127.0.0.1:8079-8081->8079-8081/tcp" \
+    && hit 8080 "127.0.0.1:8080->9999/udp, 127.0.0.1:8080->8080/tcp" \
+    && ! hit 8080 "127.0.0.1:8080->9999/udp" \
+    && ! hit 8082 "127.0.0.1:8079-8081->8079-8081/tcp" \
+    && ! hit 8080 "127.0.0.1:18080->8080/tcp" \
+    && ! hit 8080 "8080/tcp"
+}
+check "published mappings: TCP only, ranges honoured" \
+  bash -c "$(declare -f published_mapping_parsing) ; SCRIPT='$SCRIPT'; published_mapping_parsing"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1

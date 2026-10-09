@@ -113,10 +113,28 @@ confirm() {
   case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
+# publishes_tcp_port PORT: reads `docker ps` Ports columns on stdin (tab-separated "name<TAB>ports" lines) and prints
+# the first name whose mapping binds host TCP port PORT on loopback or all interfaces. Understands the `start-end`
+# ranges Docker groups consecutive mappings into, and ignores UDP-only mappings.
+publishes_tcp_port() {
+  awk -F'\t' -v p="$1" '
+    {
+      n = split($2, maps, /, /)
+      for (i = 1; i <= n; i++) {
+        if (maps[i] !~ /\/tcp$/) continue
+        if (match(maps[i], /^(127\.0\.0\.1|0\.0\.0\.0|\[::\]):[0-9]+(-[0-9]+)?->/) == 0) continue
+        spec = substr(maps[i], 1, RLENGTH - 2)
+        sub(/^.*\]:|^[0-9.]+:/, "", spec)
+        split(spec, r, "-")
+        lo = r[1] + 0; hi = (r[2] == "" ? lo : r[2] + 0)
+        if (p + 0 >= lo && p + 0 <= hi) { print $1; exit }
+      }
+    }'
+}
+
 docker_container_publishing() {
-  # Prints the name of a running container that publishes host port $1, if any.
-  docker ps --format '{{.Names}}	{{.Ports}}' 2>/dev/null \
-    | awk -F'\t' -v p="$1" '$2 ~ "(^|[ ,])(127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::\\]):" p "->" {print $1; exit}'
+  # Prints the name of a running container that publishes host TCP port $1, if any.
+  docker ps --format '{{.Names}}	{{.Ports}}' 2>/dev/null | publishes_tcp_port "$1"
 }
 
 port_in_use() {
@@ -156,9 +174,8 @@ port_listener() {
 }
 
 port_owned_by_compose() {
-  # True when one of this project's containers already publishes host port $1.
-  compose_teardown ps --format '{{.Ports}}' 2>/dev/null \
-    | grep -Eq "(^|[ ,])(127\.0\.0\.1|0\.0\.0\.0|\[::\]):$1->"
+  # True when one of this project's containers already publishes host TCP port $1.
+  [ -n "$(compose_teardown ps --format '{{.Name}}	{{.Ports}}' 2>/dev/null | publishes_tcp_port "$1")" ]
 }
 
 # ------------------------------------------------------------------------------
