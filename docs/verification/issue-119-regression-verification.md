@@ -1,8 +1,56 @@
 # Issue 119 verification: regression revalidation after Phase 2 AI changes
 
-Campaign: #118. Suite: #119. This record has two parts: the **full re-execution on the release candidate `main` @ `90045a1`** (current) and the initial run on `2e0a254` (historical, kept below).
+Campaign: #118. Suite: #119. This record has three parts: the **latest full re-execution on the release candidate `main` @ `a97dc74`** (current), the previous re-execution on `90045a1` and the initial run on `2e0a254` (both historical, kept below).
 
-## Full re-execution on `main` @ `90045a1`
+## Latest full re-execution on `main` @ `a97dc74`
+
+Includes everything from `90045a1` plus the fixes for #155 (`oidc-bridge` owns the network namespace; `restart-backend`) and #156 (neutral session-ended message). Fresh stack in a new Compose project: `./scripts/dev-env.sh up --seed` (39 s with a warm build cache). Real OpenAI Responses API (`gpt-6-luna`, default base URL); the backend container held an established TLS connection to api.openai.com (172.66.0.243:443, read from `/proc/net/tcp`). Synthetic data only.
+
+Environment: Fedora (Linux 7.2), Docker 29.8.2, Compose 5.6.0; postgres:17-alpine, Keycloak 26.7.3, backend (Temurin 26 JRE, Spring Boot 4.1.1, Tomcat 11.0.25, libphonenumber 9.0.40, openai-java 4.73.0, okhttp 4.12.0, Gradle 9.8.0), frontend (React 19.3.0, libphonenumber-js 1.13.14, Vite 8.3.1, nginx 1.29.8), Chrome in the in-app browser. Dependency versions are unchanged since `90045a1`.
+
+| Case | Result | Evidence / notes |
+|---|---|---|
+| REG-01 clean environment, migrations, runtime role (#64, #66) | PASS | 15 Flyway versions OK; `dokene_runtime`/`dokene_migration` non-superuser, no RLS bypass; two tenants; OWNER/OPERATOR/VIEWER; OPERATOR gets 403 on the other tenant |
+| REG-01 `seed-local-qa.sh --verify` (#125) | PASS | 10/10 |
+| REG-01 / #155 `restart-backend` | PASS | 3/3 restarts healthy in ~13 s with different `DOKENE_AI_*` values; the original reproduction (`docker compose up -d backend` alone) now also ends healthy; live configuration restored afterwards |
+| REG-02 login, logout | PASS | after logout `/api/session` is 401, no data on screen; silent re-login is the documented local-logout behavior (ADR 0007) |
+| REG-02 stale callback (#68) | PASS | 302 to `/?error=login_failed`; UI shows the recoverable error alert |
+| REG-02 expired-session write (#70) and two tabs; #156 | PASS | write with an invalidated session and an action after signing out in another tab both show the neutral "Tu sesión ya no está activa. Por favor inicia sesión nuevamente."; no "Acceso denegado" permission message |
+| REG-02 deep-link refresh, Back/Forward | NOT APPLICABLE | the SPA has no URL routing (known limitation recorded in #57) |
+| REG-03 customer/contact | PASS | CL, CR, US; duplicate 409 incl. archived record; same phone allowed in another tenant; invalid phone and name errors with `field`; stale If-Match 409; OPERATOR cannot archive (403, by design); UI: Costa Rican customer created (`+50688885544`) |
+| REG-04 consent | PASS | unknown -> granted -> revoked; DNC override; revoked + cleared DNC stays `CONSENT_REVOKED`; no transfer on contact change; VIEWER 403; UI grant |
+| REG-05 purchases | PASS | backdated, corrected, voided; latest valid always used; history kept; idempotent replay and key conflict; future date 400 |
+| REG-06 follow-ups | PASS (partial scope) | due/overdue, explicit date, snooze, dismissal + replay, completion + replay, stale 409, invalid key 400, single completion row; tenant timezone boundary re-checked with expected values computed from the real zone (the first automated expectation depended on the time of day, see `timezone-boundary-recheck.txt`); UI: completion, dismissal and snooze. Not executed: second recurrence cycle (needs clock control) |
+| REG-07 integrated journey, live OpenAI | PASS with limitation | UI: create (CR) -> consent -> two purchases -> correction -> OVERDUE -> real recommendation (Spanish rationale) + draft -> edit -> manual completion -> logout/login; list/detail/queue consistent. Customer, contact-policy, follow-up policy, purchase and queue state identical before/after the AI calls; the only audit change caused by the AI calls is 2 `AI_INVOCATION_OUTCOME` (other rows in the diff are the two customers prepared between the snapshots). "Copy draft" success path BLOCKED (clipboard-write denied in the in-app browser; the app shows a clear failure message) |
+| REG-08 AI dependency independence | PASS | live (REG-07), disabled (`AI_UNAVAILABLE`, clear message, dismissal executed), unreachable provider (fault injection, **not live evidence**: "assistant unavailable" + Retry, snooze executed) |
+| REG-09 visual fixes | PASS | 320 px customer search (#83), 768 px shell (#82), 1024 px workbench detail (PR #111): no horizontal overflow, controls 44 px high |
+| REG-10 new dependencies | PASS | versions above; images build from `main`; phone normalization and live OpenAI round trip exercised. Automated suites not re-run in this suite |
+
+### Findings
+No new defects. #155 and #156 (found in the previous re-execution) are fixed and verified; #125, #126, #127 and #153 were verified earlier and re-exercised here.
+
+### Open design question (OBS-01): who may change the tenant-wide follow-up policy
+Not a defect; kept visible for a maintainer decision.
+
+- **Observed (re-confirmed on `a97dc74`):** `PUT /api/follow-up-policy` with an OPERATOR session returns 200 and changes the tenant cadence/time zone; a VIEWER gets 403 (`api-checks-output.txt`, lines `OBS-01`).
+- **Why:** `FollowUpService.configureTenant` only requires `FOLLOWUP_WRITE`, the same permission that gates per-customer dispositions, and OWNER, ADMIN and OPERATOR all hold it (`TenantRolePermissions`). ADR 0005 lists `FOLLOWUP_WRITE` but defines no tenant-policy permission, and ADR 0012/0013 do not say who may configure tenant policy, so the current behavior is neither documented nor prohibited.
+- **Impact:** the tenant time zone and default cadence change the due classification of **every** customer in the workspace and therefore the shared queue; an operator tweaking it affects all other operators. Changes are audited (`TENANT_FOLLOW_UP_POLICY_CHANGED`).
+- **Options:** (A) accept and document that OPERATORs may configure it; (B) require `TENANT_UPDATE` (OWNER/ADMIN only) for the tenant-wide `PUT /api/follow-up-policy`, keeping `FOLLOWUP_WRITE` for the per-customer policy, snooze, dismissal and completion; (C) add a dedicated `FOLLOWUP_POLICY_WRITE` permission.
+- **Recommendation:** (B). It is the smallest change, matches the least-privilege expectation in the security guidance, and needs an ADR 0005 note plus tests; it is a behavior change, so it should be a separate Issue/PR once the maintainer confirms. Whether the UI exposes tenant-policy editing to OPERATORs was not verified in this run.
+- **Status:** awaiting maintainer decision; no Issue was opened to avoid prejudging a design choice.
+
+### Live OpenAI usage in this re-execution
+1 recommendation and 1 draft (UI). Campaign total: 10 provider calls (first run 2, retest 4, previous re-execution 2, this run 2); token counts are not exposed by the app; estimated cost well below US$0.05.
+
+### Not covered / limitations
+Second recurrence cycle (REG-06), clipboard copy success (REG-07), browsers other than the in-app Chrome and real devices, keyboard/screen-reader accessibility (suite #122), OPERATOR archive control visibility in the UI.
+
+### Evidence files
+[`issue-119-evidence/rerun-a97dc74/`](issue-119-evidence/rerun-a97dc74/): `api-checks-output.txt` (77 checks incl. OBS-01 info lines: 75 pass; the 2 automated date-boundary expectations were wrong for the time of day and are covered by `timezone-boundary-recheck.txt`), AI side-effect snapshots and audit counts. All sanitized (synthetic data; no cookies, tokens, passwords or API keys).
+
+---
+
+## Previous re-execution on `main` @ `90045a1` (historical)
 
 Includes the fixes for #125, #126 and #127, the containerized environment (ADR 0022) and #153 (Costa Rica). Clean stack: `./scripts/dev-env.sh reset --yes && ./scripts/dev-env.sh up --seed`. Real OpenAI Responses API (`gpt-6-luna`, default base URL); the backend container held an established TLS connection to api.openai.com (162.159.140.245:443, read from `/proc/net/tcp`). Synthetic data only.
 
