@@ -1,8 +1,29 @@
 # Issue 119 verification: regression revalidation after Phase 2 AI changes
 
-Campaign: #118. Suite: #119. This record has three parts: the **latest full re-execution on the release candidate `main` @ `a97dc74`** (current), the previous re-execution on `90045a1` and the initial run on `2e0a254` (both historical, kept below).
+Campaign: #118. Suite: #119. This record has four parts: the **verification of #159 on `main` @ `f46dc33`** (latest), the full re-execution on `a97dc74`, the previous re-execution on `90045a1` and the initial run on `2e0a254` (the last three kept below).
 
-## Latest full re-execution on `main` @ `a97dc74`
+## Verification of #159 on `main` @ `f46dc33`
+
+Restriction of the tenant-wide follow-up policy to OWNER/ADMIN (`TENANT_UPDATE`, PR #160). Clean stack (`./scripts/dev-env.sh up --seed`), synthetic data, direct API calls through the BFF plus a UI smoke test.
+
+| Acceptance criterion | Result | Evidence |
+|---|---|---|
+| OPERATOR and VIEWER get 403 on `PUT /api/follow-up-policy`; nothing changes | PASS | 403/403; policy `[30, UTC]` and its version unchanged; a demoted OPERATOR is denied again |
+| OWNER and ADMIN still succeed; ETag/If-Match semantics unchanged | PASS | OWNER 200, ADMIN 200 (testoperator promoted through `PUT /api/memberships/{id}/role` and demoted back); version advances by 1; stale If-Match 409; invalid time zone / cadence 0 -> 400 |
+| OPERATOR keeps reading the tenant policy and the daily actions | PASS | GET 200 (OPERATOR and VIEWER); OPERATOR snooze, dismissal, manual completion and per-customer policy still succeed; VIEWER per-customer policy 403; queue readable |
+| Denial audited with the required permission | PASS | `AUTHORIZATION_DENIED | DENIED | TENANT_UPDATE | INSUFFICIENT_PERMISSION` rows for each well-formed denied attempt; successful changes audited as `TENANT_FOLLOW_UP_POLICY_CHANGED` |
+| UI unaffected | PASS | OPERATOR sees the workbench and the read-only Configuración screen (no editing controls), and completed a manual follow-up |
+| Regression | PASS | `seed-local-qa.sh --verify` 5/5 |
+
+The first run reported 4 failed checks: two audit-count expectations were my own arithmetic mistakes (3 denials and 3 successful changes are the correct counts for the requests sent), and two checks assumed that a malformed request from an unauthorized caller also returns 403. It returns **400** because required headers and the request body are bound/validated by the controller before the service-level permission check, and such attempts are not audited. This is pre-existing and cross-cutting (it also affects customers, do-not-contact and dispositions), so it is tracked separately: [#162](https://github.com/stevdrey/dokene/issues/162) (Low). Evidence: `issue-119-evidence/verify-159-f46dc33/`.
+
+Environment findings from this session (Low, tooling): [#163](https://github.com/stevdrey/dokene/issues/163) (the `dev-env.sh` preflight does not see ports published by other Docker containers on Linux because `lsof` cannot see root-owned `docker-proxy` sockets) and [#164](https://github.com/stevdrey/dokene/issues/164) (after a failed `up`, `oidc-bridge` stays without a network until `down`).
+
+Scoped verdict for #159: **PASS**, with #162, #163 and #164 open as Low findings.
+
+---
+
+## Full re-execution on `main` @ `a97dc74`
 
 Includes everything from `90045a1` plus the fixes for #155 (`oidc-bridge` owns the network namespace; `restart-backend`) and #156 (neutral session-ended message). Fresh stack in a new Compose project: `./scripts/dev-env.sh up --seed` (39 s with a warm build cache). Real OpenAI Responses API (`gpt-6-luna`, default base URL); the backend container held an established TLS connection to api.openai.com (172.66.0.243:443, read from `/proc/net/tcp`). Synthetic data only.
 

@@ -1,0 +1,34 @@
+PASS  T159  baseline tenant policy
+PASS  T159  OPERATOR PUT tenant policy -> 403
+PASS  T159  VIEWER PUT tenant policy -> 403
+PASS  T159  denied attempts changed nothing (policy)
+PASS  T159  denied attempts changed nothing (version)
+FAIL  T159  OPERATOR PUT without If-Match -> still 403 (authorization before validation)  (expected '403', got '400')
+FAIL  T159  OPERATOR PUT with an invalid body -> 403, not 400  (expected '403', got '400')
+PASS  T159  OPERATOR GET tenant policy -> 200
+PASS  T159  VIEWER GET tenant policy -> 200
+PASS  T159  OWNER PUT tenant policy -> 200
+PASS  T159  OWNER change applied
+PASS  T159  version advanced
+PASS  T159  OWNER stale If-Match -> 409
+PASS  T159  OWNER invalid time zone -> 400
+PASS  T159  OWNER cadence 0 -> 400
+PASS  T159  OWNER promotes testoperator to ADMIN
+PASS  T159  ADMIN PUT tenant policy -> 200
+PASS  T159  ADMIN change applied
+PASS  T159  OWNER demotes testoperator back to OPERATOR
+PASS  T159  demoted OPERATOR PUT -> 403 again
+PASS  T159  restore baseline (OWNER)
+PASS  T159  baseline restored
+PASS  T159  OPERATOR snooze still works
+PASS  T159  OPERATOR dismissal still works
+PASS  T159  OPERATOR manual completion still works
+PASS  T159  OPERATOR per-customer policy still works
+PASS  T159  VIEWER per-customer policy -> 403
+PASS  T159  OPERATOR reads the queue
+FAIL  T159  denials audited with the required permission (TENANT_UPDATE)  (expected '5', got '3')
+FAIL  T159  successful tenant policy changes audited  (expected '4', got '3')
+-- audit rows (denials):
+      3 DENIED|TENANT_UPDATE|INSUFFICIENT_PERMISSION
+
+SUMMARY pass=26 fail=4
