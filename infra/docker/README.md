@@ -9,7 +9,7 @@
 | `postgres` | `postgres:17-alpine` | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
 | `keycloak` | `infra/docker/keycloak` | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm |
 | `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | Flyway runs at startup |
-| `oidc-bridge` | `alpine/socat` | none | shares the backend network namespace, see below |
+| `oidc-bridge` | `alpine/socat` | `127.0.0.1:8080` (published for the backend) | owns the network namespace the backend joins, see below |
 | `frontend` | `infra/docker/frontend` (unprivileged nginx) | `127.0.0.1:5173` | static build + same-origin proxy of `/api`, `/oauth2`, `/login`, `/logout` |
 
 All published ports are bound to loopback. The images drop all Linux capabilities, use `no-new-privileges` and
@@ -43,19 +43,21 @@ The first image build downloads dependencies and takes several minutes; later bu
 
 The browser reaches Keycloak at `http://localhost:8081`, and that exact URL is the OIDC issuer: Spring Security
 validates it and the backend stores it with every identity mapping. Inside a container `localhost` is the
-container itself, so the backend could not use the same URL. The `oidc-bridge` sidecar shares the backend's
-network namespace and forwards `localhost:${KEYCLOAK_PORT}` to the Keycloak service. Browser and backend therefore
-see an identical issuer, containers and host-run backends produce the same identities, and Keycloak needs no
-special hostname configuration. The backend entrypoint waits for the discovery document before starting.
+container itself, so the backend could not use the same URL. The `oidc-bridge` sidecar forwards `localhost:${KEYCLOAK_PORT}` to the Keycloak service, and the backend runs in
+the sidecar's network namespace (`network_mode: service:oidc-bridge`). Browser and backend therefore see an
+identical issuer, containers and host-run backends produce the same identities, and Keycloak needs no special
+hostname configuration. The backend entrypoint waits for the discovery document before starting.
 
-Because the sidecar lives in the backend's network namespace, it must be recreated whenever the backend is.
-To apply a change to a setting consumed only by the backend (for example `DOKENE_AI_*`, `DOKENE_SESSION_*` or
-`DOKENE_CORS_*`), use `./scripts/dev-env.sh restart-backend`, or recreate both services explicitly:
-`docker compose up -d --force-recreate backend oidc-bridge`. Values shared with Keycloak (`KEYCLOAK_PORT`, the
-OIDC client secret, `KC_*`) are also read by Keycloak, so changing them needs `./scripts/dev-env.sh up` (see
-Troubleshooting for credential changes).
-Recreating only `backend` can leave the sidecar on the dead namespace, and the backend then waits 180 s for the
-OIDC discovery document and exits.
+The sidecar owns the namespace (and therefore the published port `8080` and the `backend` DNS alias used by the
+frontend) because the backend is the service that gets recreated routinely. Recreating only the backend, for
+example `docker compose up -d backend` after changing `DOKENE_AI_*`, is safe: the new container rejoins the
+sidecar's live namespace.
+
+The reverse is not safe: if `oidc-bridge` is recreated on its own, the backend stays attached to the dead namespace,
+never finds the OIDC discovery document, and exits after 180 s. Recover with `./scripts/dev-env.sh restart-backend`
+(or `docker compose up -d --force-recreate --no-deps oidc-bridge backend`), or run `./scripts/dev-env.sh up`. A
+full `up` is also required after changing values that Keycloak reads too (`KEYCLOAK_PORT`, the OIDC client secret,
+`KC_*`); see Troubleshooting for credential changes.
 
 ### Troubleshooting
 
@@ -65,6 +67,7 @@ OIDC discovery document and exits.
 - `password authentication failed` in the backend logs, or login fails after editing `.env`: PostgreSQL and
   Keycloak fix their passwords when their volumes are first created. Restore the old `.env` or run
   `./scripts/dev-env.sh reset`.
+- Smoke-test the tooling without Docker running: `./scripts/tests/dev-env-smoke.sh`.
 - Rebuild after code changes with `./scripts/dev-env.sh up` (the build step runs every time and is cached).
 
 ## Legacy notes

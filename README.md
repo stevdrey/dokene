@@ -18,7 +18,7 @@ runtime configuration. Only Docker (Compose 2.17+) is required on the host:
 ```bash
 ./scripts/dev-env.sh up --seed     # preflight checks, .env generation, build, start, QA seed
 ./scripts/dev-env.sh status        # container health and HTTP checks
-./scripts/dev-env.sh restart-backend  # apply backend-only setting changes (recreates backend + oidc-bridge)
+./scripts/dev-env.sh restart-backend  # recreate backend + oidc-bridge only
 ./scripts/dev-env.sh down          # stop (data kept); `reset` also deletes local data
 ```
 
