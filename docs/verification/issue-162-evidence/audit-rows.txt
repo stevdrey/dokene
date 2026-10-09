@@ -1,0 +1,15 @@
+-- Code under test: 7ceb1db0146f53922b69d9c24c00ba81c0b599b8 (clean working tree)
+-- Query: AUTHORIZATION_DENIED rows with occurred_at >= 2026-10-09T18:30:57Z, grouped by permission/reason/outcome (one run of http-results.txt)
+       permission       |      denial_reason      | outcome | count 
+------------------------+-------------------------+---------+-------
+ CUSTOMER_DELETE        | INSUFFICIENT_PERMISSION | DENIED  |     2
+ CUSTOMER_WRITE         | INSUFFICIENT_PERMISSION | DENIED  |     4
+ FOLLOWUP_EVALUATE      | INSUFFICIENT_PERMISSION | DENIED  |     2
+ FOLLOWUP_WRITE         | INSUFFICIENT_PERMISSION | DENIED  |     3
+ MEMBERSHIP_INVITE      | INSUFFICIENT_PERMISSION | DENIED  |     1
+ MEMBERSHIP_ROLE_UPDATE | INSUFFICIENT_PERMISSION | DENIED  |     1
+ MESSAGE_DRAFT          | INSUFFICIENT_PERMISSION | DENIED  |     2
+ PURCHASE_WRITE         | INSUFFICIENT_PERMISSION | DENIED  |     3
+ TENANT_UPDATE          | INSUFFICIENT_PERMISSION | DENIED  |     3
+(9 rows)
+
