@@ -28,6 +28,8 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -215,6 +217,60 @@ class TenantIsolationSecurityIntegrationTest {
                     .isInstanceOf(SQLException.class);
             statement.execute("SET row_security = off");
             assertThatThrownBy(() -> statement.executeQuery("SELECT id FROM dokene.tenant_memberships"))
+                    .isInstanceOf(SQLException.class);
+        }
+    }
+
+    @Test
+    void outboundMessagingTablesCarryForcedRlsLeastPrivilegeGrantsAndTheOpenMessageBackstop() throws Exception {
+        Map<String, Set<String>> expectedGrants = Map.of(
+                "outbound_messages", Set.of("SELECT", "INSERT", "UPDATE"),
+                "outbound_message_approvals", Set.of("SELECT", "INSERT"),
+                "outbound_message_cancellations", Set.of("SELECT", "INSERT"),
+                "outbound_send_attempts", Set.of("SELECT", "INSERT", "UPDATE"),
+                "outbound_message_events", Set.of("SELECT", "INSERT"),
+                "outbound_message_idempotency_keys", Set.of("SELECT", "INSERT"));
+        for (var entry : expectedGrants.entrySet()) {
+            String table = entry.getKey();
+            Map<String, Object> rls = jdbc.queryForMap("""
+                    SELECT c.relrowsecurity, c.relforcerowsecurity
+                    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'dokene' AND c.relname = ?
+                    """, table);
+            assertThat(rls).as(table).containsEntry("relrowsecurity", true)
+                    .containsEntry("relforcerowsecurity", true);
+            assertThat(jdbc.queryForList("""
+                    SELECT policyname FROM pg_policies
+                    WHERE schemaname = 'dokene' AND tablename = ? ORDER BY policyname
+                    """, String.class, table)).as(table).containsExactly(
+                    table + "_delete_policy", table + "_insert_policy", table + "_migration_policy",
+                    table + "_select_policy", table + "_update_policy");
+            assertThat(jdbc.queryForList("""
+                    SELECT privilege_type FROM information_schema.role_table_grants
+                    WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = ?
+                    """, String.class, table)).as(table).containsExactlyInAnyOrderElementsOf(entry.getValue());
+        }
+        assertThat(jdbc.queryForObject("""
+                SELECT indexdef FROM pg_indexes
+                WHERE schemaname = 'dokene' AND indexname = 'one_open_message_per_customer'
+                """, String.class)).contains("UNIQUE").contains("(tenant_id, customer_id)")
+                .contains("'REJECTED'").contains("'FAILED'");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM pg_trigger
+                WHERE tgname = 'outbound_messages_identity_immutable' AND NOT tgisinternal
+                """, Integer.class)).isEqualTo(1);
+
+        Tenant tenantA = tenant("Tenant A");
+        Tenant tenantB = tenant("Tenant B");
+        try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnection(signer.issueTenantContext(tenantB.id()));
+                Statement statement = connection.createStatement()) {
+            assertThatThrownBy(() -> statement.executeUpdate("""
+                    INSERT INTO dokene.outbound_message_idempotency_keys
+                        (id, tenant_id, operation, idempotency_key, request_fingerprint, message_id, record_id, created_at)
+                    VALUES (gen_random_uuid(), '%s', 'SUBMIT', 'foreign-key', repeat('a', 64), NULL, NULL, now())
+                    """.formatted(tenantA.id().value()))).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> statement.executeUpdate(
+                    "DELETE FROM dokene.outbound_messages WHERE tenant_id = '" + tenantB.id().value() + "'"))
                     .isInstanceOf(SQLException.class);
         }
     }

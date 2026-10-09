@@ -75,3 +75,7 @@ A persistent `role="status"` live region announces loading, readiness, copy resu
 - Stale advice cannot be shown as current, and cross-tenant leakage through client state is prevented by construction (scoped state + abort + tenant-keyed remount).
 - The recommendation and draft are not recoverable after navigating away; this is intentional until a later phase defines durable draft state.
 - Phase 3 will add approval/dispatch on top of the backend message state machine; it must supersede this ADR for any send-related UI rather than extend this panel implicitly.
+
+## Amended by ADR 0023
+
+[ADR 0023](0023-phase-3-outbound-messaging-contracts.md) adds exactly one control to this panel, "Enviar a aprobación", which submits the edited draft to the message approval flow. Approve and send controls live in the `messages` feature, never in this panel.

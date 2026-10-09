@@ -29,3 +29,8 @@
 
 # Local data
 .data/
+
+# Local tooling, never committed
+.pnpm-store/
+compose.override.yaml
+frontend/pnpm-lock.yaml

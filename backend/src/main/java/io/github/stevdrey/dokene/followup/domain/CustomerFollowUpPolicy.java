@@ -7,7 +7,7 @@ import java.util.Objects;
 
 public record CustomerFollowUpPolicy(TenantId tenantId, CustomerId customerId, Integer cadenceDays,
         LocalDate explicitNextDate, LocalDate snoozedUntil, LocalDate lastManualFollowUpDate,
-        LocalDate lastDismissedDate, long version) {
+        LocalDate lastDismissedDate, LocalDate lastOutboundMessageDate, long version) {
     public CustomerFollowUpPolicy {
         Objects.requireNonNull(tenantId, "Tenant ID is required");
         Objects.requireNonNull(customerId, "Customer ID is required");
@@ -19,22 +19,30 @@ public record CustomerFollowUpPolicy(TenantId tenantId, CustomerId customerId, I
 
     public CustomerFollowUpPolicy(TenantId tenantId, CustomerId customerId, Integer cadenceDays,
             LocalDate explicitNextDate, LocalDate snoozedUntil, LocalDate lastManualFollowUpDate,
+            LocalDate lastDismissedDate, long version) {
+        this(tenantId, customerId, cadenceDays, explicitNextDate, snoozedUntil, lastManualFollowUpDate,
+                lastDismissedDate, null, version);
+    }
+
+    public CustomerFollowUpPolicy(TenantId tenantId, CustomerId customerId, Integer cadenceDays,
+            LocalDate explicitNextDate, LocalDate snoozedUntil, LocalDate lastManualFollowUpDate,
             LocalDate lastDismissedDate) {
         this(tenantId, customerId, cadenceDays, explicitNextDate, snoozedUntil, lastManualFollowUpDate,
-                lastDismissedDate, 0);
+                lastDismissedDate, null, 0);
     }
 
     public CustomerFollowUpPolicy(TenantId tenantId, CustomerId customerId, Integer cadenceDays,
             LocalDate explicitNextDate, LocalDate snoozedUntil, LocalDate lastManualFollowUpDate) {
-        this(tenantId, customerId, cadenceDays, explicitNextDate, snoozedUntil, lastManualFollowUpDate, null, 0);
+        this(tenantId, customerId, cadenceDays, explicitNextDate, snoozedUntil, lastManualFollowUpDate, null, null, 0);
     }
 
     public CustomerFollowUpPolicy(TenantId tenantId, CustomerId customerId, Integer cadenceDays,
             LocalDate explicitNextDate, LocalDate snoozedUntil, LocalDate lastManualFollowUpDate, long version) {
-        this(tenantId, customerId, cadenceDays, explicitNextDate, snoozedUntil, lastManualFollowUpDate, null, version);
+        this(tenantId, customerId, cadenceDays, explicitNextDate, snoozedUntil, lastManualFollowUpDate, null, null,
+                version);
     }
 
     public static CustomerFollowUpPolicy empty(TenantId tenantId, CustomerId customerId) {
-        return new CustomerFollowUpPolicy(tenantId, customerId, null, null, null, null, null, 0);
+        return new CustomerFollowUpPolicy(tenantId, customerId, null, null, null, null, null, null, 0);
     }
 }

@@ -108,7 +108,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("15");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("17");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -116,6 +116,8 @@ class TenantPersistenceIntegrationTest {
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
                 "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions", "oidc_identity_mappings",
+                "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
+                "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
                 "purchase_history", "purchases",
                 "tenant_context_signing_keys", "tenant_follow_up_policies", "tenant_memberships", "tenants",
                 "workspace_provisioning_records");
@@ -125,7 +127,10 @@ class TenantPersistenceIntegrationTest {
         )).containsExactly("audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
-                "follow_up_dismissals", "manual_follow_up_completions", "purchase_history", "purchases",
+                "follow_up_dismissals", "manual_follow_up_completions",
+                "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
+                "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
+                "purchase_history", "purchases",
                 "tenant_follow_up_policies", "tenant_memberships", "tenants", "workspace_provisioning_records");
         assertThat(tableOwner("customer_consent_history")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_contact_consents")).isEqualTo(MIGRATION_ROLE);
@@ -138,6 +143,12 @@ class TenantPersistenceIntegrationTest {
         assertThat(tableOwner("customer_phone_contacts")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("purchases")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("purchase_history")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_messages")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_message_approvals")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_message_cancellations")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_send_attempts")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_message_events")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_message_idempotency_keys")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_follow_up_policies")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_memberships")).isEqualTo(MIGRATION_ROLE);

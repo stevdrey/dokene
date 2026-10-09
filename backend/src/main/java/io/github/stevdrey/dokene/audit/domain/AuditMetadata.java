@@ -34,6 +34,24 @@ public sealed interface AuditMetadata {
         }
     }
 
+    /**
+     * Message lifecycle transition (ADR 0023 §4.5): closed status and category vocabularies only; never a body,
+     * phone number, note or provider message id. {@code from} is null only for the submit event.
+     */
+    record MessageTransition(AuditMessageStatus from, AuditMessageStatus to, AuditFailureCategory failureCategory,
+            Integer attemptNumber) implements AuditMetadata {
+        public MessageTransition {
+            Objects.requireNonNull(to, "Target status is required");
+            if (attemptNumber != null && attemptNumber < 1) {
+                throw new IllegalArgumentException("Attempt number starts at 1");
+            }
+        }
+    }
+
+    /** Template mapping, integration and kill switch changes record only the resulting enabled flag. */
+    record IntegrationToggle(boolean enabled) implements AuditMetadata {
+    }
+
     record AuthorizationDenied(TenantPermission permission, AuditDenialReason reason) implements AuditMetadata {
         public AuthorizationDenied {
             Objects.requireNonNull(reason, "Denial reason is required");

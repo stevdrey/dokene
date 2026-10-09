@@ -700,12 +700,7 @@ public class DefaultAiActionGate implements AiActionGate {
     }
 
     private static DraftGroundingContext buildGrounding(RecommendationContext context) {
-        var untrustedText = context.untrusted();
-        return new DraftGroundingContext(
-                untrustedText.displayName(), untrustedText.notes(), untrustedText.purchaseDescriptions(),
-                context.trusted().purchaseDates().stream().map(Object::toString).toList(),
-                context.trusted().followUpStatus(),
-                context.trusted().tenantDate().toString());
+        return DraftGroundingAssembler.grounding(context);
     }
 
     private String formatAllowedContext(RecommendationContext context, TenantFollowUpPolicy tenantPolicy) {
@@ -713,35 +708,7 @@ public class DefaultAiActionGate implements AiActionGate {
     }
 
     private String formatAllowedContext(RecommendationContext context, TenantFollowUpPolicy tenantPolicy, Tenant tenant) {
-        if (context == null) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        if (tenant != null && tenant.displayName() != null) {
-            sb.append(tenant.displayName()).append(" ");
-        }
-        if (context.trusted() != null) {
-            sb.append(context.trusted().tenantDate()).append(" ");
-            sb.append(context.trusted().followUpStatus()).append(" ");
-            for (var purchaseDate : context.trusted().purchaseDates()) {
-                sb.append(purchaseDate).append(" ");
-            }
-        }
-        if (context.untrusted() != null) {
-            sb.append(context.untrusted().displayName()).append(" ");
-            if (context.untrusted().notes() != null) {
-                sb.append(context.untrusted().notes()).append(" ");
-            }
-            if (context.untrusted().purchaseDescriptions() != null) {
-                for (String desc : context.untrusted().purchaseDescriptions()) {
-                    sb.append(desc).append(" ");
-                }
-            }
-        }
-        if (tenantPolicy != null && tenantPolicy.zoneId() != null) {
-            sb.append(tenantPolicy.zoneId().getId()).append(" ");
-        }
-        return sb.toString();
+        return DraftGroundingAssembler.allowedContextText(context, tenantPolicy, tenant);
     }
 
     private boolean isCompatibleIntent(SemanticAction action, SemanticTemplateIntent intent) {

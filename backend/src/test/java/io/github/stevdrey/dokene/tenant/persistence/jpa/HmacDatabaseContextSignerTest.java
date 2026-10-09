@@ -81,4 +81,22 @@ class HmacDatabaseContextSignerTest {
         new SecureRandom().nextBytes(keyBytes);
         return HexFormat.of().formatHex(keyBytes);
     }
+
+    @Test
+    void issuesProviderAuditContextWithNilActorAndMembershipAndAFreshNonce() {
+        HmacDatabaseContextSigner signer = new HmacDatabaseContextSigner(signingKey, "k1", clock, secureRandom);
+        TenantId tenantId = TenantId.random();
+
+        SignedDatabaseContext first = signer.issueProviderAuditContext(tenantId);
+        SignedDatabaseContext second = signer.issueProviderAuditContext(tenantId);
+
+        assertThat(first.payload()).startsWith("provider|k1|" + tenantId.value()
+                + "|00000000-0000-0000-0000-000000000000|00000000-0000-0000-0000-000000000000|1788134460|");
+        assertThat(first.payload().split("\\|")).hasSize(7);
+        assertThat(first.signature()).matches("^[0-9a-f]{64}$");
+        assertThat(first.expiresAt()).isEqualTo(Instant.parse("2026-08-31T00:01:00Z"));
+        assertThat(second.payload()).isNotEqualTo(first.payload());
+        assertThat(second.signature()).isNotEqualTo(first.signature());
+        assertThatThrownBy(() -> signer.issueProviderAuditContext(null)).isInstanceOf(NullPointerException.class);
+    }
 }

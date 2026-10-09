@@ -51,12 +51,13 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
     public CustomerFollowUpPolicy customerPolicy(TenantId tenantId, CustomerId customerId) {
         return jdbc.queryForObject("""
                 SELECT cadence_days, explicit_next_date, snoozed_until, last_manual_follow_up_date,
-                       last_dismissed_date, version
+                       last_dismissed_date, last_outbound_message_date, version
                 FROM dokene.customer_follow_up_policies WHERE tenant_id = ? AND customer_id = ?
                 """, (row, index) -> new CustomerFollowUpPolicy(tenantId, customerId,
                         (Integer) row.getObject("cadence_days"), localDate(row.getDate("explicit_next_date")),
                         localDate(row.getDate("snoozed_until")), localDate(row.getDate("last_manual_follow_up_date")),
                         localDate(row.getDate("last_dismissed_date")),
+                        localDate(row.getDate("last_outbound_message_date")),
                         row.getLong("version")), tenantId.value(), customerId.value());
     }
 
@@ -115,6 +116,9 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                         cfp.explicit_next_date,
                         cfp.last_manual_follow_up_date,
                         cfp.last_dismissed_date,
+                        cfp.last_outbound_message_date,
+                        GREATEST(cfp.last_manual_follow_up_date, cfp.last_dismissed_date,
+                                 cfp.last_outbound_message_date) AS last_action_date,
                         lp.last_purchase_at,
                         (lp.last_purchase_at AT TIME ZONE tp.time_zone)::date AS last_purchase_date,
                         (CAST(? AS timestamptz) AT TIME ZONE tp.time_zone)::date AS tenant_today
@@ -156,24 +160,22 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                         CASE
                             WHEN snoozed_until IS NOT NULL AND snoozed_until >= tenant_today THEN snoozed_until
                             WHEN explicit_next_date IS NOT NULL THEN explicit_next_date
-                            WHEN (
-                                (last_manual_follow_up_date IS NOT NULL AND (last_dismissed_date IS NULL OR last_manual_follow_up_date >= last_dismissed_date) AND (last_purchase_date IS NULL OR last_manual_follow_up_date >= last_purchase_date))
-                            ) THEN last_manual_follow_up_date + effective_cadence
-                            WHEN (
-                                (last_dismissed_date IS NOT NULL AND (last_manual_follow_up_date IS NULL OR last_dismissed_date > last_manual_follow_up_date) AND (last_purchase_date IS NULL OR last_dismissed_date >= last_purchase_date))
-                            ) THEN last_dismissed_date + effective_cadence
+                            WHEN last_action_date IS NOT NULL
+                                 AND (last_purchase_date IS NULL OR last_action_date >= last_purchase_date)
+                                THEN last_action_date + effective_cadence
                             WHEN last_purchase_date IS NOT NULL THEN last_purchase_date + effective_cadence
                             ELSE NULL
                         END AS due_date,
                         CASE
                             WHEN snoozed_until IS NOT NULL AND snoozed_until >= tenant_today THEN 'SNOOZE'
                             WHEN explicit_next_date IS NOT NULL THEN 'EXPLICIT_DATE'
-                            WHEN (
-                                (last_manual_follow_up_date IS NOT NULL AND (last_dismissed_date IS NULL OR last_manual_follow_up_date >= last_dismissed_date) AND (last_purchase_date IS NULL OR last_manual_follow_up_date >= last_purchase_date))
-                            ) THEN 'LAST_MANUAL_FOLLOW_UP'
-                            WHEN (
-                                (last_dismissed_date IS NOT NULL AND (last_manual_follow_up_date IS NULL OR last_dismissed_date > last_manual_follow_up_date) AND (last_purchase_date IS NULL OR last_dismissed_date >= last_purchase_date))
-                            ) THEN 'LAST_DISMISSAL'
+                            WHEN last_action_date IS NOT NULL
+                                 AND (last_purchase_date IS NULL OR last_action_date >= last_purchase_date) THEN
+                                CASE
+                                    WHEN last_manual_follow_up_date = last_action_date THEN 'LAST_MANUAL_FOLLOW_UP'
+                                    WHEN last_dismissed_date = last_action_date THEN 'LAST_DISMISSAL'
+                                    ELSE 'LAST_OUTBOUND_MESSAGE'
+                                END
                             WHEN last_purchase_date IS NOT NULL THEN 'LAST_PURCHASE'
                             ELSE 'NONE'
                         END AS timing_source
@@ -375,6 +377,22 @@ public class JdbcFollowUpPolicyRepository implements FollowUpPolicyRepository {
                         AND cc.channel = 'WHATSAPP' AND cc.status = 'GRANTED'
                   )
                 """, sqlDate(until), nextVersion, tenantId.value(), customerId.value(), expectedVersion);
+        requireUpdated(updated);
+        return customerPolicy(tenantId, customerId);
+    }
+
+    @Override
+    public CustomerFollowUpPolicy recordOutboundMessage(TenantId tenantId, CustomerId customerId,
+            LocalDate tenantDate) {
+        int updated = jdbc.update("""
+                INSERT INTO dokene.customer_follow_up_policies
+                    (tenant_id, customer_id, last_outbound_message_date, version)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT (tenant_id, customer_id) DO UPDATE
+                SET last_outbound_message_date = EXCLUDED.last_outbound_message_date,
+                    explicit_next_date = NULL, snoozed_until = NULL,
+                    version = customer_follow_up_policies.version + 1
+                """, tenantId.value(), customerId.value(), sqlDate(tenantDate));
         requireUpdated(updated);
         return customerPolicy(tenantId, customerId);
     }

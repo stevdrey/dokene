@@ -115,6 +115,8 @@ The AI module must not directly decide that an external action is authorized.
 
 The messaging provider adapter must not decide business eligibility.
 
+Since Phase 3 the arrow between `followup` and `messaging` points the other way: `messaging` depends on `followup` (eligibility snapshot, draft grounding, the follow-up touch recorder) and `followup` never depends on `messaging`. The `audit` module's application layer may adapt messaging events into audit records, while `audit.domain` and `audit.persistence` stay free of messaging types. `ModuleDependencyArchitectureTest` (ArchUnit) fails the build when any of these directions is violated ([ADR 0023](../adr/0023-phase-3-outbound-messaging-contracts.md)).
+
 ## Application flow
 
 A typical follow-up flow is:
