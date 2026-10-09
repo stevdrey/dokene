@@ -645,6 +645,49 @@ class FollowUpManagementIntegrationTest {
     }
 
     @Test
+    void adminCanUpdateTenantPolicyWithVersionChecking() throws Exception {
+        var adminContext = context(seedMembership(memberships, contexts, tenantA.id(),
+                new IdentityId(UUID.randomUUID()), TenantRole.ADMIN, Instant.now()));
+
+        var updated = inContext(adminContext, () -> followUps.configureTenant(21, ZoneId.of("UTC"), 0));
+
+        assertThat(updated.cadenceDays()).isEqualTo(21);
+        assertThat(updated.version()).isEqualTo(1);
+        assertThatThrownBy(() -> inContext(adminContext, () -> followUps.configureTenant(22, ZoneId.of("UTC"), 0)))
+                .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void operatorKeepsReadAndDailyFollowUpActionsAfterTenantPolicyRestriction() throws Exception {
+        var operatorContext = context(seedMembership(memberships, contexts, tenantA.id(),
+                new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, Instant.now()));
+        grantWhatsAppConsent(customer);
+        inContext(contextA, () -> followUps.configureTenant(14, ZoneId.of("UTC"), 0));
+        LocalDate today = inContext(operatorContext, () -> followUps.evaluate(customer.id())).tenantDate();
+
+        var tenantPolicy = inContext(operatorContext, () -> followUps.tenantPolicy());
+        assertThat(tenantPolicy.cadenceDays()).isEqualTo(14);
+        assertThat(tenantPolicy.zoneId()).isEqualTo(ZoneId.of("UTC"));
+        var configured = inContext(operatorContext,
+                () -> followUps.configureCustomer(customer.id(), 7, today, 0));
+        var snoozed = inContext(operatorContext,
+                () -> followUps.snooze(customer.id(), today.plusDays(1), configured.version()));
+        var completed = inContext(operatorContext, () -> followUps.recordManualFollowUp(customer.id(),
+                snoozed.version(), "operator-keeps-access-1", "Called"));
+        assertThat(completed.created()).isTrue();
+
+        var other = inContext(contextA, () -> customers.create("Operator dismiss customer", null,
+                List.of(new PhoneInput("8888" + String.format("%04d",
+                        Math.abs(UUID.randomUUID().hashCode()) % 10000), "CR", true))));
+        grantWhatsAppConsent(other);
+        var otherPolicy = inContext(operatorContext,
+                () -> followUps.configureCustomer(other.id(), 7, today, 0));
+        var dismissed = inContext(operatorContext, () -> followUps.dismiss(other.id(),
+                otherPolicy.version(), "operator-keeps-access-2", "Not needed"));
+        assertThat(dismissed.created()).isTrue();
+    }
+
+    @Test
     void recommendationReturnsIneligibleWhenOptedOut() throws Exception {
         grantWhatsAppConsent(customer);
         inContext(contextA, () -> purchases.record(customer.id(), Instant.now().minus(Duration.ofDays(35)), "Shoes", "purchase-rec-4"));

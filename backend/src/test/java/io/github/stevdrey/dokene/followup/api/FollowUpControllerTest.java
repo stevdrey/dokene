@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.followup.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -11,7 +12,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
+import io.github.stevdrey.dokene.customer.application.CustomerRepository;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.followup.application.FollowUpPolicyRepository;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueuePage;
 import io.github.stevdrey.dokene.followup.domain.CustomerFollowUpPolicy;
@@ -21,9 +26,15 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
+import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -97,6 +108,28 @@ class FollowUpControllerTest {
                 .andExpect(header().string("ETag", "\"1\""));
 
         verify(service).configureTenant(14, ZoneId.of("UTC"), 0);
+    }
+
+    @Test
+    void configureTenantReturnsForbiddenWhenCallerLacksTenantUpdateEvenWithFollowUpWrite() throws Exception {
+        var authorization = mock(TenantAuthorizationService.class);
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.TENANT_UPDATE);
+        var policies = mock(FollowUpPolicyRepository.class);
+        var realService = new FollowUpService(mock(CustomerRepository.class), mock(ContactPolicyRepository.class),
+                mock(PurchaseRepository.class), policies, authorization, mock(TenantContextProvider.class),
+                Clock.systemUTC(), mock(AuditRecorder.class));
+        MockMvc operatorMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(realService, recommendations, drafts))
+                .setControllerAdvice(new FollowUpExceptionHandler()).build();
+
+        operatorMvc.perform(put("/api/follow-up-policy")
+                .header("If-Match", "\"0\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"cadenceDays\":14,\"timeZone\":\"UTC\"}"))
+                .andExpect(status().isForbidden());
+
+        verify(authorization).requirePermission(TenantPermission.TENANT_UPDATE);
+        verifyNoInteractions(policies);
     }
 
     @ParameterizedTest

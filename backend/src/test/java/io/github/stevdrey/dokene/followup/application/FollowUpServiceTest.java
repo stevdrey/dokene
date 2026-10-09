@@ -3,8 +3,11 @@ package io.github.stevdrey.dokene.followup.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -19,6 +22,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpDismissal;
 import io.github.stevdrey.dokene.followup.domain.ManualFollowUpCompletion;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
 import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -248,6 +252,28 @@ class FollowUpServiceTest {
                 1, false, null, null, List.of()));
         assertThatThrownBy(() -> service.snooze(customerId, fixedInstant.atZone(tenantZone).toLocalDate().plusDays(5), 0))
                 .isInstanceOf(FollowUpConflictException.class);
+    }
+
+    @Test
+    void configureTenantRequiresTenantUpdatePermissionNotFollowUpWrite() {
+        when(policies.updateTenantPolicy(any(), eq(0L)))
+                .thenReturn(new TenantFollowUpPolicy(tenantId, 14, tenantZone, 1));
+
+        service.configureTenant(14, tenantZone, 0);
+
+        verify(authorization).requirePermission(TenantPermission.TENANT_UPDATE);
+        verify(authorization, never()).requirePermission(TenantPermission.FOLLOWUP_WRITE);
+    }
+
+    @Test
+    void configureTenantDoesNotMutateWhenPermissionIsDenied() {
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.TENANT_UPDATE);
+
+        assertThatThrownBy(() -> service.configureTenant(14, tenantZone, 0))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        verify(policies, never()).updateTenantPolicy(any(), anyLong());
     }
 
     @Test

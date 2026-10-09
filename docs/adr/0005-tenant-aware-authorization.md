@@ -27,6 +27,11 @@ Tenant roles (`TenantRole`) map deterministically and immutably to sets of permi
 - `OPERATOR`: Operational permissions (customer and purchase read/write, drafts, templates, follow-up evaluation, message send/approve), without administrative tenant or membership modification capabilities.
 - `VIEWER`: Read-only access to tenant information, memberships, customers, purchases, follow-ups, templates, and messages.
 
+### Tenant-wide follow-up policy
+`FOLLOWUP_WRITE` (held by OWNER, ADMIN and OPERATOR) covers daily operator actions: per-customer policy, snooze, dismissal and manual completion. Configuring the **tenant-wide** follow-up policy (`PUT /api/follow-up-policy`: default cadence and IANA time zone) changes the due classification of every customer and the queue shared by all operators, so it requires `TENANT_UPDATE` (OWNER/ADMIN only). Reads keep `FOLLOWUP_READ`. Denials return 403 and are audited with the required permission.
+
+Alternatives rejected: (A) leave it open to OPERATOR and only document it (least-privilege gap); (C) add a dedicated `FOLLOWUP_POLICY_WRITE` permission (more surface than needed today; revisit if the policy needs a delegation separate from tenant settings).
+
 ## Invariants & Rules
 1. **Fail-Closed by Default**: Any authorization check without an active `TenantContext`, with an inactive/suspended/revoked membership, or with an unmapped permission fails immediately with denial.
 2. **Resource-Level IDOR Prevention**: Resource access checks (`TenantScopedResource`) verify that the target entity's `tenantId` strictly equals the active `TenantContext.tenantId()`. Client-provided identifiers never constitute proof of ownership.
