@@ -336,7 +336,7 @@ public class OutboundMessageCommandService {
     private SubmitInput validate(SubmitMessageCommand command) {
         Objects.requireNonNull(command, "Command is required");
         if (command.customerId() == null || command.contactId() == null || command.body() == null
-                || command.body().isBlank()
+                || command.body().isBlank() || containsNul(command.body())
                 || command.body().codePointCount(0, command.body().length()) > OutboundMessage.MAX_BODY_LENGTH
                 || !MessagingLocales.supported(command.locale())) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);
@@ -349,10 +349,15 @@ public class OutboundMessageCommandService {
     }
 
     private ChildInput validateChild(UUID messageId, String note, String ifMatch, String idempotencyKey) {
-        if (messageId == null || (note != null && note.length() > MAX_NOTE_LENGTH)) {
+        if (messageId == null || (note != null && (note.length() > MAX_NOTE_LENGTH || containsNul(note)))) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);
         }
         return new ChildInput(note, ifMatch(ifMatch), idempotencyKey(idempotencyKey));
+    }
+
+    /** Postgres cannot store U+0000 in text columns; refuse it as input rather than fail at the insert. */
+    private static boolean containsNul(String value) {
+        return value.indexOf('\0') >= 0;
     }
 
     private static <E extends Enum<E>> E parse(Class<E> type, String value) {

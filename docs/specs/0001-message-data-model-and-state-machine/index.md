@@ -187,6 +187,7 @@ T13 to `DELIVERED` or `READ` also sets `sent_at` to the report time when it is n
 - `attempt_count` equals the number of `outbound_send_attempts` rows for the message (asserted by tests, maintained by `startAttempt`).
 - `outcome_unknown` is true only in `SENDING` and is cleared by every exit from `SENDING`; `failure_category` on the message is set only in `FAILED`; `provider_message_id` is set only by `ACCEPTED` or `OUTCOME_UNKNOWN` attempts or applied reports.
 - No two transitions on one message interleave: every path, the sink included, takes the customer lock then the message lock, in that order, after the advisory idempotency lock when there is one.
+- The follow up evaluation a command runs under the customer lock stays current until the command commits: every `customer_follow_up_policies` writer in `FollowUpService` (`configureCustomer`, `snooze`, `dismiss`, `recordManualFollowUp`) and the touch recorder's callers take the same customer lock first. The tenant policy (`configureTenant`) is not covered by the customer policy version and is outside this rule.
 - `sequence_number` of the latest event equals the message `version`.
 - Every applied transition writes exactly one event row and one audit row in its transaction; a non applied report writes one event row and no audit row.
 - The event log, audit metadata and log lines contain none of `body`, `recipient_phone`, notes or `provider_message_id`.

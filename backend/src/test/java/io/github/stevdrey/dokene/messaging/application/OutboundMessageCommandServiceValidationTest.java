@@ -97,6 +97,19 @@ class OutboundMessageCommandServiceValidationTest {
     }
 
     @Test
+    void refusesNulCharactersInTheBodyAndInNotesBeforeTouchingAnything() {
+        // Postgres refuses U+0000 in text columns; the module must answer INVALID_INPUT, not a persistence failure.
+        assertRefused(() -> service.submit(submit("Hola\u0000mundo", "es-419", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP",
+                "1", "k1")), MessagingErrorCode.INVALID_INPUT);
+        assertRefused(() -> service.approve(new ApprovalCommand(UUID.randomUUID(), "nota\u0000", "1", "k1")),
+                MessagingErrorCode.INVALID_INPUT);
+        assertRefused(() -> service.reject(new ApprovalCommand(UUID.randomUUID(), "\u0000", "1", "k1")),
+                MessagingErrorCode.INVALID_INPUT);
+        assertRefused(() -> service.cancel(new CancellationCommand(UUID.randomUUID(), "nota\u0000", "1", "k1")),
+                MessagingErrorCode.INVALID_INPUT);
+    }
+
+    @Test
     void mapsAnAuthorizationDenialToForbiddenBeforeAnyLock() {
         doThrow(new TenantAccessDeniedException()).when(authorization).requirePermission(any());
 
