@@ -381,6 +381,49 @@ report_failure() {
     warn "than the current .env. Restore the original .env, or run './scripts/dev-env.sh reset' (deletes local data)."
   fi
   info "Full logs: ./scripts/dev-env.sh logs <service>"
+  info "Fix the cause and rerun './scripts/dev-env.sh up'; if the stack still misbehaves, run 'down' and then 'up'."
+}
+
+# drop_services SERVICE...: removes the (stopped or broken) containers so the next full startup recreates them with
+# their networks. Running healthy containers and volumes are untouched.
+drop_services() {
+  warn "Removing containers so they are recreated: $*"
+  compose rm -f -s "$@" >/dev/null 2>&1 || true
+}
+
+# A start failure (e.g. a host port bind error) leaves the container created but not attached to any network, and
+# a later `up` would start it as is.
+discard_unstarted_containers() {
+  local stale
+  stale="$(compose ps --all --services --filter status=created 2>/dev/null)"
+  [ -n "$stale" ] || return 0
+  # shellcheck disable=SC2086
+  drop_services $stale
+}
+
+# is_start_failure_log FILE: true when the `compose up` output shows a container start/network error (as opposed to
+# a pull, build or health-check failure).
+is_start_failure_log() {
+  grep -Eqi 'port is already allocated|Bind for|failed to set up container networking|driver failed programming|failed to (start|create)' "$1"
+}
+
+# networkless_containers: reads "name<TAB>status<TAB>network count" lines on stdin and prints the names that are
+# created or running with no network. A stopped container keeps its network entries, so it is never reported.
+networkless_containers() {
+  awk -F'\t' '($2 == "created" || $2 == "running") && $3 == 0 { print $1 }'
+}
+
+# repair_networkless_bridge: an oidc-bridge left without a network by an earlier failed `up` (before the cleanup
+# above existed, or after a crash) never recovers on its own. Remove it with its backend and let the full startup that
+# follows recreate both: that startup also starts postgres and keycloak, which may be stopped (e.g. after a reboot).
+repair_networkless_bridge() {
+  local id
+  id="$(compose ps --all -q oidc-bridge 2>/dev/null | head -n 1)"
+  [ -n "$id" ] || return 0
+  [ -n "$(docker inspect --format '{{.Name}}	{{.State.Status}}	{{len .NetworkSettings.Networks}}' "$id" 2>/dev/null | networkless_containers)" ] \
+    || return 0
+  warn "oidc-bridge is attached to no network (left over from a failed 'up')."
+  drop_services oidc-bridge backend
 }
 
 # compose_up_services NO_BUILD EXTRA_FLAGS [service...]: starts (and, unless NO_BUILD=true, builds) the given
@@ -396,8 +439,10 @@ compose_up_services() {
   status="${PIPESTATUS[0]}"
   if [ "$status" -ne 0 ]; then
     # Bind/create errors fail immediately; only a real timeout deserves the "did not become healthy" wording.
-    grep -Eqi 'port is already allocated|Bind for|Error response from daemon|failed to (start|create)' "$log" \
-      && START_FAILED=true
+    if is_start_failure_log "$log"; then
+      START_FAILED=true
+      discard_unstarted_containers
+    fi
     rm -f "$log"
     report_failure
     exit 1
@@ -419,6 +464,8 @@ cmd_up() {
   done
 
   preflight || exit 1
+
+  [ "$INFRA_ONLY" = "true" ] || repair_networkless_bridge
 
   local services=""
   [ "$INFRA_ONLY" = "true" ] && services="postgres keycloak"
