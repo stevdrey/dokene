@@ -24,23 +24,30 @@ help_text="$("$SCRIPT" help 2>&1)"
 help_lists_restart_backend() { grep -q 'restart-backend' <<<"$help_text"; }
 help_has_no_code_leak() { ! grep -q 'set -uo pipefail' <<<"$help_text"; }
 unknown_command_fails() { "$SCRIPT" definitely-not-a-command; [ $? -eq 2 ]; }
-restart_backend_rejects_unknown_option() { "$SCRIPT" restart-backend --bogus; [ $? -ne 0 ]; }
+restart_backend_rejects_unknown_option() { ! "$SCRIPT" restart-backend --bogus; }
 
 check "help lists restart-backend" help_lists_restart_backend
 check "help prints only the header comment" help_has_no_code_leak
 check "unknown command exits 2" unknown_command_fails
 check "restart-backend rejects unknown options" restart_backend_rejects_unknown_option
+shellcheck_is_clean() { (cd "$ROOT_DIR" && shellcheck -x scripts/dev-env.sh scripts/tests/dev-env-smoke.sh); }
+if command -v shellcheck >/dev/null 2>&1; then
+  check "dev-env.sh and its smoke test are ShellCheck-clean" shellcheck_is_clean
+else
+  printf '[skip] ShellCheck not installed\n'
+fi
 check "dev-env.sh and entrypoint.sh are valid bash" bash -c "bash -n '$SCRIPT' && bash -n '$ROOT_DIR/infra/docker/backend/entrypoint.sh'"
 
 topology_is_inverted() {
-  local env_vars="" v json=""
+  local -a env_vars=()
+  local v json=""
   for v in DOKENE_DB_NAME DOKENE_DB_BOOTSTRAP_USERNAME DOKENE_DB_BOOTSTRAP_PASSWORD DOKENE_DB_PASSWORD \
            DOKENE_DB_RUNTIME_PASSWORD DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY \
            KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD \
            SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET; do
-    env_vars="$env_vars $v=unused"
+    env_vars+=("$v=unused")
   done
-  json="$(cd "$ROOT_DIR" && env $env_vars docker compose config --format json)" || return 1
+  json="$(cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose config --format json)" || return 1
   python3 -I -c '
 import json, sys
 s = json.load(sys.stdin)["services"]
@@ -65,8 +72,8 @@ port_detection_is_privilege_free() {
   port_in_use "$port" && return 1   # free before the listener starts
   python3 -I -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(); time.sleep(30)' "$port" &
   pid=$!
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do port_in_use "$port" && break; sleep 0.2; done
+  local _
+  for _ in 1 2 3 4 5 6 7 8 9 10; do port_in_use "$port" && break; sleep 0.2; done
   local used=1
   port_in_use "$port" && used=0
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
@@ -78,6 +85,8 @@ docker_mapping_counts_as_occupancy() {
   # userland-proxy=false: Docker publishes via NAT and no socket listens, but the mapping still blocks the port.
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
+  # The stubs below shadow functions that the sourced dev-env.sh calls; ShellCheck cannot see that.
+  # shellcheck disable=SC2329
   docker() { printf 'other-project-web\t127.0.0.1:%s->8080/tcp\n' "$FAKE_PORT"; }
   have() { [ "$1" = "docker" ]; }
   FAKE_PORT=45999
@@ -117,6 +126,8 @@ repair_removes_only_broken_bridge() {
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
   CALLS=""
+  # The stubs below shadow functions that the sourced dev-env.sh calls; ShellCheck cannot see that.
+  # shellcheck disable=SC2329
   warn() { :; }
   compose() { if [ "$1" = "ps" ]; then echo "${FAKE_ID:-}"; else CALLS="$CALLS|$*"; fi; }
   docker() { printf '/dokene-oidc-bridge-1\t%s\n' "$FAKE_STATE"; }
@@ -133,6 +144,8 @@ discard_removes_created_services() {
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
   CALLS=""
+  # The stubs below shadow functions that the sourced dev-env.sh calls; ShellCheck cannot see that.
+  # shellcheck disable=SC2329
   warn() { :; }
   compose() { if [ "$1" = "ps" ]; then printf '%s' "$FAKE_STALE"; else CALLS="$CALLS|$*"; fi; }
   FAKE_STALE=$'backend\noidc-bridge'; discard_unstarted_containers
