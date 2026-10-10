@@ -1,6 +1,23 @@
 # Issue 119 verification: regression revalidation after Phase 2 AI changes
 
-Campaign: #118. Suite: #119. This record has four parts: the **verification of #159 on `main` @ `f46dc33`** (latest), the full re-execution on `a97dc74`, the previous re-execution on `90045a1` and the initial run on `2e0a254` (the last three kept below).
+Campaign: #118. Suite: #119. This record has five parts: the **verification of #162, #163 and #164 on `main` @ `d04eb0b`** (latest), the verification of #159 on `f46dc33`, the full re-execution on `a97dc74`, the previous re-execution on `90045a1` and the initial run on `2e0a254` (the last three kept below).
+
+## Verification of #162, #163 and #164 on `main` @ `d04eb0b`
+
+Fixes: #162 authorize before request binding/validation (PR #166), #163 preflight sees ports held by Docker containers (PR #167), #164 recovery of `oidc-bridge` after a failed `up` (PR #168). Synthetic data; real OpenAI for the AI-endpoint regression check. Evidence: `issue-119-evidence/verify-162-163-164-d04eb0b/`.
+
+| Issue | Result | Evidence |
+|---|---|---|
+| #162 | **PASS** | 49/49 checks. A VIEWER sending malformed requests (missing `If-Match`/`Idempotency-Key`, invalid bodies) to 16 mutating endpoints now gets **403** and exactly one `AUTHORIZATION_DENIED` audit row each, with the right permission (`CUSTOMER_WRITE`, `CUSTOMER_DELETE`, `PURCHASE_WRITE`, `FOLLOWUP_WRITE`, `TENANT_UPDATE`); an OPERATOR on membership and tenant-policy endpoints gets 403 (not 400); no session -> 401. Authorized callers still get validation errors **after** authorization (400 with `field`), and valid requests still succeed. AI regression: VIEWER recommendation/draft 403; OPERATOR recommendation and draft 200 `AVAILABLE` (live OpenAI, Spanish rationale). `seed-local-qa.sh --verify` 5/5 |
+| #163 | **PASS** | doctor and up name the Docker container that holds the port (`dokene-oidc-bridge-1`, `qa-port-hog`), print a hint, exit 1 and start nothing; native listeners are still detected |
+| #164 | **PASS (with caveat)** | after a failed raw `docker compose up` (bridge created with 0 networks), `./scripts/dev-env.sh up` recreates it and the stack becomes healthy. Verified using a temporary QA-only override because of #171 |
+
+### New finding (High, blocks the environment)
+[#171](https://github.com/stevdrey/dokene/issues/171): the `oidc-bridge` healthcheck added in #168 (`nslookup oidc-bridge`) fails on hosts whose DNS configuration has a search domain (here `search lan`): BusyBox `nslookup` appends the domain and gets NXDOMAIN, so `./scripts/dev-env.sh up` never succeeds (3/3, including after `down`). The probe did not exist before #168. The failing probe is also the part of #164 that detects a network-less bridge, so a fix should keep a DNS-based check (for example `nslookup oidc-bridge.` or `getent hosts oidc-bridge`) rather than a loopback-only TCP probe. To continue testing I used a QA-only Compose override kept outside the repository (replacing the healthcheck with `nc -z 127.0.0.1 8081`) through `COMPOSE_FILE`; no product file was modified.
+
+Scoped verdict: #162, #163 and #164 are fixed and verified; **#171 is open and must be fixed and retested** before the local environment can be called healthy on all hosts.
+
+---
 
 ## Verification of #159 on `main` @ `f46dc33`
 

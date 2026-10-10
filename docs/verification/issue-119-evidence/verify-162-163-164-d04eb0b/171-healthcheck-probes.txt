@@ -1,0 +1,8 @@
+#171 inside the oidc-bridge container (host resolv.conf: "search lan")
+nslookup oidc-bridge      -> exit 1  (can't find oidc-bridge.lan: NXDOMAIN)
+nslookup oidc-bridge.     -> exit 0
+nslookup keycloak.        -> exit 0
+getent hosts keycloak     -> exit 0
+nc -z 127.0.0.1 8081      -> exit 0
+wget http://127.0.0.1:8081/realms/dokene/.well-known/openid-configuration -> exit 0
+Health after 3 fresh "up" runs: oidc-bridge "Up (unhealthy)", FailingStreak growing, every probe exit code 1.
