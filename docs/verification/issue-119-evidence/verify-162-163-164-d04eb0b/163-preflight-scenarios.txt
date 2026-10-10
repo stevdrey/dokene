@@ -1,0 +1,4 @@
+#163 preflight (scripts/dev-env.sh) on Linux, Docker 29.9.0, main @ d04eb0b
+- other project's containers hold 127.0.0.1:8080 (natural scenario): doctor -> "[error] Host port 8080 is already in use by: Docker container 'dokene-oidc-bridge-1'" + hint to docker stop / docker compose -p <project> down; exit 1; up refused, 0 containers created.
+- throwaway container (qa-port-hog) holds 127.0.0.1:5173: doctor names "Docker container 'qa-port-hog'" (both ports reported in one run, "2 preflight check(s) failed; nothing was started").
+- native process (python3 http.server) on 8081: still detected ("in use by: python3 (pid ...)").

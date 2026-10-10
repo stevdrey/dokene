@@ -1,0 +1,8 @@
+Characterization of the 400-before-403 ordering (finding #162). VIEWER session, valid CSRF token, synthetic data, main @ f46dc33:
+POST   /api/customers (invalid body)                  -> 403
+POST   /api/customers (valid body)                    -> 403
+PUT    /api/customers/{id} without If-Match           -> 400
+DELETE /api/customers/{id} without If-Match           -> 400
+PUT    /api/customers/{id}/do-not-contact w/o If-Match -> 400
+POST   /api/customers/{id}/manual-follow-ups no hdrs  -> 400
+PUT    /api/follow-up-policy without If-Match         -> 400
