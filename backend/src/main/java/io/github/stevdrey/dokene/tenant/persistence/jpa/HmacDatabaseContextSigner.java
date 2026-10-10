@@ -27,6 +27,7 @@ public class HmacDatabaseContextSigner implements DatabaseContextSigner {
 
     private static final long CAPABILITY_LIFETIME_SECONDS = 60;
     private static final int NONCE_BYTES = 16;
+    private static final UUID NIL_UUID = new UUID(0L, 0L);
 
     private final Clock clock;
     private final SecureRandom secureRandom;
@@ -82,6 +83,25 @@ public class HmacDatabaseContextSigner implements DatabaseContextSigner {
                 tenantId.value(),
                 actorId.value(),
                 membershipId.value(),
+                expiresAt.getEpochSecond(),
+                HexFormat.of().formatHex(nonce)
+        );
+        return new SignedDatabaseContext(payload, sign(payload), expiresAt);
+    }
+
+    @Override
+    public SignedDatabaseContext issueProviderAuditContext(TenantId tenantId) {
+        Objects.requireNonNull(tenantId, "Tenant ID is required");
+        Instant expiresAt = clock.instant().plusSeconds(CAPABILITY_LIFETIME_SECONDS);
+        byte[] nonce = new byte[NONCE_BYTES];
+        secureRandom.nextBytes(nonce);
+        // Same seven part shape as the member audit capability; the nil UUIDs mark the absent actor and membership.
+        String payload = "%s|%s|%s|%s|%s|%d|%s".formatted(
+                "provider",
+                keyId,
+                tenantId.value(),
+                NIL_UUID,
+                NIL_UUID,
                 expiresAt.getEpochSecond(),
                 HexFormat.of().formatHex(nonce)
         );

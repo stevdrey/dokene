@@ -21,7 +21,11 @@ public record AuditEvent(
         Objects.requireNonNull(outcome, "Outcome is required");
         Objects.requireNonNull(correlationId, "Correlation ID is required");
         Objects.requireNonNull(metadata, "Metadata is required");
-        if ((tenantId == null) != (actorId == null) || (tenantId == null) != (membershipId == null)) {
+        // Provider driven delivery updates are attributed to the tenant alone (ADR 0023 §4.5).
+        boolean providerAttributed = type == AuditEventType.MESSAGE_DELIVERY_UPDATED
+                && tenantId != null && actorId == null && membershipId == null;
+        if (!providerAttributed
+                && ((tenantId == null) != (actorId == null) || (tenantId == null) != (membershipId == null))) {
             throw new IllegalArgumentException("Attribution must be complete or absent");
         }
         switch (type) {
@@ -88,6 +92,29 @@ public record AuditEvent(
                         || !(metadata instanceof AuditMetadata.AiInvocation ai)
                         || outcome != expectedOutcome(ai.outcome())) {
                     throw new IllegalArgumentException("Invalid AI invocation outcome event");
+                }
+            }
+            case MESSAGE_SUBMITTED, MESSAGE_APPROVED, MESSAGE_REJECTED, MESSAGE_CANCELLED, MESSAGE_SEND_REQUESTED,
+                    MESSAGE_SENT, MESSAGE_SEND_FAILED, MESSAGE_SEND_OUTCOME_UNKNOWN, MESSAGE_DELIVERY_UPDATED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.MESSAGE
+                        || !(metadata instanceof AuditMetadata.MessageTransition transition)
+                        || (transition.from() == null) != (type == AuditEventType.MESSAGE_SUBMITTED)) {
+                    throw new IllegalArgumentException("Invalid message transition event");
+                }
+            }
+            case TEMPLATE_MAPPING_UPDATED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.TEMPLATE_MAPPING
+                        || !(metadata instanceof AuditMetadata.IntegrationToggle)) {
+                    throw new IllegalArgumentException("Invalid template mapping event");
+                }
+            }
+            case INTEGRATION_UPDATED, OUTBOUND_KILL_SWITCH_CHANGED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.INTEGRATION
+                        || !(metadata instanceof AuditMetadata.IntegrationToggle)) {
+                    throw new IllegalArgumentException("Invalid integration event");
                 }
             }
         }

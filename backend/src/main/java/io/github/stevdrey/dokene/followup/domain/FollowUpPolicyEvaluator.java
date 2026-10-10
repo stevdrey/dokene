@@ -62,15 +62,16 @@ public final class FollowUpPolicyEvaluator {
             LocalDate lastActionDate = null;
             FollowUpTimingSource actionSource = null;
 
-            LocalDate manualDate = customerPolicy.lastManualFollowUpDate();
-            LocalDate dismissedDate = customerPolicy.lastDismissedDate();
-
-            if (manualDate != null && (dismissedDate == null || !manualDate.isBefore(dismissedDate))) {
-                lastActionDate = manualDate;
-                actionSource = FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP;
-            } else if (dismissedDate != null) {
-                lastActionDate = dismissedDate;
-                actionSource = FollowUpTimingSource.LAST_DISMISSAL;
+            // Latest of the three action dates; on a tie the earlier source in this order wins.
+            LocalDate[] actionDates = {customerPolicy.lastManualFollowUpDate(), customerPolicy.lastDismissedDate(),
+                    customerPolicy.lastOutboundMessageDate()};
+            FollowUpTimingSource[] actionSources = {FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP,
+                    FollowUpTimingSource.LAST_DISMISSAL, FollowUpTimingSource.LAST_OUTBOUND_MESSAGE};
+            for (int i = 0; i < actionDates.length; i++) {
+                if (actionDates[i] != null && (lastActionDate == null || actionDates[i].isAfter(lastActionDate))) {
+                    lastActionDate = actionDates[i];
+                    actionSource = actionSources[i];
+                }
             }
 
             LocalDate anchorDate;

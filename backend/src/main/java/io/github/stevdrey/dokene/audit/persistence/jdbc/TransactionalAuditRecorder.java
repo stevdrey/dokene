@@ -16,10 +16,12 @@ import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -139,6 +141,36 @@ class TransactionalAuditRecorder implements AuditRecorder {
         append(context, event(context, AuditEventType.AI_INVOCATION_OUTCOME,
                 new AuditTarget(AuditTarget.Type.CUSTOMER, customerId), auditOutcome,
                 new AuditMetadata.AiInvocation(operation, outcome, detail)), independent);
+    }
+
+    @Override
+    public void messageTransition(UUID messageId, AuditEventType eventType,
+            AuditMetadata.MessageTransition metadata) {
+        if (!eventType.isMessageTransition() || eventType == AuditEventType.MESSAGE_DELIVERY_UPDATED) {
+            throw new IllegalArgumentException("Unsupported message audit event");
+        }
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, eventType, new AuditTarget(AuditTarget.Type.MESSAGE, messageId),
+                AuditOutcome.SUCCESS, metadata), mandatory);
+    }
+
+    @Override
+    public void messageDeliveryUpdated(TenantId tenantId, UUID messageId,
+            AuditMetadata.MessageTransition metadata) {
+        Objects.requireNonNull(tenantId, "Tenant id is required");
+        if (contexts.current().isPresent()) {
+            throw new IllegalStateException("Provider attributed audit cannot run under a member context");
+        }
+        AuditEvent event = new AuditEvent(UUID.randomUUID(), clock.instant(), tenantId, null, null,
+                AuditEventType.MESSAGE_DELIVERY_UPDATED, new AuditTarget(AuditTarget.Type.MESSAGE, messageId),
+                AuditOutcome.SUCCESS, execution.requireCurrent(), metadata);
+        SignedDatabaseContext capability = signer.issueProviderAuditContext(tenantId);
+        try {
+            mandatory.executeWithoutResult(status -> store.append(event, capability));
+        } catch (RuntimeException exception) {
+            log.error("Audit persistence failed; correlationId={}", event.correlationId());
+            throw new AuditPersistenceException();
+        }
     }
 
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,

@@ -155,4 +155,71 @@ class AuditEventTest {
         return new AuditEvent(UUID.randomUUID(), timestamp, tenant, actor, membership, AuditEventType.AUTHORIZATION_DENIED,
                 null, AuditOutcome.DENIED, correlation, new AuditMetadata.AuthorizationDenied(null, AuditDenialReason.NO_TENANT_CONTEXT));
     }
+
+    @Test
+    void messageTransitionEventsRequireAMessageTargetClosedMetadataAndAMatchingSourceStatus() {
+        TenantId tenantId = new TenantId(UUID.randomUUID());
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        TenantMembershipId membershipId = new TenantMembershipId(UUID.randomUUID());
+        AuditTarget message = new AuditTarget(AuditTarget.Type.MESSAGE, UUID.randomUUID());
+        var approved = new AuditMetadata.MessageTransition(AuditMessageStatus.PENDING_APPROVAL,
+                AuditMessageStatus.APPROVED, null, null);
+
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.MESSAGE_APPROVED, message, AuditOutcome.SUCCESS, UUID.randomUUID(), approved))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.MESSAGE_SUBMITTED, message, AuditOutcome.SUCCESS, UUID.randomUUID(), approved))
+                .as("submitted has no source status").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.MESSAGE_APPROVED, new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), approved))
+                .as("target must be the message").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.MESSAGE_APPROVED, message, AuditOutcome.DENIED, UUID.randomUUID(), approved))
+                .as("transitions are successes").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.MESSAGE_APPROVED, message, AuditOutcome.SUCCESS, UUID.randomUUID(),
+                new AuditMetadata.IntegrationToggle(true)))
+                .as("metadata must be a transition").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void onlyDeliveryUpdatesMayBeAttributedToTheTenantAlone() {
+        TenantId tenantId = new TenantId(UUID.randomUUID());
+        AuditTarget message = new AuditTarget(AuditTarget.Type.MESSAGE, UUID.randomUUID());
+        var delivered = new AuditMetadata.MessageTransition(AuditMessageStatus.SENT, AuditMessageStatus.DELIVERED,
+                null, null);
+
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, null, null,
+                AuditEventType.MESSAGE_DELIVERY_UPDATED, message, AuditOutcome.SUCCESS, UUID.randomUUID(), delivered))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, null, null,
+                AuditEventType.MESSAGE_SENT, message, AuditOutcome.SUCCESS, UUID.randomUUID(),
+                new AuditMetadata.MessageTransition(AuditMessageStatus.SENDING, AuditMessageStatus.SENT, null, 1)))
+                .as("a member transition needs full attribution").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), null, null, null,
+                AuditEventType.MESSAGE_DELIVERY_UPDATED, message, AuditOutcome.SUCCESS, UUID.randomUUID(), delivered))
+                .as("the tenant is still required").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void integrationAndTemplateMappingEventsCarryOnlyTheToggle() {
+        TenantId tenantId = new TenantId(UUID.randomUUID());
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        TenantMembershipId membershipId = new TenantMembershipId(UUID.randomUUID());
+
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.TEMPLATE_MAPPING_UPDATED, new AuditTarget(AuditTarget.Type.TEMPLATE_MAPPING, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.IntegrationToggle(false)))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.OUTBOUND_KILL_SWITCH_CHANGED, new AuditTarget(AuditTarget.Type.INTEGRATION, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.IntegrationToggle(true)))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.INTEGRATION_UPDATED, new AuditTarget(AuditTarget.Type.TEMPLATE_MAPPING, UUID.randomUUID()),
+                AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.IntegrationToggle(true)))
+                .as("integration events target an integration").isInstanceOf(IllegalArgumentException.class);
+    }
 }
