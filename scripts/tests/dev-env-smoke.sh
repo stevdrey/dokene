@@ -50,6 +50,8 @@ assert "network_mode" not in bridge, "bridge must own its namespace"
 assert any(p.get("published") == "8080" for p in bridge.get("ports", [])), "bridge must publish 8080"
 assert not backend.get("ports"), "backend must not publish ports itself"
 assert "backend" in bridge["networks"]["default"]["aliases"], "bridge must carry the backend alias"
+assert "nslookup keycloak" in " ".join(bridge["healthcheck"]["test"]), "bridge must health-check name resolution"
+assert backend["depends_on"]["oidc-bridge"]["condition"] == "service_healthy", "backend must wait for a healthy bridge"
 ' <<<"$json"
 }
 check "compose: backend joins the oidc-bridge namespace (topology from #155)" topology_is_inverted
@@ -99,6 +101,15 @@ published_mapping_parsing() {
 }
 check "published mappings: TCP only, ranges honoured" \
   bash -c "$(declare -f published_mapping_parsing) ; SCRIPT='$SCRIPT'; published_mapping_parsing"
+
+networkless_detection() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  [ "$(printf '/dokene-oidc-bridge-1\t0\n' | networkless_containers)" = "/dokene-oidc-bridge-1" ] \
+    && [ -z "$(printf '/dokene-oidc-bridge-1\t1\n' | networkless_containers)" ]
+}
+check "a bridge attached to no network is detected (#164)" \
+  bash -c "$(declare -f networkless_detection) ; SCRIPT='$SCRIPT'; networkless_detection"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2

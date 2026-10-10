@@ -110,6 +110,15 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
+    # A bridge that failed to attach to the Compose network (e.g. an earlier `up` died on a port bind error and left
+    # the container created but network-less) listens fine yet cannot resolve `keycloak`. Resolving it makes that
+    # state fail fast instead of surfacing as a backend timeout.
+    healthcheck:
+      test: ["CMD-SHELL", "nslookup keycloak >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
     depends_on:
       keycloak:
         condition: service_healthy
@@ -124,7 +133,7 @@ services:
     network_mode: "service:oidc-bridge"
     depends_on:
       oidc-bridge:
-        condition: service_started
+        condition: service_healthy
       postgres:
         condition: service_healthy
       keycloak:
