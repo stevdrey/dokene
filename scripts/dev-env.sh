@@ -287,8 +287,8 @@ check_env() {
 }
 
 check_ports() {
-  local ports="$FRONTEND_PORT $BACKEND_PORT $(env_get KEYCLOAK_PORT) $(env_get DOKENE_DB_HOST_PORT)"
-  local port listener
+  local ports port listener
+  ports="$FRONTEND_PORT $BACKEND_PORT $(env_get KEYCLOAK_PORT) $(env_get DOKENE_DB_HOST_PORT)"
   [ -z "$(env_get KEYCLOAK_PORT)" ] && ports="$FRONTEND_PORT $BACKEND_PORT 8081 $(env_get DOKENE_DB_HOST_PORT)"
   [ -z "$(env_get DOKENE_DB_HOST_PORT)" ] && ports="$ports 5432"
   if [ "${INFRA_ONLY:-false}" = "true" ]; then
@@ -432,9 +432,10 @@ compose_up_services() {
   local no_build="$1" extra="$2" build_flag="--build"
   shift 2
   [ "$no_build" = "true" ] && build_flag=""
-  # shellcheck disable=SC2086
   local log status
   log="$(mktemp)"
+  # $build_flag and $extra are intentionally word-split: either may be empty or hold several flags.
+  # shellcheck disable=SC2086
   compose up -d $build_flag $extra --wait --wait-timeout "$WAIT_TIMEOUT" "$@" 2>&1 | tee "$log"
   status="${PIPESTATUS[0]}"
   if [ "$status" -ne 0 ]; then
@@ -571,6 +572,8 @@ cmd_doctor() {
 # Entry point
 # ------------------------------------------------------------------------------
 # Sourcing the file (smoke tests) defines the functions without running a command.
+# `return` only succeeds when sourced; `|| true` keeps a direct run going, which ShellCheck reads as unreachable.
+# shellcheck disable=SC2317
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || true; fi
 command="${1:-help}"
 [ $# -gt 0 ] && shift
