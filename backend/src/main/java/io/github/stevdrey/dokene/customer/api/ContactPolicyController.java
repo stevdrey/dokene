@@ -12,6 +12,8 @@ import io.github.stevdrey.dokene.customer.domain.ContactPolicy;
 import io.github.stevdrey.dokene.customer.domain.ContactPolicyEvent;
 import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +41,7 @@ public class ContactPolicyController {
         return response(policies.get(new CustomerId(customerId)));
     }
 
+    @RequiredPermission(TenantPermission.CUSTOMER_WRITE)
     @PutMapping("/contacts/{contactId}/consents/{channel}")
     public ResponseEntity<ContactPolicyResponse> changeConsent(@PathVariable UUID customerId,
             @PathVariable UUID contactId, @PathVariable ContactChannel channel,
@@ -51,6 +54,7 @@ public class ContactPolicyController {
                 request.status(), request.source(), parseVersion(ifMatch)));
     }
 
+    @RequiredPermission(TenantPermission.CUSTOMER_WRITE)
     @PutMapping("/do-not-contact")
     public ResponseEntity<ContactPolicyResponse> changeDoNotContact(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch, @RequestBody DoNotContactRequest request) {

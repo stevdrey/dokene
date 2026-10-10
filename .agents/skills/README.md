@@ -6,6 +6,7 @@ These skills are intentionally provider-neutral and reusable. Use the smallest r
 | --- | --- |
 | `agent-task-workflow` | Scoping implementation work, preparing execution plans, reviewing PRs, or checking completion criteria. |
 | `backend-java-spring` | Implementing or reviewing Java 26, Spring Boot, persistence, API, security, integration, or backend tests. |
+| `create-pull-request` | Creating, drafting, publishing, or updating PR titles and descriptions, including the required `[Issue-<number>]` prefix. |
 | `frontend-react-typescript` | Implementing or reviewing React, TypeScript, UI state, API integration, accessibility, browser security, or frontend tests. |
 
 ## Combination Examples
@@ -20,7 +21,9 @@ A frontend feature usually uses:
 - `agent-task-workflow`;
 - `frontend-react-typescript`.
 
-A full-stack feature normally uses all three skills.
+A full-stack feature normally uses all three implementation skills.
+
+When preparing or publishing any pull request, additionally load `create-pull-request` to apply the canonical PR title and description format.
 
 ## Canonical Location
 

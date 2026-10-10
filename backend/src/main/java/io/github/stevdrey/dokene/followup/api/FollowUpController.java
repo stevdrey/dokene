@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -42,7 +43,6 @@ import java.time.Duration;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationRateLimiter;
@@ -56,7 +56,6 @@ public class FollowUpController {
     private final FollowUpDraftService drafts;
     private final TenantContextProvider contexts;
     private final FollowUpRecommendationRateLimiter rateLimiter;
-    private final TenantAuthorizationService authorization;
 
     @org.springframework.beans.factory.annotation.Autowired
     public FollowUpController(
@@ -64,23 +63,12 @@ public class FollowUpController {
             FollowUpRecommendationService recommendations,
             FollowUpDraftService drafts,
             TenantContextProvider contexts,
-            FollowUpRecommendationRateLimiter rateLimiter,
-            TenantAuthorizationService authorization) {
+            FollowUpRecommendationRateLimiter rateLimiter) {
         this.followUps = followUps;
         this.recommendations = recommendations;
         this.drafts = drafts;
         this.contexts = contexts;
         this.rateLimiter = rateLimiter;
-        this.authorization = authorization;
-    }
-
-    public FollowUpController(
-            FollowUpService followUps,
-            FollowUpRecommendationService recommendations,
-            TenantContextProvider contexts,
-            FollowUpRecommendationRateLimiter rateLimiter,
-            TenantAuthorizationService authorization) {
-        this(followUps, recommendations, null, contexts, rateLimiter, authorization);
     }
 
     public FollowUpController(
@@ -88,11 +76,11 @@ public class FollowUpController {
             FollowUpRecommendationService recommendations,
             TenantContextProvider contexts,
             FollowUpRecommendationRateLimiter rateLimiter) {
-        this(followUps, recommendations, null, contexts, rateLimiter, null);
+        this(followUps, recommendations, null, contexts, rateLimiter);
     }
 
     public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations, FollowUpDraftService drafts) {
-        this(followUps, recommendations, drafts, null, null, null);
+        this(followUps, recommendations, drafts, null, null);
     }
 
     public FollowUpController(FollowUpService followUps, FollowUpRecommendationService recommendations) {
@@ -109,6 +97,7 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @RequiredPermission(TenantPermission.TENANT_UPDATE)
     @PutMapping("/follow-up-policy")
     public ResponseEntity<TenantPolicyResponse> configureTenant(@RequestHeader("If-Match") String ifMatch,
             @RequestBody TenantPolicyRequest request) {
@@ -125,6 +114,7 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PutMapping("/customers/{customerId}/follow-up-policy")
     public ResponseEntity<CustomerPolicyResponse> configureCustomer(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
@@ -160,6 +150,7 @@ public class FollowUpController {
         return response(followUps.evaluate(new CustomerId(customerId)));
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PostMapping("/customers/{customerId}/manual-follow-ups")
     public ResponseEntity<ManualFollowUpResponse> recordManualFollowUp(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
@@ -177,6 +168,7 @@ public class FollowUpController {
                 .eTag(etag(completion.policyVersion())).body(response);
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PostMapping("/customers/{customerId}/follow-up-dismissals")
     public ResponseEntity<DismissalResponse> dismiss(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch,
@@ -194,6 +186,7 @@ public class FollowUpController {
                 .eTag(etag(dismissal.policyVersion())).body(response);
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
     @PutMapping("/customers/{customerId}/follow-up-snooze")
     public ResponseEntity<CustomerPolicyResponse> snooze(@PathVariable UUID customerId,
             @RequestHeader("If-Match") String ifMatch, @RequestBody SnoozeRequest request) {
@@ -202,6 +195,7 @@ public class FollowUpController {
         return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
     }
 
+    @RequiredPermission(TenantPermission.FOLLOWUP_EVALUATE)
     @PostMapping({"/customers/{customerId}/recommendation", "/customers/{customerId}/follow-up-recommendation"})
     public ResponseEntity<RecommendationResponse> requestRecommendation(
             @PathVariable UUID customerId,
@@ -209,9 +203,6 @@ public class FollowUpController {
             @RequestBody(required = false) RecommendationRequest request) {
         if (recommendations == null) {
             throw new IllegalStateException("Recommendation service is not configured");
-        }
-        if (authorization != null) {
-            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
         Duration timeout = null;
@@ -361,6 +352,7 @@ public class FollowUpController {
             AiUnavailableReason unavailableReason,
             boolean retryable) { }
 
+    @RequiredPermission({TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE})
     @PostMapping({"/customers/{customerId}/draft", "/customers/{customerId}/follow-up-draft"})
     public ResponseEntity<DraftResponse> requestDraft(
             @PathVariable UUID customerId,
@@ -368,10 +360,6 @@ public class FollowUpController {
             @RequestBody(required = false) DraftRequest request) {
         if (drafts == null) {
             throw new IllegalStateException("Draft service is not configured");
-        }
-        if (authorization != null) {
-            authorization.requirePermission(TenantPermission.MESSAGE_DRAFT);
-            authorization.requirePermission(TenantPermission.FOLLOWUP_EVALUATE);
         }
         Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
         Duration timeout = null;

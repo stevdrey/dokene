@@ -8,6 +8,8 @@ import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseEvent;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -31,6 +33,7 @@ public class PurchaseController {
 
     public PurchaseController(PurchaseService service) { this.service = service; }
 
+    @RequiredPermission(TenantPermission.PURCHASE_WRITE)
     @PostMapping
     public ResponseEntity<PurchaseResponse> record(@PathVariable UUID customerId,
             @RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody PurchaseRequest request) {
@@ -62,6 +65,7 @@ public class PurchaseController {
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
+    @RequiredPermission(TenantPermission.PURCHASE_WRITE)
     @PutMapping("/{purchaseId}")
     public ResponseEntity<PurchaseResponse> correct(@PathVariable UUID customerId, @PathVariable UUID purchaseId,
             @RequestHeader("If-Match") String ifMatch, @RequestBody PurchaseRequest request) {
@@ -70,6 +74,7 @@ public class PurchaseController {
                 request.purchasedAt(), request.description(), parseVersion(ifMatch)));
     }
 
+    @RequiredPermission(TenantPermission.PURCHASE_WRITE)
     @DeleteMapping("/{purchaseId}")
     public ResponseEntity<Void> voidPurchase(@PathVariable UUID customerId, @PathVariable UUID purchaseId,
             @RequestHeader("If-Match") String ifMatch) {

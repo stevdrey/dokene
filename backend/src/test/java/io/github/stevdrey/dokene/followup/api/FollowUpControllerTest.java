@@ -501,22 +501,6 @@ class FollowUpControllerTest {
     }
 
     @Test
-    void requestRecommendationRejectsUnauthorizedCallerWithoutInvokingService() throws Exception {
-        var authorization = mock(io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService.class);
-        org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("Forbidden"))
-                .when(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.FOLLOWUP_EVALUATE);
-
-        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, null, null, authorization))
-                .setControllerAdvice(new FollowUpExceptionHandler()).build();
-
-        customMvc.perform(post("/api/customers/{id}/recommendation", customerId))
-                .andExpect(status().isForbidden());
-
-        verify(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.FOLLOWUP_EVALUATE);
-        verifyNoInteractions(recommendations);
-    }
-
-    @Test
     void requestRecommendationRejectsNonpositiveTimeoutWithBadRequest() throws Exception {
         mvc.perform(post("/api/customers/{id}/recommendation", customerId)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -638,22 +622,6 @@ class FollowUpControllerTest {
         mvc.perform(post("/api/customers/{id}/draft", customerId)
                 .header("If-Match", "\"1\""))
                 .andExpect(status().isConflict());
-    }
-
-    @Test
-    void generateDraftRejectsUnauthorizedCallerWithoutInvokingService() throws Exception {
-        var authorization = mock(io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService.class);
-        org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException("Forbidden"))
-                .when(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.MESSAGE_DRAFT);
-
-        MockMvc customMvc = MockMvcBuilders.standaloneSetup(new FollowUpController(service, recommendations, drafts, null, null, authorization))
-                .setControllerAdvice(new FollowUpExceptionHandler()).build();
-
-        customMvc.perform(post("/api/customers/{id}/draft", customerId))
-                .andExpect(status().isForbidden());
-
-        verify(authorization).requirePermission(io.github.stevdrey.dokene.tenant.domain.TenantPermission.MESSAGE_DRAFT);
-        verifyNoInteractions(drafts);
     }
 
     private FollowUpEvaluation testEvaluation(FollowUpStatus status) {
