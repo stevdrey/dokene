@@ -4,6 +4,8 @@
 #
 # Usage: ./scripts/tests/dev-env-smoke.sh
 set -uo pipefail
+# Test stubs (docker, have, warn, compose) shadow functions the sourced dev-env.sh calls; ShellCheck cannot see that.
+# shellcheck disable=SC2329
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/dev-env.sh"
@@ -30,11 +32,23 @@ check "help lists restart-backend" help_lists_restart_backend
 check "help prints only the header comment" help_has_no_code_leak
 check "unknown command exits 2" unknown_command_fails
 check "restart-backend rejects unknown options" restart_backend_rejects_unknown_option
-shellcheck_is_clean() { (cd "$ROOT_DIR" && shellcheck -x scripts/dev-env.sh scripts/tests/dev-env-smoke.sh); }
-if command -v shellcheck >/dev/null 2>&1; then
-  check "dev-env.sh and its smoke test are ShellCheck-clean" shellcheck_is_clean
+# Scripts that are ShellCheck-clean today. The scripts/verify-issue-*.sh helpers still carry findings and are not listed.
+shellcheck_targets=(
+  scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
+  infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
+)
+shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
+shellcheck_version="$(shellcheck --version 2>/dev/null | sed -n 's/^version: //p')"
+if [ -n "$shellcheck_version" ] \
+   && [ "$(printf '%s\n%s\n' "$shellcheck_min_version" "$shellcheck_version" | sort -V | head -n 1)" = "$shellcheck_min_version" ]; then
+  if shellcheck_output="$(cd "$ROOT_DIR" && shellcheck -x "${shellcheck_targets[@]}" 2>&1)"; then
+    printf '[pass] %s\n' "shell scripts are ShellCheck-clean"
+  else
+    printf '[FAIL] %s\n%s\n' "shell scripts are ShellCheck-clean" "$shellcheck_output" >&2
+    failures=$((failures + 1))
+  fi
 else
-  printf '[skip] ShellCheck not installed\n'
+  printf '[skip] ShellCheck >= %s not installed\n' "$shellcheck_min_version"
 fi
 check "dev-env.sh and entrypoint.sh are valid bash" bash -c "bash -n '$SCRIPT' && bash -n '$ROOT_DIR/infra/docker/backend/entrypoint.sh'"
 
@@ -72,7 +86,6 @@ port_detection_is_privilege_free() {
   port_in_use "$port" && return 1   # free before the listener starts
   python3 -I -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(); time.sleep(30)' "$port" &
   pid=$!
-  local _
   for _ in 1 2 3 4 5 6 7 8 9 10; do port_in_use "$port" && break; sleep 0.2; done
   local used=1
   port_in_use "$port" && used=0
@@ -85,8 +98,6 @@ docker_mapping_counts_as_occupancy() {
   # userland-proxy=false: Docker publishes via NAT and no socket listens, but the mapping still blocks the port.
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
-  # The stubs below shadow functions that the sourced dev-env.sh calls; ShellCheck cannot see that.
-  # shellcheck disable=SC2329
   docker() { printf 'other-project-web\t127.0.0.1:%s->8080/tcp\n' "$FAKE_PORT"; }
   have() { [ "$1" = "docker" ]; }
   FAKE_PORT=45999
@@ -126,8 +137,6 @@ repair_removes_only_broken_bridge() {
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
   CALLS=""
-  # The stubs below shadow functions that the sourced dev-env.sh calls; ShellCheck cannot see that.
-  # shellcheck disable=SC2329
   warn() { :; }
   compose() { if [ "$1" = "ps" ]; then echo "${FAKE_ID:-}"; else CALLS="$CALLS|$*"; fi; }
   docker() { printf '/dokene-oidc-bridge-1\t%s\n' "$FAKE_STATE"; }
@@ -144,8 +153,6 @@ discard_removes_created_services() {
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
   CALLS=""
-  # The stubs below shadow functions that the sourced dev-env.sh calls; ShellCheck cannot see that.
-  # shellcheck disable=SC2329
   warn() { :; }
   compose() { if [ "$1" = "ps" ]; then printf '%s' "$FAKE_STALE"; else CALLS="$CALLS|$*"; fi; }
   FAKE_STALE=$'backend\noidc-bridge'; discard_unstarted_containers
