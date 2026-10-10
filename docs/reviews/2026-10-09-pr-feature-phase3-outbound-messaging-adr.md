@@ -4,7 +4,7 @@ Written by `/document pr` from the branch diff against `origin/main`. The review
 
 ## Title
 
-[Messaging][Phase 3] Add the message data model and state machine (spec 0001)
+[Issue-133] [Messaging][Phase 3] Add the message data model and state machine (spec 0001)
 
 ## Body
 
@@ -32,18 +32,19 @@ The 2026-10-09 amendment (AC-13 and AC-14) came out of the fresh model review in
 
 **Application**
 - `OutboundMessageCommandService`: lock order is advisory idempotency lock, then customer row, then message row. Guards for T1 and T2 run at execution time (customer active, no do not contact, consent on the exact contact and channel, follow up `DUE` or `OVERDUE`, policy version, body safety, template mapping, no open message). Approve additionally refuses `CONTACT_NOT_OWNED` when the contact was removed after submit (amendment).
+- Submit, approve, reject and cancel refuse U+0000 in the body and in notes with `INVALID_INPUT` before any lock, as the customer module does for names and notes, instead of failing at the Postgres insert (Codex review).
 - Idempotency replay returns the stored message plus child record with `created=false` and writes nothing. Same key with a different fingerprint is refused with `IDEMPOTENCY_KEY_REUSED`.
 - `DefaultDeliveryStatusSink`: looks up by `(tenant, providerMessageId)`, refuses without a `ProviderContext` or with a member context, calls the follow up touch recorder when a report lands on `SENT`.
 - Ports for later features: `MessagingProvider`, `DeliveryStatusSink`, `TemplateMappingGate` with a fail closed stub driven by `dokene.messaging.template-gate.stub.enabled-intents`.
 
 **Cross module**
 - `audit`: `DurableMessageAuditAdapter`, the provider audit capability in `TransactionalAuditRecorder`, new event types and metadata.
-- `followup`: `FollowUpTouchRecorder.recordOutboundMessage` sets the tenant local date anchor and clears snooze and explicit next date. The repository upsert uses `GREATEST` so the anchor never moves backwards (amendment). The evaluator treats `LAST_OUTBOUND_MESSAGE` as a fourth cadence anchor.
+- `followup`: `FollowUpTouchRecorder.recordOutboundMessage` sets the tenant local date anchor and clears snooze and explicit next date. The repository upsert uses `GREATEST` so the anchor never moves backwards (amendment). The evaluator treats `LAST_OUTBOUND_MESSAGE` as a fourth cadence anchor. `configureCustomer` now takes the customer row lock like the other policy writers, so a policy change cannot overtake a messaging command that evaluated the policy under that lock (Codex review).
 - `tenant`: `ProviderContext` and `ScopedValueProviderContextProvider`, plus the signer's provider capability.
 - `ModuleDependencyArchitectureTest` (ArchUnit): upstream modules may not depend on `messaging`, and `messaging.domain` may not depend on Spring or JDBC. A fixture proves the rule actually fires.
 
 **Docs and housekeeping**
-- ADR 0023, spec 0001 (index, rationale, verify), the scope under `docs/scope/`, the fresh model review, security invariant 24, wiki pages for messaging and architecture.
+- ADR 0023, spec 0001 (index, rationale, verify), the scope under `docs/scope/`, the fresh model review, wiki pages for messaging and architecture. Security invariant 24 is narrowed to what the code does: T1, T2 and T6 re-check the guards, T3 to T5 check only state and version, and T7 plus non applied reports write an event row but no audit row.
 - `.gitignore` rules for local tooling (`.pnpm-store/`, `compose.override.yaml`, `frontend/pnpm-lock.yaml`). `CLAUDE.md` is now a thin pointer to `AGENTS.md`. ArchUnit added to the test classpath.
 
 ## How to test / verify
@@ -56,6 +57,7 @@ All steps run against the Testcontainers Postgres the backend tests start. Docke
 - `./gradlew test --tests 'io.github.stevdrey.dokene.tenant.security.TenantIsolationSecurityIntegrationTest' --tests 'io.github.stevdrey.dokene.tenant.persistence.jpa.TenantPersistenceIntegrationTest'` checks RLS, policies and grants on all six tables and cross tenant reads (AC-1, AC-8).
 - `./gradlew test --tests 'io.github.stevdrey.dokene.architecture.ModuleDependencyArchitectureTest'` for AC-11, `./gradlew test --tests 'io.github.stevdrey.dokene.followup.*'` for AC-9.
 - The full checklist with expected outcomes per step is in `docs/specs/0001-message-data-model-and-state-machine/verify.md`.
+- **CI on `79c601d`:** `test`, `dependency-check`, CodeQL (Java and TypeScript), Gitleaks and Trivy all passed. An earlier run failed on one assertion that compared a nanosecond instant with the microsecond value Postgres stores; fixed in `73ecf4e`.
 
 ## Risk & rollout
 
@@ -73,3 +75,6 @@ Accepted residual risks, recorded in the spec and scope:
 - The report time bound lives in the domain method, not at the webhook edge, so feature 8 cannot forget it and feature 3's local provider is covered too. The touch recorder's `GREATEST` is a second, independent guard because dispositions and purchases also write that anchor.
 - Lock order is the same in the command service and the sink. Worth a look that nothing acquires the message lock before the customer lock.
 - `CommandResult.record` is `Optional<Object>`. A sealed record type would be cleaner for feature 2; left as is to keep this slice small.
+- Issue #133 still describes message "revisions". ADR 0023 replaced that with an immutable message whose approval binds the exact stored body and version, which this PR implements. The issue's retention protections for message bodies are not in spec 0001 and remain open, so this PR does not close it.
+
+Part of #133 (work item A2 of #130).
