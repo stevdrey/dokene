@@ -52,18 +52,24 @@ else
 fi
 check "dev-env.sh and entrypoint.sh are valid bash" bash -c "bash -n '$SCRIPT' && bash -n '$ROOT_DIR/infra/docker/backend/entrypoint.sh'"
 
-topology_is_inverted() {
+# Render the Compose model with throwaway values for the required variables (no daemon or containers needed).
+compose_config_json() {
   local -a env_vars=()
-  local v json=""
+  local v
   for v in DOKENE_DB_NAME DOKENE_DB_BOOTSTRAP_USERNAME DOKENE_DB_BOOTSTRAP_PASSWORD DOKENE_DB_PASSWORD \
            DOKENE_DB_RUNTIME_PASSWORD DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY \
            KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD \
            SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET; do
     env_vars+=("$v=unused")
   done
-  json="$(cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose config --format json)" || return 1
+  (cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose config --format json)
+}
+
+topology_is_inverted() {
+  local json=""
+  json="$(compose_config_json)" || return 1
   python3 -I -c '
-import json, sys
+import json, re, sys
 s = json.load(sys.stdin)["services"]
 bridge, backend = s["oidc-bridge"], s["backend"]
 assert backend["network_mode"] == "service:oidc-bridge", "backend must join the bridge namespace"
@@ -71,11 +77,38 @@ assert "network_mode" not in bridge, "bridge must own its namespace"
 assert any(p.get("published") == "8080" for p in bridge.get("ports", [])), "bridge must publish 8080"
 assert not backend.get("ports"), "backend must not publish ports itself"
 assert "backend" in bridge["networks"]["default"]["aliases"], "bridge must carry the backend alias"
-assert "nslookup oidc-bridge. " in " ".join(bridge["healthcheck"]["test"]), "bridge must health-check name resolution with an absolute name (#171)"
+assert re.search(r"nslookup\s+oidc-bridge\.(\s|$)", " ".join(bridge["healthcheck"]["test"])), \
+    "bridge must health-check name resolution with an absolute name (#171)"
 assert backend["depends_on"]["oidc-bridge"]["condition"] == "service_healthy", "backend must wait for a healthy bridge"
 ' <<<"$json"
 }
 check "compose: backend joins the oidc-bridge namespace (topology from #155)" topology_is_inverted
+
+# Runs the real healthcheck command in a container whose resolver has a search domain. Needs a Docker daemon.
+healthcheck_survives_search_domain() {
+  local json image probe net="dokene-smoke-$$" ctr="dokene-smoke-$$-bridge" rc=1
+  json="$(compose_config_json)" || return 1
+  image="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["services"]["oidc-bridge"]["image"])' <<<"$json")" || return 1
+  probe="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["services"]["oidc-bridge"]["healthcheck"]["test"][1])' <<<"$json")" || return 1
+  docker network create "$net" >/dev/null || return 1
+  # The container is named like the service so that the probe resolves it through the network's embedded DNS.
+  if docker run -d --rm --name "$ctr" --network "$net" --network-alias oidc-bridge --dns-search lan \
+       --entrypoint sleep "$image" 60 >/dev/null; then
+    # The relative form must fail here (proves the setup reproduces #171); the shipped probe must pass.
+    if ! docker exec "$ctr" sh -c 'nslookup oidc-bridge >/dev/null 2>&1' \
+       && docker exec "$ctr" sh -c "$probe"; then
+      rc=0
+    fi
+  fi
+  docker rm -f "$ctr" >/dev/null 2>&1
+  docker network rm "$net" >/dev/null 2>&1
+  return $rc
+}
+if docker info >/dev/null 2>&1; then
+  check "oidc-bridge healthcheck passes with a DNS search domain (#171)" healthcheck_survives_search_domain
+else
+  printf '[skip] oidc-bridge healthcheck passes with a DNS search domain (#171): no Docker daemon\n'
+fi
 
 port_detection_is_privilege_free() {
   # Sourcing defines the functions without running a command.
