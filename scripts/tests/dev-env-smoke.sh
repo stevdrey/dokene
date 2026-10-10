@@ -71,7 +71,7 @@ assert "network_mode" not in bridge, "bridge must own its namespace"
 assert any(p.get("published") == "8080" for p in bridge.get("ports", [])), "bridge must publish 8080"
 assert not backend.get("ports"), "backend must not publish ports itself"
 assert "backend" in bridge["networks"]["default"]["aliases"], "bridge must carry the backend alias"
-assert "nslookup oidc-bridge" in " ".join(bridge["healthcheck"]["test"]), "bridge must health-check name resolution"
+assert "nslookup oidc-bridge. " in " ".join(bridge["healthcheck"]["test"]), "bridge must health-check name resolution with an absolute name (#171)"
 assert backend["depends_on"]["oidc-bridge"]["condition"] == "service_healthy", "backend must wait for a healthy bridge"
 ' <<<"$json"
 }
