@@ -24,11 +24,26 @@ public class RequiredPermissionInterceptor implements HandlerInterceptor {
         if (handler instanceof HandlerMethod method) {
             RequiredPermission required = method.getMethodAnnotation(RequiredPermission.class);
             if (required != null) {
-                for (TenantPermission permission : required.value()) {
-                    authorization.requirePermission(permission);
+                if (required.anyOf()) {
+                    requireAnyOf(required.value());
+                } else {
+                    for (TenantPermission permission : required.value()) {
+                        authorization.requirePermission(permission);
+                    }
                 }
             }
         }
         return true;
+    }
+
+    private void requireAnyOf(TenantPermission[] permissions) {
+        for (TenantPermission permission : permissions) {
+            if (authorization.evaluate(permission).isAllowed()) {
+                return;
+            }
+        }
+        if (permissions.length > 0) {
+            authorization.requirePermission(permissions[0]);
+        }
     }
 }

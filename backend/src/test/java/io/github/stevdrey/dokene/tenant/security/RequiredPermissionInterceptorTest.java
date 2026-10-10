@@ -2,13 +2,17 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
+import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
@@ -72,6 +76,45 @@ class RequiredPermissionInterceptorTest {
         verifyNoMoreInteractions(authorization);
     }
 
+    @Test
+    void anyOfPassesOnTheFirstPermissionHeldWithoutAuditing() throws Exception {
+        when(authorization.evaluate(TenantPermission.MESSAGE_APPROVE)).thenReturn(AuthorizationDecision.deny("no"));
+        when(authorization.evaluate(TenantPermission.MESSAGE_DRAFT)).thenReturn(AuthorizationDecision.allow());
+
+        assertThat(interceptor.preHandle(request, response, handler("anyOf"))).isTrue();
+
+        verify(authorization).evaluate(TenantPermission.MESSAGE_APPROVE);
+        verify(authorization).evaluate(TenantPermission.MESSAGE_DRAFT);
+        verifyNoMoreInteractions(authorization);
+    }
+
+    @Test
+    void anyOfDeniesAndAuditsTheFirstListedPermissionWhenNoneHolds() throws Exception {
+        when(authorization.evaluate(any(TenantPermission.class))).thenReturn(AuthorizationDecision.deny("no"));
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.MESSAGE_APPROVE);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("anyOf")))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        verify(authorization).requirePermission(TenantPermission.MESSAGE_APPROVE);
+        verify(authorization, never()).requirePermission(TenantPermission.MESSAGE_DRAFT);
+    }
+
+    /** The interceptor must throw, never write the response itself, so the controller advice shapes the 403. */
+    @Test
+    void denialLeavesTheResponseUntouched() throws Exception {
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.CUSTOMER_WRITE);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("single")))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.isCommitted()).isFalse();
+        assertThat(response.getContentAsString()).isEmpty();
+    }
+
     private static HandlerMethod handler(String name) throws Exception {
         return new HandlerMethod(new StubController(), StubController.class.getDeclaredMethod(name));
     }
@@ -84,5 +127,8 @@ class RequiredPermissionInterceptorTest {
 
         @RequiredPermission({TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE})
         void multiple() { }
+
+        @RequiredPermission(value = {TenantPermission.MESSAGE_APPROVE, TenantPermission.MESSAGE_DRAFT}, anyOf = true)
+        void anyOf() { }
     }
 }

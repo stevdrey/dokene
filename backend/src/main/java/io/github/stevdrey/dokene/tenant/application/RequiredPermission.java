@@ -17,4 +17,12 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface RequiredPermission {
     TenantPermission[] value();
+
+    /**
+     * When true, the caller needs at least one of the listed permissions instead of all of them. A caller holding
+     * none is denied and audited for the first listed permission; the service is expected to re check the exact
+     * permission once the resource state is known (for example cancel: MESSAGE_DRAFT from PENDING_APPROVAL,
+     * MESSAGE_APPROVE from APPROVED).
+     */
+    boolean anyOf() default false;
 }
