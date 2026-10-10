@@ -1,0 +1,2 @@
+# Resolve `# shellcheck source=` hints relative to the script that carries them, so plain `shellcheck -x` works from any cwd.
+source-path=SCRIPTDIR

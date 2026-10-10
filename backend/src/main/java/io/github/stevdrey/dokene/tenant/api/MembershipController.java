@@ -5,7 +5,9 @@ import io.github.stevdrey.dokene.tenant.application.MembershipService;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -41,6 +43,7 @@ public class MembershipController {
                 .toList();
     }
 
+    @RequiredPermission(TenantPermission.MEMBERSHIP_INVITE)
     @PostMapping
     public ResponseEntity<MembershipResponse> addMembership(@RequestBody AddMembershipRequest request) {
         if (request == null || request.identityId() == null) {
@@ -56,6 +59,7 @@ public class MembershipController {
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(membership));
     }
 
+    @RequiredPermission(TenantPermission.MEMBERSHIP_ROLE_UPDATE)
     @PutMapping("/{identityId}/role")
     public ResponseEntity<Void> changeRole(
             @PathVariable UUID identityId,
@@ -68,6 +72,7 @@ public class MembershipController {
         return ResponseEntity.noContent().build();
     }
 
+    @RequiredPermission(TenantPermission.MEMBERSHIP_REVOKE)
     @DeleteMapping("/{identityId}")
     public ResponseEntity<Void> revokeMembership(@PathVariable UUID identityId) {
         membershipService.revokeMembership(new IdentityId(identityId));
