@@ -402,15 +402,16 @@ networkless_containers() {
 }
 
 # repair_networkless_bridge: an oidc-bridge left without a network by an earlier failed `up` (before the cleanup
-# above existed, or after a crash) never recovers on its own; recreate it together with its backend.
+# above existed, or after a crash) never recovers on its own. Remove it with its backend and let the full startup that
+# follows recreate both: that startup also starts postgres and keycloak, which may be stopped (e.g. after a reboot).
 repair_networkless_bridge() {
   local id
   id="$(compose ps --all -q oidc-bridge 2>/dev/null | head -n 1)"
   [ -n "$id" ] || return 0
   [ -n "$(docker inspect --format '{{.Name}}	{{len .NetworkSettings.Networks}}' "$id" 2>/dev/null | networkless_containers)" ] \
     || return 0
-  warn "oidc-bridge is attached to no network (left over from a failed 'up'); recreating it with the backend."
-  compose_up_services "$NO_BUILD" "--force-recreate --no-deps" oidc-bridge backend
+  warn "oidc-bridge is attached to no network (left over from a failed 'up'); removing it so it is recreated."
+  compose rm -f -s oidc-bridge backend >/dev/null 2>&1 || true
 }
 
 # compose_up_services NO_BUILD EXTRA_FLAGS [service...]: starts (and, unless NO_BUILD=true, builds) the given
