@@ -50,7 +50,7 @@ assert "network_mode" not in bridge, "bridge must own its namespace"
 assert any(p.get("published") == "8080" for p in bridge.get("ports", [])), "bridge must publish 8080"
 assert not backend.get("ports"), "backend must not publish ports itself"
 assert "backend" in bridge["networks"]["default"]["aliases"], "bridge must carry the backend alias"
-assert "nslookup keycloak" in " ".join(bridge["healthcheck"]["test"]), "bridge must health-check name resolution"
+assert "nslookup oidc-bridge" in " ".join(bridge["healthcheck"]["test"]), "bridge must health-check name resolution"
 assert backend["depends_on"]["oidc-bridge"]["condition"] == "service_healthy", "backend must wait for a healthy bridge"
 ' <<<"$json"
 }
@@ -105,11 +105,55 @@ check "published mappings: TCP only, ranges honoured" \
 networkless_detection() {
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
-  [ "$(printf '/dokene-oidc-bridge-1\t0\n' | networkless_containers)" = "/dokene-oidc-bridge-1" ] \
-    && [ -z "$(printf '/dokene-oidc-bridge-1\t1\n' | networkless_containers)" ]
+  [ "$(printf 'b\tcreated\t0\n' | networkless_containers)" = "b" ] \
+    && [ "$(printf 'b\trunning\t0\n' | networkless_containers)" = "b" ] \
+    && [ -z "$(printf 'b\trunning\t1\n' | networkless_containers)" ] \
+    && [ -z "$(printf 'b\texited\t0\n' | networkless_containers)" ]
 }
 check "a bridge attached to no network is detected (#164)" \
   bash -c "$(declare -f networkless_detection) ; SCRIPT='$SCRIPT'; networkless_detection"
+
+repair_removes_only_broken_bridge() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  CALLS=""
+  warn() { :; }
+  compose() { if [ "$1" = "ps" ]; then echo "${FAKE_ID:-}"; else CALLS="$CALLS|$*"; fi; }
+  docker() { printf '/dokene-oidc-bridge-1\t%s\n' "$FAKE_STATE"; }
+  FAKE_ID=abc FAKE_STATE="created	0"; repair_networkless_bridge
+  [ "$CALLS" = "|rm -f -s oidc-bridge backend" ] || return 1
+  CALLS=""; FAKE_STATE="running	1"; repair_networkless_bridge; [ -z "$CALLS" ] || return 1
+  CALLS=""; FAKE_STATE="exited	0"; repair_networkless_bridge; [ -z "$CALLS" ] || return 1
+  CALLS=""; FAKE_ID=""; FAKE_STATE="created	0"; repair_networkless_bridge; [ -z "$CALLS" ]
+}
+check "repair removes a network-less bridge and leaves healthy or stopped ones (#164)" \
+  bash -c "$(declare -f repair_removes_only_broken_bridge) ; SCRIPT='$SCRIPT'; repair_removes_only_broken_bridge"
+
+discard_removes_created_services() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  CALLS=""
+  warn() { :; }
+  compose() { if [ "$1" = "ps" ]; then printf '%s' "$FAKE_STALE"; else CALLS="$CALLS|$*"; fi; }
+  FAKE_STALE=$'backend\noidc-bridge'; discard_unstarted_containers
+  [ "$CALLS" = "|rm -f -s backend oidc-bridge" ] || return 1
+  CALLS=""; FAKE_STALE=""; discard_unstarted_containers; [ -z "$CALLS" ]
+}
+check "failed start removes created services only" \
+  bash -c "$(declare -f discard_removes_created_services) ; SCRIPT='$SCRIPT'; discard_removes_created_services"
+
+start_failure_detection() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  local f; f="$(mktemp)"
+  echo 'Error response from daemon: driver failed programming external connectivity: Bind for 127.0.0.1:8080 failed: port is already allocated' > "$f"
+  is_start_failure_log "$f" || { rm -f "$f"; return 1; }
+  echo 'Error response from daemon: pull access denied for dokene-backend, repository does not exist' > "$f"
+  ! is_start_failure_log "$f"; local rc=$?
+  rm -f "$f"; return $rc
+}
+check "only start/bind errors count as a start failure" \
+  bash -c "$(declare -f start_failure_detection) ; SCRIPT='$SCRIPT'; start_failure_detection"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2

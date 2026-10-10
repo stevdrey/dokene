@@ -111,10 +111,11 @@ services:
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     # A bridge that failed to attach to the Compose network (e.g. an earlier `up` died on a port bind error and left
-    # the container created but network-less) listens fine yet cannot resolve `keycloak`. Resolving it makes that
-    # state fail fast instead of surfacing as a backend timeout.
+    # the container created but network-less) listens fine yet cannot use the Compose DNS. Resolving its own service name works only when it is attached to the
+    # network (and does not depend on Keycloak being up), so that state fails fast instead of surfacing as a backend
+    # timeout.
     healthcheck:
-      test: ["CMD-SHELL", "nslookup keycloak >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "nslookup oidc-bridge >/dev/null 2>&1"]
       interval: 3s
       timeout: 3s
       retries: 5

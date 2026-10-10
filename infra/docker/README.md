@@ -59,7 +59,7 @@ never finds the OIDC discovery document, and exits after 180 s. Recover with `./
 full `up` is also required after changing values that Keycloak reads too (`KEYCLOAK_PORT`, the OIDC client secret,
 `KC_*`); see Troubleshooting for credential changes.
 
-`oidc-bridge` has a healthcheck that resolves `keycloak`, and the backend waits for it to be healthy. If `up` fails
+`oidc-bridge` has a healthcheck that resolves its own service name, and the backend waits for it to be healthy. If `up` fails
 while creating the bridge (for example `Bind for 127.0.0.1:8080 failed`), Docker leaves it attached to no network;
 `dev-env.sh` removes containers left unstarted by such a failure and, on the next `up`, recreates a bridge found
 without a network, so freeing the port and rerunning `up` is enough (no `down` needed).

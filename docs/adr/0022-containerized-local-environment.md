@@ -24,7 +24,7 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   (socat) forwards that localhost port to the Keycloak container and owns the network namespace the backend joins
   (`network_mode: service:oidc-bridge`), together with the published port 8080 and the `backend` DNS alias. The
   sidecar owns the namespace so that recreating the backend, the routine operation, does not orphan it. The sidecar
-  has a healthcheck (it must resolve `keycloak`) and the backend waits for it to be healthy, so a bridge that is
+  has a healthcheck (it must resolve its own service name through the Compose DNS) and the backend waits for it to be healthy, so a bridge that is
   attached to no network is reported at once. A failed `up` removes the containers it left unstarted, and `up`
   recreates a bridge found without a network, so a failed start never needs a manual `down`.
 - `scripts/dev-env.sh` is the single entry point (`up`, `down`, `restart-backend`, `status`, `logs`, `seed`, `doctor`, `reset`). It
