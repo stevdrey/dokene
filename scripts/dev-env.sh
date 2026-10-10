@@ -391,7 +391,7 @@ discard_unstarted_containers() {
   local stale
   stale="$(compose ps --all --services --filter status=created 2>/dev/null)"
   [ -n "$stale" ] || return 0
-  warn "Removing containers left unstarted by the failure: $(echo $stale)"
+  warn "Removing containers left unstarted by the failure: $(printf '%s' "$stale" | tr '\n' ' ')"
   # shellcheck disable=SC2086
   compose rm -f -s $stale >/dev/null 2>&1 || true
 }
