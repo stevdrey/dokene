@@ -257,6 +257,79 @@ else
 fi
 
 # ------------------------------------------------------------------------------
+# 5b. Seed a Sendable QA Customer (spec 0003)
+#     Consent granted, a purchase 60 days back, so the customer is DUE and a
+#     message can travel submit -> approve -> send through the local provider.
+#     The phone ends in 55: the local adapter accepts it and reports DELIVERED.
+# ------------------------------------------------------------------------------
+echo ""
+echo "Seeding the sendable QA customer..."
+QA_CUSTOMER_NAME="Cliente QA envíos"
+QA_CUSTOMER_PHONE="+56912345655"
+QA_CUSTOMER_REGION="CL"
+
+echo -n "• Creating or finding '$QA_CUSTOMER_NAME'... "
+QA_CUSTOMER_BODY="$TEMP_DIR/qa-customer.json"
+QA_CUSTOMER_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X POST "$BFF_URL/api/customers" \
+    -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" \
+    -H "Content-Type: application/json" \
+    -d "{\"displayName\":\"$QA_CUSTOMER_NAME\",\"phones\":[{\"number\":\"$QA_CUSTOMER_PHONE\",\"region\":\"$QA_CUSTOMER_REGION\",\"primary\":true}]}" \
+    -o "$QA_CUSTOMER_BODY" -w "%{http_code}")"
+if [ "$QA_CUSTOMER_STATUS" = "201" ]; then
+    QA_CUSTOMER_ID="$(jq -r '.id' "$QA_CUSTOMER_BODY")"
+    echo "CREATED ($QA_CUSTOMER_ID)"
+elif [ "$QA_CUSTOMER_STATUS" = "409" ]; then
+    # The phone is already in the workspace from an earlier run: look it up.
+    curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" -o "$QA_CUSTOMER_BODY" \
+        "$BFF_URL/api/customers?phone=$(printf '%s' "$QA_CUSTOMER_PHONE" | jq -sRr @uri)&region=$QA_CUSTOMER_REGION"
+    QA_CUSTOMER_ID="$(jq -r '.customers[0].id // empty' "$QA_CUSTOMER_BODY")"
+    if [ -z "$QA_CUSTOMER_ID" ]; then
+        echo "FAILED (customer exists but could not be found by phone)"
+        exit 1
+    fi
+    echo "EXISTS ($QA_CUSTOMER_ID)"
+else
+    echo "FAILED (HTTP $QA_CUSTOMER_STATUS)"
+    echo "Error: $(cat "$QA_CUSTOMER_BODY")" >&2
+    exit 1
+fi
+QA_CONTACT_ID="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" "$BFF_URL/api/customers/$QA_CUSTOMER_ID" \
+    | jq -r '.phones[] | select(.primary) | .id')"
+
+echo -n "• Granting WhatsApp consent on the primary phone... "
+QA_POLICY_VERSION="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
+    "$BFF_URL/api/customers/$QA_CUSTOMER_ID/contact-policy" | jq -r '.version')"
+QA_CONSENT_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X PUT \
+    "$BFF_URL/api/customers/$QA_CUSTOMER_ID/contacts/$QA_CONTACT_ID/consents/WHATSAPP" \
+    -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" \
+    -H "Content-Type: application/json" -H "If-Match: \"$QA_POLICY_VERSION\"" \
+    -d '{"status":"GRANTED","source":"CUSTOMER_WRITTEN"}' -o /dev/null -w "%{http_code}")"
+if [ "$QA_CONSENT_STATUS" = "200" ]; then echo "OK"; else echo "FAILED (HTTP $QA_CONSENT_STATUS)"; exit 1; fi
+
+echo -n "• Recording a purchase 60 days back... "
+QA_PURCHASED_AT="$(date -u -v-60d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '60 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+QA_PURCHASE_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X POST "$BFF_URL/api/customers/$QA_CUSTOMER_ID/purchases" \
+    -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" \
+    -H "Content-Type: application/json" -H "Idempotency-Key: qa-seed-purchase-$QA_CUSTOMER_ID" \
+    -d "{\"purchasedAt\":\"$QA_PURCHASED_AT\",\"description\":\"Compra inicial de QA\"}" -o /dev/null -w "%{http_code}")"
+if [ "$QA_PURCHASE_STATUS" = "201" ] || [ "$QA_PURCHASE_STATUS" = "200" ]; then echo "OK"; else echo "FAILED (HTTP $QA_PURCHASE_STATUS)"; exit 1; fi
+
+echo -n "• Smoke check: customer is due and consented... "
+QA_ELIGIBILITY="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
+    "$BFF_URL/api/customers/$QA_CUSTOMER_ID/follow-up-eligibility")"
+QA_FOLLOW_UP_STATUS="$(echo "$QA_ELIGIBILITY" | jq -r '.status')"
+QA_CONSENT="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
+    "$BFF_URL/api/customers/$QA_CUSTOMER_ID/contact-policy" \
+    | jq -r --arg contact "$QA_CONTACT_ID" '.consents[] | select(.contactId == $contact and .channel == "WHATSAPP") | .status')"
+if { [ "$QA_FOLLOW_UP_STATUS" = "DUE" ] || [ "$QA_FOLLOW_UP_STATUS" = "OVERDUE" ]; } && [ "$QA_CONSENT" = "GRANTED" ]; then
+    echo "PASS ($QA_FOLLOW_UP_STATUS, consent GRANTED)"
+else
+    echo "FAIL (follow-up status: $QA_FOLLOW_UP_STATUS, consent: ${QA_CONSENT:-none})"
+    echo "Eligibility: $QA_ELIGIBILITY" >&2
+    exit 1
+fi
+
+# ------------------------------------------------------------------------------
 # 6. Output Synthetic Identities Summary Table
 # ------------------------------------------------------------------------------
 echo ""
@@ -277,6 +350,8 @@ echo "1. Open the web browser at http://localhost:5173 (or http://localhost:8080
 echo "2. Log in using password configured in DOKENE_TEST_USER_PASSWORD (default: testpassword)"
 echo "3. Log in as 'testoperator' to verify operator controls (create customers, record follow-ups)"
 echo "4. Log in as 'testviewer' to verify read-only view (mutation controls hidden, actions forbidden)"
+echo "5. Customer '$QA_CUSTOMER_NAME' ($QA_CUSTOMER_ID) is due and consented: submit, approve and POST /api/messages/{id}/sends"
+echo "   The local provider accepts it (phone ends in 55) and reports DELIVERED after DOKENE_MESSAGING_LOCAL_DELIVERY_DELAY."
 echo ""
 
 # ------------------------------------------------------------------------------

@@ -52,6 +52,44 @@ There is no `DRAFT` state. A draft, whether an AI suggestion or operator text, l
 
 Transitions are validated in the aggregate; arbitrary status mutation is refused with `INVALID_TRANSITION`. Each applied transition advances the message version by one and appends one row to the event log, so the latest event sequence number always equals the message version.
 
+## HTTP surface (specs 0002 and 0003)
+
+The routes ADR 0023 §3.1 names for submission and approval are live in `MessageController` (`backend/src/main/java/io/github/stevdrey/dokene/messaging/api`), all under `/api`:
+
+| Route | Permission | Result |
+|---|---|---|
+| `POST /customers/{customerId}/messages` | `MESSAGE_DRAFT` | `201` with `Location: /api/messages/{id}`; a replay of the same `Idempotency-Key` answers `200` with the current representation and no `Location` |
+| `GET /messages` | `MESSAGE_READ` | newest first, filters `status` (repeatable) and `customerId`, `cursor` and `limit` (default 50, max 100); items never carry the body |
+| `GET /messages/{id}` | `MESSAGE_READ` | the full detail with `ETag`, including `customerDisplayName`, `contactRemoved`, approval, cancellation and attempts |
+| `GET /messages/{id}/events` | `MESSAGE_READ` | the event log; no note, body, phone or provider id appears |
+| `POST /messages/{id}/approvals` | `MESSAGE_APPROVE` | `decision` is `APPROVE` or `REJECT`; `201` then `200` on replay |
+| `POST /messages/{id}/cancellations` | `MESSAGE_APPROVE` or `MESSAGE_DRAFT` (`anyOf`) | the service re checks the exact permission once it knows the state; `201` then `200` on replay |
+| `POST /messages/{id}/sends` | `MESSAGE_SEND` | spec 0003: runs the eleven step send policy, commits the attempt row, calls the provider, then completes; `201` with the detail (`SENT`, `APPROVED` after a transient failure, `FAILED`, or `SENDING` with `outcomeUnknown` when the outcome is unknown) and `200` on replay; `429` with `Retry-After` when the per tenant minute window is spent |
+
+Mutations require `If-Match` with a strong numeric ETag (`"7"`) and an `Idempotency-Key` matching `^[A-Za-z0-9._:-]{1,128}$`. Every refusal on these routes is `application/problem+json` with exactly `type`, `title`, `status` and `code`, where `code` is a `MessagingErrorCode` (`INVALID_INPUT` 400, `FORBIDDEN` 403, `NOT_FOUND` 404, `STALE_VERSION`, `INVALID_TRANSITION`, `MESSAGE_ALREADY_OPEN` and `IDEMPOTENCY_KEY_REUSED` 409, and so on). `MessagingProblemHandler` owns the mapping and counts refusals in `dokene.messaging.refusals{operation,code}`. The shared helpers (`ProblemResponses`, `StrongEtag`, `IdempotencyKeys`) live in `io.github.stevdrey.dokene.web`, a package that depends on no module so later features reuse it. Authorization runs in `RequiredPermissionInterceptor` before any binding, so a caller without the permission gets the problem body and one audited denial no matter how malformed the request is.
+
+
+### Sends (spec 0003)
+
+`OutboundSendService` (`messaging/application`) owns the send in three phases, each a separate transaction boundary, so a provider call never runs inside a database transaction:
+
+1. **Accept**: policy in order (context, permission, idempotency replay, rate limit, global switch, provider present, tenant gate, message lock and `APPROVED` with an `APPROVE` decision, customer guards, no other open message, contact frequency against the follow up anchor date, template mapped, attempts left, body safe), then T6 and T7, the attempt row and the idempotency record commit together.
+2. **Call**: the `MessagingProvider` is called with no transaction and no lock. Anything thrown is an unknown outcome, never a transient failure.
+3. **Complete**: relock, re read the attempt, apply T8 to T11, touch the cadence on `SENT`, write the audit row and publish `SendAttemptCompleted`. A failure here leaves the message `SENDING` with a `STARTED` attempt and counts `dokene.messaging.send.attempts{outcome=COMPLETION_FAILED}`.
+
+Three ports still have stand ins until Slice 2 lands: `OutboundGate` (`StubOutboundGate`, `dokene.messaging.outbound-gate.stub.enabled`), `TemplateMappingGate.resolve` (`StubTemplateMappingGate`, lower cased intent name, single parameter `body`) and `MessagingProvider`. The provider is selected by `dokene.messaging.provider`: blank means no provider and every send refuses with `PROVIDER_UNAVAILABLE`; `local` wires `LocalMessagingProvider` from `integration.local`, which logs a `WARN` at startup and decides the outcome from the last two digits of the recipient phone:
+
+| Suffix | Provider result | Delivery reports after commit |
+|---|---|---|
+| `00` | rejected permanently, `INVALID_RECIPIENT` | none |
+| `01` | failed transiently, `RATE_LIMITED` | none |
+| `02` | outcome unknown, no id | none (stays `SENDING`) |
+| `03` | accepted | `DELIVERED` then `READ` |
+| `04` | outcome unknown with an id | `DELIVERED` (the T13 path) |
+| other | accepted | `DELIVERED` |
+
+Reports replay through `LocalDeliveryScheduler` only after the send transaction commits (`@TransactionalEventListener(AFTER_COMMIT)`), on a daemon thread, under a `ProviderContext` for the tenant and a fresh audit correlation (`ProviderReportExecution` in `integration`), spaced by `dokene.messaging.local.delivery-delay`. Dropped reports count in `dokene.messaging.local.delivery-dropped{reason}`. The dev stack (`compose.yaml`) runs with the local provider and both switches on; `.env.example` lists every variable, and `scripts/seed-local-qa.sh` seeds a due, consented customer whose phone ends in `55`.
+
 ### Tables (V16)
 
 | Table | Purpose | Runtime grants |

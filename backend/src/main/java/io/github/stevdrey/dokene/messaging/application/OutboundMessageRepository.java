@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessageCancellation;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +36,9 @@ public interface OutboundMessageRepository {
 
     Optional<MessageApproval> findApproval(UUID tenantId, UUID approvalId);
 
+    /** The one decision row of a message (unique per message); send step 5 requires it to be an APPROVE. */
+    Optional<MessageApproval> findApprovalByMessage(UUID tenantId, UUID messageId);
+
     MessageCancellation insertCancellation(MessageCancellation cancellation);
 
     Optional<MessageCancellation> findCancellation(UUID tenantId, UUID cancellationId);
@@ -44,6 +48,9 @@ public interface OutboundMessageRepository {
     SendAttempt updateAttempt(SendAttempt attempt);
 
     List<SendAttempt> findAttempts(UUID tenantId, UUID messageId);
+
+    /** Latest sent_at of the customer's messages on the (tenant_id, customer_id, sent_at) index; send step 8. */
+    Optional<Instant> findLatestSentAt(UUID tenantId, UUID customerId);
 
     MessageEvent appendEvent(MessageEvent event);
 

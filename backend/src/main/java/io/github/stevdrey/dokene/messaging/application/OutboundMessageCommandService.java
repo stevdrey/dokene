@@ -1,5 +1,5 @@
 // ABOUTME: Transactional T1 to T5 command services: submit, approve, reject and cancel (spec 0001).
-// ABOUTME: Order: validate, permission, idempotency lock, customer lock, message lock, guards, domain, persist, audit.
+// ABOUTME: Order: validate, permission, idempotency, locks, per step guards (package private, reused by the send pipeline).
 package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
@@ -112,8 +112,14 @@ public class OutboundMessageCommandService {
         CustomerPhone contact = customer.phones().stream()
                 .filter(phone -> phone.id().equals(command.contactId())).findFirst()
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        runSharedGuards(customer, contact.id(), input.action(), input.templateIntent(), input.body(),
-                input.locale(), Optional.of(input.ifMatch()));
+        requireActive(customer);
+        requireConsent(customer, contact.id());
+        var snapshot = requireEligible(customer);
+        if (input.ifMatch() != snapshot.policyVersion()) {
+            throw refuse(MessagingErrorCode.STALE_VERSION);
+        }
+        requireBodySafe(customer, input.action(), input.templateIntent(), input.body(), input.locale());
+        requireMapped(input.templateIntent());
         if (messages.findOpenByCustomer(tenantId, customer.id().value(), Optional.empty()).isPresent()) {
             throw refuse(MessagingErrorCode.MESSAGE_ALREADY_OPEN);
         }
@@ -209,12 +215,12 @@ public class OutboundMessageCommandService {
         if (decision == ApprovalDecision.APPROVE) {
             Customer customer = customers.findById(context.tenantId(), new CustomerId(message.customerId()))
                     .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-            // T2 step 4 (AC-13): the contact has no foreign key, so a phone correction may have removed it.
-            if (customer.phones().stream().noneMatch(phone -> phone.id().equals(message.contactId()))) {
-                throw refuse(MessagingErrorCode.CONTACT_NOT_OWNED);
-            }
-            runSharedGuards(customer, message.contactId(), message.action(), message.templateIntent(),
-                    message.body(), message.locale(), Optional.empty());
+            requireOwnedContact(customer, message.contactId());
+            requireActive(customer);
+            requireConsent(customer, message.contactId());
+            requireEligible(customer);
+            requireBodySafe(customer, message.action(), message.templateIntent(), message.body(), message.locale());
+            requireMapped(message.templateIntent());
             if (messages.findOpenByCustomer(tenantId, message.customerId(), Optional.of(message.id())).isPresent()) {
                 throw refuse(MessagingErrorCode.MESSAGE_ALREADY_OPEN);
             }
@@ -239,15 +245,22 @@ public class OutboundMessageCommandService {
         return new CommandResult(stored, Optional.of(approval), true);
     }
 
-    /**
-     * T1 guard steps 3 to 9 (customer, contact policy, eligibility, policy version when given, body, template),
-     * shared with T2 which skips the policy version check.
-     */
-    private void runSharedGuards(Customer customer, UUID contactId, SemanticAction action,
-            SemanticTemplateIntent intent, String body, String locale, Optional<Long> policyVersionIfMatch) {
+    /** Guard step: the customer is still ACTIVE (T1, T2, T6). */
+    void requireActive(Customer customer) {
         if (customer.status() != CustomerStatus.ACTIVE) {
             throw refuse(MessagingErrorCode.CUSTOMER_ARCHIVED);
         }
+    }
+
+    /** Guard step: the contact has no foreign key, so a phone correction may have removed it (T2 step 4, T6). */
+    void requireOwnedContact(Customer customer, UUID contactId) {
+        if (customer.phones().stream().noneMatch(phone -> phone.id().equals(contactId))) {
+            throw refuse(MessagingErrorCode.CONTACT_NOT_OWNED);
+        }
+    }
+
+    /** Guard step: no do not contact flag and a GRANTED WhatsApp consent on the contact. */
+    ContactPolicy requireConsent(Customer customer, UUID contactId) {
         ContactPolicy policy = contactPolicies.find(customer);
         if (policy.doNotContact()) {
             throw refuse(MessagingErrorCode.DO_NOT_CONTACT);
@@ -257,14 +270,22 @@ public class OutboundMessageCommandService {
         if (!granted) {
             throw refuse(MessagingErrorCode.NO_CONTACT_CONSENT);
         }
+        return policy;
+    }
+
+    /** Guard step: a fresh evaluation under the customer lock is DUE or OVERDUE; the snapshot feeds later steps. */
+    FollowUpService.FollowUpEvaluationSnapshot requireEligible(Customer customer) {
         var snapshot = followUps.evaluateSnapshot(customer.id());
         FollowUpStatus status = snapshot.evaluation().status();
         if (status != FollowUpStatus.DUE && status != FollowUpStatus.OVERDUE) {
             throw refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE);
         }
-        if (policyVersionIfMatch.isPresent() && policyVersionIfMatch.get() != snapshot.policyVersion()) {
-            throw refuse(MessagingErrorCode.STALE_VERSION);
-        }
+        return snapshot;
+    }
+
+    /** Guard step: the body still passes the deterministic safety validator against the current grounding. */
+    void requireBodySafe(Customer customer, SemanticAction action, SemanticTemplateIntent intent, String body,
+            String locale) {
         var context = grounding.assemble(customer.id())
                 .orElseThrow(() -> refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE));
         MessageDraft draft;
@@ -277,9 +298,19 @@ public class OutboundMessageCommandService {
         if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding()).isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
-        if (templates.check(intent) != TemplateMappingStatus.MAPPED) {
+    }
+
+    /**
+     * Guard step: the intent resolves to an enabled provider template. Until feature 6 the pipeline can only fill
+     * one parameter, the body, so any other parameter list is refused as not mapped as well.
+     */
+    ResolvedTemplate requireMapped(SemanticTemplateIntent intent) {
+        ResolvedTemplate template = templates.resolve(intent)
+                .orElseThrow(() -> refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED));
+        if (!template.parameterNames().equals(StubTemplateMappingGate.PARAMETER_NAMES)) {
             throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
         }
+        return template;
     }
 
     private Customer lockCustomer(TenantContext context, UUID customerId, TenantPermission permission) {
@@ -294,7 +325,7 @@ public class OutboundMessageCommandService {
     }
 
     /** Customer lock, then message lock, then the If-Match check (T2 to T5 guard steps 1 and 2). */
-    private OutboundMessage lockMessage(TenantContext context, UUID messageId, long ifMatch) {
+    OutboundMessage lockMessage(TenantContext context, UUID messageId, long ifMatch) {
         UUID tenantId = context.tenantId().value();
         OutboundMessage unlocked = messages.findById(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));

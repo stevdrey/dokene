@@ -30,4 +30,15 @@ class StubTemplateMappingGateTest {
         assertThat(gate.check(SemanticTemplateIntent.SEASONAL_EVENT)).isEqualTo(TemplateMappingStatus.MAPPED);
         assertThat(gate.check(SemanticTemplateIntent.REPEAT_PURCHASE)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
     }
+
+    /** Spec 0003 step 9: the resolved template is the lower case intent, the one supported locale and ["body"]. */
+    @Test
+    void resolvesListedIntentsToTheStandInTemplateAndNothingElse() {
+        StubTemplateMappingGate gate = new StubTemplateMappingGate(new MessagingTemplateGateStubProperties(
+                Set.of(SemanticTemplateIntent.GENERAL_FOLLOW_UP)));
+
+        assertThat(gate.resolve(SemanticTemplateIntent.GENERAL_FOLLOW_UP))
+                .contains(new ResolvedTemplate("general_follow_up", "es-419", java.util.List.of("body")));
+        assertThat(gate.resolve(SemanticTemplateIntent.REPEAT_PURCHASE)).isEmpty();
+    }
 }

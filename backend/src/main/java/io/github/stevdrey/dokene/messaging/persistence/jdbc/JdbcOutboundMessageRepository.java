@@ -2,24 +2,19 @@
 // ABOUTME: Translates the open message index violation into MESSAGE_ALREADY_OPEN and a version miss into STALE_VERSION.
 package io.github.stevdrey.dokene.messaging.persistence.jdbc;
 
-import io.github.stevdrey.dokene.ai.domain.SemanticAction;
-import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.MessageActorKind;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageCancellation;
-import io.github.stevdrey.dokene.messaging.domain.MessageChannel;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
-import io.github.stevdrey.dokene.messaging.domain.MessageOrigin;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
-import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -139,12 +134,32 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     public Optional<MessageApproval> findApproval(UUID tenantId, UUID approvalId) {
         return first(jdbc.query("""
                 SELECT * FROM dokene.outbound_message_approvals WHERE tenant_id = ? AND id = ?
-                """, (row, index) -> new MessageApproval(row.getObject("id", UUID.class),
-                        row.getObject("tenant_id", UUID.class), row.getObject("message_id", UUID.class),
-                        ApprovalDecision.valueOf(row.getString("decision")), row.getString("note"),
-                        row.getTimestamp("decided_at").toInstant(),
-                        row.getObject("decided_by_membership_id", UUID.class),
-                        row.getObject("decided_by_actor_id", UUID.class)), tenantId, approvalId));
+                """, JdbcOutboundMessageRepository::mapApproval, tenantId, approvalId));
+    }
+
+    @Override
+    public Optional<MessageApproval> findApprovalByMessage(UUID tenantId, UUID messageId) {
+        return first(jdbc.query("""
+                SELECT * FROM dokene.outbound_message_approvals WHERE tenant_id = ? AND message_id = ?
+                """, JdbcOutboundMessageRepository::mapApproval, tenantId, messageId));
+    }
+
+    private static MessageApproval mapApproval(ResultSet row, int index) throws SQLException {
+        return new MessageApproval(row.getObject("id", UUID.class),
+                row.getObject("tenant_id", UUID.class), row.getObject("message_id", UUID.class),
+                ApprovalDecision.valueOf(row.getString("decision")), row.getString("note"),
+                row.getTimestamp("decided_at").toInstant(),
+                row.getObject("decided_by_membership_id", UUID.class),
+                row.getObject("decided_by_actor_id", UUID.class));
+    }
+
+    @Override
+    public Optional<Instant> findLatestSentAt(UUID tenantId, UUID customerId) {
+        Timestamp latest = jdbc.queryForObject("""
+                SELECT max(sent_at) FROM dokene.outbound_messages
+                WHERE tenant_id = ? AND customer_id = ? AND sent_at IS NOT NULL
+                """, Timestamp.class, tenantId, customerId);
+        return Optional.ofNullable(latest).map(Timestamp::toInstant);
     }
 
     @Override
@@ -203,14 +218,7 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
         return jdbc.query("""
                 SELECT * FROM dokene.outbound_send_attempts WHERE tenant_id = ? AND message_id = ?
                 ORDER BY attempt_number
-                """, (row, index) -> new SendAttempt(row.getObject("id", UUID.class),
-                        row.getObject("tenant_id", UUID.class), row.getObject("message_id", UUID.class),
-                        row.getInt("attempt_number"), row.getObject("send_key", UUID.class),
-                        SendAttemptOutcome.valueOf(row.getString("outcome")),
-                        failureCategory(row.getString("failure_category")), row.getString("provider_message_id"),
-                        row.getTimestamp("started_at").toInstant(), instant(row.getTimestamp("finished_at")),
-                        row.getObject("requested_by_membership_id", UUID.class),
-                        row.getObject("requested_by_actor_id", UUID.class)), tenantId, messageId);
+                """, (row, index) -> OutboundMessageRows.attempt(row), tenantId, messageId);
     }
 
     @Override
@@ -244,20 +252,7 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     }
 
     private OutboundMessage mapMessage(ResultSet row, int index) throws SQLException {
-        return new OutboundMessage(row.getObject("id", UUID.class), row.getObject("tenant_id", UUID.class),
-                row.getObject("customer_id", UUID.class), row.getObject("contact_id", UUID.class),
-                row.getString("recipient_phone"), MessageChannel.valueOf(row.getString("channel")),
-                MessageStatus.valueOf(row.getString("status")), row.getBoolean("outcome_unknown"),
-                SemanticAction.valueOf(row.getString("action")),
-                SemanticTemplateIntent.valueOf(row.getString("template_intent")), row.getString("locale"),
-                MessageOrigin.valueOf(row.getString("origin")), row.getString("body"),
-                row.getLong("source_policy_version"), row.getObject("send_key", UUID.class),
-                row.getInt("attempt_count"), row.getString("provider_message_id"),
-                failureCategory(row.getString("failure_category")), instant(row.getTimestamp("sent_at")),
-                instant(row.getTimestamp("delivered_at")), instant(row.getTimestamp("read_at")),
-                row.getObject("created_by_membership_id", UUID.class),
-                row.getObject("created_by_actor_id", UUID.class), row.getTimestamp("created_at").toInstant(),
-                row.getTimestamp("updated_at").toInstant(), row.getLong("version"));
+        return OutboundMessageRows.message(row);
     }
 
     private static boolean violatesOpenMessageIndex(DataIntegrityViolationException exception) {

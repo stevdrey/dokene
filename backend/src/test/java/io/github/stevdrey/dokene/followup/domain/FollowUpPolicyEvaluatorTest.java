@@ -1,3 +1,5 @@
+// ABOUTME: Unit tests for the deterministic follow up evaluator: hard constraints, snooze, explicit date, cadence.
+// ABOUTME: Also pins the anchor date reported in every branch (spec 0003) so the send frequency guard can rely on it.
 package io.github.stevdrey.dokene.followup.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -222,5 +224,42 @@ class FollowUpPolicyEvaluatorTest {
                 LocalDate.of(2025, 12, 1), 0);
         assertThat(evaluator.evaluate(customer, contactPolicy, tenantPolicy, outboundBeforePurchase, purchase)
                 .timingSource()).isEqualTo(FollowUpTimingSource.LAST_PURCHASE);
+    }
+
+    /** Spec 0003 AC-6: the anchor is reported in every branch, as the latest action or purchase date. */
+    @Test
+    void reportsTheAnchorDateInEveryBranchAndNullWithoutHistory() {
+        LocalDate tenantToday = LocalDate.of(2026, 3, 8);
+        Instant purchase = Instant.parse("2026-02-10T03:00:00Z");
+        LocalDate purchaseDate = LocalDate.of(2026, 2, 9); // 2026-02-10T03:00Z is still 2026-02-09 in New York
+
+        var cadence = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null, null, null, null, 0);
+        var fromPurchase = evaluator.evaluate(customer, contactPolicy, tenantPolicy, cadence, purchase);
+        assertThat(fromPurchase.anchorDate()).isEqualTo(purchaseDate);
+
+        var outboundNewer = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null, null, null,
+                tenantToday.minusDays(3), 0);
+        assertThat(evaluator.evaluate(customer, contactPolicy, tenantPolicy, outboundNewer, purchase).anchorDate())
+                .isEqualTo(tenantToday.minusDays(3));
+
+        var snoozed = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, tenantToday.plusDays(2), null, null,
+                tenantToday.minusDays(3), 0);
+        var snoozedResult = evaluator.evaluate(customer, contactPolicy, tenantPolicy, snoozed, purchase);
+        assertThat(snoozedResult.status()).isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(snoozedResult.anchorDate()).isEqualTo(tenantToday.minusDays(3));
+
+        var explicit = new CustomerFollowUpPolicy(tenantId, customerId, 7, tenantToday, null, null, null, null, 0);
+        var explicitResult = evaluator.evaluate(customer, contactPolicy, tenantPolicy, explicit, purchase);
+        assertThat(explicitResult.timingSource()).isEqualTo(FollowUpTimingSource.EXPLICIT_DATE);
+        assertThat(explicitResult.anchorDate()).isEqualTo(purchaseDate);
+
+        var blocked = new ContactPolicy(customerId, 1, true, null, null, contactPolicy.consents());
+        var ineligible = evaluator.evaluate(customer, blocked, tenantPolicy, cadence, purchase);
+        assertThat(ineligible.status()).isEqualTo(FollowUpStatus.INELIGIBLE);
+        assertThat(ineligible.anchorDate()).isEqualTo(purchaseDate);
+
+        var noHistory = evaluator.evaluate(customer, contactPolicy, tenantPolicy, cadence, null);
+        assertThat(noHistory.reasons()).containsExactly(FollowUpReason.NO_PURCHASE_HISTORY);
+        assertThat(noHistory.anchorDate()).isNull();
     }
 }
