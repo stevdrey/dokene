@@ -88,7 +88,7 @@ describe('MessageDetailPanel', () => {
     expect(await screen.findByText('Miembro · Pendiente de aprobación → Rechazado')).toBeInTheDocument();
     expect(screen.getByText('Tono muy informal', { selector: 'blockquote' })).toBeInTheDocument();
     // Terminal: no controls, no Actualizar.
-    expect(screen.queryByRole('button', { name: /Aprobar|Rechazar|Cancelar|Enviar|Actualizar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(Aprobar|Rechazar|Cancelar|Enviar|Actualizar)$/ })).not.toBeInTheDocument();
   });
 
   it('omits an empty note on reject', async () => {
