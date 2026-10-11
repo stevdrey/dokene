@@ -68,8 +68,15 @@ This is the first use of `FAILURE`. Migration `V13` adds the constrained columns
 
 AI failure stays an HTTP 200 `AI_UNAVAILABLE` result with `unavailableReason` and `retryable`; the evaluation and the deterministic queue remain usable. Authorization, not-found, conflict and rate-limit semantics are unchanged. A stray `AiProviderException` maps to an empty 503 and an unexpected `IllegalStateException` to an empty 500. Both are logged without the message or cause (category, or exception class and top stack frame), so the failure stays diagnosable without leaking text.
 
+### 7. Client abandonment is not detected (known limitation)
+
+[Issue #178](https://github.com/stevdrey/dokene/issues/178). `CANCELLED` is raised only when the worker thread is interrupted (the adapter and `ResilientAiProvider` map the interrupt to `CANCELLED`, which the audit records as `FAILURE`/`CANCELLED`). Nothing interrupts the thread when the browser aborts the request (customer switch, workspace switch, logout), so an abandoned recommendation or draft call **runs to completion**, is reported with its real terminal outcome (typically `GENERATED`) and counts against `dokene.ai.rate-limit.*`. The user interface discards the late result; the provider call and its cost are not avoided.
+
+Cancelling it was prototyped and rejected: the only way to learn about a disconnect without writing to the response is the servlet async error callback, and Tomcat does not raise it for a pending async request whose body was already read (verified against the embedded Tomcat 11 of this build with a raw socket that closes while the worker is blocked: no `onError` within 10s). Tomcat only notices the closed connection on a write, and committing the response early is not possible here because the status code (404/409/403) and `ETag` depend on the result. Revisit this if the servlet container changes or if the endpoint moves to a streaming response contract.
+
 ## Consequences
 
+- An operator who abandons a pending request still pays for the provider call and the audit row says `GENERATED` for a result nobody saw (§7); the per-actor/tenant rate limits count it.
 - Provider outages, throttling, malformed output and refusals are observable and distinguishable without storing any sensitive content; operators and clients get stable, documented recovery semantics.
 - Clients should retry only when `retryable` is `true`, with backoff, and may continue the manual workflow at any time.
 - A transient failure can cost at most `max-attempts` provider invocations per request (default 2); the cost is bounded by the request timeout.
