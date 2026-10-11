@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useTenant } from '@/features/tenants/TenantContext';
+import { useTenant, canActOnMessages } from '@/features/tenants/TenantContext';
 import { QueueItemResponse, FollowUpStatus } from '@/features/followups/types';
 import { followUpApi } from '@/features/followups/api/followUpApi';
 import { FollowUpCard } from './FollowUpCard';
@@ -11,6 +11,10 @@ import { ApiError } from '@/shared/api/httpClient';
 
 interface FollowUpWorkbenchProps {
   onNavigateToCustomer: (customerId: string) => void;
+  /** Opens a submitted message in the Mensajes tab (spec 0004 AC-6). */
+  onOpenMessage?: (messageId: string) => void;
+  /** Opens the Mensajes tab filtered by a customer (spec 0004 AC-6). */
+  onOpenCustomerMessages?: (customerId: string, customerDisplayName: string) => void;
 }
 
 // Safety cap for the extra pages followed to find a selected customer that is still due.
@@ -34,9 +38,15 @@ async function isInQueue(
   }
 }
 
-export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigateToCustomer }) => {
+export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({
+  onNavigateToCustomer,
+  onOpenMessage = () => undefined,
+  onOpenCustomerMessages = () => undefined
+}) => {
   const { activeWorkspace } = useTenant();
   const canWrite = activeWorkspace?.role ? activeWorkspace.role !== 'VIEWER' : true;
+  // UI affordance only: the backend enforces MESSAGE_DRAFT on the submit (ADR 0023 §5).
+  const canSubmitMessage = canActOnMessages(activeWorkspace?.role);
   // UI affordance only: the backend enforces FOLLOWUP_EVALUATE / MESSAGE_DRAFT on every AI request.
   const canUseAi = canWrite;
   const [items, setItems] = useState<QueueItemResponse[]>([]);
@@ -994,6 +1004,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           canWrite={canWrite}
           canUseAi={canUseAi}
           onRequestRefresh={refreshQueue}
+          canSubmitMessage={canSubmitMessage}
+          onOpenMessage={onOpenMessage}
+          onOpenCustomerMessages={onOpenCustomerMessages}
         />
       ) : (
         /* Desktop Split View or Mobile List Screen */
@@ -1072,6 +1085,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   canWrite={canWrite}
                   canUseAi={canUseAi}
                   onRequestRefresh={refreshQueue}
+                  canSubmitMessage={canSubmitMessage}
+                  onOpenMessage={onOpenMessage}
+                  onOpenCustomerMessages={onOpenCustomerMessages}
                 />
               ) : (
                 <div

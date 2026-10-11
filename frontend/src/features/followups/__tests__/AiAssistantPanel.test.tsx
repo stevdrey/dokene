@@ -78,6 +78,9 @@ interface PanelOverrides {
   policyVersion?: number;
   canUseAi?: boolean;
   onRequestRefresh?: (reason?: 'stale' | 'ineligible') => Promise<boolean>;
+  canSubmitMessage?: boolean;
+  onOpenMessage?: (messageId: string) => void;
+  onOpenCustomerMessages?: (customerId: string, customerDisplayName: string) => void;
 }
 
 function renderPanel(overrides: PanelOverrides = {}) {
@@ -86,6 +89,9 @@ function renderPanel(overrides: PanelOverrides = {}) {
     policyVersion: 3,
     canUseAi: true,
     onRequestRefresh: vi.fn().mockResolvedValue(true),
+    canSubmitMessage: true,
+    onOpenMessage: vi.fn(),
+    onOpenCustomerMessages: vi.fn(),
     ...overrides
   };
   const utils = render(<AiAssistantPanel {...props} />);
@@ -260,11 +266,13 @@ describe('AiAssistantPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
     await screen.findByLabelText('Borrador del mensaje (editable)');
 
+    // Spec 0004 AC-6: exactly one hand off control; no approve, send or schedule control in the panel.
     const controls = screen.getAllByRole('button').map((b) => b.textContent ?? '');
-    for (const label of controls) {
-      expect(label).not.toMatch(/enviar|aprobar|programar|publicar|confirmar env/i);
+    expect(controls.filter((label) => label === 'Enviar a aprobación')).toHaveLength(1);
+    for (const label of controls.filter((label) => label !== 'Enviar a aprobación')) {
+      expect(label).not.toMatch(/\b(Enviar|Aprobar|Programar|Enviado)\b/);
     }
-    expect(screen.getByText(/El envío es manual/)).toBeInTheDocument();
+    expect(screen.getByText(/Dokene no envía nada sin aprobación/)).toBeInTheDocument();
   });
 
   it('copies the edited draft to the clipboard and announces it', async () => {

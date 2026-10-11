@@ -3,7 +3,7 @@ import { useSession } from '../../features/auth/SessionContext';
 import { useTenant, formatTenantRole } from '../../features/tenants/TenantContext';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
-export type ActiveTab = 'seguimientos' | 'clientes' | 'configuracion' | 'mas';
+export type ActiveTab = 'seguimientos' | 'clientes' | 'mensajes' | 'configuracion' | 'mas';
 
 export interface AppShellProps {
   children?: React.ReactNode | ((activeTab: ActiveTab) => React.ReactNode);
@@ -272,6 +272,20 @@ export const AppShell: React.FC<AppShellProps> = ({
                   <span>Clientes</span>
                 </div>
               </button>
+
+              <button
+                type="button"
+                className={`nav-item ${activeTab === 'mensajes' ? 'active' : ''}`}
+                aria-current={activeTab === 'mensajes' ? 'page' : undefined}
+                onClick={() => setActiveTab('mensajes')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
+                    forum
+                  </span>
+                  <span>Mensajes</span>
+                </div>
+              </button>
             </nav>
           </div>
 
@@ -372,6 +386,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
             {activeTab === 'seguimientos' && 'Seguimientos'}
             {activeTab === 'clientes' && 'Clientes'}
+            {activeTab === 'mensajes' && 'Mensajes'}
             {activeTab === 'configuracion' && 'Configuración'}
           </span>
         </div>
@@ -506,6 +521,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             >
               {activeTab === 'seguimientos' && 'Seguimientos'}
               {activeTab === 'clientes' && 'Clientes'}
+              {activeTab === 'mensajes' && 'Mensajes'}
               {activeTab === 'configuracion' && 'Configuración'}
               {activeTab === 'mas' && 'Más opciones'}
             </h1>
@@ -574,6 +590,18 @@ export const AppShell: React.FC<AppShellProps> = ({
             group
           </span>
           <span style={{ marginTop: '2px' }}>Clientes</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'mensajes' ? 'active' : ''}`}
+          aria-current={activeTab === 'mensajes' ? 'page' : undefined}
+          onClick={() => setActiveTab('mensajes')}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>
+            forum
+          </span>
+          <span style={{ marginTop: '2px' }}>Mensajes</span>
         </button>
 
         <button

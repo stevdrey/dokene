@@ -201,6 +201,19 @@ Do not expose raw secret-bearing provider payloads in logs or UI errors.
 
 Retries should distinguish transient from permanent failures.
 
+## Frontend: Mensajes (spec 0004)
+
+The browser side of Phase 3 lives in `frontend/src/features/messages/` and is reached from the **Mensajes** tab (sidebar group RELACIONES, mobile bottom nav). It is a pure consumer of the routes above: no new table, no backend change.
+
+- **List**: `GET /api/messages` with `limit=50`, opening on **Pendientes** (`PENDING_APPROVAL`). Chips map to status sets in `utils/filters.ts` (**Enviados** covers `QUEUED`, `SENDING`, `SENT`, `DELIVERED`, `READ`; **Rechazados y cancelados** covers `REJECTED`, `CANCELLED`). Rows mask the phone to its last four digits; **Cargar más** follows `nextCursor`. A link from the AI panel after `MESSAGE_ALREADY_OPEN` opens the list on **Todos** filtered by `customerId`.
+- **Detail**: `GET /api/messages/{id}` and `/events` in parallel. The strong numeric `ETag` is the only version source for `If-Match`; a detail without one is an error state, never version 0. The timeline hides `applied: false` rows and attaches `approval.note` to the `APPROVED`/`REJECTED` event and `cancellation.note` to the `CANCELLED` event by event type. `providerMessageId` is never rendered.
+- **Actions**: approve, reject (optional note, 500 UTF-16 units), cancel and send go through inline confirm groups. One intent holds one `Idempotency-Key` (`crypto.randomUUID()` when the group opens); a retry of the same confirm reuses it, a new intent gets a new one. On `409 STALE_VERSION` or `INVALID_TRANSITION` the UI refetches and shows "Este mensaje cambió: ahora está <estado>." without retrying. `429 RATE_LIMITED` disables **Enviar** on every message of the tenant for `Retry-After` seconds (60 when absent).
+- **Polling**: only after a send success, while the status is `QUEUED`, `SENDING` (not frozen) or `SENT`: a `setTimeout` chain every 2 s for at most 20 s, one `AbortController` per tick, events refetched when the version changes. It stops on a terminal status, `outcomeUnknown`, an action start, a selection change, unmount or workspace switch. After the budget **Actualizar** remains.
+- **Roles**: `canReadMessages` and `canActOnMessages` in `TenantContext.tsx` express the ADR 0023 §5 matrix once. `VIEWER` sees list and detail with "Tu rol solo permite consultar mensajes." and no controls. The backend stays authoritative; a `403` never changes the held detail.
+- **AI panel hand off**: `AiAssistantPanel` has exactly one new control, **Enviar a aprobación**, shown only to `canActOnMessages` roles. It resolves the primary phone through `GET /api/customers/{id}` at click time, then calls `POST /api/customers/{id}/messages` with `If-Match` = the queue item's `policyVersion`, `origin: AI_DRAFT` and `locale: es-419`. The key is reused while the draft text is unchanged and rotated when it changes after a refusal. On success the panel locks the textarea, **Regenerar borrador** and **Consultar de nuevo**, shows "Mensaje enviado a aprobación." and **Ver en Mensajes**.
+- **Shared client**: `shared/api/httpClient.ts` reads the `problem+json` `code` into `ApiError.code` and a numeric `Retry-After` on 429 into `ApiError.retryAfterSeconds`. Features map codes through `utils/messageLabels.ts`; no feature parses an error body itself. The strong ETag parser lives in `shared/api/etag.ts`.
+- **Tenant**: selection and the customer filter are held in `App.tsx` stamped with the tenant id and ignored when it differs from the active workspace; the feature root remounts on `key={tenantId}`.
+
 ## Future channels
 
 Potential future channels include:

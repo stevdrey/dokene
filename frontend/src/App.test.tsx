@@ -221,6 +221,79 @@ describe('App routing transitions', () => {
     });
   });
 
+  it('opens Mensajes under the active tenant and drops the selection on workspace switch (spec 0004 AC-9)', async () => {
+    const json = (body: unknown, extra: Record<string, string> = {}) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json', ...extra } });
+    const item = {
+      messageId: 'msg-1',
+      customerId: 'c-1',
+      customerDisplayName: 'Cliente Mensaje',
+      contactId: 'p-1',
+      recipientPhone: '+56984521190',
+      status: 'PENDING_APPROVAL',
+      outcomeUnknown: false,
+      action: 'GENERAL_CHECK_IN',
+      templateIntent: 'GENERAL_FOLLOW_UP',
+      locale: 'es-419',
+      origin: 'MANUAL',
+      contactRemoved: false,
+      createdAt: '2026-10-10T14:05:00Z',
+      updatedAt: '2026-10-10T14:05:00Z',
+      version: 1
+    };
+    const listTenants: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = String(url);
+      const tenant = (init?.headers as Record<string, string> | undefined)?.['X-Tenant-Id'] ?? '';
+      if (urlStr === '/api/session') {
+        return json({ authenticated: true, identityId: 'id-123', csrfToken: 'csrf-123' });
+      }
+      if (urlStr === '/api/tenants') {
+        return json([
+          { tenantId: 't-1', displayName: 'Workspace 1', role: 'OWNER' },
+          { tenantId: 't-2', displayName: 'Workspace 2', role: 'OWNER' }
+        ]);
+      }
+      if (urlStr.startsWith('/api/messages/msg-1/events')) {
+        return json({ events: [] });
+      }
+      if (urlStr.startsWith('/api/messages/msg-1')) {
+        return json({ ...item, channel: 'WHATSAPP', body: 'Hola desde la prueba', sourcePolicyVersion: 1, approval: null, cancellation: null, attempts: [], lastAttempt: null, sentAt: null, deliveredAt: null, readAt: null }, { ETag: '"1"' });
+      }
+      if (urlStr.startsWith('/api/messages?')) {
+        listTenants.push(tenant);
+        return json({ items: tenant === 't-1' ? [item] : [], nextCursor: null });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getAllByText(/Workspace 1/i).length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Mensajes/i })[0]);
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Mensajes');
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /Cliente Mensaje/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Hola desde la prueba')).toBeInTheDocument();
+    });
+    expect(listTenants).toEqual(['t-1']);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0]);
+    fireEvent.click(screen.getByText('Workspace 2'));
+
+    await waitFor(() => {
+      expect(screen.getByText('No hay mensajes en esta vista.')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Hola desde la prueba')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cliente Mensaje')).not.toBeInTheDocument();
+    expect(listTenants.at(-1)).toBe('t-2');
+    expect(screen.getByRole('button', { name: 'Pendientes' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('navigates from FollowUpWorkbench to CustomerProfile when clicking Ver cliente', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       const urlStr = String(url);

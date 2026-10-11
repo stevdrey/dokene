@@ -7,6 +7,7 @@ import { AppShell, ActiveTab } from './components/shell/AppShell';
 import { CustomerList } from './features/customers/components/CustomerList';
 import { CustomerProfile } from './features/customers/components/CustomerProfile';
 import { FollowUpWorkbench } from './features/followups/components/FollowUpWorkbench';
+import { MessagesRoot } from './features/messages/components/MessagesRoot';
 
 const MainAppContent: React.FC = () => {
   const { status: sessionStatus, error: sessionError, checkSession } = useSession();
@@ -19,6 +20,34 @@ const MainAppContent: React.FC = () => {
       : null;
   const setSelectedCustomerId = (id: string | null) => {
     setSelectedCustomer(id && activeWorkspace?.tenantId ? { tenantId: activeWorkspace.tenantId, id } : null);
+  };
+  // Message selection and the customer filter are tenant stamped: a stale pair from another
+  // workspace is ignored, so nothing from one tenant renders under another (spec 0004 AC-9).
+  const [selectedMessage, setSelectedMessage] = useState<{ tenantId: string; messageId: string } | null>(null);
+  const [messageCustomerFilter, setMessageCustomerFilter] = useState<{
+    tenantId: string;
+    customerId: string;
+    customerDisplayName: string;
+  } | null>(null);
+  const activeTenantId = activeWorkspace?.tenantId ?? null;
+  const selectedMessageId =
+    selectedMessage && activeTenantId && selectedMessage.tenantId === activeTenantId ? selectedMessage.messageId : null;
+  const activeCustomerFilter =
+    messageCustomerFilter && activeTenantId && messageCustomerFilter.tenantId === activeTenantId
+      ? { customerId: messageCustomerFilter.customerId, customerDisplayName: messageCustomerFilter.customerDisplayName }
+      : null;
+  const setSelectedMessageId = (messageId: string | null) => {
+    setSelectedMessage(messageId && activeTenantId ? { tenantId: activeTenantId, messageId } : null);
+  };
+  const openMessage = (messageId: string) => {
+    setMessageCustomerFilter(null);
+    setSelectedMessageId(messageId);
+    setActiveTab('mensajes');
+  };
+  const openCustomerMessages = (customerId: string, customerDisplayName: string) => {
+    setSelectedMessage(null);
+    setMessageCustomerFilter(activeTenantId ? { tenantId: activeTenantId, customerId, customerDisplayName } : null);
+    setActiveTab('mensajes');
   };
 
   if (sessionStatus === 'loading') {
@@ -201,6 +230,10 @@ const MainAppContent: React.FC = () => {
         if (tab !== 'clientes') {
           setSelectedCustomerId(null);
         }
+        if (tab !== 'mensajes') {
+          setSelectedMessage(null);
+          setMessageCustomerFilter(null);
+        }
       }}
     >
       {activeTab === 'clientes' && (
@@ -224,6 +257,18 @@ const MainAppContent: React.FC = () => {
             setActiveTab('clientes');
             setSelectedCustomerId(customerId);
           }}
+          onOpenMessage={openMessage}
+          onOpenCustomerMessages={openCustomerMessages}
+        />
+      )}
+
+      {activeTab === 'mensajes' && (
+        <MessagesRoot
+          key={activeWorkspace?.tenantId}
+          selectedMessageId={selectedMessageId}
+          onSelectMessage={setSelectedMessageId}
+          customerFilter={activeCustomerFilter}
+          onClearCustomerFilter={() => setMessageCustomerFilter(null)}
         />
       )}
 

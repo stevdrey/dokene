@@ -17,4 +17,8 @@ export interface ApiErrorPayload {
   path?: string;
   error?: string;
   field?: string;
+  /** Closed refusal code carried by the `problem+json` bodies Phase 3 endpoints send. */
+  code?: string;
+  type?: string;
+  title?: string;
 }

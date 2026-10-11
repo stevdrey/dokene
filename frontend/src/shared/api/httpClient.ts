@@ -6,13 +6,36 @@ export { AbortedTenantRequestError, StaleSessionError };
 export class ApiError extends Error {
   readonly status: number;
   readonly payload?: ApiErrorPayload;
+  /** The closed refusal code from a `problem+json` body, when the backend sent one. */
+  readonly code?: string;
+  /** Seconds from a numeric `Retry-After` header on a 429, when the backend sent one. */
+  readonly retryAfterSeconds?: number;
 
-  constructor(status: number, message: string, payload?: ApiErrorPayload) {
+  constructor(
+    status: number,
+    message: string,
+    payload?: ApiErrorPayload,
+    details: { retryAfterSeconds?: number } = {}
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.payload = payload;
+    this.code = typeof payload?.code === 'string' ? payload.code : undefined;
+    this.retryAfterSeconds = details.retryAfterSeconds;
   }
+}
+
+/**
+ * Reads a delta seconds `Retry-After` header. HTTP dates are not used by the backend, so they
+ * resolve to undefined and the caller falls back to its own default.
+ */
+export function parseRetryAfterSeconds(header: string | null): number | undefined {
+  if (header === null) return undefined;
+  const trimmed = header.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const seconds = Number(trimmed);
+  return Number.isSafeInteger(seconds) ? seconds : undefined;
 }
 
 export function getFriendlyErrorMessage(status: number, method?: string): string {
@@ -188,7 +211,9 @@ class HttpClient {
           errorMessage = getFriendlyErrorMessage(response.status, method);
         }
 
-        throw new ApiError(response.status, errorMessage, errorPayload);
+        const retryAfterSeconds =
+          response.status === 429 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : undefined;
+        throw new ApiError(response.status, errorMessage, errorPayload, { retryAfterSeconds });
       }
 
       const etag = response.headers.get('ETag');

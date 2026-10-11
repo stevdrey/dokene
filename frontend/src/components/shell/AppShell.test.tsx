@@ -59,6 +59,8 @@ describe('AppShell', () => {
     // Navigation links
     expect(screen.getAllByText('Seguimientos').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Clientes').length).toBeGreaterThan(0);
+    // Spec 0004 AC-1: Mensajes in the sidebar group and in the mobile bottom nav.
+    expect(screen.getAllByText('Mensajes').length).toBe(2);
     expect(screen.getByText('Configuración')).toBeInTheDocument();
 
     // User initials (first two characters uppercase of identityId "d45b...")
@@ -76,6 +78,11 @@ describe('AppShell', () => {
 
     // Content title should reflect Clientes
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Clientes');
+
+    act(() => {
+      screen.getAllByText('Mensajes')[0].click();
+    });
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Mensajes');
   });
 
   it('calls logout when clicking Cerrar sesión', () => {

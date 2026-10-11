@@ -1,4 +1,5 @@
 import { httpClient } from '@/shared/api/httpClient';
+import { parseStrongNumericEtag } from '@/shared/api/etag';
 import {
   FollowUpQueuePageResponse,
   FollowUpStatus,
@@ -49,19 +50,14 @@ function hasKnownStatus(value: Record<string, unknown>, allowed: readonly string
   );
 }
 
-const STRONG_NUMERIC_ETAG = /^"(0|[1-9][0-9]*)"$/;
-
 /**
  * AI content is only displayable when it is tied to a verifiable policy version, so unlike
  * `parseVersionFromEtag` this never falls back to the requested version or to 0: a missing,
  * weak or malformed ETag is rejected (the backend always sends a strong numeric one).
  */
 function parseStrictVersionFromEtag(etag: string | null): number {
-  if (etag === null || !STRONG_NUMERIC_ETAG.test(etag)) {
-    throw new InvalidAiResponseError();
-  }
-  const version = Number(etag.slice(1, -1));
-  if (!Number.isSafeInteger(version)) {
+  const version = parseStrongNumericEtag(etag);
+  if (version === null) {
     throw new InvalidAiResponseError();
   }
   return version;

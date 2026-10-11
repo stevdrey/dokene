@@ -22,6 +22,9 @@ interface FollowUpDetailProps {
   canUseAi: boolean;
   onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
   timeZone?: string;
+  canSubmitMessage?: boolean;
+  onOpenMessage?: (messageId: string) => void;
+  onOpenCustomerMessages?: (customerId: string, customerDisplayName: string) => void;
 }
 
 export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
@@ -35,7 +38,10 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   canWrite,
   canUseAi,
   onRequestRefresh,
-  timeZone
+  timeZone,
+  canSubmitMessage = false,
+  onOpenMessage = () => undefined,
+  onOpenCustomerMessages = () => undefined
 }) => {
   const [purchases, setPurchases] = useState<PurchaseResponse[]>([]);
   const [loadingPurchases, setLoadingPurchases] = useState(false);
@@ -428,6 +434,9 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
         policyVersion={item.policyVersion}
         canUseAi={canUseAi}
         onRequestRefresh={onRequestRefresh}
+        canSubmitMessage={canSubmitMessage}
+        onOpenMessage={onOpenMessage}
+        onOpenCustomerMessages={onOpenCustomerMessages}
       />
 
       {/* Recent Purchases Section */}

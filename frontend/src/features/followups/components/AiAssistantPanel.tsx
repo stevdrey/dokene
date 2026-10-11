@@ -27,6 +27,12 @@ interface AiAssistantPanelProps {
   canUseAi: boolean;
   /** Asks the workbench to reload the queue after the follow-up changed under the assistant. */
   onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
+  /** UI affordance only (`canActOnMessages`): hides the hand off control; the backend enforces MESSAGE_DRAFT. */
+  canSubmitMessage: boolean;
+  /** Opens the submitted message in the Mensajes tab. */
+  onOpenMessage: (messageId: string) => void;
+  /** Opens the Mensajes tab filtered by this customer (after `MESSAGE_ALREADY_OPEN`). */
+  onOpenCustomerMessages: (customerId: string, customerDisplayName: string) => void;
 }
 
 const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espacio de trabajo.';
@@ -112,7 +118,10 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   customerId,
   policyVersion,
   canUseAi,
-  onRequestRefresh
+  onRequestRefresh,
+  canSubmitMessage,
+  onOpenMessage,
+  onOpenCustomerMessages
 }) => {
   const headingId = useId();
   const recHeadingId = useId();
@@ -120,11 +129,13 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const assistant = useFollowUpAssistant({ customerId, policyVersion, onRequestRefresh });
-  const { recommendation, draft, draftText, draftDirty, pendingDiscard, copyStatus } = assistant;
+  const { recommendation, draft, draftText, draftDirty, pendingDiscard, copyStatus, submission } = assistant;
 
   const recLoading = recommendation.kind === 'loading';
   const draftLoading = draft.kind === 'loading';
-  const busy = recLoading || draftLoading;
+  const submissionBusy = submission.kind === 'resolvingContact' || submission.kind === 'submitting';
+  const submitted = submission.kind === 'submitted';
+  const busy = recLoading || draftLoading || submissionBusy;
 
   const recData: RecommendationResponse | null = recommendation.kind === 'result' ? recommendation.data : null;
   const versionDrifted = recommendation.kind === 'result' && recommendation.version !== policyVersion;
@@ -143,6 +154,15 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
 
   const showRecommendation = recData !== null && !isStale;
   const showDraftEditor = showRecommendation && draftData?.status === 'AVAILABLE' && !!draftData.draft;
+  // Spec 0004 AC-6: the hand off needs a current recommendation and draft, a non empty text within the
+  // limit, no request in flight and no submission already made for this draft.
+  const canSubmitNow =
+    showDraftEditor &&
+    !!recData?.recommendation &&
+    draftText.trim() !== '' &&
+    countCodePoints(draftText) <= DRAFT_BODY_MAX_CODE_POINTS &&
+    !busy &&
+    !submitted;
 
   useEffect(() => {
     if (showDraftEditor) {
@@ -151,7 +171,10 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   }, [draft.kind === 'result' ? draft.data : null, showDraftEditor]);
 
   let liveMessage = '';
-  if (isStale && staleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
+  if (submitted) liveMessage = 'Mensaje enviado a aprobación.';
+  else if (submission.kind === 'resolvingContact') liveMessage = 'Buscando el contacto del cliente…';
+  else if (submission.kind === 'submitting') liveMessage = 'Entregando el borrador a aprobación…';
+  else if (isStale && staleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
   else if (assistant.ineligibleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
   else if (recLoading) liveMessage = 'Consultando al asistente…';
   else if (draftLoading) liveMessage = 'Redactando borrador…';
@@ -266,7 +289,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
         </h3>
       </div>
       <p style={noteStyle}>
-        Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya.
+        Sugerencia generada por IA · Dokene no envía nada sin aprobación. Puedes enviar el borrador a aprobación o copiarlo.
       </p>
 
       {!canUseAi && <p style={noteStyle}>{FORBIDDEN_MESSAGE}</p>}
@@ -411,7 +434,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             </>
           )}
           <div style={actionsRowStyle}>
-            <Button variant="ghost" size="sm" onClick={askRequery} disabled={busy || !canUseAi}>
+            <Button variant="ghost" size="sm" onClick={askRequery} disabled={busy || !canUseAi || submitted}>
               Consultar de nuevo
             </Button>
           </div>
@@ -479,6 +502,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             value={draftText}
             onChange={(event) => assistant.editDraft(event.target.value)}
             rows={6}
+            disabled={submitted}
             style={draftTextareaStyle}
           />
           <div style={{ ...noteStyle, display: 'flex', justifyContent: 'space-between', gap: 'var(--space-8)' }}>
@@ -507,18 +531,51 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             </div>
           )}
 
+          {submission.kind === 'refused' && (
+            <div role="alert" style={alertStyle}>
+              <span>{submission.message}</span>
+              {submission.code === 'MESSAGE_ALREADY_OPEN' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onOpenCustomerMessages(customerId, submission.customerDisplayName ?? '')}
+                >
+                  Ver mensajes del cliente
+                </Button>
+              )}
+            </div>
+          )}
+
           {activeDiscard ? (
             renderDiscardConfirm()
           ) : (
             <div style={actionsRowStyle}>
-              <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
+              {canSubmitMessage && !submitted && (
+                <Button variant="primary" onClick={() => void assistant.submitToApproval()} disabled={!canSubmitNow} isLoading={submissionBusy}>
+                  Enviar a aprobación
+                </Button>
+              )}
+              {submitted && (
+                <Button variant="primary" onClick={() => onOpenMessage(submission.messageId)}>
+                  Ver en Mensajes
+                </Button>
+              )}
+              <Button variant={canSubmitMessage ? 'secondary' : 'primary'} onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
                 Copiar borrador
               </Button>
-              <Button variant="secondary" onClick={askRegenerate} disabled={busy || !canUseAi}>
+              <Button variant="secondary" onClick={askRegenerate} disabled={busy || !canUseAi || submitted}>
                 Regenerar borrador
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {submitted && !showDraftEditor && (
+        <div style={actionsRowStyle}>
+          <Button variant="primary" onClick={() => onOpenMessage(submission.messageId)}>
+            Ver en Mensajes
+          </Button>
         </div>
       )}
 

@@ -156,6 +156,14 @@ describe('followUpApi AI assistance', () => {
     ).rejects.toBeInstanceOf(InvalidAiResponseError);
   });
 
+  it('rejects a recommendation whose ETag is weak, so a version is never guessed (spec 0004 AC-7)', async () => {
+    mockFetchJson(recommendationBody, 'W/"3"');
+
+    await expect(followUpApi.requestRecommendation('c-1', 3)).rejects.toBeInstanceOf(
+      InvalidAiResponseError
+    );
+  });
+
   it('rejects a non-object response body', async () => {
     mockFetchJson('nope');
 

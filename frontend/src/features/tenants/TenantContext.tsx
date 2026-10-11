@@ -31,6 +31,23 @@ export function canArchiveCustomer(role?: string | null): boolean {
   return role === 'OWNER' || role === 'ADMIN' || role === 'TENANT_ADMIN';
 }
 
+/** ADR 0023 §5: every member role holds MESSAGE_READ. */
+export function canReadMessages(role?: string | null): boolean {
+  return Boolean(role);
+}
+
+const MESSAGE_ACTION_ROLES: readonly string[] = ['OWNER', 'ADMIN', 'TENANT_ADMIN', 'OPERATOR', 'TENANT_OPERATOR'];
+
+/**
+ * ADR 0023 §5: MESSAGE_DRAFT, MESSAGE_APPROVE and MESSAGE_SEND belong to the same roles as
+ * customer writes. VIEWER, an unknown role or a missing one get no action controls. The UI
+ * hides controls on this; the backend stays the gate.
+ */
+export function canActOnMessages(role?: string | null): boolean {
+  if (!role) return false;
+  return MESSAGE_ACTION_ROLES.includes(role);
+}
+
 export const MAX_WORKSPACE_NAME_CODE_POINTS = 160;
 
 /**

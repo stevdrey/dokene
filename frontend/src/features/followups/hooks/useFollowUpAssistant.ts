@@ -3,7 +3,17 @@ import { followUpApi } from '@/features/followups/api/followUpApi';
 import { ApiError, AbortedTenantRequestError, StaleSessionError } from '@/shared/api/httpClient';
 import { DRAFT_BODY_MAX_CODE_POINTS } from '@/features/followups/types';
 import type { DraftResponse, RecommendationResponse } from '@/features/followups/types';
-import { truncateToCodePoints } from '@/features/followups/utils/textLength';
+import { countCodePoints, truncateToCodePoints } from '@/features/followups/utils/textLength';
+import { customerApi } from '@/features/customers/api/customerApi';
+import { messageApi } from '@/features/messages/api/messageApi';
+import { newIdempotencyKey } from '@/features/messages/hooks/useMessageAction';
+import {
+  errorCodeSentence,
+  FORBIDDEN_SENTENCE,
+  NETWORK_SENTENCE,
+  NOT_FOUND_SENTENCE,
+  rateLimitedSentence
+} from '@/features/messages/utils/messageLabels';
 
 export type AssistantErrorKind = 'forbidden' | 'rate-limited' | 'failed';
 
@@ -44,6 +54,22 @@ export type IneligibleRefresh = 'idle' | 'pending' | 'failed';
 
 export type CopyStatus = 'idle' | 'copied' | 'failed';
 export type PendingDiscard = 'regenerate-draft' | 'requery' | null;
+
+/**
+ * Hand off of the edited draft to the approval queue (spec 0004 AC-6). One click is one intent:
+ * the idempotency key is reused while `draftText` is unchanged and rotated when it changes after a
+ * refusal, so a retry replays and an edited text is a new submission.
+ */
+export type SubmissionStep =
+  | { kind: 'idle' }
+  | { kind: 'resolvingContact' }
+  | { kind: 'submitting' }
+  | { kind: 'submitted'; messageId: string; customerDisplayName: string }
+  | { kind: 'refused'; code?: string; message: string; customerDisplayName: string | null };
+
+export const CONTACT_FETCH_FAILED_SENTENCE = 'No se pudo obtener el contacto del cliente.';
+export const NO_PRIMARY_PHONE_SENTENCE = 'El cliente no tiene un teléfono principal.';
+export const SUBMISSION_LOCALE = 'es-419';
 
 
 interface Options {
@@ -86,6 +112,9 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard>(null);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
   const [ineligibleRefresh, setIneligibleRefresh] = useState<IneligibleRefresh>('idle');
+  const [submission, setSubmission] = useState<SubmissionStep>({ kind: 'idle' });
+  const submissionKey = useRef<{ key: string; text: string } | null>(null);
+  const submissionController = useRef<AbortController | null>(null);
 
   const recController = useRef<AbortController | null>(null);
   const draftController = useRef<AbortController | null>(null);
@@ -103,6 +132,7 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
       mountedRef.current = false;
       recController.current?.abort();
       draftController.current?.abort();
+      submissionController.current?.abort();
     };
   }, []);
 
@@ -147,6 +177,8 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     setCopyStatus('idle');
     setRecommendation({ kind: 'stale', refresh: 'pending' });
     setDraft({ kind: 'idle' });
+    // A submitted hand off stays visible through staleness; anything else is no longer actionable.
+    setSubmission((prev) => (prev.kind === 'submitted' ? prev : { kind: 'idle' }));
     void runRefresh();
   }, [runRefresh]);
 
@@ -164,6 +196,9 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     setDraftText('');
     setDraftDirty(false);
     setCopyStatus('idle');
+    submissionController.current?.abort();
+    submissionKey.current = null;
+    setSubmission({ kind: 'idle' });
     setRecommendation({ kind: 'loading' });
 
     try {
@@ -248,6 +283,92 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     }
   }, [draftText]);
 
+  // Resolves the primary contact at click time, then submits the edited draft as an AI_DRAFT message.
+  // Only the backend decides whether the message is accepted; this never approves or sends anything.
+  const submitToApproval = useCallback(async () => {
+    if (recommendation.kind !== 'result' || !recommendation.data.recommendation) return;
+    if (draft.kind !== 'result' || !draft.data.draft) return;
+    if (submission.kind === 'resolvingContact' || submission.kind === 'submitting' || submission.kind === 'submitted') return;
+    const body = draftText;
+    if (body.trim() === '' || countCodePoints(body) > DRAFT_BODY_MAX_CODE_POINTS) return;
+
+    const held = submissionKey.current;
+    const idempotencyKey = held && held.text === body ? held.key : newIdempotencyKey();
+    submissionKey.current = { key: idempotencyKey, text: body };
+
+    submissionController.current?.abort();
+    const controller = new AbortController();
+    submissionController.current = controller;
+
+    setSubmission({ kind: 'resolvingContact' });
+    let customerDisplayName: string | null = null;
+    let contactId: string;
+    try {
+      const { customer } = await customerApi.getCustomer(customerId);
+      if (controller.signal.aborted) return;
+      customerDisplayName = customer.displayName;
+      const primary = Array.isArray(customer.phones) ? customer.phones.find((phone) => phone.primary) : undefined;
+      if (!primary) {
+        setSubmission({ kind: 'refused', message: NO_PRIMARY_PHONE_SENTENCE, customerDisplayName });
+        return;
+      }
+      contactId = primary.id;
+    } catch (err) {
+      if (controller.signal.aborted || isAbortLike(err)) {
+        setSubmission({ kind: 'idle' });
+        return;
+      }
+      setSubmission({ kind: 'refused', message: CONTACT_FETCH_FAILED_SENTENCE, customerDisplayName });
+      return;
+    }
+
+    const { action, templateIntent } = recommendation.data.recommendation;
+    setSubmission({ kind: 'submitting' });
+    try {
+      const { detail } = await messageApi.submit(
+        customerId,
+        {
+          request: { contactId, action, templateIntent, body, locale: SUBMISSION_LOCALE, origin: 'AI_DRAFT' },
+          policyVersion,
+          idempotencyKey
+        },
+        controller.signal
+      );
+      if (controller.signal.aborted) return;
+      setSubmission({ kind: 'submitted', messageId: detail.messageId, customerDisplayName: customerDisplayName ?? '' });
+      void refreshRef.current();
+    } catch (err) {
+      if (controller.signal.aborted || isAbortLike(err)) {
+        setSubmission({ kind: 'idle' });
+        return;
+      }
+      if (err instanceof ApiError) {
+        if (err.status === 409 && err.code === 'STALE_VERSION') {
+          markStale();
+          return;
+        }
+        if (err.code === 'FOLLOW_UP_INELIGIBLE') {
+          setSubmission({ kind: 'refused', code: err.code, message: errorCodeSentence(err.code), customerDisplayName });
+          void refreshForIneligibility();
+          return;
+        }
+        if (err.status === 429) {
+          const seconds = err.retryAfterSeconds ?? 60;
+          setSubmission({ kind: 'refused', code: err.code ?? 'RATE_LIMITED', message: rateLimitedSentence(seconds), customerDisplayName });
+          return;
+        }
+        if (err.code) {
+          setSubmission({ kind: 'refused', code: err.code, message: errorCodeSentence(err.code), customerDisplayName });
+          return;
+        }
+        const message = err.status === 403 ? FORBIDDEN_SENTENCE : err.status === 404 ? NOT_FOUND_SENTENCE : err.message;
+        setSubmission({ kind: 'refused', message, customerDisplayName });
+        return;
+      }
+      setSubmission({ kind: 'refused', message: NETWORK_SENTENCE, customerDisplayName });
+    }
+  }, [recommendation, draft, submission.kind, draftText, customerId, policyVersion, markStale, refreshForIneligibility]);
+
   const askDiscard = useCallback((action: Exclude<PendingDiscard, null>) => setPendingDiscard(action), []);
   const cancelDiscard = useCallback(() => setPendingDiscard(null), []);
 
@@ -266,6 +387,8 @@ export function useFollowUpAssistant({ customerId, policyVersion, onRequestRefre
     cancelDiscard,
     retryRefresh: runRefresh,
     ineligibleRefresh,
-    retryIneligibleRefresh: refreshForIneligibility
+    retryIneligibleRefresh: refreshForIneligibility,
+    submission,
+    submitToApproval
   };
 }
