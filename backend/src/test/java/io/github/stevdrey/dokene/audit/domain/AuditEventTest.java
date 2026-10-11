@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -221,5 +222,33 @@ class AuditEventTest {
                 AuditEventType.INTEGRATION_UPDATED, new AuditTarget(AuditTarget.Type.TEMPLATE_MAPPING, UUID.randomUUID()),
                 AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.IntegrationToggle(true)))
                 .as("integration events target an integration").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** Spec 0005 AC-4: INTEGRATION_UPDATED carries the enabled flag plus changed field names; the toggle no longer fits. */
+    @Test
+    void integrationUpdatesCarryTheEnabledFlagAndChangedFieldNames() {
+        TenantId tenantId = new TenantId(UUID.randomUUID());
+        IdentityId actorId = new IdentityId(UUID.randomUUID());
+        TenantMembershipId membershipId = new TenantMembershipId(UUID.randomUUID());
+        AuditTarget integration = new AuditTarget(AuditTarget.Type.INTEGRATION, tenantId.value());
+        var update = new AuditMetadata.IntegrationUpdate(true,
+                Set.of(IntegrationAuditField.ENABLED, IntegrationAuditField.PHONE_NUMBER_ID));
+
+        assertThat(update.changedFields()).containsExactly(IntegrationAuditField.PHONE_NUMBER_ID,
+                IntegrationAuditField.ENABLED);
+        assertThat(new AuditMetadata.IntegrationUpdate(false, Set.of()).changedFields()).isEmpty();
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.INTEGRATION_UPDATED, integration, AuditOutcome.SUCCESS, UUID.randomUUID(), update))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.INTEGRATION_UPDATED, integration, AuditOutcome.SUCCESS, UUID.randomUUID(),
+                new AuditMetadata.IntegrationToggle(true)))
+                .as("an update is not a toggle").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenantId, actorId, membershipId,
+                AuditEventType.OUTBOUND_KILL_SWITCH_CHANGED, integration, AuditOutcome.SUCCESS, UUID.randomUUID(),
+                update))
+                .as("the kill switch stays a toggle").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.IntegrationUpdate(true, null))
+                .isInstanceOf(NullPointerException.class);
     }
 }

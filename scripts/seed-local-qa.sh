@@ -257,6 +257,55 @@ else
 fi
 
 # ------------------------------------------------------------------------------
+# 5a. Configure the tenant WhatsApp integration (spec 0005)
+#     The real outbound gate reads this row, so the local provider only sends once
+#     the integration is enabled and the kill switch is open. The secret reference
+#     names DOKENE_WA_DEV, a dummy token compose.yaml defines; no value travels here.
+#     Idempotent: a save over an identical record is still a 200 (the version bumps),
+#     and an already open kill switch is a no op.
+# ------------------------------------------------------------------------------
+echo ""
+echo "Configuring the tenant WhatsApp integration..."
+echo -n "• Reading the integration... "
+INTEGRATION_READ="$(curl -s -b "$OWNER_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
+    -D "$TEMP_DIR/integration-read-headers.txt" "$BFF_URL/api/integrations/whatsapp")"
+INTEGRATION_VERSION="$(echo "$INTEGRATION_READ" | jq -r '.version // empty')"
+if [ -z "$INTEGRATION_VERSION" ]; then
+    echo "FAILED"; echo "$INTEGRATION_READ" >&2; exit 1
+fi
+echo "OK (version $INTEGRATION_VERSION)"
+
+echo -n "• Saving identifiers, the secret reference env:DOKENE_WA_DEV and enabled=true... "
+INTEGRATION_SAVE_BODY="$TEMP_DIR/integration-save.json"
+INTEGRATION_SAVE_STATUS="$(curl -s -b "$OWNER_COOKIE_JAR" -X PUT "$BFF_URL/api/integrations/whatsapp" \
+    -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OWNER_CSRF" \
+    -H "Content-Type: application/json" -H "If-Match: \"$INTEGRATION_VERSION\"" \
+    -d '{"phoneNumberId":"100000000000000","businessAccountId":"200000000000000","displayPhoneNumber":"+56 9 2222 0000","displayPhoneRegion":"CL","secretRef":"env:DOKENE_WA_DEV","enabled":true}' \
+    -o "$INTEGRATION_SAVE_BODY" -w "%{http_code}")"
+if [ "$INTEGRATION_SAVE_STATUS" != "200" ]; then
+    echo "FAILED (HTTP $INTEGRATION_SAVE_STATUS)"
+    echo "Response: $(cat "$INTEGRATION_SAVE_BODY")" >&2
+    echo "A 422 SECRET_REF_UNRESOLVABLE means the backend has no DOKENE_WA_DEV variable; compose.yaml sets it." >&2
+    exit 1
+fi
+INTEGRATION_VERSION="$(jq -r '.version' "$INTEGRATION_SAVE_BODY")"
+echo "OK (version $INTEGRATION_VERSION)"
+
+echo -n "• Opening the tenant kill switch... "
+INTEGRATION_SWITCH_BODY="$TEMP_DIR/integration-switch.json"
+INTEGRATION_SWITCH_STATUS="$(curl -s -b "$OWNER_COOKIE_JAR" -X PUT "$BFF_URL/api/integrations/whatsapp/outbound" \
+    -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OWNER_CSRF" \
+    -H "Content-Type: application/json" -H "If-Match: \"$INTEGRATION_VERSION\"" \
+    -d '{"enabled":true}' -o "$INTEGRATION_SWITCH_BODY" -w "%{http_code}")"
+if [ "$INTEGRATION_SWITCH_STATUS" != "200" ]; then
+    echo "FAILED (HTTP $INTEGRATION_SWITCH_STATUS)"; echo "Response: $(cat "$INTEGRATION_SWITCH_BODY")" >&2; exit 1
+fi
+if [ "$(jq -r '.outboundEnabled' "$INTEGRATION_SWITCH_BODY")" != "true" ]; then
+    echo "FAILED (outboundEnabled is not true)"; exit 1
+fi
+echo "OK (version $(jq -r '.version' "$INTEGRATION_SWITCH_BODY"))"
+
+# ------------------------------------------------------------------------------
 # 5b. Seed a Sendable QA Customer (spec 0003)
 #     Consent granted, a purchase 60 days back, so the customer is DUE and a
 #     message can travel submit -> approve -> send through the local provider.
@@ -265,7 +314,7 @@ fi
 echo ""
 echo "Seeding the sendable QA customer..."
 QA_CUSTOMER_NAME="Cliente QA envíos"
-QA_CUSTOMER_PHONE="+56912345655"
+QA_CUSTOMER_PHONE="+56984521155"
 QA_CUSTOMER_REGION="CL"
 
 echo -n "• Creating or finding '$QA_CUSTOMER_NAME'... "
@@ -306,13 +355,21 @@ QA_CONSENT_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X PUT \
     -d '{"status":"GRANTED","source":"CUSTOMER_WRITTEN"}' -o /dev/null -w "%{http_code}")"
 if [ "$QA_CONSENT_STATUS" = "200" ]; then echo "OK"; else echo "FAILED (HTTP $QA_CONSENT_STATUS)"; exit 1; fi
 
-echo -n "• Recording a purchase 60 days back... "
-QA_PURCHASED_AT="$(date -u -v-60d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '60 days ago' +%Y-%m-%dT%H:%M:%SZ)"
-QA_PURCHASE_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X POST "$BFF_URL/api/customers/$QA_CUSTOMER_ID/purchases" \
-    -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" \
-    -H "Content-Type: application/json" -H "Idempotency-Key: qa-seed-purchase-$QA_CUSTOMER_ID" \
-    -d "{\"purchasedAt\":\"$QA_PURCHASED_AT\",\"description\":\"Compra inicial de QA\"}" -o /dev/null -w "%{http_code}")"
-if [ "$QA_PURCHASE_STATUS" = "201" ] || [ "$QA_PURCHASE_STATUS" = "200" ]; then echo "OK"; else echo "FAILED (HTTP $QA_PURCHASE_STATUS)"; exit 1; fi
+# The purchase idempotency fingerprint includes purchasedAt, which moves with the clock, so a rerun cannot
+# replay the same key. Look the purchase up first and record it only once.
+QA_EXISTING_PURCHASES="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
+    "$BFF_URL/api/customers/$QA_CUSTOMER_ID/purchases?limit=1" | jq -r '.purchases | length')"
+if [ "$QA_EXISTING_PURCHASES" != "0" ]; then
+    echo "• Purchase already recorded on an earlier run"
+else
+    echo -n "• Recording a purchase 60 days back... "
+    QA_PURCHASED_AT="$(date -u -v-60d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '60 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+    QA_PURCHASE_STATUS="$(curl -s -b "$OPERATOR_COOKIE_JAR" -X POST "$BFF_URL/api/customers/$QA_CUSTOMER_ID/purchases" \
+        -H "X-Tenant-Id: $TENANT_ID" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" \
+        -H "Content-Type: application/json" -H "Idempotency-Key: qa-seed-purchase-$QA_CUSTOMER_ID" \
+        -d "{\"purchasedAt\":\"$QA_PURCHASED_AT\",\"description\":\"Compra inicial de QA\"}" -o /dev/null -w "%{http_code}")"
+    if [ "$QA_PURCHASE_STATUS" = "201" ] || [ "$QA_PURCHASE_STATUS" = "200" ]; then echo "OK"; else echo "FAILED (HTTP $QA_PURCHASE_STATUS)"; exit 1; fi
+fi
 
 echo -n "• Smoke check: customer is due and consented... "
 QA_ELIGIBILITY="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
@@ -321,8 +378,12 @@ QA_FOLLOW_UP_STATUS="$(echo "$QA_ELIGIBILITY" | jq -r '.status')"
 QA_CONSENT="$(curl -s -b "$OPERATOR_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" \
     "$BFF_URL/api/customers/$QA_CUSTOMER_ID/contact-policy" \
     | jq -r --arg contact "$QA_CONTACT_ID" '.consents[] | select(.contactId == $contact and .channel == "WHATSAPP") | .status')"
+QA_TIMING_SOURCE="$(echo "$QA_ELIGIBILITY" | jq -r '.timingSource // empty')"
 if { [ "$QA_FOLLOW_UP_STATUS" = "DUE" ] || [ "$QA_FOLLOW_UP_STATUS" = "OVERDUE" ]; } && [ "$QA_CONSENT" = "GRANTED" ]; then
     echo "PASS ($QA_FOLLOW_UP_STATUS, consent GRANTED)"
+elif [ "$QA_FOLLOW_UP_STATUS" = "NOT_YET_DUE" ] && [ "$QA_TIMING_SOURCE" = "LAST_OUTBOUND_MESSAGE" ] && [ "$QA_CONSENT" = "GRANTED" ]; then
+    # A send from an earlier QA run advanced the cadence; the seed is intact, the customer is simply not due yet.
+    echo "PASS (consent GRANTED; already messaged in an earlier run, next due $(echo "$QA_ELIGIBILITY" | jq -r .nextFollowUpDate). Create another customer to send again.)"
 else
     echo "FAIL (follow-up status: $QA_FOLLOW_UP_STATUS, consent: ${QA_CONSENT:-none})"
     echo "Eligibility: $QA_ELIGIBILITY" >&2
@@ -352,6 +413,8 @@ echo "3. Log in as 'testoperator' to verify operator controls (create customers,
 echo "4. Log in as 'testviewer' to verify read-only view (mutation controls hidden, actions forbidden)"
 echo "5. Customer '$QA_CUSTOMER_NAME' ($QA_CUSTOMER_ID) is due and consented: submit, approve and POST /api/messages/{id}/sends"
 echo "   The local provider accepts it (phone ends in 55) and reports DELIVERED after DOKENE_MESSAGING_LOCAL_DELIVERY_DELAY."
+echo "6. The WhatsApp integration is enabled with the reference env:DOKENE_WA_DEV and the kill switch open:"
+echo "   GET /api/integrations/whatsapp shows it; PUT /api/integrations/whatsapp/outbound {\"enabled\":false} blocks sends."
 echo ""
 
 # ------------------------------------------------------------------------------

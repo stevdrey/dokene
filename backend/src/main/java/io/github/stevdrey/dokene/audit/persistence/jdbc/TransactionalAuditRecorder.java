@@ -173,6 +173,32 @@ class TransactionalAuditRecorder implements AuditRecorder {
         }
     }
 
+    @Override
+    public void integrationUpdated(UUID tenantId, AuditMetadata.IntegrationUpdate metadata) {
+        Objects.requireNonNull(metadata, "Metadata is required");
+        TenantContext context = integrationContext(tenantId);
+        append(context, event(context, AuditEventType.INTEGRATION_UPDATED,
+                new AuditTarget(AuditTarget.Type.INTEGRATION, tenantId), AuditOutcome.SUCCESS, metadata), mandatory);
+    }
+
+    @Override
+    public void outboundKillSwitchChanged(UUID tenantId, boolean enabled) {
+        TenantContext context = integrationContext(tenantId);
+        append(context, event(context, AuditEventType.OUTBOUND_KILL_SWITCH_CHANGED,
+                new AuditTarget(AuditTarget.Type.INTEGRATION, tenantId), AuditOutcome.SUCCESS,
+                new AuditMetadata.IntegrationToggle(enabled)), mandatory);
+    }
+
+    /** The integration row belongs to the tenant of the member context; any other tenant id is a programming error. */
+    private TenantContext integrationContext(UUID tenantId) {
+        Objects.requireNonNull(tenantId, "Tenant id is required");
+        TenantContext context = contexts.requireCurrent();
+        if (!context.tenantId().value().equals(tenantId)) {
+            throw new IllegalArgumentException("Integration audit must target the current tenant");
+        }
+        return context;
+    }
+
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,
             AuditOutcome outcome, AuditMetadata metadata) {
         return new AuditEvent(UUID.randomUUID(), clock.instant(), context == null ? null : context.tenantId(),

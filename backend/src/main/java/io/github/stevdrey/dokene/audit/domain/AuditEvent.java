@@ -110,11 +110,18 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid template mapping event");
                 }
             }
-            case INTEGRATION_UPDATED, OUTBOUND_KILL_SWITCH_CHANGED -> {
+            case INTEGRATION_UPDATED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.INTEGRATION
+                        || !(metadata instanceof AuditMetadata.IntegrationUpdate)) {
+                    throw new IllegalArgumentException("Invalid integration update event");
+                }
+            }
+            case OUTBOUND_KILL_SWITCH_CHANGED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
                         || target.type() != AuditTarget.Type.INTEGRATION
                         || !(metadata instanceof AuditMetadata.IntegrationToggle)) {
-                    throw new IllegalArgumentException("Invalid integration event");
+                    throw new IllegalArgumentException("Invalid kill switch event");
                 }
             }
         }

@@ -481,10 +481,14 @@ cmd_up() {
     if [ "$INFRA_ONLY" = "true" ]; then
       warn "--seed needs the backend; skipping because --infra-only was given."
     else
-      cmd_seed && SEEDED=true
+      cmd_seed && SEEDED=true || SEED_FAILED=true
     fi
   fi
   print_summary
+  if [ "${SEED_FAILED:-false}" = "true" ]; then
+    fail "The QA seed failed; see the output above. Fix it and run './scripts/dev-env.sh seed' again."
+    exit 1
+  fi
 }
 
 # Recreates the backend together with its oidc-bridge sidecar, whose network namespace the backend joins. The

@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditFailureCategory;
+import io.github.stevdrey.dokene.audit.domain.IntegrationAuditField;
 import io.github.stevdrey.dokene.audit.domain.AuditMessageStatus;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
@@ -21,7 +22,11 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -48,11 +53,16 @@ class JdbcAuditStore {
                 ? value : null;
         AuditMetadata.IntegrationToggle toggle = event.metadata() instanceof AuditMetadata.IntegrationToggle value
                 ? value : null;
+        AuditMetadata.IntegrationUpdate update = event.metadata() instanceof AuditMetadata.IntegrationUpdate value
+                ? value : null;
+        // Boxed explicitly: a mixed boolean/Boolean ternary would unbox a null and throw.
+        Boolean enabled = toggle != null ? Boolean.valueOf(toggle.enabled())
+                : (update != null ? Boolean.valueOf(update.enabled()) : null);
         String previousRole = change == null ? null : change.previousRole().name();
         String newRole = change != null ? change.newRole().name() : (created != null ? created.role().name() : null);
         jdbc.queryForObject("""
                 SELECT dokene.append_audit_event(
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 UUID.class,
                 event.id(), Timestamp.from(event.timestamp()),
@@ -71,7 +81,24 @@ class JdbcAuditStore {
                 transition == null ? null : transition.to().name(),
                 transition == null || transition.failureCategory() == null ? null : transition.failureCategory().name(),
                 transition == null ? null : transition.attemptNumber(),
-                toggle == null ? null : toggle.enabled());
+                enabled,
+                update == null ? null : changedFields(update.changedFields()));
+    }
+
+    /** Comma joined enum names in declaration order, null for an empty set (the column constraint allows nothing else). */
+    static String changedFields(Set<IntegrationAuditField> fields) {
+        if (fields.isEmpty()) {
+            return null;
+        }
+        return fields.stream().sorted().map(Enum::name).collect(Collectors.joining(","));
+    }
+
+    static Set<IntegrationAuditField> changedFields(String column) {
+        EnumSet<IntegrationAuditField> fields = EnumSet.noneOf(IntegrationAuditField.class);
+        if (column != null && !column.isEmpty()) {
+            Arrays.stream(column.split(",")).map(IntegrationAuditField::valueOf).forEach(fields::add);
+        }
+        return fields;
     }
 
     List<AuditEvent> read(TenantId tenant, AuditCursor before, int limit) {
@@ -117,8 +144,10 @@ class JdbcAuditStore {
                             row.getString("failure_category") == null ? null
                                     : AuditFailureCategory.valueOf(row.getString("failure_category")),
                             (Integer) row.getObject("attempt_number"));
-            case TEMPLATE_MAPPING_UPDATED, INTEGRATION_UPDATED, OUTBOUND_KILL_SWITCH_CHANGED ->
+            case TEMPLATE_MAPPING_UPDATED, OUTBOUND_KILL_SWITCH_CHANGED ->
                     new AuditMetadata.IntegrationToggle(row.getBoolean("enabled"));
+            case INTEGRATION_UPDATED -> new AuditMetadata.IntegrationUpdate(row.getBoolean("enabled"),
+                    changedFields(row.getString("changed_fields")));
         };
         UUID actorId = row.getObject("actor_id", UUID.class);
         UUID membershipId = row.getObject("membership_id", UUID.class);

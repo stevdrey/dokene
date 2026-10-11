@@ -1,5 +1,5 @@
 // ABOUTME: End to end journey for specs 0002 and 0003 over real HTTP with curl: submit, list, detail, approve, send.
-// ABOUTME: Also proves a VIEWER gets the problem body and content type over the wire (AC-4, AC-6, AC-11).
+// ABOUTME: Configures the tenant integration over HTTP first (spec 0005 AC-11) and proves a VIEWER gets the problem body.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.context;
@@ -17,6 +17,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
+import io.github.stevdrey.dokene.integration.config.IntegrationConfigurationService;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -41,6 +42,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
@@ -49,7 +51,7 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "dokene.ai.provider=fake", "dokene.messaging.template-gate.stub.enabled-intents=GENERAL_FOLLOW_UP",
         "dokene.messaging.provider=local", "dokene.messaging.outbound.enabled=true",
-        "dokene.messaging.outbound-gate.stub.enabled=true", "dokene.messaging.local.delivery-delay=0s"})
+        "dokene.messaging.local.delivery-delay=0s"})
 @Import(PurchaseCurlSystemTest.CurlSecurityConfiguration.class)
 class MessageCurlSystemTest {
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra.";
@@ -70,6 +72,8 @@ class MessageCurlSystemTest {
     @Autowired PurchaseService purchases;
     @Autowired FollowUpService followUps;
     @Autowired ObjectMapper json;
+    @Autowired IntegrationConfigurationService integrations;
+    @Autowired ConfigurableEnvironment environment;
 
     private UUID tenantId;
     private UUID ownerIdentity;
@@ -111,6 +115,38 @@ class MessageCurlSystemTest {
 
     @Test
     void walksSubmitListDetailEventsApproveSendAndDeliveryOverHttp() throws Exception {
+        // Spec 0005: the tenant integration is configured over the real routes before the send; the secret reference
+        // names a test property, and the response carries the reference string, never the token value.
+        String secretRef = new IntegrationTestSupport(integrations, contexts, auditExecution, environment)
+                .registerSecret("curl-test-token");
+        CurlResult blank = curlAs("GET", "/api/integrations/whatsapp", ownerIdentity, List.of(), null);
+        assertThat(blank.status()).isEqualTo(200);
+        assertThat(blank.headers()).contains("ETag: \"0\"");
+        assertThat(json.readTree(blank.body()).get("version").asLong()).isZero();
+        String phoneNumberId = "1" + String.format("%014d", Math.abs(UUID.randomUUID().getLeastSignificantBits()
+                % 100_000_000_000_000L));
+        CurlResult configured = curlAs("PUT", "/api/integrations/whatsapp", ownerIdentity, List.of("If-Match: \"0\""),
+                """
+                {"phoneNumberId":"%s","businessAccountId":"200000000000000","displayPhoneNumber":"+56 9 2222 0000",
+                 "displayPhoneRegion":"CL","secretRef":"%s","enabled":true}
+                """.formatted(phoneNumberId, secretRef));
+        assertThat(configured.status()).isEqualTo(200);
+        assertThat(configured.headers()).contains("ETag: \"1\"");
+        JsonNode integration = json.readTree(configured.body());
+        assertThat(integration.get("displayPhoneNumber").asString()).isEqualTo("+56922220000");
+        assertThat(integration.get("secretRef").asString()).isEqualTo(secretRef);
+        assertThat(integration.get("outboundEnabled").asBoolean()).isFalse();
+        assertThat(configured.body()).doesNotContain("curl-test-token");
+        CurlResult switched = curlAs("PUT", "/api/integrations/whatsapp/outbound", ownerIdentity,
+                List.of("If-Match: \"1\""), "{\"enabled\":true}");
+        assertThat(switched.status()).isEqualTo(200);
+        assertThat(switched.headers()).contains("ETag: \"2\"");
+        assertThat(json.readTree(switched.body()).get("outboundEnabled").asBoolean()).isTrue();
+        CurlResult viewerSwitch = curlAs("PUT", "/api/integrations/whatsapp/outbound", viewerIdentity,
+                List.of("If-Match: \"2\""), "{\"enabled\":false}");
+        assertThat(viewerSwitch.status()).isEqualTo(403);
+        assertThat(viewerSwitch.body()).isEqualTo("{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"FORBIDDEN\"}");
+
         String submitBody = """
                 {"contactId":"%s","action":"GENERAL_CHECK_IN","templateIntent":"GENERAL_FOLLOW_UP",
                  "body":"%s","locale":"es-419","origin":"MANUAL"}

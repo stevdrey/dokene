@@ -65,4 +65,17 @@ public interface AuditRecorder {
             AuditMetadata.MessageTransition metadata) {
         throw new UnsupportedOperationException("Message audit is not configured");
     }
+
+    /**
+     * Requires an existing business transaction; failure must roll back the save. The target is the tenant's
+     * integration row, identified by the tenant id. Metadata names changed fields from a closed enum, never values.
+     */
+    default void integrationUpdated(UUID tenantId, AuditMetadata.IntegrationUpdate metadata) {
+        throw new UnsupportedOperationException("Integration audit is not configured");
+    }
+
+    /** Requires an existing business transaction; one row per effective change of the tenant kill switch. */
+    default void outboundKillSwitchChanged(UUID tenantId, boolean enabled) {
+        throw new UnsupportedOperationException("Integration audit is not configured");
+    }
 }

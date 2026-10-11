@@ -208,6 +208,20 @@ start_failure_detection() {
 check "only start/bind errors count as a start failure" \
   bash -c "$(declare -f start_failure_detection) ; SCRIPT='$SCRIPT'; start_failure_detection"
 
+up_propagates_a_failed_seed() {
+  # The compose and preflight steps are stubbed; only the seed outcome handling of cmd_up is under test.
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  preflight() { :; }; repair_networkless_bridge() { :; }; compose_up_services() { :; }; compose() { :; }
+  print_summary() { :; }; ok() { :; }; info() { :; }
+  cmd_seed() { return 0; }
+  (cmd_up --seed --yes) || return 1          # a passing seed keeps up successful
+  cmd_seed() { return 1; }
+  ! (cmd_up --seed --yes)                     # a failing seed must fail up, not hide behind the summary
+}
+check "up --seed exits non zero when the seed fails" \
+  bash -c "$(declare -f up_propagates_a_failed_seed) ; SCRIPT='$SCRIPT'; up_propagates_a_failed_seed"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1

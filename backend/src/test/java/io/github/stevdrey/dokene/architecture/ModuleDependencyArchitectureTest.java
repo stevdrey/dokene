@@ -10,8 +10,12 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnMessagingFixture;
+import io.github.stevdrey.dokene.integration.config.SecretValue;
+import io.github.stevdrey.dokene.integration.config.archfixture.ConfigDependsOnFollowUpFixture;
 import io.github.stevdrey.dokene.integration.local.archfixture.LocalDependsOnCustomerFixture;
+import io.github.stevdrey.dokene.messaging.archfixture.MessagingReferencesSecretValueFixture;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -93,12 +97,40 @@ class ModuleDependencyArchitectureTest {
                 || packageName.startsWith(ROOT + ".tenant.domain");
     }
 
+    private static final ArchRule INTEGRATION_CONFIG_IS_NARROW = noClasses().that().resideInAnyPackage(
+                    ROOT + ".integration.config..", ROOT + ".integration.api..", ROOT + ".integration.persistence..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "anything but infrastructure, integration, the OutboundGate port, audit.application, "
+                                    + "PhoneNormalizer, tenant.application, tenant.domain and web",
+                            javaClass -> !isAllowedForIntegrationConfig(javaClass.getName(),
+                                    javaClass.getPackageName())))
+            .because("spec 0005 AC-10: the integration record depends on the gate port, the audit port, the phone "
+                    + "normalizer, the tenant context and the shared web helpers only");
+
+    private static final ArchRule SECRET_VALUE_STAYS_INSIDE_INTEGRATION = noClasses().that()
+            .resideOutsideOfPackage(ROOT + ".integration..")
+            .should().dependOnClassesThat().haveFullyQualifiedName(ROOT + ".integration.config.SecretValue")
+            .because("spec 0005 AC-10: a resolved secret never leaves the integration module");
+
+    private static boolean isAllowedForIntegrationConfig(String className, String packageName) {
+        return isInfrastructure(packageName)
+                || packageName.startsWith(ROOT + ".integration")
+                || packageName.startsWith(ROOT + ".audit.application")
+                || packageName.startsWith(ROOT + ".tenant.application")
+                || packageName.startsWith(ROOT + ".tenant.domain")
+                || packageName.startsWith(ROOT + ".web")
+                || className.equals(ROOT + ".messaging.application.OutboundGate")
+                || className.equals(ROOT + ".messaging.application.OutboundGateStatus")
+                || className.equals(ROOT + ".customer.application.PhoneNormalizer");
+    }
+
     /** Packages that are not modules of this application: the JDK, the servlet API, Spring, Jackson, Micrometer, SLF4J. */
     private static boolean isInfrastructure(String packageName) {
         return packageName.startsWith("java.") || packageName.startsWith("jakarta.")
                 || packageName.startsWith("org.springframework.") || packageName.startsWith("com.fasterxml.")
                 || packageName.startsWith("tools.jackson.") || packageName.startsWith("io.micrometer.")
-                || packageName.startsWith("org.slf4j.");
+                || packageName.startsWith("org.slf4j");
     }
 
     @Test
@@ -129,6 +161,30 @@ class ModuleDependencyArchitectureTest {
     @Test
     void localAdapterDependsOnlyOnThePortsAndTheTenantContext() {
         INTEGRATION_LOCAL_IS_NARROW.check(production);
+    }
+
+    @Test
+    void integrationConfigDependsOnlyOnItsPortsAndTheTenantContext() {
+        INTEGRATION_CONFIG_IS_NARROW.check(production);
+    }
+
+    @Test
+    void secretValueIsNeverReferencedOutsideIntegration() {
+        SECRET_VALUE_STAYS_INSIDE_INTEGRATION.check(production);
+    }
+
+    /** Negative proof (spec 0005 AC-10): the two new rules really match, so violating fixtures are reported. */
+    @Test
+    void intentionalIntegrationConfigAndSecretValueViolationsFailTheRules() {
+        JavaClasses config = new ClassFileImporter()
+                .importClasses(ConfigDependsOnFollowUpFixture.class, FollowUpStatus.class);
+        JavaClasses secret = new ClassFileImporter()
+                .importClasses(MessagingReferencesSecretValueFixture.class, SecretValue.class);
+
+        assertThat(INTEGRATION_CONFIG_IS_NARROW.evaluate(config).hasViolation()).isTrue();
+        assertThat(SECRET_VALUE_STAYS_INSIDE_INTEGRATION.evaluate(secret).hasViolation()).isTrue();
+        assertThat(INTEGRATION_CONFIG_IS_NARROW.evaluate(production).hasViolation()).isFalse();
+        assertThat(SECRET_VALUE_STAYS_INSIDE_INTEGRATION.evaluate(production).hasViolation()).isFalse();
     }
 
     /** Negative proof (spec 0003 AC-10): an integration.local import of customer or followup is reported. */

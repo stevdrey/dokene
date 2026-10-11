@@ -29,6 +29,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
+import io.github.stevdrey.dokene.integration.config.IntegrationConfigurationService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
@@ -59,6 +60,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -76,7 +78,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(properties = {"dokene.ai.provider=fake",
         "dokene.messaging.template-gate.stub.enabled-intents=GENERAL_FOLLOW_UP",
-        "dokene.messaging.outbound.enabled=true", "dokene.messaging.outbound-gate.stub.enabled=true",
+        "dokene.messaging.outbound.enabled=true",
         "dokene.messaging.provider=local", "dokene.messaging.local.delivery-delay=0s"})
 @Import(LocalProviderDeliveryIntegrationTest.MutableClockConfiguration.class)
 class LocalProviderDeliveryIntegrationTest {
@@ -119,6 +121,8 @@ class LocalProviderDeliveryIntegrationTest {
     @Autowired FollowUpService followUps;
     @Autowired OutboundMessageRepository messages;
     @Autowired JdbcTemplate jdbc;
+    @Autowired IntegrationConfigurationService integrations;
+    @Autowired ConfigurableEnvironment environment;
 
     private Tenant tenant;
     private IdentityId owner;
@@ -136,6 +140,7 @@ class LocalProviderDeliveryIntegrationTest {
         owner = new IdentityId(UUID.randomUUID());
         ownerContext = context(seedMembership(memberships, contexts, tenant.id(), owner, TenantRole.OWNER, now));
         inContext(ownerContext, () -> followUps.configureTenant(30, ZoneId.of("UTC"), 0));
+        new IntegrationTestSupport(integrations, contexts, auditExecution, environment).enableIntegration(ownerContext);
         logs.start();
         rootLogger.addAppender(logs);
     }

@@ -54,10 +54,6 @@ dokene:
     send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
     send-rate-limit:
       per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_LIMIT_PER_TENANT_PER_MINUTE:30}
-    outbound-gate:
-      stub:
-        # Stand in for the tenant outbound switch; closed by default. Removed when feature 5 lands.
-        enabled: ${DOKENE_MESSAGING_OUTBOUND_GATE_STUB_ENABLED:false}
     local:
       # Delay before each simulated delivery report of the local provider.
       delivery-delay: ${DOKENE_MESSAGING_LOCAL_DELIVERY_DELAY:0s}

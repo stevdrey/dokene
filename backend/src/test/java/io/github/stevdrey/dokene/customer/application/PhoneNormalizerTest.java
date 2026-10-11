@@ -68,4 +68,20 @@ class PhoneNormalizerTest {
         assertThatThrownBy(() -> normalizer.normalize("1".repeat(65), "CR")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> normalizer.normalize("+14155552671", "CR")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    // scripts/seed-local-qa.sh creates this customer; libphonenumber has no Chilean mobile range starting 91,
+    // so the seed number must stay in a range the library knows (the suffix 55 keeps the local provider accepting it).
+    @Test
+    void acceptsTheLocalQaSeedNumberAndRejectsTheOldOne() {
+        assertThat(normalizer.normalize("+56984521155", "CL")).isEqualTo("+56984521155");
+        assertThatThrownBy(() -> normalizer.normalize("+56912345655", "CL"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // scripts/seed-local-qa.sh saves this as the integration display number (spec 0005 AC-9); the seed relies on
+    // libphonenumber accepting it for CL, and spec 0005 names +56912345655 as the refused example.
+    @Test
+    void acceptsTheSeededIntegrationDisplayNumber() {
+        assertThat(normalizer.normalize("+56 9 2222 0000", "CL")).isEqualTo("+56922220000");
+    }
 }

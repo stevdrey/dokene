@@ -2,7 +2,10 @@ package io.github.stevdrey.dokene.audit.domain;
 
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Objects;
+import java.util.Set;
 
 /** Closed, scalar-only metadata. Never accepts free text or arbitrary payloads. */
 public sealed interface AuditMetadata {
@@ -48,8 +51,21 @@ public sealed interface AuditMetadata {
         }
     }
 
-    /** Template mapping, integration and kill switch changes record only the resulting enabled flag. */
+    /** Template mapping and kill switch changes record only the resulting enabled flag. */
     record IntegrationToggle(boolean enabled) implements AuditMetadata {
+    }
+
+    /**
+     * Integration configuration saves (spec 0005 AC-4): the resulting enabled flag plus the names of the fields whose
+     * stored value changed, from a closed enum, never a value. Kept in declaration order; empty when nothing changed.
+     */
+    record IntegrationUpdate(boolean enabled, Set<IntegrationAuditField> changedFields) implements AuditMetadata {
+        public IntegrationUpdate {
+            Objects.requireNonNull(changedFields, "Changed fields are required");
+            EnumSet<IntegrationAuditField> ordered = EnumSet.noneOf(IntegrationAuditField.class);
+            ordered.addAll(changedFields);
+            changedFields = Collections.unmodifiableSet(ordered);
+        }
     }
 
     record AuthorizationDenied(TenantPermission permission, AuditDenialReason reason) implements AuditMetadata {

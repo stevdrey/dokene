@@ -40,6 +40,7 @@ import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpPolicyRepository;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
+import io.github.stevdrey.dokene.integration.config.IntegrationConfigurationService;
 import io.github.stevdrey.dokene.integration.ProviderReportExecution;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
 import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
@@ -85,6 +86,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -103,7 +105,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(properties = {"dokene.ai.provider=fake",
         "dokene.messaging.template-gate.stub.enabled-intents=GENERAL_FOLLOW_UP",
-        "dokene.messaging.outbound.enabled=true", "dokene.messaging.outbound-gate.stub.enabled=true"})
+        "dokene.messaging.outbound.enabled=true"})
 @Import(OutboundSendIntegrationTest.SpyProviderConfiguration.class)
 class OutboundSendIntegrationTest {
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra. Quedamos atentos.";
@@ -158,6 +160,8 @@ class OutboundSendIntegrationTest {
     @Autowired DeliveryStatusSink sink;
     @Autowired ProviderReportExecution providerExecution;
     @Autowired MeterRegistry registry;
+    @Autowired IntegrationConfigurationService integrations;
+    @Autowired ConfigurableEnvironment environment;
     @MockitoSpyBean AuditRecorder auditRecorder;
     @MockitoSpyBean OutboundGate gate;
     @MockitoSpyBean OutboundSendRateLimiter rateLimiter;
@@ -190,6 +194,8 @@ class OutboundSendIntegrationTest {
         seedMembership(memberships, contexts, tenantA.id(), viewerA, TenantRole.VIEWER, now);
         ownerBContext = context(seedMembership(memberships, contexts, tenantB.id(), ownerB, TenantRole.OWNER, now));
         inContext(ownerAContext, () -> followUps.configureTenant(30, ZoneId.of("UTC"), 0));
+        // Spec 0005: the real gate reads the tenant integration row, so tenant A gets an enabled one.
+        new IntegrationTestSupport(integrations, contexts, auditExecution, environment).enableIntegration(ownerAContext);
         seeded = seedCustomer("Cliente principal");
         logs.start();
         messagingLogger.addAppender(logs);
@@ -449,6 +455,8 @@ class OutboundSendIntegrationTest {
         verify(auditRecorder, times(1)).authorizationDenied(eq(TenantPermission.MESSAGE_SEND), any());
         verify(auditRecorder, times(1)).authorizationDenied(any(), any());
 
+        // Tenant B's own gate runs before the message lock (spec 0003 step 4), so B is enabled to reach the lookup.
+        new IntegrationTestSupport(integrations, contexts, auditExecution, environment).enableIntegration(ownerBContext);
         mvc.perform(post("/api/messages/{id}/sends", messageId).with(user(ownerB)).with(csrf())
                         .header("X-Tenant-Id", tenantB.id().value()).header("If-Match", "\"2\"")
                         .header("Idempotency-Key", "send-" + UUID.randomUUID()))
