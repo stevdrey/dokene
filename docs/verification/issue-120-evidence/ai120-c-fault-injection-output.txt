@@ -1,0 +1,27 @@
+== FAULT INJECTION (labelled): provider base URL -> closed port; ineligible customers must never need the provider
+INFO  config: DOKENE_AI_PROVIDER=openai base-url=http://127.0.0.1:9/v1
+PASS  AI-05  Unknown Consent QA: recommendation INELIGIBLE without the provider (took .8938s)
+PASS  AI-05  Unknown Consent QA: draft INELIGIBLE without the provider
+PASS  AI-05  Revoked Consent QA: recommendation INELIGIBLE without the provider (took .1673s)
+PASS  AI-05  Revoked Consent QA: draft INELIGIBLE without the provider
+PASS  AI-05  DNC QA: recommendation INELIGIBLE without the provider (took .1704s)
+PASS  AI-05  DNC QA: draft INELIGIBLE without the provider
+PASS  AI-05  Archived QA: recommendation INELIGIBLE without the provider (took .1626s)
+PASS  AI-05  Archived QA: draft INELIGIBLE without the provider
+PASS  AI-05  Not Due QA: recommendation INELIGIBLE without the provider (took .1561s)
+PASS  AI-05  Not Due QA: draft INELIGIBLE without the provider
+PASS  AI-05  No History QA: recommendation INELIGIBLE without the provider (took .1561s)
+PASS  AI-05  No History QA: draft INELIGIBLE without the provider
+PASS  AI-10  eligible 'Repeat Café QA' with the provider unreachable: AI_UNAVAILABLE, retryable, manual flow intact (fault injection, not a live result)
+INFO  AI-10  unavailableReason=UNAVAILABLE duration=1.343s audit=NEXT_BEST_ACTION/FAILED/UNAVAILABLE rows+1
+PASS  AI-10  eligible 'Dormant Té QA' with the provider unreachable: AI_UNAVAILABLE, retryable, manual flow intact (fault injection, not a live result)
+INFO  AI-10  unavailableReason=UNAVAILABLE duration=.3669s audit=NEXT_BEST_ACTION/FAILED/UNAVAILABLE rows+1
+PASS  AI-10  deterministic queue still works while the provider is down
+INFO  audit outcomes recorded for ineligible/unavailable calls:
+  MESSAGE_DRAFT/GATE_REJECTED/NO_CONTACT_CONSENT x1
+  MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE x4
+  MESSAGE_DRAFT/GENERATED/NONE x18
+  NEXT_BEST_ACTION/FAILED/UNAVAILABLE x2
+  NEXT_BEST_ACTION/GENERATED/NONE x25
+
+SUMMARY pass=15 fail=0

@@ -1,0 +1,6 @@
+== live probes for explicit refusals (NO_RECOMMENDATION / NO_DRAFT); every outcome is recorded, none is forced
+PROBE  Probe Nonsense QA: recommendation=NO_RECOMMENDATION action=UNCERTAIN_INTENT
+PROBE  Probe Return QA: recommendation=NO_RECOMMENDATION action=MANUAL_REVIEW_REQUIRED
+PROBE  Probe NoOffers QA: recommendation=NO_RECOMMENDATION action=UNCERTAIN_INTENT
+PROBE  Probe Recent QA (completed follow-up today, explicit date today): recommendation=AVAILABLE REPEAT_PURCHASE_FOLLOW_UP
+SUMMARY pass=0 fail=0  (probes are informational)

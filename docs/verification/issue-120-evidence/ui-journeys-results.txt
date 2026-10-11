@@ -1,0 +1,28 @@
+Browser journeys for suite #120 (in-app Chrome, 1280x800, OPERATOR testoperator, main @ 07e0136, live OpenAI unless stated).
+A fetch logger (headers except cookies/CSRF) and the nginx access log were used as request evidence. Values below are the measured results.
+
+AI-01  4 customers selected + 1 detail page opened: AI requests = 0 (fetch logger), nginx recommendation/draft lines = 0, AI audit rows 61 -> 61.
+       "Generar borrador" absent before a recommendation, present after AVAILABLE, absent after NO_RECOMMENDATION.
+AI-02  POST /recommendation If-Match "0" (current), response ETag "0" (strong numeric); POST /draft If-Match "0", ETag "0".
+       Deterministic block ("¿Por qué contactar hoy?") and the advisory block ("POR QUÉ LO SUGIERE LA IA", confidence) are separate.
+       After another operator changed the policy (version 0 -> 1) the refresh request used If-Match "1".
+AI-04  counter: "Hola 😀 prueba" 13/1000; 1000 emoji = 1000 code points (2000 UTF-16 units) accepted, 1000/1000; 1001 emoji truncated to 1000 without a lone surrogate;
+       1001 accented characters -> 1000/1000. Editing + clicking Copy produced 0 requests. Copy result in the in-app browser: "No se pudo copiar el borrador"
+       (clipboard-write denied there; the success path was verified in a real Chrome in suite #119).
+       Regenerate with edited text: inline confirmation "Regenerar reemplazará tus cambios en el borrador." Cancelar -> edits kept, 0 requests;
+       "Reemplazar mis cambios" -> exactly 1 POST /draft with the current If-Match, new draft replaces the edit.
+AI-07  (a) policy changed by another operator (0 -> 1): POST /draft with the old If-Match -> 409; UI hid the advice and the draft, refreshed the queue,
+           notice "El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación.", button "Actualizar recomendación",
+           manual actions intact; the refreshed recommendation was requested with If-Match "1".
+       (b) consent revoked by another operator (follow-up policy version unchanged, 0 -> 0): POST /draft -> 200 INELIGIBLE, advice hidden,
+           notice "UI Inelig QA ya no es elegible para seguimiento. La lista se ha actualizado.".
+       (c) purchase recorded by another operator 1.5 s after clicking "Consultar de nuevo" (call in flight): the call ended GATE_REJECTED/STALE_STATE (audit 05:00:11,
+           purchase 05:00:10); UI hid the advice, refreshed the queue, same notice and refresh button as (a).
+AI-08  call in flight + select another customer / switch workspace / sign out: the request was aborted by the browser in all three cases; the new context showed no advisory text;
+       back on the first customer / workspace there was no resurrected result; after sign out + sign in no advisory or draft text. Workspace switch showed only the other workspace's customers.
+AI-10  NO_RECOMMENDATION (live): "Sin recomendación de la IA - La IA no recomienda una acción por ahora: el caso requiere revisión manual", no draft button, manual actions available.
+       NO_DRAFT (live model refusal; the browser request was REWRITTEN by the test harness to RELATED_PRODUCT_OFFER/RELATED_PRODUCT, so this is a harness-induced but real refusal):
+           "Borrador no disponible - La IA no pudo redactar un borrador: esta acción no admite un borrador automático ...", no editor, "Regenerar borrador" and manual actions available.
+       AI_UNAVAILABLE (FAULT INJECTION, provider base URL -> closed port; not a live result): "El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar.", Reintentar + manual actions, queue intact.
+       INELIGIBLE and STALE_STATE: see AI-07 (live).
+Side note found: client-aborted requests (AI-08) still completed at the provider and were audited as GENERATED -> issue #178.

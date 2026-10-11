@@ -1,0 +1,26 @@
+== AI-07a: purchase history changed after a live result, then draft
+PASS  AI-07  baseline recommendation AVAILABLE
+PASS  AI-07  same policy version: purchases do not bump the follow-up policy version
+PASS  AI-07  draft after the purchase change is built from a FRESH evaluation (lastPurchaseAt = the new purchase)
+INFO  AI-07  draft after purchase change: status=AVAILABLE; evidence=["Nombre: Stale QA","Artículo: Molino manual (compra nueva registrada por otro operador)","Fecha de compra: 2026-08-30T14:00:00Z","Estado de seguimiento: OVERDUE"]
+== AI-07b: change while the live call is IN FLIGHT (race), 4 attempts with different delays
+INFO  AI-07  race delay 1s: call took 5.950240432s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+INFO  AI-07  race delay 2s: call took 5.448838300s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+INFO  AI-07  race delay 3.5s: call took 4.821728981s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+INFO  AI-07  race delay 5s: call took 5.786891693s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+== AI-07c: consent revoked while the live call is in flight
+INFO  AI-07  consent revoked during the call: status=INELIGIBLE rejection=NO_CONTACT_CONSENT draftPresent=false
+PASS  AI-07  consent revoked in flight: the draft is never delivered
+== AI-09 no business side effects and no send/approve route
+PASS  AI-09  audit checksum is non-empty (query works)
+PASS  AI-09  business state identical after 2 recommendations + 2 drafts
+PASS  AI-09  no non-AI audit events were produced by the AI calls
+PASS  AI-09  exactly 4 invocation audit rows (observability only)
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/send
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/messages
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/draft/approve
+PASS  AI-09  no send/approve route: POST /api/messages
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/draft/send
+
+AI calls (audit rows) so far: 48
+SUMMARY pass=13 fail=0

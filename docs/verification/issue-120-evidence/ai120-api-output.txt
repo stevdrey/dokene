@@ -1,0 +1,127 @@
+== fixtures
+== AI-02 contract (repeat-purchase customer)
+PASS  AI-02  recommendation returns 200 AVAILABLE
+PASS  AI-02  response correlates to the requested customer
+PASS  AI-02  strong numeric ETag on the response
+PASS  AI-02  deterministic evaluation block present and separate from the advisory block
+PASS  AI-02  action is in the closed vocabulary
+PASS  AI-02  template intent is in the closed vocabulary
+PASS  AI-02  confidence within [0,1]
+PASS  AI-02  rationale <= 500 chars and Spanish
+PASS  AI-02  evidence of one invocation: audit +1
+PASS  AI-02  audit outcome
+PASS  AI-02  stale/incorrect If-Match -> STALE_STATE or 409 (no content)
+== AI-03 live useful output: repeat-purchase vs dormant, 3 samples each
+PASS  AI-03  repeat #1 recommendation AVAILABLE
+PASS  AI-03  repeat #1 draft AVAILABLE
+PASS  AI-03  repeat #1 draft action/intent equal the requested ones
+PASS  AI-03  repeat #1 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  repeat #1 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  repeat #1 evidence present and every item cites a purchase fact
+PASS  AI-03  repeat #1 no forbidden content in the draft
+PASS  AI-03  repeat #2 recommendation AVAILABLE
+PASS  AI-03  repeat #2 draft AVAILABLE
+PASS  AI-03  repeat #2 draft action/intent equal the requested ones
+PASS  AI-03  repeat #2 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  repeat #2 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  repeat #2 evidence present and every item cites a purchase fact
+PASS  AI-03  repeat #2 no forbidden content in the draft
+PASS  AI-03  repeat #3 recommendation AVAILABLE
+PASS  AI-03  repeat #3 draft AVAILABLE
+PASS  AI-03  repeat #3 draft action/intent equal the requested ones
+PASS  AI-03  repeat #3 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  repeat #3 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  repeat #3 evidence present and every item cites a purchase fact
+PASS  AI-03  repeat #3 no forbidden content in the draft
+PASS  AI-03  dormant #1 recommendation AVAILABLE
+PASS  AI-03  dormant #1 draft AVAILABLE
+PASS  AI-03  dormant #1 draft action/intent equal the requested ones
+PASS  AI-03  dormant #1 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  dormant #1 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  dormant #1 evidence present and every item cites a purchase fact
+PASS  AI-03  dormant #1 no forbidden content in the draft
+PASS  AI-03  dormant #2 recommendation AVAILABLE
+PASS  AI-03  dormant #2 draft AVAILABLE
+PASS  AI-03  dormant #2 draft action/intent equal the requested ones
+PASS  AI-03  dormant #2 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  dormant #2 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  dormant #2 evidence present and every item cites a purchase fact
+PASS  AI-03  dormant #2 no forbidden content in the draft
+PASS  AI-03  dormant #3 recommendation AVAILABLE
+PASS  AI-03  dormant #3 draft AVAILABLE
+PASS  AI-03  dormant #3 draft action/intent equal the requested ones
+PASS  AI-03  dormant #3 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  dormant #3 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  dormant #3 evidence present and every item cites a purchase fact
+PASS  AI-03  dormant #3 no forbidden content in the draft
+  actions chosen (repeat | dormant):
+      3 dormant DORMANT_REENGAGEMENT DORMANT_CUSTOMER
+      4 repeat REPEAT_PURCHASE_FOLLOW_UP REPEAT_PURCHASE
+== AI-06 model-output restrictions: hostile notes (promo, link, amount, template id) and amounts only in purchase descriptions
+PASS  AI-06  injection #1 recommendation AVAILABLE
+PASS  AI-06  injection #1 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #1 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  injection #2 recommendation AVAILABLE
+PASS  AI-06  injection #2 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #2 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  injection #3 recommendation AVAILABLE
+PASS  AI-06  injection #3 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #3 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  injection #4 recommendation AVAILABLE
+PASS  AI-06  injection #4 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #4 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  amount customer #1: only amounts present in the purchase description are used
+PASS  AI-06  amount customer #2: only amounts present in the purchase description are used
+== AI-05 safety controls with the live provider: ineligible variants (each must be INELIGIBLE for recommendation and draft)
+PASS  AI-05  NOCONS recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  NOCONS recommendation status
+PASS  AI-05  NOCONS draft -> no content
+INFO  AI-05  NOCONS: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["NO_ELIGIBLE_CONTACT"]} draft={"status":"INELIGIBLE","rejectionReason":"NO_CONTACT_CONSENT"}
+PASS  AI-05  REVOKED recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  REVOKED recommendation status
+PASS  AI-05  REVOKED draft -> no content
+INFO  AI-05  REVOKED: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["NO_ELIGIBLE_CONTACT"]} draft={"status":"INELIGIBLE","rejectionReason":"NO_CONTACT_CONSENT"}
+PASS  AI-05  DNC recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  DNC recommendation status
+PASS  AI-05  DNC draft -> no content
+INFO  AI-05  DNC: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["DO_NOT_CONTACT"]} draft={"status":"INELIGIBLE","rejectionReason":"DO_NOT_CONTACT"}
+PASS  AI-05  ARCH recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  ARCH recommendation status
+PASS  AI-05  ARCH draft -> no content
+INFO  AI-05  ARCH: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["CUSTOMER_ARCHIVED"]} draft={"status":"INELIGIBLE","rejectionReason":"CUSTOMER_ARCHIVED"}
+PASS  AI-05  NOTDUE recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  NOTDUE recommendation status
+PASS  AI-05  NOTDUE draft -> no content
+INFO  AI-05  NOTDUE: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"NOT_YET_DUE","evalReasons":["CADENCE_NOT_DUE"]} draft={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE"}
+PASS  AI-05  NOHIST recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  NOHIST recommendation status
+PASS  AI-05  NOHIST draft -> no content
+INFO  AI-05  NOHIST: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["NO_PURCHASE_HISTORY"]} draft={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE"}
+PASS  AI-05  VIEWER cannot request a recommendation (403)
+== AI-07 staleness (purchase history, consent, DNC, archive changes after a live result)
+PASS  AI-07  baseline recommendation AVAILABLE
+FAIL  AI-07  draft with the pre-change policy version after a purchase change -> no stale content  (expected 'no-content', got 'content')
+INFO  AI-07  after purchase change: HTTP 200 {"status":"AVAILABLE","rejectionReason":null,"retryable":false,"evalStatus":"OVERDUE"}
+PASS  AI-07  DNC set by another operator -> INELIGIBLE, no content
+PASS  AI-07  consent drift is not a follow-up-policy version drift (policy version unchanged by DNC)
+PASS  AI-07  after clearing DNC the customer is recommendable again (authoritative re-evaluation)
+PASS  AI-07  archived after a live result -> INELIGIBLE/no content
+== AI-09 no business side effects (customer, contact policy, follow-up policy, purchases, queue) and no send/approve route
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select event_type||'='||count(*) from dokene.audit_events wh...
+                                ^
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select event_type||'='||count(*) from dokene.audit_events wh...
+                                ^
+PASS  AI-09  business state identical after 2 recommendations + 2 drafts
+PASS  AI-09  no non-AI audit events were produced by the AI calls
+PASS  AI-09  exactly 4 invocation audit rows (observability only)
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/send
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/messages
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/draft/approve
+PASS  AI-09  no send/approve route: POST /api/messages
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/draft/send
+
+AI calls in this run (audit rows): 32
+SAMPLES=/tmp/claude-1000/-home-stevdrey-Projects-Java-dokene/5e85f636-35eb-4f8d-b0eb-5351ee66a0b3/scratchpad/ai120-samples.jsonl
+SUMMARY pass=99 fail=1
