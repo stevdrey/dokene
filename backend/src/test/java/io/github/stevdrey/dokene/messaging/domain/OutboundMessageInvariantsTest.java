@@ -175,4 +175,24 @@ class OutboundMessageInvariantsTest {
                 m.sourcePolicyVersion(), m.sendKey(), attempts, providerId, category, m.sentAt(), m.deliveredAt(),
                 m.readAt(), m.createdByMembershipId(), m.createdByActorId(), m.createdAt(), m.updatedAt(), m.version());
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "wamid.\u0000abc", "\u0000"})
+    void rejectsProviderMessageIdsThatAreBlankOrCarryNul(String id) {
+        assertThatThrownBy(() -> new ProviderSendResult.Accepted(id)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ProviderSendResult.OutcomeUnknown(Optional.of(id)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new DeliveryStatusReport(id, DeliveryStatus.DELIVERED, NOW, Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void acceptsProviderMessageIdsUpToTheLimitAndRejectsLonger() {
+        String limit = "w".repeat(128);
+        assertThatCode(() -> new ProviderSendResult.Accepted(limit)).doesNotThrowAnyException();
+        assertThatCode(() -> new ProviderSendResult.OutcomeUnknown(Optional.of(limit))).doesNotThrowAnyException();
+        assertThatCode(() -> new DeliveryStatusReport(limit, DeliveryStatus.SENT, NOW, Optional.empty()))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new ProviderSendResult.Accepted(limit + "w")).isInstanceOf(IllegalArgumentException.class);
+    }
 }
