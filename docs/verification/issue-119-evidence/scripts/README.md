@@ -7,6 +7,7 @@ Synthetic data only. Run each script from the repository root with the stack up 
 | `reg-api.sh` | REG-01, REG-03, REG-04, REG-05, REG-06 and the tenant-policy role check | run once on a clean database (fixed phone numbers) |
 | `v159.sh` | #159 tenant-wide follow-up policy restricted to OWNER/ADMIN | re-runnable |
 | `v162.sh` | #162 authorize before request binding/validation (16 mutating endpoints) | re-runnable |
+| `recurrence.sh` | REG-06 recurrence over four cycles (completion, completion, dismissal, completion) | elapsed time is **simulated** by shifting stored disposition dates in the database; re-runnable |
 | `qa.sh` | shared helpers (`qa_login`, `api`, `chk`) | sourced by the others |
 
 Each script prints `PASS`/`FAIL` lines and a `SUMMARY`. Browser journeys (REG-02, REG-07 to REG-09) were run manually; see the verification record.
