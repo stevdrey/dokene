@@ -1,5 +1,5 @@
 // ABOUTME: Raw approve or reject inputs; the decision is the service method called.
-// ABOUTME: The note is stored on the approval row only.
+// ABOUTME: The note is stored on the approval row only. ifMatch is the parsed version, as digits.
 package io.github.stevdrey.dokene.messaging.application;
 
 import java.util.UUID;

@@ -9,7 +9,7 @@ public sealed interface ProviderSendResult {
 
     record Accepted(String providerMessageId) implements ProviderSendResult {
         public Accepted {
-            if (providerMessageId == null || providerMessageId.isBlank() || providerMessageId.length() > 128) {
+            if (ProviderMessageIds.malformed(providerMessageId)) {
                 throw new IllegalArgumentException("Provider message id is required");
             }
         }
@@ -31,7 +31,7 @@ public sealed interface ProviderSendResult {
         public OutcomeUnknown {
             Objects.requireNonNull(providerMessageId, "Provider message id option is required");
             providerMessageId.ifPresent(id -> {
-                if (id.isBlank() || id.length() > 128) {
+                if (ProviderMessageIds.malformed(id)) {
                     throw new IllegalArgumentException("Provider message id is malformed");
                 }
             });

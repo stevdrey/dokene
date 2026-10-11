@@ -1,5 +1,5 @@
 // ABOUTME: Raw submit inputs as feature 2 receives them; the service validates and parses every field.
-// ABOUTME: Enum names, If-Match and the idempotency key arrive as strings so INVALID_INPUT is decided here.
+// ABOUTME: Enum names and the key arrive raw; ifMatch is the version the API layer parsed from the strong ETag, as digits.
 package io.github.stevdrey.dokene.messaging.application;
 
 import java.util.UUID;

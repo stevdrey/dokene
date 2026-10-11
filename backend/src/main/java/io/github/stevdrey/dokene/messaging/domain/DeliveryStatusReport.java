@@ -9,7 +9,7 @@ import java.util.Optional;
 public record DeliveryStatusReport(String providerMessageId, DeliveryStatus status, Instant occurredAt,
         Optional<FailureCategory> failure) {
     public DeliveryStatusReport {
-        if (providerMessageId == null || providerMessageId.isBlank() || providerMessageId.length() > 128) {
+        if (ProviderMessageIds.malformed(providerMessageId)) {
             throw new IllegalArgumentException("Provider message id is required");
         }
         Objects.requireNonNull(status, "Delivery status is required");
