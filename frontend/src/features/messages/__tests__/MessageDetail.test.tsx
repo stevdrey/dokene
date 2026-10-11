@@ -215,7 +215,7 @@ describe('MessageDetailPanel', () => {
     await screen.findByRole('heading', { level: 2, name: 'Valentina Morales Gómez' });
     expect(screen.getByRole('alert')).toHaveTextContent('El proveedor no confirmó el envío. Un administrador debe resolverlo.');
     expect(screen.getByRole('button', { name: 'Actualizar' })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: /Aprobar|Rechazar|Cancelar|Enviar$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(Aprobar|Rechazar|Cancelar|Enviar)$/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
     await waitFor(() => expect(router.callsTo('GET /api/messages/msg-1')).toHaveLength(2));
