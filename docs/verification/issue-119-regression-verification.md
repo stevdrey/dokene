@@ -1,6 +1,50 @@
 # Issue 119 verification: regression revalidation after Phase 2 AI changes
 
-Campaign: #118. Suite: #119. This record has five parts: the **verification of #162, #163 and #164 on `main` @ `d04eb0b`** (latest), the verification of #159 on `f46dc33`, the full re-execution on `a97dc74`, the previous re-execution on `90045a1` and the initial run on `2e0a254` (the last three kept below).
+Campaign: #118. Suite: #119. This record has six parts: the **final full re-execution on `main` @ `07e0136`** (latest), the verification of #162, #163 and #164 on `main` @ `d04eb0b`** (latest), the verification of #159 on `f46dc33`, the full re-execution on `a97dc74`, the previous re-execution on `90045a1` and the initial run on `2e0a254` (the last three kept below).
+
+## Final full re-execution on `main` @ `07e0136`
+
+Includes the fixes for #155, #156, #159, #162, #163, #164 and #171 and the latest dependency bumps. The stack was started with the **unmodified** `./scripts/dev-env.sh reset --yes && ./scripts/dev-env.sh up --seed` on a host whose DNS configuration has a search domain (`search lan`) and with no Compose override. Real OpenAI Responses API (`gpt-6-luna`, default base URL; the backend container held an established TLS connection to api.openai.com, 172.66.0.243:443). Synthetic data only. The QA scripts used for the API checks are in [`issue-119-evidence/scripts/`](issue-119-evidence/scripts/).
+
+Environment: Fedora (Linux 7.2), Docker 29.9.0, Compose 5.6.0; postgres:17-alpine, Keycloak 26.7.3, backend (Temurin 26 JRE, Spring Boot 4.1.1, Tomcat 11.0.25, **libphonenumber 9.0.41, openai-java 4.78.0**, okhttp 4.12.0, **Gradle 9.8.1**), frontend (React 19.3.0, libphonenumber-js 1.13.14, **Vite 8.3.3, jsdom 30.1.2**, nginx 1.29.8), Chrome in the in-app browser.
+
+| Case | Result | Evidence / notes |
+|---|---|---|
+| REG-01 clean environment, migrations, runtime role (#64, #66) | PASS | clean `up --seed` healthy (about 2 min including the image rebuild); Flyway applied and successful; runtime/migration roles non-superuser, no RLS bypass; two tenants; OWNER/OPERATOR/VIEWER; cross-tenant 403 (`reg-api-output.txt`: 80/80) |
+| REG-01 seed `--verify` (#125) | PASS | 10/10 |
+| #171 healthcheck on a search-domain host | **PASS** | `up --seed` succeeds without any override; `oidc-bridge` healthy (`nslookup oidc-bridge.`) |
+| #155 `restart-backend` | PASS | 3/3 healthy in ~23 s with different `DOKENE_AI_*` values; recreating `backend` alone with raw Compose also ends healthy |
+| #163 preflight | PASS | with a container holding 127.0.0.1:8080, `up` is refused: the container is named, exit 1, 0 containers created (the check with a hog on 5173 was not valid because this project's own frontend already owned that port) |
+| #164 recovery | PASS | raw `docker compose up` fails on the held port (bridge: 0 networks); the next `./scripts/dev-env.sh up` warns "oidc-bridge is attached to no network", recreates `oidc-bridge backend` and everything is healthy (27 s) |
+| REG-02 login, logout, stale callback (#68), expired-session write (#70), two tabs (#156) | PASS | after logout `/api/session` and `/api/customers` are 401; `/?error=login_failed` shows the recoverable error alert; a write with an invalidated session and an action after signing out in another tab both show "Tu sesión ya no está activa. Por favor inicia sesión nuevamente." with no permission message |
+| REG-02 deep-link refresh, Back/Forward | NOT APPLICABLE | the SPA has no URL routing (known limitation recorded in #57) |
+| REG-03 customers/phones | PASS | CL, CR (UI creation of a Costa Rican customer, region listed in both selectors), US; duplicates incl. archived 409; cross-tenant allowed; field errors (#72, #127); OPERATOR archive 403 by design |
+| REG-04 consent | PASS | DNC override, revoked + cleared DNC, no transfer on contact change, VIEWER 403, UI grant |
+| REG-05 purchases | PASS | backdate/correct/void; latest valid always used; history kept; idempotency |
+| REG-06 follow-ups | PASS (partial scope) | dates, timezone boundaries (expectations computed from the real zone), snooze, dismissal + replay, completion + replay, stale 409, invalid key 400; UI completion, dismissal, snooze. Not executed: second recurrence cycle (needs clock control) |
+| #159 tenant-wide policy | PASS | `verify-159-output.txt`: 28/28 (OPERATOR/VIEWER 403, OWNER/ADMIN 200, reads open, audit, daily actions unaffected) |
+| #162 authorize before validation | PASS | `verify-162-output.txt`: 45/45 (VIEWER/OPERATOR malformed requests -> 403 + one audit row each on 16 endpoints; authorized callers still get 400 after authorization) |
+| REG-07 integrated journey, live OpenAI | PASS with limitation | UI: create (CR) -> consent -> two purchases -> correction -> OVERDUE -> real recommendation (Spanish rationale) + draft -> edit -> manual completion -> logout/login; consistent across list/detail/queue. Business state identical before/after the AI calls; the only audit change from the AI calls is 2 `AI_INVOCATION_OUTCOME`. "Copy draft" success path BLOCKED (clipboard-write denied in the in-app browser; the app shows a clear failure message) |
+| REG-08 AI dependency independence | PASS | live, disabled (`AI_UNAVAILABLE` message, dismissal executed), unreachable provider (fault injection, **not live evidence**: unavailable message + Retry, snooze executed) |
+| REG-09 visual fixes | PASS | 320 px customer search (#83), 768 px shell (#82), 1024 px workbench detail (PR #111): no horizontal overflow, controls 44 px high |
+| REG-10 new dependencies | PASS | versions above (libphonenumber 9.0.41, openai-java 4.78.0, Gradle 9.8.1, Vite 8.3.3, jsdom 30.1.2): images build, phone normalization works, the live OpenAI round trip succeeds with openai-java 4.78.0; frontend `npm test` 22 files / 362 tests and `npm run build` pass. The backend Gradle test suite was not run in this suite |
+
+### Findings
+No new defects in this re-execution. Every defect found in this campaign so far (#125, #126, #127, #155, #156, #162, #163, #164, #171) and the enhancements #153 and #159 are fixed and verified.
+
+### Not covered / limitations
+- Copy-draft **success** path (REG-07): blocked because the in-app browser denies `clipboard-write` (a real Chrome session would be needed).
+- Second recurrence cycle (REG-06): needs clock control.
+- Backend automated test suite (`./gradlew test`), browsers other than the in-app Chrome, real devices, keyboard/screen-reader accessibility (suite #122).
+- The AI "unreachable" mode is fault injection and is not live-provider evidence.
+
+### Live OpenAI usage in this re-execution
+1 recommendation and 1 draft (UI). Campaign total: 12 provider calls; token counts are not exposed by the app; estimated cost well below US$0.05.
+
+### Scoped verdict
+**No unresolved defects were found in the executed scope on `07e0136`.** This is not a "clean PASS" in the strict sense of the certification contract only because two scenarios could not be completed (copy-draft success and the second recurrence cycle); everything else passed on a clean stack.
+
+---
 
 ## Verification of #162, #163 and #164 on `main` @ `d04eb0b`
 

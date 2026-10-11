@@ -1,0 +1,30 @@
+PASS  T159  baseline tenant policy
+PASS  T159  OPERATOR PUT tenant policy -> 403
+PASS  T159  VIEWER PUT tenant policy -> 403
+PASS  T159  denied attempts changed nothing
+PASS  T159  OPERATOR PUT without If-Match -> 403 (#162)
+PASS  T159  OPERATOR PUT with an invalid body -> 403 (#162)
+PASS  T159  4 denials audited with TENANT_UPDATE
+PASS  T159  OPERATOR GET tenant policy -> 200
+PASS  T159  VIEWER GET tenant policy -> 200
+PASS  T159  OWNER PUT tenant policy -> 200
+PASS  T159  OWNER change applied, version +1
+PASS  T159  OWNER stale If-Match -> 409
+PASS  T159  OWNER invalid time zone -> 400
+PASS  T159  OWNER cadence 0 -> 400
+PASS  T159  OWNER promotes testoperator to ADMIN
+PASS  T159  ADMIN PUT tenant policy -> 200
+PASS  T159  ADMIN change applied
+PASS  T159  OWNER demotes testoperator back to OPERATOR
+PASS  T159  demoted OPERATOR PUT -> 403 again
+PASS  T159  restore baseline (OWNER)
+PASS  T159  baseline restored
+PASS  T159  3 successful changes audited (OWNER, ADMIN, restore)
+PASS  T159  OPERATOR snooze still works
+PASS  T159  OPERATOR dismissal still works
+PASS  T159  OPERATOR manual completion still works
+PASS  T159  OPERATOR per-customer policy still works
+PASS  T159  VIEWER per-customer policy -> 403
+PASS  T159  OPERATOR reads the queue
+
+SUMMARY pass=28 fail=0
