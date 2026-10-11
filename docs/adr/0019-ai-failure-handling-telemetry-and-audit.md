@@ -72,6 +72,10 @@ AI failure stays an HTTP 200 `AI_UNAVAILABLE` result with `unavailableReason` an
 
 [Issue #178](https://github.com/stevdrey/dokene/issues/178). `CANCELLED` is raised only when the worker thread is interrupted (the adapter and `ResilientAiProvider` map the interrupt to `CANCELLED`, which the audit records as `FAILURE`/`CANCELLED`). Nothing interrupts the thread when the browser aborts the request (customer switch, workspace switch, logout), so an abandoned recommendation or draft call **runs to completion**, is reported with its real terminal outcome (typically `GENERATED`) and counts against `dokene.ai.rate-limit.*`. The user interface discards the late result; the provider call and its cost are not avoided.
 
+`GENERATED` therefore means the provider generated a result that passed validation; it says nothing about whether the browser received or used it. Delivery is unknown, and it is deliberately not inferred from a missing confirmation (even a successful HTTP write does not prove the user saw the result). If reception ever needs to be measured, it must come from an explicit frontend acknowledgement, with its absence recorded as unknown rather than as `CANCELLED`.
+
+The current limits bound call frequency (`dokene.ai.rate-limit.*`, at most two provider attempts per invocation) but are not a monetary budget: they do not cap output tokens or spend. A spend or token budget is a separate concern from this limitation.
+
 Cancelling it was prototyped and rejected: the only way to learn about a disconnect without writing to the response is the servlet async error callback, and Tomcat does not raise it for a pending async request whose body was already read (verified against the embedded Tomcat 11 of this build with a raw socket that closes while the worker is blocked: no `onError` within 10s). Tomcat only notices the closed connection on a write, and committing the response early is not possible here because the status code (404/409/403) and `ETag` depend on the result. Revisit this if the servlet container changes or if the endpoint moves to a streaming response contract.
 
 ## Consequences
