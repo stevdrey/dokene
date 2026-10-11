@@ -23,7 +23,7 @@ Detailed browser measurements: `issue-120-evidence/ui-journeys-results.txt`. API
 - [#178](https://github.com/stevdrey/dokene/issues/178) (Low): client-aborted recommendation requests still complete at the provider and are audited as `GENERATED` (3/3 aborts). No other defect was found in this suite.
 
 ## Provider usage
-The durable audit recorded 77 AI invocations in this suite (74 provider calls; 3 were fault-injected failures with no provider call): about 36 recommendations and 28 drafts generated, 9 model refusals, 5 gate rejections. Together with the earlier suites the campaign has made roughly 90 provider calls. The app does not expose token counts, so the real cost must be read on the provider dashboard (the agreed budget is about US$5); keep the remaining suites (#124 in particular) in mind.
+The durable audit recorded 77 AI invocations in this suite (74 provider calls; 3 were fault-injected failures with no provider call): 36 recommendations and 23 drafts generated, 9 model refusals (4 recommendations, 5 drafts), 6 gate rejections (5 of them after a completed provider call) and 3 failures. Together with the earlier suites the campaign has made roughly 90 provider calls. The app does not expose token counts, so the real cost must be read on the provider dashboard (the agreed budget is about US$5); keep the remaining suites (#124 in particular) in mind.
 
 ## Limitations
 - Copy-draft success was not repeated in this suite (verified in #119, real Chrome).
