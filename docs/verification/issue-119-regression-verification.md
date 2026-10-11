@@ -24,7 +24,7 @@ Environment: Fedora (Linux 7.2), Docker 29.9.0, Compose 5.6.0; postgres:17-alpin
 | REG-06 follow-ups | PASS | dates, timezone boundaries (expectations computed from the real zone), snooze, dismissal + replay, completion + replay, stale 409, invalid key 400; UI completion, dismissal, snooze. **Recurrence (16/16, `recurrence-output.txt`):** four cycles for one customer (completion, completion, dismissal, completion): after each disposition the next date is today+30 and the customer leaves the queue; after 31 simulated days it returns as OVERDUE anchored on the latest disposition; replaying the cycle-1 key returns the first record; dismissal and completion re-anchor on the latest of the anchors; history keeps 3 completions + 1 dismissal. The app has no clock control, so elapsed time was simulated by shifting the stored disposition dates in the database (no product file was modified); everything else went through the API |
 | #159 tenant-wide policy | PASS | `verify-159-output.txt`: 28/28 (OPERATOR/VIEWER 403, OWNER/ADMIN 200, reads open, audit, daily actions unaffected) |
 | #162 authorize before validation | PASS | `verify-162-output.txt`: 45/45 (VIEWER/OPERATOR malformed requests -> 403 + one audit row each on 16 endpoints; authorized callers still get 400 after authorization) |
-| REG-07 integrated journey, live OpenAI | PASS with limitation | UI: create (CR) -> consent -> two purchases -> correction -> OVERDUE -> real recommendation (Spanish rationale) + draft -> edit -> manual completion -> logout/login; consistent across list/detail/queue. Business state identical before/after the AI calls; the only audit change from the AI calls is 2 `AI_INVOCATION_OUTCOME`. "Copy draft" success path BLOCKED (clipboard-write denied in the in-app browser; the app shows a clear failure message) |
+| REG-07 integrated journey, live OpenAI | PASS | UI: create (CR) -> consent -> two purchases -> correction -> OVERDUE -> real recommendation (Spanish rationale) + draft -> edit -> manual completion -> logout/login; consistent across list/detail/queue. Business state identical before/after the AI calls; the only audit change from the AI calls is 2 `AI_INVOCATION_OUTCOME`. "Copy draft": in the in-app browser the control reports a clear failure (clipboard-write denied there); **in a real Chrome (Claude in Chrome) the success path PASSES**: "Borrador copiado" and `navigator.clipboard.readText()` equals the draft, and equals the edited text after an edit (`copy-draft-real-chrome.txt`) |
 | REG-08 AI dependency independence | PASS | live, disabled (`AI_UNAVAILABLE` message, dismissal executed), unreachable provider (fault injection, **not live evidence**: unavailable message + Retry, snooze executed) |
 | REG-09 visual fixes | PASS | 320 px customer search (#83), 768 px shell (#82), 1024 px workbench detail (PR #111): no horizontal overflow, controls 44 px high |
 | REG-10 new dependencies | PASS | versions above (libphonenumber 9.0.41, openai-java 4.78.0, Gradle 9.8.1, Vite 8.3.3, jsdom 30.1.2): images build, phone normalization works, the live OpenAI round trip succeeds with openai-java 4.78.0; frontend `npm test` 22 files / 362 tests and `npm run build` pass. The backend Gradle test suite was not run in this suite |
@@ -33,16 +33,15 @@ Environment: Fedora (Linux 7.2), Docker 29.9.0, Compose 5.6.0; postgres:17-alpin
 No new defects in this re-execution. Every defect found in this campaign so far (#125, #126, #127, #155, #156, #162, #163, #164, #171) and the enhancements #153 and #159 are fixed and verified.
 
 ### Not covered / limitations
-- Copy-draft **success** path (REG-07): blocked because the in-app browser denies `clipboard-write` (a real Chrome session would be needed).
 - Recurrence (REG-06) was verified with **simulated** elapsed time (stored dates shifted in the database), not with a real or injected clock.
 - Backend automated test suite (`./gradlew test`), browsers other than the in-app Chrome, real devices, keyboard/screen-reader accessibility (suite #122).
 - The AI "unreachable" mode is fault injection and is not live-provider evidence.
 
 ### Live OpenAI usage in this re-execution
-1 recommendation and 1 draft (UI). Campaign total: 12 provider calls; token counts are not exposed by the app; estimated cost well below US$0.05.
+1 recommendation and 1 draft (UI) plus 2 recommendations and 2 drafts for the real-Chrome copy test. Campaign total: 16 provider calls; token counts are not exposed by the app; estimated cost well below US$0.05.
 
 ### Scoped verdict
-**No unresolved defects were found in the executed scope on `07e0136`.** This is not a "clean PASS" in the strict sense of the certification contract only because one scenario is still pending: the copy-draft **success** path in a real Chrome (Claude in Chrome was not connected when attempted). The recurrence scenario was completed afterwards (16/16, simulated time); everything else passed on a clean stack.
+**No unresolved defects were found in the executed scope on `07e0136`, and no scenario of the suite is left blocked or pending**: the copy-draft success path was verified in a real Chrome and the recurrence scenario was verified with simulated time (stored dates shifted in the database; the app has no clock control). Everything ran on a clean stack with the unmodified `dev-env.sh`. Remaining coverage gaps are explicitly out of scope of this run: the backend Gradle test suite, browsers other than Chrome, real devices and keyboard/screen-reader accessibility (suite #122).
 
 ---
 

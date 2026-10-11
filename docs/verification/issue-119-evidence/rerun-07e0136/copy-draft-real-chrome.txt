@@ -1,0 +1,9 @@
+REG-07 "Copy draft" success path in a real Chrome (Claude in Chrome extension, Linux), stack from ./scripts/dev-env.sh, main @ 07e0136.
+Synthetic user testoperator; live OpenAI recommendation + draft for a synthetic due customer; real user clicks.
+
+1. Draft: "Hola, ¿cómo estás? Queríamos saber si necesitas reponer el Café 1 kg que compraste el 10 de agosto. En QA Café Norte estamos para ayudarte cuando lo necesites. ¡Saludos!"
+   click "Copiar borrador" -> status "Borrador copiado"; navigator.clipboard.readText() === draft  (true)
+2. Edited draft (appended " (editado por QA en Chrome)"): click "Copiar borrador" -> "Borrador copiado"; clipboard === edited text (true), differs from the original draft (true).
+3. First attempt (before the clipboard-read permission was granted): the success message appeared, but a Ctrl+V sent by the automation tool pasted an older clipboard value (a URL), and a clipboard-read call hung on the browser permission prompt. After the maintainer allowed the prompt and the draft was regenerated, readText returned exactly the draft. The earlier mismatch was an artifact of the automation paste path, not of the app.
+4. In the in-app browser the same button showed "No se pudo copiar el borrador" because clipboard-write is denied there (environment limitation).
+Signed out and closed the tab afterwards.
