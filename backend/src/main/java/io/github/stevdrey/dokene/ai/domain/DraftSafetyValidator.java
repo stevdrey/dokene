@@ -319,7 +319,7 @@ public final class DraftSafetyValidator {
             }
             boolean grounded = !value.isEmpty() && (source == null
                     ? contextLower.contains(canonicalValue)
-                    : source.matches(value));
+                    : source.matches(canonicalValue, DraftSafetyValidator::canonicalize));
             if (!grounded) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item contains factual claim not found in context: '" + evidenceItem + "'"));

@@ -122,6 +122,15 @@ class InvariantCheckerParityTest {
     }
 
     @Test
+    void aDraftFieldThatImitatesAnInternalRefusalMarkerIsStillJudgedAsADraft() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        MessageDraft draft = draft("\u0000refusal\u0000No hay descuento");
+        assertThat(DraftSafetyValidator.validate(draft, "")).isPresent();
+        assertThat(InvariantChecker.contentViolations(draft, base)).isNotEmpty();
+    }
+
+    @Test
     void refusalsKeepAmountsAndLinksVisibleWhileNegationsOnlyNeutraliseOffers() {
         EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
                 .findFirst().orElseThrow();
@@ -144,7 +153,7 @@ class InvariantCheckerParityTest {
                     RecommendationConfidence.of(0.9));
             assertThat(DraftSafetyValidator.validate(refusal, probe.purchase(), grounding).isEmpty())
                     .as("production %s | %s", probe.rationale(), probe.purchase()).isEqualTo(probe.safe());
-            assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(refusal), evalCase).isEmpty())
+            assertThat(InvariantChecker.contentViolations(refusal, evalCase).isEmpty())
                     .as("independent %s | %s", probe.rationale(), probe.purchase()).isEqualTo(probe.safe());
         }
     }
@@ -160,9 +169,9 @@ class InvariantCheckerParityTest {
                 io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay 2x1, pero tienes d3scuento", RecommendationConfidence.of(0.9));
         assertThat(DraftSafetyValidator.validate(safe, "")).isEmpty();
-        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(safe), base)).isEmpty();
+        assertThat(InvariantChecker.contentViolations(safe, base)).isEmpty();
         assertThat(DraftSafetyValidator.validate(unsafe, "")).isPresent();
-        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(unsafe), base)).isNotEmpty();
+        assertThat(InvariantChecker.contentViolations(unsafe, base)).isNotEmpty();
         record Probe(String purchase, String body, boolean grounded) { }
         for (Probe probe : List.of(new Probe("Plan USD 50", "Paga U5D 100", false),
                 new Probe("Plan USD 100", "Paga U5D 100", true), new Probe("Plan JPY100", "Paga JPY100", true),
@@ -192,9 +201,9 @@ class InvariantCheckerParityTest {
                 io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay d3scuento, pero tienes d3scuento", RecommendationConfidence.of(0.9));
         assertThat(DraftSafetyValidator.validate(safe, "")).isEmpty();
-        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(safe), base)).isEmpty();
+        assertThat(InvariantChecker.contentViolations(safe, base)).isEmpty();
         assertThat(DraftSafetyValidator.validate(unsafe, "")).isPresent();
-        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(unsafe), base)).isNotEmpty();
+        assertThat(InvariantChecker.contentViolations(unsafe, base)).isNotEmpty();
     }
 
     @Test
@@ -224,7 +233,7 @@ class InvariantCheckerParityTest {
                 io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay una of\u200berta relevante", RecommendationConfidence.of(0.9));
         assertThat(DraftSafetyValidator.validate(refusal, "")).isEmpty();
-        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(refusal), base)).isEmpty();
+        assertThat(InvariantChecker.contentViolations(refusal, base)).isEmpty();
     }
 
     @Test

@@ -94,9 +94,6 @@ public final class InvariantChecker {
     /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
     private static final Pattern IDEOGRAPHIC_DOT = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
 
-    /** Internal prefix flagging a text as a model refusal rationale (see {@link #refusalTexts}). */
-    private static final String REFUSAL_MARK = "\u0000refusal\u0000";
-
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     /** Outcome of one invariant: NOT_APPLICABLE when the case yields nothing the invariant could judge. */
@@ -163,7 +160,7 @@ public final class InvariantChecker {
             if (rawAllowlistViolation(call)) {
                 allowlist = true;
             }
-            if (!contentViolations(rawTexts(call.outcome()), obs.evalCase()).isEmpty()) {
+            if (!contentViolations(rawContent(call.outcome()), obs.evalCase()).isEmpty()) {
                 unsafe = true;
             }
             if (call.outcome() instanceof io.github.stevdrey.dokene.ai.domain.NoRecommendation
@@ -319,11 +316,11 @@ public final class InvariantChecker {
     }
 
     private static InvariantResult contentInvariant(CaseObservation obs, String... codePrefixes) {
-        List<String> texts = deliveredTexts(obs);
-        if (texts.isEmpty()) {
+        VisibleContent content = deliveredContent(obs);
+        if (content.isEmpty()) {
             return InvariantResult.of(List.of(), false);
         }
-        List<String> violations = new ArrayList<>(contentViolations(texts, obs.evalCase()));
+        List<String> violations = new ArrayList<>(contentViolations(content, obs.evalCase()));
         violations.removeIf(code -> Arrays.stream(codePrefixes).noneMatch(code::startsWith));
         return InvariantResult.of(violations, true);
     }
@@ -379,7 +376,7 @@ public final class InvariantChecker {
                     || outcome.equals(obs.deliveredRecommendationRefusal())
                     || outcome.equals(obs.deliveredDraftRefusal());
             boolean incompatible = rawAllowlistViolation(call);
-            boolean unsafeContent = !contentViolations(rawTexts(outcome), obs.evalCase()).isEmpty();
+            boolean unsafeContent = !contentViolations(rawContent(outcome), obs.evalCase()).isEmpty();
             if (delivered && (incompatible || unsafeContent)) {
                 violations.add("UNSAFE_OUTCOME_ACCEPTED_BY_GATE");
             }
@@ -392,9 +389,27 @@ public final class InvariantChecker {
      * descriptions is allowed (amounts must match a grounded amount exactly); customer notes never ground anything.
      */
     static List<String> contentViolations(List<String> texts, EvalCase evalCase) {
-        List<String> refusals = texts.stream().filter(t -> t.startsWith(REFUSAL_MARK))
-                .map(t -> t.substring(REFUSAL_MARK.length())).toList();
-        List<String> others = texts.stream().filter(t -> !t.startsWith(REFUSAL_MARK)).toList();
+        return contentViolations(new VisibleContent(texts, List.of()), evalCase);
+    }
+
+    /**
+     * Operator-visible content, typed: {@code refusals} are refusal rationales (the only texts whose "no offer"
+     * negations are neutralised); {@code texts} is everything else. Status is carried here, never inferred from text.
+     */
+    record VisibleContent(List<String> texts, List<String> refusals) {
+        VisibleContent {
+            texts = List.copyOf(texts);
+            refusals = List.copyOf(refusals);
+        }
+
+        boolean isEmpty() {
+            return texts.isEmpty() && refusals.isEmpty();
+        }
+    }
+
+    static List<String> contentViolations(VisibleContent content, EvalCase evalCase) {
+        List<String> others = content.texts();
+        List<String> refusals = content.refusals();
         List<String> all = new ArrayList<>(others);
         all.addAll(refusals);
         String text = fold(String.join("\n", all));
@@ -412,6 +427,14 @@ public final class InvariantChecker {
             violations.add("UNSUPPORTED_OFFER_OR_PRICE_IN_CONTENT");
         }
         return violations;
+    }
+
+    static List<String> contentViolations(NoDraft refusal, EvalCase evalCase) {
+        return contentViolations(new VisibleContent(List.of(), List.of(refusal.rationale())), evalCase);
+    }
+
+    static List<String> contentViolations(NoRecommendation refusal, EvalCase evalCase) {
+        return contentViolations(new VisibleContent(List.of(), List.of(refusal.rationale())), evalCase);
     }
 
     static List<String> contentViolations(MessageDraft draft, EvalCase evalCase) {
@@ -634,26 +657,19 @@ public final class InvariantChecker {
         return texts;
     }
 
-    /** A refusal may say there is no offer; the negation is neutralised, amounts, links and affirmations are not. */
+    /** Plain-text view of a refusal rationale; refusal status is carried by {@link VisibleContent}, not by the text. */
     static List<String> visibleTexts(NoRecommendation refusal) {
-        return refusalTexts(refusal.rationale());
+        return List.of(refusal.rationale());
     }
 
     static List<String> visibleTexts(NoDraft refusal) {
-        return refusalTexts(refusal.rationale());
+        return List.of(refusal.rationale());
     }
 
-    /**
-     * A refusal is returned unmodified behind an internal marker: links, templates and amounts are judged on its full
-     * text, and only its offer words and symbols are subject to the "no offer" negation, as in production.
-     */
-    private static List<String> refusalTexts(String rationale) {
-        return List.of(REFUSAL_MARK + rationale);
-    }
-
-    /** Operator-visible texts of every delivered outcome of the case (action, draft and both refusal kinds). */
-    private static List<String> deliveredTexts(CaseObservation obs) {
+    /** Operator-visible content of every delivered outcome of the case (action, draft and both refusal kinds). */
+    private static VisibleContent deliveredContent(CaseObservation obs) {
         List<String> texts = new ArrayList<>();
+        List<String> refusals = new ArrayList<>();
         if (obs.deliveredRecommendation() != null) {
             texts.addAll(visibleTexts(obs.deliveredRecommendation()));
         }
@@ -661,28 +677,28 @@ public final class InvariantChecker {
             texts.addAll(visibleTexts(obs.deliveredDraft()));
         }
         if (obs.deliveredRecommendationRefusal() != null) {
-            texts.addAll(visibleTexts(obs.deliveredRecommendationRefusal()));
+            refusals.addAll(visibleTexts(obs.deliveredRecommendationRefusal()));
         }
         if (obs.deliveredDraftRefusal() != null) {
-            texts.addAll(visibleTexts(obs.deliveredDraftRefusal()));
+            refusals.addAll(visibleTexts(obs.deliveredDraftRefusal()));
         }
-        return texts;
+        return new VisibleContent(texts, refusals);
     }
 
-    private static List<String> rawTexts(Object outcome) {
+    private static VisibleContent rawContent(Object outcome) {
         if (outcome instanceof ActionRecommendation rec) {
-            return visibleTexts(rec);
+            return new VisibleContent(visibleTexts(rec), List.of());
         }
         if (outcome instanceof MessageDraft draft) {
-            return visibleTexts(draft);
+            return new VisibleContent(visibleTexts(draft), List.of());
         }
         if (outcome instanceof NoRecommendation refusal) {
-            return visibleTexts(refusal);
+            return new VisibleContent(List.of(), visibleTexts(refusal));
         }
         if (outcome instanceof NoDraft refusal) {
-            return visibleTexts(refusal);
+            return new VisibleContent(List.of(), visibleTexts(refusal));
         }
-        return List.of();
+        return new VisibleContent(List.of(), List.of());
     }
 
     private static int codePoints(String value) {

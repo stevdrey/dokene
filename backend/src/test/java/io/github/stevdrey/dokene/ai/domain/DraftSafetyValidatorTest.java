@@ -786,6 +786,17 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void typedEvidenceSourcesMatchUnderTheSameCanonicalizationAsTheRestOfTheDraft() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Plan por $10.", "es-419", List.of("Compra: Plan de \uff04\uff11\uff10")),
+                "Plan de $10", grounding)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Hola.", "es-419", List.of("Compra: Plan de \uff04\uff12\uff10")),
+                "Plan de $10", grounding)).isPresent();
+    }
+
+    @Test
     void compactPromotionStaysVisibleInLeetRefusalChains() {
         assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay 2x1 ni d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
