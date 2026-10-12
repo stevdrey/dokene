@@ -72,7 +72,7 @@ class NoAiProviderConfiguredIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         Instant now = Instant.now();
-        tenant = seedTenant(tenants, "No AI Tenant " + UUID.randomUUID(), now);
+        tenant = seedTenant(tenants, contexts, "No AI Tenant " + UUID.randomUUID(), now);
         tenantContext = context(seedMembership(memberships, contexts, tenant.id(),
                 new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
 

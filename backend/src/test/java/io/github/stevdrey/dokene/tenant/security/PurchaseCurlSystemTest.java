@@ -64,7 +64,7 @@ class PurchaseCurlSystemTest {
     @BeforeEach
     void seed() {
         Instant now = Instant.now();
-        var tenant = seedTenant(tenants, "Curl tenant " + UUID.randomUUID(), now);
+        var tenant = seedTenant(tenants, contexts, "Curl tenant " + UUID.randomUUID(), now);
         var identity = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), identity, TenantRole.OWNER, now);
         tenantId = tenant.id().value();

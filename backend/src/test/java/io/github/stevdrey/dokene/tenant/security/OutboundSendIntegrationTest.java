@@ -185,8 +185,8 @@ class OutboundSendIntegrationTest {
         provider.commands.clear();
         provider.behaviour = RecordingProvider.accept();
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Sends A " + UUID.randomUUID(), now);
-        tenantB = seedTenant(tenants, "Sends B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Sends A " + UUID.randomUUID(), now);
+        tenantB = seedTenant(tenants, contexts, "Sends B " + UUID.randomUUID(), now);
         ownerA = new IdentityId(UUID.randomUUID());
         viewerA = new IdentityId(UUID.randomUUID());
         ownerB = new IdentityId(UUID.randomUUID());

@@ -65,7 +65,7 @@ ALTER TABLE dokene.audit_events ADD CONSTRAINT ck_audit_changed_fields CHECK (
 );
 
 -- The append function gains changed_fields as a defaulted trailing parameter, so every existing positional caller
--- keeps resolving. The V17 signature is removed so there is a single writer.
+-- keeps resolving. The V19 signature is removed so there is a single writer.
 DROP FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN);
 
 CREATE FUNCTION dokene.append_audit_event(

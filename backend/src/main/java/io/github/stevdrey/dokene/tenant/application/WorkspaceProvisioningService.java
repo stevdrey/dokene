@@ -72,18 +72,20 @@ public class WorkspaceProvisioningService {
                 workspaceProvisioningRepository.findByIdentityIdAndIdempotencyKey(identityId, normalizedKey);
         if (existingRecord.isPresent()) {
             WorkspaceProvisioningRecord record = existingRecord.get();
-            Tenant existingTenant = tenantRepository.findById(record.tenantId())
-                    .orElseThrow(() -> new IllegalStateException("Provisioned tenant not found"));
-            if (!existingTenant.displayName().equals(normalizedDisplayName)) {
-                throw new IdempotencyConflictException(
-                        "Idempotency key '%s' was already used with a different workspace name".formatted(normalizedKey)
+            return tenantContextProvider.callWithTenantId(record.tenantId(), () -> {
+                Tenant existingTenant = tenantRepository.findById(record.tenantId())
+                        .orElseThrow(() -> new IllegalStateException("Provisioned tenant not found"));
+                if (!existingTenant.displayName().equals(normalizedDisplayName)) {
+                    throw new IdempotencyConflictException(
+                            "Idempotency key '%s' was already used with a different workspace name".formatted(normalizedKey)
+                    );
+                }
+                TenantMembership membership = tenantMembershipRepository.findByTenantIdAndIdentityId(record.tenantId(), identityId)
+                        .orElseThrow(() -> new IllegalStateException("Owner membership not found for provisioned tenant"));
+                return new ProvisionedWorkspace(
+                        record.tenantId(), existingTenant.displayName(), membership.id(), membership.role(), false
                 );
-            }
-            TenantMembership membership = tenantContextProvider.callWithTenantId(record.tenantId(), () ->
-                    tenantMembershipRepository.findByTenantIdAndIdentityId(record.tenantId(), identityId)
-                            .orElseThrow(() -> new IllegalStateException("Owner membership not found for provisioned tenant"))
-            );
-            return new ProvisionedWorkspace(record.tenantId(), existingTenant.displayName(), membership.id(), membership.role(), false);
+            });
         }
 
         TenantId tenantId = TenantId.random();
@@ -97,12 +99,13 @@ public class WorkspaceProvisioningService {
                 UUID.randomUUID(), normalizedKey, identityId, tenantId, normalizedDisplayName, now
         );
 
-        tenantRepository.save(tenant);
+        // Tenant, owner membership, and provisioning record are all RLS-protected by the new tenant's ID.
         tenantContextProvider.callWithTenantId(tenantId, () -> {
+            tenantRepository.save(tenant);
             tenantMembershipRepository.save(ownerMembership);
+            workspaceProvisioningRepository.save(record);
             return null;
         });
-        workspaceProvisioningRepository.save(record);
         return new ProvisionedWorkspace(tenantId, tenant.displayName(), membershipId, TenantRole.OWNER, true);
     }
 

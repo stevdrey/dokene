@@ -85,7 +85,7 @@ class MessageCurlSystemTest {
     @BeforeEach
     void seed() throws Exception {
         Instant now = Instant.now();
-        var tenant = seedTenant(tenants, "Messages curl " + UUID.randomUUID(), now);
+        var tenant = seedTenant(tenants, contexts, "Messages curl " + UUID.randomUUID(), now);
         tenantId = tenant.id().value();
         var owner = new IdentityId(UUID.randomUUID());
         TenantContext ownerContext = context(seedMembership(memberships, contexts, tenant.id(), owner,

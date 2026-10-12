@@ -66,7 +66,7 @@ class MembershipManagementIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         Instant now = Instant.now();
-        tenant = seedTenant(tenants, "Membership test " + UUID.randomUUID(), now);
+        tenant = seedTenant(tenants, contexts, "Membership test " + UUID.randomUUID(), now);
         owner = new IdentityId(UUID.randomUUID());
         operator = new IdentityId(UUID.randomUUID());
         viewer = new IdentityId(UUID.randomUUID());

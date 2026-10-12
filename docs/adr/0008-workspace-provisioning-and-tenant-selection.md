@@ -24,27 +24,30 @@ The service performs:
 1. Deterministic validation of inputs (`displayName` within `[1, 160]` characters, valid Unicode scalar sequences without NUL characters; `idempotencyKey` within `[1, 128]` characters).
 2. Authorization check against `ProvisioningAuthorizationPolicy`.
 3. Acquisition of a PostgreSQL transaction-scoped advisory lock derived from the authenticated identity and normalized idempotency key.
-4. Idempotency evaluation using `(identity_id, idempotency_key)` after the lock is acquired:
+4. Idempotency evaluation using `(identity_id, idempotency_key)` after the lock is acquired, through the identity-scoped `dokene.find_workspace_provisioning_record` function (see §2):
    - If a matching record exists with the same canonical display name, the existing workspace details are returned (`200 OK`).
    - If a matching record exists with a different canonical display name, the request is rejected with `409 Conflict`.
 5. Tenant and owner membership creation when no provisioning record exists:
    - A new `TenantId` is generated.
-   - The `Tenant` entity is created with status `ACTIVE` and persisted.
+   - The `Tenant` entity is created with status `ACTIVE`.
    - The initial `TenantMembership` is created with role `OWNER` and status `ACTIVE`.
-   - The membership is persisted within a constrained tenant scope via `tenantContextProvider.callWithTenantId(tenantId, ...)`.
-   - A `WorkspaceProvisioningRecord` is persisted in `dokene.workspace_provisioning_records`.
+   - A `WorkspaceProvisioningRecord` is created for `dokene.workspace_provisioning_records`.
+   - The tenant, membership, and provisioning record are persisted within one constrained tenant scope via `tenantContextProvider.callWithTenantId(tenantId, ...)`.
+   - Idempotent retries read the existing tenant and owner membership within the scope of the recorded tenant.
 6. The advisory lock remains held until the provisioning transaction completes, so concurrent first requests cannot create orphan tenants or memberships. The database constraint `UNIQUE (identity_id, idempotency_key)` remains a secondary integrity invariant.
 
 ### 2. Resolution of the Bootstrap / RLS Boundary
 
-PostgreSQL enforces `WITH CHECK (tenant_id = dokene.current_verified_tenant_id())` on `dokene.tenant_memberships`. Before an initial owner exists, no active tenant context exists in session state.
+PostgreSQL enforces `WITH CHECK (tenant_id = dokene.current_verified_tenant_id())` on `dokene.tenant_memberships` and `WITH CHECK (id = dokene.current_verified_tenant_id())` on `dokene.tenants`, and `dokene.workspace_provisioning_records` is written only by a function that checks the same verified tenant ([ADR 0003](0003-postgresql-rls.md)). Before an initial owner exists, no active tenant context exists in session state.
 
 Rather than granting `BYPASSRLS` to `dokene_runtime` or introducing unconstrained superuser queries:
-- The provisioning service wraps the membership write in `tenantContextProvider.callWithTenantId(newTenantId, ...)`.
+- The provisioning service wraps the tenant, membership, and provisioning-record writes in `tenantContextProvider.callWithTenantId(newTenantId, ...)`.
 - `TenantAwareDataSource` issues a short-lived (60-second), HMAC-SHA-256-signed tenant capability for `newTenantId` and sets `dokene.tenant_context` and `dokene.tenant_context_signature`.
 - PostgreSQL's `dokene.current_verified_tenant_id()` verifies the signature against `dokene.tenant_context_signing_keys` and evaluates to `newTenantId`.
 - The RLS check passes strictly for `newTenantId`.
 - Once the block exits, the scope unbinds immediately.
+
+The idempotency lookup cannot use a tenant scope because the tenant is not known yet. The adapter instead passes an identity-scoped signed capability to the `SECURITY DEFINER` function `dokene.find_workspace_provisioning_record`, which verifies it with `dokene.signed_context_subject(..., 'identity')` and returns only the caller's record. The provisioning record itself is written by `dokene.record_workspace_provisioning`, which requires both that identity capability and the new tenant's signed context and stores the verified identity. The runtime role has no direct privilege on the table, so it cannot read other identities' records or record mappings for them.
 
 ### 3. Provisioning Authorization Policy
 

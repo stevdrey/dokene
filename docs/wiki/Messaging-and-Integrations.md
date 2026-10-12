@@ -90,7 +90,7 @@ Mutations require `If-Match` with a strong numeric ETag (`"7"`) and an `Idempote
 
 Reports replay through `LocalDeliveryScheduler` only after the send transaction commits (`@TransactionalEventListener(AFTER_COMMIT)`), on a daemon thread, under a `ProviderContext` for the tenant and a fresh audit correlation (`ProviderReportExecution` in `integration`), spaced by `dokene.messaging.local.delivery-delay`. Dropped reports count in `dokene.messaging.local.delivery-dropped{reason}`. The dev stack (`compose.yaml`) runs with the local provider and both switches on; `.env.example` lists every variable, and `scripts/seed-local-qa.sh` seeds a due, consented customer whose phone ends in `55`.
 
-### Tables (V16)
+### Tables (V18)
 
 | Table | Purpose | Runtime grants |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ Reports replay through `LocalDeliveryScheduler` only after the send transaction 
 
 All six tables carry forced row level security with the standard five policies, and the runtime role never holds `DELETE`. Operator notes stay in the approval and cancellation rows and never reach the audit log or application logs.
 
-V17 extends the audit log with `MESSAGE_*` event types and closed transition metadata (status from, status to, failure category, attempt number). Delivery reports are audited with tenant only attribution under a provider scoped signed context; no member is credited for a provider callback.
+V19 extends the audit log with `MESSAGE_*` event types and closed transition metadata (status from, status to, failure category, attempt number). Delivery reports are audited with tenant only attribution under a provider scoped signed context; no member is credited for a provider callback.
 
 ## Idempotent sending
 
@@ -168,7 +168,7 @@ Reusable credentials should live in a secret store or secret-management abstract
 
 ### The tenant integration record (spec 0005)
 
-Each tenant has at most one WhatsApp integration row in `dokene.tenant_messaging_integrations` (V18), owned by the `integration.config` package (`backend/src/main/java/io/github/stevdrey/dokene/integration/config`): `phoneNumberId`, `businessAccountId`, `displayPhoneNumber` (stored in E.164 after `PhoneNormalizer`), `secretRef`, the two switches, `webhookVerified` (written only by the webhook feature) and a `version`. The row never holds a secret value. Row level security scopes it to the tenant of the context; the routes carry no tenant identifier.
+Each tenant has at most one WhatsApp integration row in `dokene.tenant_messaging_integrations` (V20), owned by the `integration.config` package (`backend/src/main/java/io/github/stevdrey/dokene/integration/config`): `phoneNumberId`, `businessAccountId`, `displayPhoneNumber` (stored in E.164 after `PhoneNormalizer`), `secretRef`, the two switches, `webhookVerified` (written only by the webhook feature) and a `version`. The row never holds a secret value. Row level security scopes it to the tenant of the context; the routes carry no tenant identifier.
 
 | Route | Permission | Result |
 |---|---|---|

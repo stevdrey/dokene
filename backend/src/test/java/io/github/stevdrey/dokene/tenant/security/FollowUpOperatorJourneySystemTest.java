@@ -71,7 +71,7 @@ class FollowUpOperatorJourneySystemTest {
         Instant now = Instant.now();
 
         // Primary workspace: Café & Taller Artesano
-        var tenant = seedTenant(tenants, "Operator Journey Tenant " + UUID.randomUUID(), now);
+        var tenant = seedTenant(tenants, contexts, "Operator Journey Tenant " + UUID.randomUUID(), now);
         tenantId = tenant.id().value();
 
         var operatorIdentity = new IdentityId(UUID.randomUUID());
@@ -83,7 +83,7 @@ class FollowUpOperatorJourneySystemTest {
         viewerId = viewerIdentity.value();
 
         // Foreign workspace (for cross-tenant isolation)
-        var foreignTenant = seedTenant(tenants, "Foreign Tenant " + UUID.randomUUID(), now);
+        var foreignTenant = seedTenant(tenants, contexts, "Foreign Tenant " + UUID.randomUUID(), now);
         foreignTenantId = foreignTenant.id().value();
 
         var foreignIdentity = new IdentityId(UUID.randomUUID());

@@ -136,8 +136,8 @@ class MessageEndpointIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Messages A " + UUID.randomUUID(), now);
-        tenantB = seedTenant(tenants, "Messages B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Messages A " + UUID.randomUUID(), now);
+        tenantB = seedTenant(tenants, contexts, "Messages B " + UUID.randomUUID(), now);
         ownerA = new IdentityId(UUID.randomUUID());
         viewerA = new IdentityId(UUID.randomUUID());
         ownerB = new IdentityId(UUID.randomUUID());

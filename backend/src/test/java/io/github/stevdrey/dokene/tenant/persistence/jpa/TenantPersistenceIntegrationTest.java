@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -108,7 +109,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("18");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("20");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -131,8 +132,7 @@ class TenantPersistenceIntegrationTest {
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
                 "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
                 "purchase_history", "purchases",
-                "tenant_follow_up_policies", "tenant_memberships", "tenant_messaging_integrations", "tenants",
-                "workspace_provisioning_records");
+                "tenant_follow_up_policies", "tenant_memberships", "tenant_messaging_integrations", "tenants");
         assertThat(tableOwner("customer_consent_history")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_contact_consents")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_do_not_contact")).isEqualTo(MIGRATION_ROLE);
@@ -195,6 +195,46 @@ class TenantPersistenceIntegrationTest {
                 "tenant_memberships_update_policy"
         );
 
+        for (String tenantRootTable : List.of("tenants", "workspace_provisioning_records")) {
+            assertThat(jdbcTemplate.queryForMap("""
+                    SELECT c.relrowsecurity, c.relforcerowsecurity
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'dokene' AND c.relname = ?
+                    """, tenantRootTable))
+                    .containsEntry("relrowsecurity", true)
+                    .containsEntry("relforcerowsecurity", true);
+        }
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT policyname FROM pg_policies WHERE schemaname = 'dokene' AND tablename = 'tenants' ORDER BY policyname",
+                String.class
+        )).containsExactly("tenants_insert_policy", "tenants_migration_policy", "tenants_select_policy", "tenants_update_policy");
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT policyname FROM pg_policies
+                WHERE schemaname = 'dokene' AND tablename = 'workspace_provisioning_records'
+                ORDER BY policyname
+                """, String.class
+        )).containsExactly("workspace_provisioning_records_migration_policy");
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT privilege_type FROM information_schema.role_table_grants
+                WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = 'tenants'
+                ORDER BY privilege_type
+                """, String.class
+        )).containsExactly("INSERT", "SELECT");
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT column_name FROM information_schema.column_privileges
+                WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = 'tenants'
+                    AND privilege_type = 'UPDATE'
+                ORDER BY column_name
+                """, String.class
+        )).containsExactly("display_name", "status", "updated_at", "version");
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT privilege_type FROM information_schema.role_table_grants
+                WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = 'workspace_provisioning_records'
+                ORDER BY privilege_type
+                """, String.class
+        )).isEmpty();
+
         assertThatThrownBy(() -> executeAsRuntime("CREATE TABLE dokene.runtime_ddl_denied (id INTEGER)"))
                 .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> executeAsRuntime("ALTER TABLE dokene.tenants ADD COLUMN runtime_ddl_denied BOOLEAN"))
@@ -237,7 +277,7 @@ class TenantPersistenceIntegrationTest {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = Tenant.create(TenantId.random(), "  Main workspace  ", createdAt);
         tenant.suspend(createdAt.plusSeconds(60));
-        Tenant persistedTenant = tenantRepository.save(tenant);
+        Tenant persistedTenant = saveTenant(tenant);
 
         TenantMembership membership = TenantMembership.createActive(
                 TenantMembershipId.random(),
@@ -249,7 +289,7 @@ class TenantPersistenceIntegrationTest {
         membership.suspend(createdAt.plusSeconds(120));
         TenantMembership persistedMembership = saveMembership(membership);
 
-        Tenant restoredTenant = tenantRepository.findById(tenant.id()).orElseThrow();
+        Tenant restoredTenant = findTenant(tenant.id()).orElseThrow();
         TenantMembership restoredMembership = findMembership(tenant.id(), membership.identityId()).orElseThrow();
 
         assertThat(restoredTenant.displayName()).isEqualTo("Main workspace");
@@ -314,10 +354,11 @@ class TenantPersistenceIntegrationTest {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
 
         for (String displayName : new String[]{"\u0085", "\u00A0", "\u2007", "\u202F", "\u3000"}) {
-            assertThatThrownBy(() -> jdbcTemplate.update(
+            TenantId tenantId = TenantId.random();
+            assertThatThrownBy(() -> tenantContextProvider.callWithTenantId(tenantId, () -> jdbcTemplate.update(
                     "INSERT INTO tenants (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                    UUID.randomUUID(), displayName, "ACTIVE", Timestamp.from(createdAt), Timestamp.from(createdAt)
-            )).isInstanceOf(DataIntegrityViolationException.class);
+                    tenantId.value(), displayName, "ACTIVE", Timestamp.from(createdAt), Timestamp.from(createdAt)
+            ))).isInstanceOf(DataIntegrityViolationException.class);
         }
     }
 
@@ -326,10 +367,10 @@ class TenantPersistenceIntegrationTest {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         String displayName = "😀".repeat(Tenant.DISPLAY_NAME_MAX_LENGTH);
 
-        Tenant persistedTenant = tenantRepository.save(Tenant.create(TenantId.random(), displayName, createdAt));
+        Tenant persistedTenant = saveTenant(Tenant.create(TenantId.random(), displayName, createdAt));
 
         assertThat(persistedTenant.displayName()).isEqualTo(displayName);
-        assertThat(tenantRepository.findById(persistedTenant.id()).orElseThrow().displayName()).isEqualTo(displayName);
+        assertThat(findTenant(persistedTenant.id()).orElseThrow().displayName()).isEqualTo(displayName);
     }
 
     @Test
@@ -339,14 +380,14 @@ class TenantPersistenceIntegrationTest {
         Instant membershipUpdatedAt = Instant.parse("2026-08-23T00:02:00.999999900Z");
         Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
         tenant.suspend(tenantUpdatedAt);
-        Tenant persistedTenant = tenantRepository.save(tenant);
+        Tenant persistedTenant = saveTenant(tenant);
         TenantMembership membership = TenantMembership.createActive(
                 TenantMembershipId.random(), tenant.id(), new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, createdAt
         );
         membership.suspend(membershipUpdatedAt);
         TenantMembership persistedMembership = saveMembership(membership);
 
-        Tenant restoredTenant = tenantRepository.findById(tenant.id()).orElseThrow();
+        Tenant restoredTenant = findTenant(tenant.id()).orElseThrow();
         TenantMembership restoredMembership = findMembership(tenant.id(), membership.identityId()).orElseThrow();
 
         assertThat(persistedTenant).isSameAs(tenant);
@@ -366,18 +407,18 @@ class TenantPersistenceIntegrationTest {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
 
-        tenantRepository.save(tenant);
+        saveTenant(tenant);
         assertThat(tenant.revision()).hasValue(0);
 
         tenant.suspend(createdAt.plusSeconds(60));
-        tenantRepository.save(tenant);
+        saveTenant(tenant);
         assertThat(tenant.revision()).hasValue(1);
 
         tenant.activate(createdAt.plusSeconds(120));
-        tenantRepository.save(tenant);
+        saveTenant(tenant);
 
         assertThat(tenant.revision()).hasValue(2);
-        assertThat(tenantRepository.findById(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
+        assertThat(findTenant(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
     }
 
     @Test
@@ -441,30 +482,30 @@ class TenantPersistenceIntegrationTest {
 
         executeAndRollBack(() -> {
             existingTenant.suspend(createdAt.plusSeconds(60));
-            tenantRepository.save(existingTenant);
+            saveTenant(existingTenant);
             assertThat(existingTenant.revision()).hasValue(1);
 
             existingTenant.activate(createdAt.plusSeconds(120));
-            tenantRepository.save(existingTenant);
+            saveTenant(existingTenant);
             assertThat(existingTenant.revision()).hasValue(2);
 
-            tenantRepository.save(newTenant);
+            saveTenant(newTenant);
             assertThat(newTenant.revision()).hasValue(0);
         });
 
         assertThat(existingTenant.revision()).hasValue(0);
         assertThat(newTenant.revision()).isEmpty();
-        assertThat(tenantRepository.findById(existingTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
-        assertThat(tenantRepository.findById(newTenant.id())).isEmpty();
+        assertThat(findTenant(existingTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
+        assertThat(findTenant(newTenant.id())).isEmpty();
 
         existingTenant.suspend(createdAt.plusSeconds(180));
-        tenantRepository.save(existingTenant);
-        tenantRepository.save(newTenant);
+        saveTenant(existingTenant);
+        saveTenant(newTenant);
 
         assertThat(existingTenant.revision()).hasValue(1);
         assertThat(newTenant.revision()).hasValue(0);
-        assertThat(tenantRepository.findById(existingTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
-        assertThat(tenantRepository.findById(newTenant.id())).isPresent();
+        assertThat(findTenant(existingTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
+        assertThat(findTenant(newTenant.id())).isPresent();
     }
 
     @Test
@@ -519,7 +560,7 @@ class TenantPersistenceIntegrationTest {
 
         executeInTransaction(() -> {
             outerTenant.suspend(createdAt.plusSeconds(60));
-            tenantRepository.save(outerTenant);
+            saveTenant(outerTenant);
             assertThat(outerTenant.revision()).hasValue(1);
 
             executeRequiresNewAndRollBack(() -> {
@@ -531,7 +572,7 @@ class TenantPersistenceIntegrationTest {
         });
 
         assertThat(outerTenant.revision()).hasValue(1);
-        assertThat(tenantRepository.findById(outerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
+        assertThat(findTenant(outerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
         assertThat(findMembership(outerTenant.id(), rolledBackMembership.identityId())).isEmpty();
 
         saveMembership(rolledBackMembership);
@@ -557,7 +598,7 @@ class TenantPersistenceIntegrationTest {
 
             executeRequiresNew(() -> {
                 innerTenant.suspend(createdAt.plusSeconds(60));
-                tenantRepository.save(innerTenant);
+                saveTenant(innerTenant);
                 assertThat(innerTenant.revision()).hasValue(1);
             });
 
@@ -568,13 +609,13 @@ class TenantPersistenceIntegrationTest {
         assertThat(findMembership(membershipTenant.id(), outerMembership.identityId()).orElseThrow().status())
                 .isEqualTo(TenantMembershipStatus.ACTIVE);
         assertThat(innerTenant.revision()).hasValue(1);
-        assertThat(tenantRepository.findById(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
+        assertThat(findTenant(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.SUSPENDED);
 
         innerTenant.activate(createdAt.plusSeconds(120));
-        tenantRepository.save(innerTenant);
+        saveTenant(innerTenant);
 
         assertThat(innerTenant.revision()).hasValue(2);
-        assertThat(tenantRepository.findById(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
+        assertThat(findTenant(innerTenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ACTIVE);
     }
 
     @Test
@@ -607,19 +648,19 @@ class TenantPersistenceIntegrationTest {
         Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
         Tenant tenant = Tenant.create(TenantId.random(), "Workspace", createdAt);
         tenant.suspend(createdAt.plusSeconds(60));
-        tenantRepository.save(tenant);
+        saveTenant(tenant);
 
-        Tenant archivalCopy = tenantRepository.findById(tenant.id()).orElseThrow();
-        Tenant staleActivationCopy = tenantRepository.findById(tenant.id()).orElseThrow();
+        Tenant archivalCopy = findTenant(tenant.id()).orElseThrow();
+        Tenant staleActivationCopy = findTenant(tenant.id()).orElseThrow();
 
         archivalCopy.archive(createdAt.plusSeconds(120));
-        tenantRepository.save(archivalCopy);
+        saveTenant(archivalCopy);
 
         staleActivationCopy.activate(createdAt.plusSeconds(180));
 
-        assertThatThrownBy(() -> tenantRepository.save(staleActivationCopy))
+        assertThatThrownBy(() -> saveTenant(staleActivationCopy))
                 .isInstanceOf(OptimisticLockingFailureException.class);
-        assertThat(tenantRepository.findById(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ARCHIVED);
+        assertThat(findTenant(tenant.id()).orElseThrow().status()).isEqualTo(TenantStatus.ARCHIVED);
     }
 
     @Test
@@ -1334,8 +1375,16 @@ class TenantPersistenceIntegrationTest {
 
     private Tenant persistTenant(String displayName, Instant createdAt) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
-        tenantRepository.save(tenant);
+        saveTenant(tenant);
         return tenant;
+    }
+
+    private Tenant saveTenant(Tenant tenant) {
+        return TenantTestSupport.saveTenant(tenantRepository, tenantContextProvider, tenant);
+    }
+
+    private Optional<Tenant> findTenant(TenantId tenantId) {
+        return TenantTestSupport.findTenant(tenantRepository, tenantContextProvider, tenantId);
     }
 
     private TenantMembership saveMembership(TenantMembership membership) {

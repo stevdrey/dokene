@@ -161,8 +161,8 @@ class IntegrationConfigurationIntegrationTest {
             statement.execute("DELETE FROM dokene.tenant_messaging_integrations");
         }
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Integration A " + UUID.randomUUID(), now);
-        tenantB = seedTenant(tenants, "Integration B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Integration A " + UUID.randomUUID(), now);
+        tenantB = seedTenant(tenants, contexts, "Integration B " + UUID.randomUUID(), now);
         ownerA = new IdentityId(UUID.randomUUID());
         viewerA = new IdentityId(UUID.randomUUID());
         operatorA = new IdentityId(UUID.randomUUID());

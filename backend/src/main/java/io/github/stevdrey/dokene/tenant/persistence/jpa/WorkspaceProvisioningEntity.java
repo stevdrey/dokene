@@ -10,8 +10,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.Immutable;
 
+/**
+ * Read-only mapping for rows returned by {@code dokene.find_workspace_provisioning_record}; writes go through
+ * {@code dokene.record_workspace_provisioning}.
+ */
 @Entity
+@Immutable
 @Table(name = "workspace_provisioning_records")
 class WorkspaceProvisioningEntity {
 
@@ -35,33 +41,6 @@ class WorkspaceProvisioningEntity {
     private Instant createdAt;
 
     protected WorkspaceProvisioningEntity() {
-    }
-
-    private WorkspaceProvisioningEntity(
-            UUID id,
-            String idempotencyKey,
-            UUID identityId,
-            UUID tenantId,
-            String displayName,
-            Instant createdAt
-    ) {
-        this.id = id;
-        this.idempotencyKey = idempotencyKey;
-        this.identityId = identityId;
-        this.tenantId = tenantId;
-        this.displayName = displayName;
-        this.createdAt = createdAt;
-    }
-
-    static WorkspaceProvisioningEntity fromDomain(WorkspaceProvisioningRecord record) {
-        return new WorkspaceProvisioningEntity(
-                record.id(),
-                record.idempotencyKey(),
-                record.identityId().value(),
-                record.tenantId().value(),
-                record.displayName(),
-                record.createdAt()
-        );
     }
 
     WorkspaceProvisioningRecord toDomain() {

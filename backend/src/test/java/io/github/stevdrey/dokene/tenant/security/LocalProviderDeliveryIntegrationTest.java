@@ -136,7 +136,7 @@ class LocalProviderDeliveryIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         Instant now = Instant.now();
-        tenant = seedTenant(tenants, "Local " + UUID.randomUUID(), now);
+        tenant = seedTenant(tenants, contexts, "Local " + UUID.randomUUID(), now);
         owner = new IdentityId(UUID.randomUUID());
         ownerContext = context(seedMembership(memberships, contexts, tenant.id(), owner, TenantRole.OWNER, now));
         inContext(ownerContext, () -> followUps.configureTenant(30, ZoneId.of("UTC"), 0));
