@@ -46,6 +46,8 @@ public final class DraftSafetyValidator {
             "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
+    /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
+    private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
     private static final Pattern LEET_DIGIT_PATTERN = Pattern.compile("[013457@]");
 
     /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
@@ -62,7 +64,7 @@ public final class DraftSafetyValidator {
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
             Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),
-            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)\\b")
+            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)(?!\\p{L})")
     );
 
     /**
@@ -83,8 +85,8 @@ public final class DraftSafetyValidator {
 
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)" + SP + NUM
-                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
+            "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))" + SP + NUM
+                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))"
     );
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
@@ -209,32 +211,21 @@ public final class DraftSafetyValidator {
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.joining(" "));
 
-        // 3. Token-exact quantity grounding: percentages and monetary amounts
-        Set<String> contextPercentages = extractTokens(PERCENTAGE_PATTERN, normalizedContext);
-        Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(combinedDraftText);
-        while (draftPctMatcher.find()) {
-            String pct = quantityKey(draftPctMatcher.group());
-            if (!contextPercentages.contains(pct)) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PERCENTAGE,
-                        "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
-            }
-        }
-
-        Set<String> contextAmounts = extractTokens(AMOUNT_PATTERN, normalizedContext);
-        Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(combinedDraftText);
-        while (draftAmtMatcher.find()) {
-            String amt = quantityKey(draftAmtMatcher.group());
-            if (!contextAmounts.contains(amt)) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
-                        "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
-            }
-        }
-
-        // 3b. Numbers attached to price terms even when the currency marker is omitted
+        // 3. Token-exact quantity grounding: percentages and monetary amounts. Both the raw draft and its leetspeak
+        // view ("U5D 100" is "USD 100") are checked against the raw and folded context, so the two views cannot differ.
+        String foldedDraftText = foldLeet(combinedDraftText);
+        Set<String> contextPercentages = new HashSet<>();
+        Set<String> contextAmounts = new HashSet<>();
+        // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
-        Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(normalizedContext);
-        while (contextPriceMatcher.find()) {
-            contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+        // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
+        for (String contextView : List.of(normalizedContext, foldLeet(normalizedContext))) {
+            contextPercentages.addAll(extractTokens(PERCENTAGE_PATTERN, contextView));
+            contextAmounts.addAll(extractTokens(AMOUNT_PATTERN, contextView));
+            Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(contextView);
+            while (contextPriceMatcher.find()) {
+                contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+            }
         }
         for (String amountToken : contextAmounts) {
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
@@ -242,12 +233,28 @@ public final class DraftSafetyValidator {
                 contextNumbers.add(normalizeQuantities(numberMatcher.group()));
             }
         }
-        Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(combinedDraftText);
-        while (priceNumberMatcher.find()) {
-            String number = normalizeQuantities(priceNumberMatcher.group(1));
-            if (!contextNumbers.contains(number)) {
-                return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
-                        "Draft contains hallucinated price not grounded in context: '" + number + "'"));
+        for (String view : List.of(combinedDraftText, foldedDraftText)) {
+            Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(view);
+            while (draftPctMatcher.find()) {
+                if (!contextPercentages.contains(quantityKey(draftPctMatcher.group()))) {
+                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PERCENTAGE,
+                            "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
+                }
+            }
+            Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
+            while (draftAmtMatcher.find()) {
+                if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))) {
+                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                            "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
+                }
+            }
+            Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(view);
+            while (priceNumberMatcher.find()) {
+                String number = normalizeQuantities(priceNumberMatcher.group(1));
+                if (!contextNumbers.contains(number)) {
+                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                            "Draft contains hallucinated price not grounded in context: '" + number + "'"));
+                }
             }
         }
 
@@ -262,13 +269,13 @@ public final class DraftSafetyValidator {
         // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits. The refusal
         // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
         String foldedOfferContext = foldLeet(offerContextLower);
-        for (String view : List.of(combinedDraftText, foldLeet(combinedDraftText))) {
+        for (String view : List.of(combinedDraftText, foldedDraftText)) {
             String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
             for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {
                     String word = draftMatcher.group().toLowerCase(Locale.ROOT);
-                    Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");
+                    Pattern specificPattern = Pattern.compile("(?i)(?<!\\p{L})" + Pattern.quote(word) + "(?!\\p{L})");
                     if (!specificPattern.matcher(offerContextLower).find()
                             && !specificPattern.matcher(foldedOfferContext).find()) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
@@ -392,7 +399,7 @@ public final class DraftSafetyValidator {
         while (tokens.find()) {
             String token = tokens.group();
             boolean hasLetter = token.codePoints().anyMatch(Character::isLetter);
-            tokens.appendReplacement(out, Matcher.quoteReplacement(hasLetter ? leetToken(token) : token));
+            tokens.appendReplacement(out, Matcher.quoteReplacement(hasLetter && !COMPACT_PROMOTION_PATTERN.matcher(token).matches() ? leetToken(token) : token));
         }
         tokens.appendTail(out);
         return out.toString();

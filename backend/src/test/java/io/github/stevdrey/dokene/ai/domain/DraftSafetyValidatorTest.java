@@ -745,6 +745,25 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void compactCurrencyAmountsAndFoldedCurrencyCodesNeedGroundedAmounts() {
+        for (String body : List.of("Paga JPY100.", "Paga USD100.", "Paga U5D 100.", "Paga 100USD.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Plan USD 50"))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga JPY100.", "es-419", List.of()), "Plan JPY100")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD 100")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D 100.", "es-419", List.of()), "Plan USD 100")).isEmpty();
+    }
+
+    @Test
+    void compactPromotionStaysVisibleInLeetRefusalChains() {
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay 2x1 ni d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay 2x1, pero tienes d3scuento", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isPresent();
+    }
+
+    @Test
     void leetSpellingInRefusalNegationAndSpacedPercentMarkersAreHandledSymmetrically() {
         assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();

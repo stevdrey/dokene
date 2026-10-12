@@ -67,7 +67,7 @@ public final class InvariantChecker {
             "(?iuU)" + NUM + "\\s*%"
                     + "|" + SYMBOL + "\\s*" + NUM
                     + "|\\b(?:" + CURRENCY + ")\\s*" + NUM
-                    + "|" + NUM + "\\s*(?:" + SYMBOL + "|\\b(?:" + CURRENCY + ")\\b)");
+                    + "|" + NUM + "\\s*(?:" + SYMBOL + "|(?:" + CURRENCY + ")(?!\\p{L}))");
     /** Unmarked amounts attached to a price term ("el total es 999", "cuesta 50"). */
     private static final Pattern PRICE_TERM_NUMBER = Pattern.compile(
             "(?iuU)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")");
@@ -86,7 +86,7 @@ public final class InvariantChecker {
     private static final Pattern OFFER_WORD = Pattern.compile(
             "(?iu)\\b(?:descuentos?|rebajas?|cupón|cupon|cupones|gratis|gratuit[oa]s?|promoci[oó]n(?:es)?"
                     + "|ofertas?|liquidaci[oó]n|regalos?|obsequios?|bonos?|cashback|reembolsos?|sin costo|black friday"
-                    + "|2 por 1|\\d+\\s*x\\s*\\d+|precios?|" + CURRENCY + ")\\b");
+                    + "|2 por 1|\\d+\\s*x\\s*\\d+|precios?|" + CURRENCY + ")(?!\\p{L})");
 
     private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
     private static final Pattern DEFANGED_DOT = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]\\s*");
@@ -432,7 +432,7 @@ public final class InvariantChecker {
         StringBuilder out = new StringBuilder();
         while (tokens.find()) {
             String token = tokens.group();
-            boolean letters = token.chars().anyMatch(Character::isLetter);
+            boolean letters = token.chars().anyMatch(Character::isLetter) && !token.matches("\\d+x\\d+");
             tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(letters
                     ? token.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
                             .replace('5', 's').replace('7', 't').replace('@', 'a') : token));
@@ -453,7 +453,13 @@ public final class InvariantChecker {
                 .replaceAll("(?<=\\d)[ \\u00a0\\u202f](?=\\d{3})", "").replace(',', '.');
     }
 
+    /** The raw text and its leetspeak view get the same checks against the raw and folded grounding ("U5D 100"). */
     private static boolean ungroundedOffer(String rawText, String rawGrounded) {
+        String groundedViews = rawGrounded + " | " + leet(rawGrounded);
+        return ungroundedIn(rawText, groundedViews) || ungroundedIn(leet(rawText), groundedViews);
+    }
+
+    private static boolean ungroundedIn(String rawText, String rawGrounded) {
         // Both sides use the same numeric equivalence as the production validator ($10,00 grounds $10.00).
         String text = normalizeQuantities(rawText);
         String grounded = normalizeQuantities(rawGrounded);
@@ -475,10 +481,8 @@ public final class InvariantChecker {
                 return true;
             }
         }
-        String groundedViews = grounded + " " + leet(grounded);
         return matchesUngrounded(OFFER_SYMBOL, rest.toString(), grounded, false)
-                || matchesUngrounded(OFFER_WORD, rest.toString(), groundedViews, true)
-                || matchesUngrounded(OFFER_WORD, leet(rest.toString()), groundedViews, true);
+                || matchesUngrounded(OFFER_WORD, rest.toString(), grounded, true);
     }
 
     private static String normalizeNumber(String number) {
@@ -536,7 +540,7 @@ public final class InvariantChecker {
         while (matcher.find()) {
             String found = matcher.group().toLowerCase(Locale.ROOT);
             boolean isGrounded = wholeWord
-                    ? Pattern.compile("(?iuU)\\b" + Pattern.quote(found) + "\\b").matcher(grounded).find()
+                    ? Pattern.compile("(?iuU)(?<!\\p{L})" + Pattern.quote(found) + "(?!\\p{L})").matcher(grounded).find()
                     : grounded.contains(found);
             if (!isGrounded) {
                 return true;
