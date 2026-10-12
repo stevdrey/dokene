@@ -26,7 +26,8 @@ class InvariantCheckerParityTest {
             "Llama tel:1234", "Visita promo.dev", "Abre 192.168.0.1:8080/x",
             "Hoy por \uff04\uff11\uff10", "Con \uff11\uff10\uff05 menos", "Con 10 por ciento menos", "Con 10 pct menos",
             "Hoy por \u00a51000", "Con des\u200bcuento", "En \u043eferta", "Con d3scuento", "En promo[.]test",
-            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test", "Visita promo\u3002dev", "Visita promo\u3002DEV", "Visita promo\u3002Dev", "Hola\u3002Gracias por tu compra", "Con \u0501escuento", "Con cas\u04bbback", "Con \u04cfiquidaci\u00f3n");
+            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test", "Visita promo\u3002dev", "Visita promo\u3002DEV", "Visita promo [.] test", "Visita promo (dot) test", "Visita 10 pct.com",
+            "Con des\ufe0fcuento", "Con des\udb40\udd00cuento", "Es gra\u034ftis", "Es gra\u180btis", "Visita promo\u3002Dev", "Hola\u3002Gracias por tu compra", "Con \u0501escuento", "Con cas\u04bbback", "Con \u04cfiquidaci\u00f3n");
 
     private static MessageDraft draft(String body) {
         return new MessageDraft(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE, body,

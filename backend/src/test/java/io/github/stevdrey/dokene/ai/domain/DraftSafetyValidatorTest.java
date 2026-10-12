@@ -691,6 +691,15 @@ class DraftSafetyValidatorTest {
                 new Probe("Visita promo\u3002dev", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("Visita promo\uff61dev ahora.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("Visita promo\u3002DEV", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo [.] test", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo (dot) test", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita hxxps [://] promo.test", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita 10 pct.com", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita 10 porciento.com/x", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Con des\ufe0fcuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Con des\udb40\udd00cuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u034ftis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u180btis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
                 new Probe("Visita promo\u3002Dev", DraftSafetyViolation.UNAUTHORIZED_URL));
         for (Probe probe : probes) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(

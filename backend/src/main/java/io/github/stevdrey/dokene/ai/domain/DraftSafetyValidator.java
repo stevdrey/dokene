@@ -43,22 +43,22 @@ public final class DraftSafetyValidator {
 
     /** Percentage markers written out after a number ("10 por ciento", "10 pct"); canonicalised to {@code %}. */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
-            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct\\.?)(?![\\p{L}\\p{N}])");
-    private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("\\p{Cf}");
+            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
+    private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     private static final Pattern LEET_DIGIT_PATTERN = Pattern.compile("[013457@]");
 
     /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
     private static final Map<Character, Character> CONFUSABLES = confusables();
 
-    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
+    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]\\s*");
     /**
      * An ideographic full stop between letters or digits is treated as a dot for URL detection. Prose never uses it
      * between Spanish words, and sentence-case heuristics ("Hola。Gracias" vs "promo。DEV") are bypassable.
      */
     private static final Pattern IDEOGRAPHIC_DOT_PATTERN = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
     private static final Pattern DEFANGED_SCHEME_PATTERN = Pattern.compile("\\bhxxp(s?)\\b");
-    private static final Pattern DEFANGED_COLON_PATTERN = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
+    private static final Pattern DEFANGED_COLON_PATTERN = Pattern.compile("\\s*[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]\\s*");
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
             Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),

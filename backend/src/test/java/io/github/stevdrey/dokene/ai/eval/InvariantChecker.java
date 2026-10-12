@@ -88,9 +88,9 @@ public final class InvariantChecker {
                     + "|ofertas?|liquidaci[oó]n|regalos?|obsequios?|bonos?|cashback|reembolsos?|sin costo|black friday"
                     + "|2 por 1|\\d+\\s*x\\s*\\d+|precios?|" + CURRENCY + ")\\b");
 
-    private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct\\.?)(?![\\p{L}\\p{N}])");
-    private static final Pattern DEFANGED_DOT = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
-    private static final Pattern DEFANGED_COLON = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
+    private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
+    private static final Pattern DEFANGED_DOT = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]\\s*");
+    private static final Pattern DEFANGED_COLON = Pattern.compile("\\s*[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]\\s*");
     /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
     private static final Pattern IDEOGRAPHIC_DOT = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
 
@@ -415,7 +415,7 @@ public final class InvariantChecker {
      */
     static String fold(String raw) {
         String text = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
-                .replaceAll("\\p{Cf}", "").toLowerCase(Locale.ROOT);
+                .replaceAll("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]", "").toLowerCase(Locale.ROOT);
         String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
         String to = "aeopcxyijsdhloaeinptky";
         StringBuilder out = new StringBuilder(text.length());
