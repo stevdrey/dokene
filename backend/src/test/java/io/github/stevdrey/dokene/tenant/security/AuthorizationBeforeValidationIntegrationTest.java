@@ -80,7 +80,7 @@ class AuthorizationBeforeValidationIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         Instant now = Instant.now();
-        tenant = seedTenant(tenants, "Authz before validation " + UUID.randomUUID(), now);
+        tenant = seedTenant(tenants, contexts, "Authz before validation " + UUID.randomUUID(), now);
         for (TenantRole role : List.of(TenantRole.VIEWER, TenantRole.OPERATOR)) {
             IdentityId identity = new IdentityId(UUID.randomUUID());
             seedMembership(memberships, contexts, tenant.id(), identity, role, now);

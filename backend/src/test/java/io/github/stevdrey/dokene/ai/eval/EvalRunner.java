@@ -94,7 +94,7 @@ public final class EvalRunner {
     /** Runs all cases in dataset order inside one fresh synthetic tenant and returns the observations. */
     public List<CaseObservation> run(EvalDataset dataset) throws Exception {
         Instant now = EVAL_INSTANT;
-        Tenant tenant = TenantSecurityIntegrationFixture.seedTenant(tenants, SYNTHETIC_BUSINESS_NAME, now);
+        Tenant tenant = TenantSecurityIntegrationFixture.seedTenant(tenants, contexts, SYNTHETIC_BUSINESS_NAME, now);
         TenantContext tenantContext = TenantSecurityIntegrationFixture.context(
                 TenantSecurityIntegrationFixture.seedMembership(memberships, contexts, tenant.id(),
                         new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));

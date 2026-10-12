@@ -67,8 +67,8 @@ class PurchaseManagementIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Purchase A " + UUID.randomUUID(), now);
-        tenantB = seedTenant(tenants, "Purchase B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Purchase A " + UUID.randomUUID(), now);
+        tenantB = seedTenant(tenants, contexts, "Purchase B " + UUID.randomUUID(), now);
         contextA = context(seedMembership(memberships, contexts, tenantA.id(), new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
         contextB = context(seedMembership(memberships, contexts, tenantB.id(), new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
         customerA = inContext(contextA, () -> customers.create("Purchase customer", null,

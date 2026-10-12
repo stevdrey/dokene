@@ -101,7 +101,7 @@ class AiFailureHandlingIntegrationTest {
     void setUp() throws Exception {
         Mockito.reset(provider);
         Instant now = Instant.now();
-        Tenant tenant = seedTenant(tenants, "AI Failure Tenant " + UUID.randomUUID(), now);
+        Tenant tenant = seedTenant(tenants, contexts, "AI Failure Tenant " + UUID.randomUUID(), now);
         tenantContext = context(seedMembership(memberships, contexts, tenant.id(),
                 new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
         inContext(() -> followUps.configureTenant(14, ZoneId.of("America/Costa_Rica"), 0L));

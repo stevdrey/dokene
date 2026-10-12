@@ -75,8 +75,8 @@ class CustomerManagementIntegrationTest {
     @BeforeEach
     void setUp() {
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Customer test A " + UUID.randomUUID(), now);
-        tenantB = seedTenant(tenants, "Customer test B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Customer test A " + UUID.randomUUID(), now);
+        tenantB = seedTenant(tenants, contexts, "Customer test B " + UUID.randomUUID(), now);
         TenantMembership membershipA = seedMembership(memberships, contexts, tenantA.id(),
                 new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now);
         TenantMembership membershipB = seedMembership(memberships, contexts, tenantB.id(),

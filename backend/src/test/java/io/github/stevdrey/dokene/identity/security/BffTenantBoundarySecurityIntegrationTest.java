@@ -151,7 +151,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         IdentityId aliceIdentity = new IdentityId(UUID.fromString(aliceSession.path("identityId").asText()));
         String aliceCsrf = aliceSession.path("csrfToken").asText();
 
-        Tenant tenant1 = seedTenant(tenants, "Tenant Alpha " + UUID.randomUUID(), now);
+        Tenant tenant1 = seedTenant(tenants, contexts, "Tenant Alpha " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenant1.id(), aliceIdentity, TenantRole.OWNER, now);
 
         // 2. Authenticate Bob and seed Tenant 2 (Bob is OWNER)
@@ -161,7 +161,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         IdentityId bobIdentity = new IdentityId(UUID.fromString(bobSession.path("identityId").asText()));
         String bobCsrf = bobSession.path("csrfToken").asText();
 
-        Tenant tenant2 = seedTenant(tenants, "Tenant Beta " + UUID.randomUUID(), now);
+        Tenant tenant2 = seedTenant(tenants, contexts, "Tenant Beta " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenant2.id(), bobIdentity, TenantRole.OWNER, now);
 
         // 3. Alice creates a customer in Tenant 1 with valid session and CSRF
@@ -237,10 +237,10 @@ class BffTenantBoundarySecurityIntegrationTest {
         String aliceCsrf = aliceSession.path("csrfToken").asText();
 
         // 2. Grant Alice active OWNER memberships in two separate tenants
-        Tenant tenantA = seedTenant(tenants, "Workspace A " + UUID.randomUUID(), now);
+        Tenant tenantA = seedTenant(tenants, contexts, "Workspace A " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenantA.id(), aliceIdentity, TenantRole.OWNER, now);
 
-        Tenant tenantB = seedTenant(tenants, "Workspace B " + UUID.randomUUID(), now);
+        Tenant tenantB = seedTenant(tenants, contexts, "Workspace B " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenantB.id(), aliceIdentity, TenantRole.OWNER, now);
 
         // 3. Create distinct customer in Tenant A
@@ -289,7 +289,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         IdentityId aliceIdentity = new IdentityId(UUID.fromString(aliceSession.path("identityId").asText()));
         String aliceCsrf = aliceSession.path("csrfToken").asText();
 
-        Tenant tenant = seedTenant(tenants, "CSRF Test Workspace " + UUID.randomUUID(), now);
+        Tenant tenant = seedTenant(tenants, contexts, "CSRF Test Workspace " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenant.id(), aliceIdentity, TenantRole.OWNER, now);
 
         String customerPayload = """
@@ -339,7 +339,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         IdentityId userIdentity = new IdentityId(UUID.fromString(sessionNode.path("identityId").asText()));
         String userCsrf = sessionNode.path("csrfToken").asText();
 
-        Tenant tenant = seedTenant(tenants, "Expired Session Test " + UUID.randomUUID(), now);
+        Tenant tenant = seedTenant(tenants, contexts, "Expired Session Test " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenant.id(), userIdentity, TenantRole.OWNER, now);
 
         String customerPayload = """
@@ -403,7 +403,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         IdentityId daveIdentity = new IdentityId(UUID.fromString(daveSession.path("identityId").asText()));
         String daveCsrf = daveSession.path("csrfToken").asText();
 
-        Tenant tenant = seedTenant(tenants, "Permission Test " + UUID.randomUUID(), now);
+        Tenant tenant = seedTenant(tenants, contexts, "Permission Test " + UUID.randomUUID(), now);
         seedMembership(memberships, contexts, tenant.id(), daveIdentity, TenantRole.VIEWER, now);
 
         // Dave can read customers (VIEWER permission)
