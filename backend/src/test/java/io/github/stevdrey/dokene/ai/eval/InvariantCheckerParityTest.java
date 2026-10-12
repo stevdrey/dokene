@@ -26,7 +26,7 @@ class InvariantCheckerParityTest {
             "Llama tel:1234", "Visita promo.dev", "Abre 192.168.0.1:8080/x",
             "Hoy por \uff04\uff11\uff10", "Con \uff11\uff10\uff05 menos", "Con 10 por ciento menos", "Con 10 pct menos",
             "Hoy por \u00a51000", "Con des\u200bcuento", "En \u043eferta", "Con d3scuento", "En promo[.]test",
-            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test", "Visita promo\u3002dev", "Con \u0501escuento", "Con cas\u04bbback", "Con \u04cfiquidaci\u00f3n");
+            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test", "Visita promo\u3002dev", "Visita promo\u3002DEV", "Visita promo\u3002Dev", "Hola\u3002Gracias por tu compra", "Con \u0501escuento", "Con cas\u04bbback", "Con \u04cfiquidaci\u00f3n");
 
     private static MessageDraft draft(String body) {
         return new MessageDraft(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE, body,
@@ -94,6 +94,41 @@ class InvariantCheckerParityTest {
     }
 
     @Test
+    void deliveredLeetRefusalNegationIsNeutralisedByBoth() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        var safe = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay d3scuento disponible", RecommendationConfidence.of(0.9));
+        var unsafe = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay d3scuento, pero tienes d3scuento", RecommendationConfidence.of(0.9));
+        assertThat(DraftSafetyValidator.validate(safe, "")).isEmpty();
+        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(safe), base)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(unsafe, "")).isPresent();
+        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(unsafe), base)).isNotEmpty();
+    }
+
+    @Test
+    void spacedPercentMarkersGroundTheSameWayInBoth() {
+        record Probe(String purchase, String body) { }
+        for (Probe probe : List.of(new Probe("Con 10 % de descuento", "Con 10 por ciento de descuento"),
+                new Probe("Con 10 por ciento de descuento", "Con 10 % de descuento"),
+                new Probe("Con 10% de descuento", "Con 10 pct de descuento"))) {
+            EvalCase grounded = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                    .map(c -> new EvalCase(c.id(), c.family(), c.description(), c.displayName(), c.locale(),
+                            new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                                    List.of(new EvalCase.PurchaseSpec(40, probe.purchase()))),
+                            c.request(), c.script(), c.expect(), c.rubricHints())).findFirst().orElseThrow();
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                    List.of(probe.purchase()), List.of(), "DUE", "2026-09-29");
+            MessageDraft draft = draft(probe.body());
+            assertThat(DraftSafetyValidator.validate(draft, probe.purchase(), grounding)).as(probe.body()).isEmpty();
+            assertThat(InvariantChecker.contentViolations(draft, grounded)).as(probe.body()).isEmpty();
+        }
+    }
+
+    @Test
     void deliveredRefusalNegationSurvivesZeroWidthCharacters() {
         EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
                 .findFirst().orElseThrow();
@@ -114,7 +149,7 @@ class InvariantCheckerParityTest {
                 base.request(), base.script(), base.expect(), base.rubricHints());
         var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
                 List.of("Plan con d3scuento"), List.of(), "DUE", "2026-09-29");
-        for (String body : List.of("Recuerda tu d3scuento", "Hola\u3002Gracias por tu compra")) {
+        for (String body : List.of("Recuerda tu d3scuento", "Hola\u3002 Gracias por tu compra")) {
             MessageDraft draft = draft(body);
             assertThat(DraftSafetyValidator.validate(draft, "Plan con d3scuento", grounding)).as(body).isEmpty();
             assertThat(InvariantChecker.contentViolations(draft, grounded)).as(body).isEmpty();

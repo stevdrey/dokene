@@ -91,7 +91,8 @@ public final class InvariantChecker {
     private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct\\.?)(?![\\p{L}\\p{N}])");
     private static final Pattern DEFANGED_DOT = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
     private static final Pattern DEFANGED_COLON = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
-    private static final Pattern IDEOGRAPHIC_TOKEN = Pattern.compile("\\S*[。｡]\\S*");
+    /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
+    private static final Pattern IDEOGRAPHIC_DOT = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -413,8 +414,8 @@ public final class InvariantChecker {
      * characters, lower case, Cyrillic/Greek look-alikes to Latin, and written-out percent markers to {@code %}.
      */
     static String fold(String raw) {
-        String text = linkStops(java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
-                .replaceAll("\\p{Cf}", "")).toLowerCase(Locale.ROOT);
+        String text = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
+                .replaceAll("\\p{Cf}", "").toLowerCase(Locale.ROOT);
         String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
         String to = "aeopcxyijsdhloaeinptky";
         StringBuilder out = new StringBuilder(text.length());
@@ -440,22 +441,9 @@ public final class InvariantChecker {
         return out.toString();
     }
 
-    /**
-     * An ideographic stop becomes a dot only inside a link-looking token: scheme/www/path/colon, or a bare
-     * {@code host。tld} whose segments do not start in upper case. Runs before lower-casing, so "Hola。Gracias" is prose.
-     */
-    private static String linkStops(String text) {
-        return IDEOGRAPHIC_TOKEN.matcher(text).replaceAll(m -> {
-            String token = m.group();
-            boolean link = token.matches("(?i)(?:https?|hxxps?|www).*|.*[/:].*")
-                    || token.matches("[\\p{L}\\p{N}-]+(?:[。｡](?!\\p{Lu})[\\p{L}\\p{N}-]+)*[。｡](?!\\p{Lu})\\p{L}{2,}\\p{P}*");
-            return java.util.regex.Matcher.quoteReplacement(link ? token.replaceAll("[。｡]", ".") : token);
-        });
-    }
-
-    /** Restores defanged links ({@code [.]}, {@code (dot)}, {@code hxxp}, {@code [://]}). */
+    /** Restores defanged links ({@code [.]}, {@code (dot)}, {@code hxxp}, {@code [://]}) and ideographic stops. */
     static String refang(String text) {
-        String dots = DEFANGED_DOT.matcher(text).replaceAll(".");
+        String dots = DEFANGED_DOT.matcher(IDEOGRAPHIC_DOT.matcher(text).replaceAll(".")).replaceAll(".");
         return DEFANGED_COLON.matcher(dots).replaceAll("://").replaceAll("\\bhxxp(s?)\\b", "http$1");
     }
 
@@ -579,11 +567,28 @@ public final class InvariantChecker {
 
     /** A refusal may say there is no offer; the negation is neutralised, amounts, links and affirmations are not. */
     static List<String> visibleTexts(NoRecommendation refusal) {
-        return List.of(NEGATED_OFFER.matcher(fold(refusal.rationale())).replaceAll(" "));
+        return refusalTexts(refusal.rationale());
     }
 
     static List<String> visibleTexts(NoDraft refusal) {
-        return List.of(NEGATED_OFFER.matcher(fold(refusal.rationale())).replaceAll(" "));
+        return refusalTexts(refusal.rationale());
+    }
+
+    /**
+     * A refusal may state that there is no offer. The leetspeak fold keeps every position, so negations found in the
+     * folded view ("No hay d3scuento") are blanked out of the folded text itself, which keeps amounts and links intact.
+     */
+    private static List<String> refusalTexts(String rationale) {
+        String folded = fold(rationale);
+        var negated = NEGATED_OFFER.matcher(leet(folded));
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        while (negated.find()) {
+            out.append(folded, last, negated.start()).append(' ');
+            last = negated.end();
+        }
+        out.append(folded.substring(last));
+        return List.of(NEGATED_OFFER.matcher(out).replaceAll(" "));
     }
 
     /** Operator-visible texts of every delivered outcome of the case (action, draft and both refusal kinds). */

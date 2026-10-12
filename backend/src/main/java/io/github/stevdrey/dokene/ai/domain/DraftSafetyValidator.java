@@ -52,12 +52,11 @@ public final class DraftSafetyValidator {
     private static final Map<Character, Character> CONFUSABLES = confusables();
 
     private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
-    /** An ideographic full stop is sentence punctuation unless its whitespace-delimited token looks like a link. */
-    private static final Pattern IDEOGRAPHIC_STOP_TOKEN_PATTERN = Pattern.compile("\\S*[。｡]\\S*");
-    private static final Pattern LINK_HINT_PATTERN = Pattern.compile("(?i)(?:https?|hxxps?|www).*|.*[/:].*");
-    /** A bare {@code host。tld} token whose segments do not start in upper case (a capital means a new sentence). */
-    private static final Pattern BARE_HOST_PATTERN = Pattern.compile(
-            "[\\p{L}\\p{N}-]+(?:[。｡](?!\\p{Lu})[\\p{L}\\p{N}-]+)*[。｡](?!\\p{Lu})\\p{L}{2,}\\p{P}*");
+    /**
+     * An ideographic full stop between letters or digits is treated as a dot for URL detection. Prose never uses it
+     * between Spanish words, and sentence-case heuristics ("Hola。Gracias" vs "promo。DEV") are bypassable.
+     */
+    private static final Pattern IDEOGRAPHIC_DOT_PATTERN = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
     private static final Pattern DEFANGED_SCHEME_PATTERN = Pattern.compile("\\bhxxp(s?)\\b");
     private static final Pattern DEFANGED_COLON_PATTERN = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
 
@@ -214,7 +213,7 @@ public final class DraftSafetyValidator {
         Set<String> contextPercentages = extractTokens(PERCENTAGE_PATTERN, normalizedContext);
         Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(combinedDraftText);
         while (draftPctMatcher.find()) {
-            String pct = normalizeQuantities(draftPctMatcher.group());
+            String pct = quantityKey(draftPctMatcher.group());
             if (!contextPercentages.contains(pct)) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PERCENTAGE,
                         "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
@@ -224,7 +223,7 @@ public final class DraftSafetyValidator {
         Set<String> contextAmounts = extractTokens(AMOUNT_PATTERN, normalizedContext);
         Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(combinedDraftText);
         while (draftAmtMatcher.find()) {
-            String amt = normalizeQuantities(draftAmtMatcher.group());
+            String amt = quantityKey(draftAmtMatcher.group());
             if (!contextAmounts.contains(amt)) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                         "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
@@ -260,12 +259,11 @@ public final class DraftSafetyValidator {
             }
         }
 
-        String offerWordText = refusalRationale
-                ? NEGATED_OFFER_PATTERN.matcher(combinedDraftText).replaceAll(" ")
-                : combinedDraftText;
-        // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits.
+        // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits. The refusal
+        // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
         String foldedOfferContext = foldLeet(offerContextLower);
-        for (String candidate : List.of(offerWordText, foldLeet(offerWordText))) {
+        for (String view : List.of(combinedDraftText, foldLeet(combinedDraftText))) {
+            String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
             for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {
@@ -324,9 +322,14 @@ public final class DraftSafetyValidator {
         Set<String> tokens = new HashSet<>();
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
-            tokens.add(normalizeQuantities(matcher.group()));
+            tokens.add(quantityKey(matcher.group()));
         }
         return tokens;
+    }
+
+    /** Comparison key of a percentage or amount: whitespace-insensitive, so "10 %" equals "10%" and "$ 5" equals "$5". */
+    private static String quantityKey(String token) {
+        return normalizeQuantities(token).replaceAll("\\s+", "");
     }
 
     private static String normalizeQuantities(String text) {
@@ -364,8 +367,8 @@ public final class DraftSafetyValidator {
         if (text == null || text.isEmpty()) {
             return "";
         }
-        String folded = restoreLinkStops(FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC))
-                .replaceAll("")).toLowerCase(Locale.ROOT);
+        String folded = FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC))
+                .replaceAll("").toLowerCase(Locale.ROOT);
         StringBuilder out = new StringBuilder(folded.length());
         for (int i = 0; i < folded.length(); i++) {
             char c = folded.charAt(i);
@@ -374,22 +377,10 @@ public final class DraftSafetyValidator {
         return PERCENT_WORD_PATTERN.matcher(out).replaceAll("%");
     }
 
-    /**
-     * An ideographic full stop is turned into a dot only inside a token that looks like a link (scheme, {@code www},
-     * a path or colon, or a lower-case bare {@code host。tld}). It runs before lower-casing so that a sentence stop
-     * followed by a capital ("Hola。Gracias") stays punctuation.
-     */
-    private static String restoreLinkStops(String text) {
-        return IDEOGRAPHIC_STOP_TOKEN_PATTERN.matcher(text).replaceAll(match -> {
-            String token = match.group();
-            boolean link = LINK_HINT_PATTERN.matcher(token).matches() || BARE_HOST_PATTERN.matcher(token).matches();
-            return Matcher.quoteReplacement(link ? token.replaceAll("[。｡]", ".") : token);
-        });
-    }
-
     /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */
     private static String refang(String canonical) {
-        String text = DEFANGED_DOT_PATTERN.matcher(canonical).replaceAll(".");
+        String text = IDEOGRAPHIC_DOT_PATTERN.matcher(canonical).replaceAll(".");
+        text = DEFANGED_DOT_PATTERN.matcher(text).replaceAll(".");
         text = DEFANGED_COLON_PATTERN.matcher(text).replaceAll("://");
         return DEFANGED_SCHEME_PATTERN.matcher(text).replaceAll("http$1");
     }

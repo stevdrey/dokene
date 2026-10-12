@@ -689,7 +689,9 @@ class DraftSafetyValidatorTest {
                 new Probe("En www\u3002promo\u3002test.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("En promo\u3002test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("Visita promo\u3002dev", DraftSafetyViolation.UNAUTHORIZED_URL),
-                new Probe("Visita promo\uff61dev ahora.", DraftSafetyViolation.UNAUTHORIZED_URL));
+                new Probe("Visita promo\uff61dev ahora.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\u3002DEV", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\u3002Dev", DraftSafetyViolation.UNAUTHORIZED_URL));
         for (Probe probe : probes) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                     draftWith(probe.body(), "es-419", List.of()), UNGROUNDED_CONTEXT);
@@ -724,10 +726,31 @@ class DraftSafetyValidatorTest {
                 draftWith("Aprovecha d3scuento.", "es-419", List.of()), "Plan con d3scuento")).isEmpty();
         assertThat(DraftSafetyValidator.validate(
                 draftWith("Aprovecha d3scuento.", "es-419", List.of()), "Plan sin nada")).isPresent();
-        for (String prose : List.of("Hola\u3002Gracias por tu compra", "Hola\uff61Gracias por tu compra")) {
+        // Stops with a space or at the end of a sentence are punctuation; between letters they separate a host.
+        for (String prose : List.of("Hola\u3002 Gracias por tu compra", "Gracias por tu compra\u3002")) {
             assertThat(DraftSafetyValidator.validate(draftWith(prose, "es-419", List.of()), "Cliente: Juan."))
                     .as(prose).isEmpty();
         }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola\u3002Gracias por tu compra", "es-419", List.of()),
+                "Cliente: Juan.")).isPresent();
+    }
+
+    @Test
+    void leetSpellingInRefusalNegationAndSpacedPercentMarkersAreHandledSymmetrically() {
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay d3scuento, pero tienes d3scuento", RecommendationConfidence.of(0.9)), "Customer: Juan."))
+                .isPresent();
+        for (String[] pair : new String[][] {{"Con 10 por ciento menos.", "Se acord\u00f3 10 % de descuento."},
+                {"Con 10 % menos.", "Se acord\u00f3 10 por ciento de descuento."},
+                {"Con 10% menos.", "Se acord\u00f3 10 % de descuento."},
+                {"Plan por $ 100.", "Plan de $100"}, {"Plan por USD100.", "Plan de USD 100"}}) {
+            assertThat(DraftSafetyValidator.validate(draftWith(pair[0], "es-419", List.of()), pair[1]))
+                    .as(pair[0] + " | " + pair[1]).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Con 10 por ciento menos.", "es-419", List.of()), "Se acord\u00f3 15 % de descuento.")).isPresent();
     }
 
     @Test
