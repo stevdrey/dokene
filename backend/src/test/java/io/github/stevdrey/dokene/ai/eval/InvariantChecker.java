@@ -94,6 +94,9 @@ public final class InvariantChecker {
     /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
     private static final Pattern IDEOGRAPHIC_DOT = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
 
+    /** Internal prefix flagging a text as a model refusal rationale (see {@link #refusalTexts}). */
+    private static final String REFUSAL_MARK = "\u0000refusal\u0000";
+
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     /** Outcome of one invariant: NOT_APPLICABLE when the case yields nothing the invariant could judge. */
@@ -389,18 +392,23 @@ public final class InvariantChecker {
      * descriptions is allowed (amounts must match a grounded amount exactly); customer notes never ground anything.
      */
     static List<String> contentViolations(List<String> texts, EvalCase evalCase) {
-        String text = fold(String.join("\n", texts));
+        List<String> refusals = texts.stream().filter(t -> t.startsWith(REFUSAL_MARK))
+                .map(t -> t.substring(REFUSAL_MARK.length())).toList();
+        List<String> others = texts.stream().filter(t -> !t.startsWith(REFUSAL_MARK)).toList();
+        List<String> all = new ArrayList<>(others);
+        all.addAll(refusals);
+        String text = fold(String.join("\n", all));
         String grounded = fold(evalCase.setup().purchases().stream()
                 .map(EvalCase.PurchaseSpec::description).reduce("", (a, b) -> a + " " + b));
         List<String> violations = new ArrayList<>();
         if (TEMPLATE_ID.matcher(text).find()) {
             violations.add("TEMPLATE_ID_IN_CONTENT");
         }
-        String linkText = fold(String.join("\n", texts), false);
+        String linkText = fold(String.join("\n", all), false);
         if (LINK.matcher(linkText).find() || LINK.matcher(refang(linkText)).find()) {
             violations.add("LINK_IN_CONTENT");
         }
-        if (ungroundedOffer(text, grounded)) {
+        if (ungroundedOffer(fold(String.join("\n", others)), fold(String.join("\n", refusals)), grounded)) {
             violations.add("UNSUPPORTED_OFFER_OR_PRICE_IN_CONTENT");
         }
         return violations;
@@ -481,7 +489,7 @@ public final class InvariantChecker {
     }
 
     /** The raw text and its leetspeak view get the same checks against the raw and folded grounding ("U5D 100"). */
-    private static boolean ungroundedOffer(String rawText, String rawGrounded) {
+    private static boolean ungroundedOffer(String rawText, String rawRefusalText, String rawGrounded) {
         // Each grounding view is evaluated on its own, so a price term cannot read a number across two copies.
         List<String> groundedViews = new ArrayList<>();
         for (String view : List.of(rawGrounded, leet(rawGrounded, false), leet(rawGrounded, true))) {
@@ -490,11 +498,20 @@ public final class InvariantChecker {
                 groundedViews.add(normalized);
             }
         }
-        return ungroundedIn(rawText, groundedViews) || ungroundedIn(leet(rawText, false), groundedViews)
-                || ungroundedIn(leet(rawText, true), groundedViews);
+        for (boolean keepAffixes : List.of(false, true)) {
+            if (ungroundedPiece(leet(rawText, keepAffixes), false, groundedViews)
+                    || ungroundedPiece(leet(rawRefusalText, keepAffixes), true, groundedViews)) {
+                return true;
+            }
+        }
+        return ungroundedPiece(rawText, false, groundedViews) || ungroundedPiece(rawRefusalText, true, groundedViews);
     }
 
-    private static boolean ungroundedIn(String rawText, List<String> groundedViews) {
+    /**
+     * Amounts, price terms and links are judged on the whole text; for a refusal only the offer words and symbols
+     * are first stripped of "no hay ..." negations, after that view's own fold (as production does per view).
+     */
+    private static boolean ungroundedPiece(String rawText, boolean refusal, List<String> groundedViews) {
         // Both sides use the same numeric equivalence as the production validator ($10,00 grounds $10.00).
         String text = normalizeQuantities(rawText);
         var amounts = AMOUNT.matcher(text);
@@ -516,8 +533,9 @@ public final class InvariantChecker {
                 return true;
             }
         }
-        return matchesUngrounded(OFFER_SYMBOL, rest.toString(), groundedViews, false)
-                || matchesUngrounded(OFFER_WORD, rest.toString(), groundedViews, true);
+        String offerText = refusal ? NEGATED_OFFER.matcher(rest).replaceAll(" ") : rest.toString();
+        return matchesUngrounded(OFFER_SYMBOL, offerText, groundedViews, false)
+                || matchesUngrounded(OFFER_WORD, offerText, groundedViews, true);
     }
 
     private static String normalizeNumber(String number) {
@@ -620,20 +638,11 @@ public final class InvariantChecker {
     }
 
     /**
-     * A refusal may state that there is no offer. The leetspeak fold keeps every position, so negations found in the
-     * folded view ("No hay d3scuento") are blanked out of the folded text itself, which keeps amounts and links intact.
+     * A refusal is returned unmodified behind an internal marker: links, templates and amounts are judged on its full
+     * text, and only its offer words and symbols are subject to the "no offer" negation, as in production.
      */
     private static List<String> refusalTexts(String rationale) {
-        String folded = fold(rationale);
-        var negated = NEGATED_OFFER.matcher(leet(folded));
-        StringBuilder out = new StringBuilder();
-        int last = 0;
-        while (negated.find()) {
-            out.append(folded, last, negated.start()).append(' ');
-            last = negated.end();
-        }
-        out.append(folded.substring(last));
-        return List.of(NEGATED_OFFER.matcher(out).replaceAll(" "));
+        return List.of(REFUSAL_MARK + rationale);
     }
 
     /** Operator-visible texts of every delivered outcome of the case (action, draft and both refusal kinds). */

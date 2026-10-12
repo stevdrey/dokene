@@ -122,6 +122,34 @@ class InvariantCheckerParityTest {
     }
 
     @Test
+    void refusalsKeepAmountsAndLinksVisibleWhileNegationsOnlyNeutraliseOffers() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        record Probe(String purchase, String rationale, boolean safe) { }
+        for (Probe probe : List.of(new Probe("Plan sin nada", "No hay JPY 100", false),
+                new Probe("Plan sin nada", "No hay U5D 100", false), new Probe("Plan JPY 100", "No hay JPY 100", true),
+                new Probe("Plan USD 100", "No hay U5D 100", true),
+                new Probe("Con 10% de descuento", "No hay oferta. Visita 10 pct[.]com", false),
+                new Probe("Plan sin nada", "No hay descuento ni oferta", true),
+                new Probe("Plan sin nada", "No hay d3scuento disponible", true),
+                new Probe("Plan sin nada", "No hay 2x1 ni d3scuento disponible", true))) {
+            EvalCase evalCase = new EvalCase(base.id(), base.family(), base.description(), base.displayName(),
+                    base.locale(), new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                            List.of(new EvalCase.PurchaseSpec(40, probe.purchase()))),
+                    base.request(), base.script(), base.expect(), base.rubricHints());
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                    List.of(probe.purchase()), List.of(), "DUE", "2026-09-29");
+            var refusal = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                    io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY, probe.rationale(),
+                    RecommendationConfidence.of(0.9));
+            assertThat(DraftSafetyValidator.validate(refusal, probe.purchase(), grounding).isEmpty())
+                    .as("production %s | %s", probe.rationale(), probe.purchase()).isEqualTo(probe.safe());
+            assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(refusal), evalCase).isEmpty())
+                    .as("independent %s | %s", probe.rationale(), probe.purchase()).isEqualTo(probe.safe());
+        }
+    }
+
+    @Test
     void compactPromotionLeetRefusalChainAndGroundedCompactAmountsAgree() {
         EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
                 .findFirst().orElseThrow();
