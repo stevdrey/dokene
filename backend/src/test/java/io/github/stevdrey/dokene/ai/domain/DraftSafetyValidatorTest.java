@@ -786,6 +786,17 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void evidenceValuesErasedByCanonicalizationAreRejected() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
+        for (String item : List.of("Compra: \u200b", "Compra: \u2060\ufe0f", "Compra: \u200b\u200d")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola.", "es-419", List.of(item)), "Plan de $10", grounding))
+                    .as(item).isPresent();
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola.", "es-419", List.of(item)), "Plan de $10"))
+                    .as(item + " (flattened context)").isPresent();
+        }
+    }
+
+    @Test
     void typedEvidenceSourcesMatchUnderTheSameCanonicalizationAsTheRestOfTheDraft() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
         assertThat(DraftSafetyValidator.validate(

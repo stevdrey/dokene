@@ -311,13 +311,14 @@ public final class DraftSafetyValidator {
             }
             String label = trimmed.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
             String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
-            String canonicalValue = canonicalize(value);
+            String canonicalValue = canonicalize(value).strip();
             DraftGroundingContext.EvidenceSource source = grounding != null ? grounding.sourceForLabel(label) : null;
             if (grounding != null && source == null) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item uses an unsupported label: '" + evidenceItem + "'"));
             }
-            boolean grounded = !value.isEmpty() && (source == null
+            // A value erased by canonicalization (e.g. only zero-width characters) is empty, not a citation.
+            boolean grounded = !canonicalValue.isEmpty() && (source == null
                     ? contextLower.contains(canonicalValue)
                     : source.matches(canonicalValue, DraftSafetyValidator::canonicalize));
             if (!grounded) {
