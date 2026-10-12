@@ -533,9 +533,15 @@ public final class InvariantChecker {
                 return true;
             }
         }
-        String offerText = refusal ? NEGATED_OFFER.matcher(rest).replaceAll(" ") : rest.toString();
+        String offerText = refusal ? NEGATED_OFFER.matcher(withoutAmounts(rawText)).replaceAll(" ") : rest.toString();
         return matchesUngrounded(OFFER_SYMBOL, offerText, groundedViews, false)
                 || matchesUngrounded(OFFER_WORD, offerText, groundedViews, true);
+    }
+
+    /** The text with amounts blanked but commas kept, so "sin descuento, ni oferta" still reads as one negation. */
+    private static String withoutAmounts(String rawText) {
+        String spaced = rawText.replaceAll("[\\s\\u00a0\\u2007\\u202f\\u2009]+", " ");
+        return AMOUNT.matcher(spaced).replaceAll(" ");
     }
 
     private static String normalizeNumber(String number) {
