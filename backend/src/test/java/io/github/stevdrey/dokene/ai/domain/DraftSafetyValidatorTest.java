@@ -756,6 +756,26 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void compactFoldedAmountsDefangedDomainsAfterPercentagesAndLongerPromotionsAreNotGrounded() {
+        for (String body : List.of("Paga U5D100.", "Paga u5d100 hoy.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Plan USD 50"))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D100.", "es-419", List.of()), "Plan USD 100")).isEmpty();
+        for (String body : List.of("Visita 10 pct[.]com", "Visita 10 pct (dot) com", "Visita 10 pct\u3002com")) {
+            DraftSafetyViolation violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Se acord\u00f3 10% de descuento").orElseThrow();
+            assertThat(violation.code()).as(body).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+        }
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha 2x1.", "es-419", List.of()), "Plan 2x10")).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha 2x10.", "es-419", List.of()), "Plan 2x10")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Es un b0n0.", "es-419", List.of()), "Incluye b0n0")).isEmpty();
+    }
+
+    @Test
     void compactPromotionStaysVisibleInLeetRefusalChains() {
         assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay 2x1 ni d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();

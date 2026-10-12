@@ -48,6 +48,7 @@ public final class DraftSafetyValidator {
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
     private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
+    private static final Pattern NUMERIC_SUFFIX_PATTERN = Pattern.compile("(?<=\\p{L})\\p{N}+$");
     private static final Pattern LEET_DIGIT_PATTERN = Pattern.compile("[013457@]");
 
     /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
@@ -188,11 +189,16 @@ public final class DraftSafetyValidator {
         String offerContextLower = canonicalize(offerContextText);
         String normalizedContext = normalizeQuantities(offerContextLower);
         Map<String, String> canonicalTexts = new LinkedHashMap<>();
-        texts.forEach((key, value) -> canonicalTexts.put(key, canonicalize(value)));
+        Map<String, String> urlTexts = new LinkedHashMap<>();
+        texts.forEach((key, value) -> {
+            canonicalTexts.put(key, canonicalize(value));
+            // URLs are scanned before the written-percentage rewrite so "10 pct[.]com" keeps its domain.
+            urlTexts.put(key, canonicalize(value, false));
+        });
         texts = canonicalTexts;
 
         // 1. External links or URLs
-        for (var entry : texts.entrySet()) {
+        for (var entry : urlTexts.entrySet()) {
             if (containsCanonicalUrl(entry.getValue())) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
                         "Draft " + entry.getKey() + " contains unauthorized external link or URL"));
@@ -213,13 +219,13 @@ public final class DraftSafetyValidator {
 
         // 3. Token-exact quantity grounding: percentages and monetary amounts. Both the raw draft and its leetspeak
         // view ("U5D 100" is "USD 100") are checked against the raw and folded context, so the two views cannot differ.
-        String foldedDraftText = foldLeet(combinedDraftText);
+        List<String> draftViews = withLeetViews(combinedDraftText);
         Set<String> contextPercentages = new HashSet<>();
         Set<String> contextAmounts = new HashSet<>();
         // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
         // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
-        for (String contextView : List.of(normalizedContext, foldLeet(normalizedContext))) {
+        for (String contextView : withLeetViews(normalizedContext)) {
             contextPercentages.addAll(extractTokens(PERCENTAGE_PATTERN, contextView));
             contextAmounts.addAll(extractTokens(AMOUNT_PATTERN, contextView));
             Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(contextView);
@@ -233,7 +239,7 @@ public final class DraftSafetyValidator {
                 contextNumbers.add(normalizeQuantities(numberMatcher.group()));
             }
         }
-        for (String view : List.of(combinedDraftText, foldedDraftText)) {
+        for (String view : draftViews) {
             Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(view);
             while (draftPctMatcher.find()) {
                 if (!contextPercentages.contains(quantityKey(draftPctMatcher.group()))) {
@@ -268,16 +274,15 @@ public final class DraftSafetyValidator {
 
         // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits. The refusal
         // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
-        String foldedOfferContext = foldLeet(offerContextLower);
-        for (String view : List.of(combinedDraftText, foldedDraftText)) {
+        List<String> offerContextViews = withLeetViews(offerContextLower);
+        for (String view : draftViews) {
             String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
             for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {
                     String word = draftMatcher.group().toLowerCase(Locale.ROOT);
-                    Pattern specificPattern = Pattern.compile("(?i)(?<!\\p{L})" + Pattern.quote(word) + "(?!\\p{L})");
-                    if (!specificPattern.matcher(offerContextLower).find()
-                            && !specificPattern.matcher(foldedOfferContext).find()) {
+                    Pattern specificPattern = offerTermBoundary(word);
+                    if (offerContextViews.stream().noneMatch(context -> specificPattern.matcher(context).find())) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
                                 "Offer term '" + word + "' in draft is not present in context"));
                     }
@@ -347,7 +352,7 @@ public final class DraftSafetyValidator {
     }
 
     public static boolean containsUrl(String text) {
-        return containsCanonicalUrl(canonicalize(text));
+        return containsCanonicalUrl(canonicalize(text, false));
     }
 
     public static boolean containsProviderTemplate(String text) {
@@ -371,6 +376,10 @@ public final class DraftSafetyValidator {
      * are dropped, and Cyrillic/Greek look-alikes are folded to Latin so no vocabulary is matched on a raw spelling.
      */
     private static String canonicalize(String text) {
+        return canonicalize(text, true);
+    }
+
+    private static String canonicalize(String text, boolean writtenPercentages) {
         if (text == null || text.isEmpty()) {
             return "";
         }
@@ -381,7 +390,7 @@ public final class DraftSafetyValidator {
             char c = folded.charAt(i);
             out.append(CONFUSABLES.getOrDefault(c, c));
         }
-        return PERCENT_WORD_PATTERN.matcher(out).replaceAll("%");
+        return writtenPercentages ? PERCENT_WORD_PATTERN.matcher(out).replaceAll("%") : out.toString();
     }
 
     /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */
@@ -392,14 +401,47 @@ public final class DraftSafetyValidator {
         return DEFANGED_SCHEME_PATTERN.matcher(text).replaceAll("http$1");
     }
 
-    /** Folds common digit/at-sign substitutions, but only inside tokens that also contain letters. */
-    private static String foldLeet(String text) {
+    /** The text itself plus its leetspeak views (digits folded everywhere, or kept in a trailing numeric suffix). */
+    private static List<String> withLeetViews(String text) {
+        List<String> views = new java.util.ArrayList<>(List.of(text));
+        for (String folded : List.of(foldLeet(text, false), foldLeet(text, true))) {
+            if (!views.contains(folded)) {
+                views.add(folded);
+            }
+        }
+        return views;
+    }
+
+    /**
+     * Grounding boundary of an offer term. Currency codes and words may touch a digit ("JPY100", "100USD"); every
+     * other term must not continue into a letter or digit, so "2x1" never grounds on "2x10".
+     */
+    private static Pattern offerTermBoundary(String word) {
+        boolean currency = word.matches("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
+        return currency
+                ? Pattern.compile("(?i)(?<!\\p{L})" + Pattern.quote(word) + "(?!\\p{L})")
+                : Pattern.compile("(?i)(?<![\\p{L}\\p{N}])" + Pattern.quote(word) + "(?![\\p{L}\\p{N}])");
+    }
+
+    /**
+     * Folds common digit/at-sign substitutions, but only inside tokens that also contain letters. With
+     * {@code keepNumericSuffix} a trailing digit run after the last letter is preserved, so "U5D100" becomes
+     * "usd100" and keeps its amount.
+     */
+    private static String foldLeet(String text, boolean keepNumericSuffix) {
         Matcher tokens = WORD_TOKEN_PATTERN.matcher(text);
         StringBuilder out = new StringBuilder(text.length());
         while (tokens.find()) {
             String token = tokens.group();
             boolean hasLetter = token.codePoints().anyMatch(Character::isLetter);
-            tokens.appendReplacement(out, Matcher.quoteReplacement(hasLetter && !COMPACT_PROMOTION_PATTERN.matcher(token).matches() ? leetToken(token) : token));
+            String folded = token;
+            if (hasLetter && !COMPACT_PROMOTION_PATTERN.matcher(token).matches()) {
+                Matcher suffix = NUMERIC_SUFFIX_PATTERN.matcher(token);
+                folded = keepNumericSuffix && suffix.find()
+                        ? leetToken(token.substring(0, suffix.start())) + token.substring(suffix.start())
+                        : leetToken(token);
+            }
+            tokens.appendReplacement(out, Matcher.quoteReplacement(folded));
         }
         tokens.appendTail(out);
         return out.toString();

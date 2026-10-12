@@ -95,6 +95,31 @@ class InvariantCheckerParityTest {
     }
 
     @Test
+    void foldedAmountsDefangedDomainsAndGroundingViewsAgreeWithProduction() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        record Probe(String purchase, String body, boolean safe) { }
+        for (Probe probe : List.of(new Probe("Plan USD 50", "Paga U5D100", false),
+                new Probe("Plan USD 100", "Paga U5D100", true),
+                new Probe("Con 10% de descuento", "Visita 10 pct[.]com", false),
+                new Probe("Con 10% de descuento", "Visita 10 pct (dot) com", false),
+                new Probe("Plan 2x10", "Aprovecha 2x1", false), new Probe("Plan 2x10", "Aprovecha 2x10", true),
+                new Probe("100 unidades, consultar precio", "El precio es 100", false))) {
+            EvalCase evalCase = new EvalCase(base.id(), base.family(), base.description(), base.displayName(),
+                    base.locale(), new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                            List.of(new EvalCase.PurchaseSpec(40, probe.purchase()))),
+                    base.request(), base.script(), base.expect(), base.rubricHints());
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                    List.of(probe.purchase()), List.of(), "DUE", "2026-09-29");
+            MessageDraft draft = draft(probe.body());
+            assertThat(DraftSafetyValidator.validate(draft, probe.purchase(), grounding).isEmpty())
+                    .as("production %s | %s", probe.body(), probe.purchase()).isEqualTo(probe.safe());
+            assertThat(InvariantChecker.contentViolations(draft, evalCase).isEmpty())
+                    .as("independent %s | %s", probe.body(), probe.purchase()).isEqualTo(probe.safe());
+        }
+    }
+
+    @Test
     void compactPromotionLeetRefusalChainAndGroundedCompactAmountsAgree() {
         EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
                 .findFirst().orElseThrow();

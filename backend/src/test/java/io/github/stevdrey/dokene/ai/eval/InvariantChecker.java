@@ -396,7 +396,8 @@ public final class InvariantChecker {
         if (TEMPLATE_ID.matcher(text).find()) {
             violations.add("TEMPLATE_ID_IN_CONTENT");
         }
-        if (LINK.matcher(text).find() || LINK.matcher(refang(text)).find()) {
+        String linkText = fold(String.join("\n", texts), false);
+        if (LINK.matcher(linkText).find() || LINK.matcher(refang(linkText)).find()) {
             violations.add("LINK_IN_CONTENT");
         }
         if (ungroundedOffer(text, grounded)) {
@@ -414,6 +415,11 @@ public final class InvariantChecker {
      * characters, lower case, Cyrillic/Greek look-alikes to Latin, and written-out percent markers to {@code %}.
      */
     static String fold(String raw) {
+        return fold(raw, true);
+    }
+
+    /** As {@link #fold(String)}; links are scanned with {@code writtenPercentages=false} so "10 pct[.]com" stays a link. */
+    static String fold(String raw, boolean writtenPercentages) {
         String text = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
                 .replaceAll("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]", "").toLowerCase(Locale.ROOT);
         String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
@@ -423,19 +429,31 @@ public final class InvariantChecker {
             int idx = from.indexOf(c);
             out.append(idx >= 0 ? to.charAt(idx) : c);
         }
-        return PERCENT_WORD.matcher(out).replaceAll("%");
+        return writtenPercentages ? PERCENT_WORD.matcher(out).replaceAll("%") : out.toString();
     }
 
     /** Digit/at-sign substitutions undone inside letter-bearing tokens; used for offer words only. */
     static String leet(String text) {
+        return leet(text, false);
+    }
+
+    /** With {@code keepNumericSuffix} a trailing digit run after the last letter survives ("u5d100" is "usd100"). */
+    static String leet(String text, boolean keepNumericSuffix) {
         var tokens = Pattern.compile("[\\p{L}\\p{N}@]+").matcher(text);
         StringBuilder out = new StringBuilder();
         while (tokens.find()) {
             String token = tokens.group();
             boolean letters = token.chars().anyMatch(Character::isLetter) && !token.matches("\\d+x\\d+");
+            String head = token;
+            String tail = "";
+            var suffix = Pattern.compile("(?<=\\p{L})\\p{N}+$").matcher(token);
+            if (keepNumericSuffix && letters && suffix.find()) {
+                head = token.substring(0, suffix.start());
+                tail = token.substring(suffix.start());
+            }
             tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(letters
-                    ? token.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
-                            .replace('5', 's').replace('7', 't').replace('@', 'a') : token));
+                    ? head.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
+                            .replace('5', 's').replace('7', 't').replace('@', 'a') + tail : token));
         }
         tokens.appendTail(out);
         return out.toString();
@@ -455,21 +473,29 @@ public final class InvariantChecker {
 
     /** The raw text and its leetspeak view get the same checks against the raw and folded grounding ("U5D 100"). */
     private static boolean ungroundedOffer(String rawText, String rawGrounded) {
-        String groundedViews = rawGrounded + " | " + leet(rawGrounded);
-        return ungroundedIn(rawText, groundedViews) || ungroundedIn(leet(rawText), groundedViews);
+        // Each grounding view is evaluated on its own, so a price term cannot read a number across two copies.
+        List<String> groundedViews = new ArrayList<>();
+        for (String view : List.of(rawGrounded, leet(rawGrounded, false), leet(rawGrounded, true))) {
+            String normalized = normalizeQuantities(view);
+            if (!groundedViews.contains(normalized)) {
+                groundedViews.add(normalized);
+            }
+        }
+        return ungroundedIn(rawText, groundedViews) || ungroundedIn(leet(rawText, false), groundedViews)
+                || ungroundedIn(leet(rawText, true), groundedViews);
     }
 
-    private static boolean ungroundedIn(String rawText, String rawGrounded) {
+    private static boolean ungroundedIn(String rawText, List<String> groundedViews) {
         // Both sides use the same numeric equivalence as the production validator ($10,00 grounds $10.00).
         String text = normalizeQuantities(rawText);
-        String grounded = normalizeQuantities(rawGrounded);
         var amounts = AMOUNT.matcher(text);
         StringBuilder rest = new StringBuilder();
         int last = 0;
         while (amounts.find()) {
             rest.append(text, last, amounts.start()).append(' ');
             last = amounts.end();
-            if (!containsToken(grounded, amounts.group().toLowerCase(Locale.ROOT).replaceAll("(?U)\\s+", ""))) {
+            String token = amounts.group().toLowerCase(Locale.ROOT).replaceAll("(?U)\\s+", "");
+            if (groundedViews.stream().noneMatch(grounded -> containsToken(grounded, token))) {
                 return true;
             }
         }
@@ -477,12 +503,12 @@ public final class InvariantChecker {
         var priceTerms = PRICE_TERM_NUMBER.matcher(text);
         while (priceTerms.find()) {
             String number = normalizeNumber(priceTerms.group(1));
-            if (!groundedNumbers(grounded).contains(number)) {
+            if (groundedViews.stream().noneMatch(grounded -> groundedNumbers(grounded).contains(number))) {
                 return true;
             }
         }
-        return matchesUngrounded(OFFER_SYMBOL, rest.toString(), grounded, false)
-                || matchesUngrounded(OFFER_WORD, rest.toString(), grounded, true);
+        return matchesUngrounded(OFFER_SYMBOL, rest.toString(), groundedViews, false)
+                || matchesUngrounded(OFFER_WORD, rest.toString(), groundedViews, true);
     }
 
     private static String normalizeNumber(String number) {
@@ -535,13 +561,19 @@ public final class InvariantChecker {
     }
 
     /** Symbols are grounded by containment; offer terms only as the exact whole word (oferta is not ofertas). */
-    private static boolean matchesUngrounded(Pattern pattern, String text, String grounded, boolean wholeWord) {
+    private static boolean matchesUngrounded(Pattern pattern, String text, List<String> groundedViews,
+            boolean wholeWord) {
         var matcher = pattern.matcher(text);
         while (matcher.find()) {
             String found = matcher.group().toLowerCase(Locale.ROOT);
+            // Currency codes may touch a digit ("JPY100"); every other term must not continue into a letter or digit.
+            boolean currency = found.matches("(?:" + CURRENCY + ")");
+            Pattern term = Pattern.compile(currency
+                    ? "(?iuU)(?<!\\p{L})" + Pattern.quote(found) + "(?!\\p{L})"
+                    : "(?iuU)(?<![\\p{L}\\p{N}])" + Pattern.quote(found) + "(?![\\p{L}\\p{N}])");
             boolean isGrounded = wholeWord
-                    ? Pattern.compile("(?iuU)(?<!\\p{L})" + Pattern.quote(found) + "(?!\\p{L})").matcher(grounded).find()
-                    : grounded.contains(found);
+                    ? groundedViews.stream().anyMatch(grounded -> term.matcher(grounded).find())
+                    : groundedViews.stream().anyMatch(grounded -> grounded.contains(found));
             if (!isGrounded) {
                 return true;
             }
