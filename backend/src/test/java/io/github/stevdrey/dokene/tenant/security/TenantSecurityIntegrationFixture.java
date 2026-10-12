@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.tenant.security;
 
+import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -15,10 +16,13 @@ import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -66,8 +70,7 @@ public final class TenantSecurityIntegrationFixture {
             String displayName,
             Instant createdAt
     ) {
-        Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
-        return contexts.callWithTenantId(tenant.id(), () -> tenants.save(tenant));
+        return TenantTestSupport.saveTenant(tenants, contexts, Tenant.create(TenantId.random(), displayName, createdAt));
     }
 
     public static TenantMembership seedMembership(
@@ -113,6 +116,46 @@ public final class TenantSecurityIntegrationFixture {
 
     public static Connection migrationConnection() throws SQLException {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), MIGRATION_ROLE, MIGRATION_PASSWORD);
+    }
+
+    public static int queryInt(Connection connection, String sql, Object... parameters) throws SQLException {
+        try (PreparedStatement statement = prepare(connection, sql, parameters);
+                ResultSet resultSet = statement.executeQuery()) {
+            if (!resultSet.next()) {
+                throw new SQLException("Query returned no row: " + sql);
+            }
+            return resultSet.getInt(1);
+        }
+    }
+
+    public static List<UUID> queryUuids(Connection connection, String sql, Object... parameters) throws SQLException {
+        List<UUID> values = new ArrayList<>();
+        try (PreparedStatement statement = prepare(connection, sql, parameters);
+                ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                values.add(resultSet.getObject(1, UUID.class));
+            }
+        }
+        return values;
+    }
+
+    public static int executeUpdate(Connection connection, String sql, Object... parameters) throws SQLException {
+        try (PreparedStatement statement = prepare(connection, sql, parameters)) {
+            return statement.executeUpdate();
+        }
+    }
+
+    private static PreparedStatement prepare(Connection connection, String sql, Object... parameters) throws SQLException {
+        PreparedStatement statement = connection.prepareStatement(sql);
+        try {
+            for (int index = 0; index < parameters.length; index++) {
+                statement.setObject(index + 1, parameters[index]);
+            }
+            return statement;
+        } catch (SQLException exception) {
+            statement.close();
+            throw exception;
+        }
     }
 
     private static void createDatabaseRoles() throws SQLException {

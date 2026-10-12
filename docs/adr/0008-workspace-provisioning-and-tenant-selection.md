@@ -38,7 +38,7 @@ The service performs:
 
 ### 2. Resolution of the Bootstrap / RLS Boundary
 
-PostgreSQL enforces `WITH CHECK (tenant_id = dokene.current_verified_tenant_id())` on `dokene.tenant_memberships` and `dokene.workspace_provisioning_records`, and `WITH CHECK (id = dokene.current_verified_tenant_id())` on `dokene.tenants` ([ADR 0003](0003-postgresql-rls.md)). Before an initial owner exists, no active tenant context exists in session state.
+PostgreSQL enforces `WITH CHECK (tenant_id = dokene.current_verified_tenant_id())` on `dokene.tenant_memberships` and `WITH CHECK (id = dokene.current_verified_tenant_id())` on `dokene.tenants`, and `dokene.workspace_provisioning_records` is written only by a function that checks the same verified tenant ([ADR 0003](0003-postgresql-rls.md)). Before an initial owner exists, no active tenant context exists in session state.
 
 Rather than granting `BYPASSRLS` to `dokene_runtime` or introducing unconstrained superuser queries:
 - The provisioning service wraps the tenant, membership, and provisioning-record writes in `tenantContextProvider.callWithTenantId(newTenantId, ...)`.
@@ -47,7 +47,7 @@ Rather than granting `BYPASSRLS` to `dokene_runtime` or introducing unconstraine
 - The RLS check passes strictly for `newTenantId`.
 - Once the block exits, the scope unbinds immediately.
 
-The idempotency lookup cannot use a tenant scope because the tenant is not known yet. The adapter instead passes an identity-scoped signed capability to the `SECURITY DEFINER` function `dokene.find_workspace_provisioning_record`, which verifies it with `dokene.signed_context_subject(..., 'identity')` and returns only the caller's record. The runtime role cannot read other identities' records or other tenants' rows.
+The idempotency lookup cannot use a tenant scope because the tenant is not known yet. The adapter instead passes an identity-scoped signed capability to the `SECURITY DEFINER` function `dokene.find_workspace_provisioning_record`, which verifies it with `dokene.signed_context_subject(..., 'identity')` and returns only the caller's record. The provisioning record itself is written by `dokene.record_workspace_provisioning`, which requires both that identity capability and the new tenant's signed context and stores the verified identity. The runtime role has no direct privilege on the table, so it cannot read other identities' records or record mappings for them.
 
 ### 3. Provisioning Authorization Policy
 

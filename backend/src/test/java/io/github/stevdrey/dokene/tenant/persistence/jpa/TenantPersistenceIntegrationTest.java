@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -108,7 +109,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("16");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("17");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -126,7 +127,7 @@ class TenantPersistenceIntegrationTest {
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
                 "follow_up_dismissals", "manual_follow_up_completions", "purchase_history", "purchases",
-                "tenant_follow_up_policies", "tenant_memberships", "tenants", "workspace_provisioning_records");
+                "tenant_follow_up_policies", "tenant_memberships", "tenants");
         assertThat(tableOwner("customer_consent_history")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_contact_consents")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_do_not_contact")).isEqualTo(MIGRATION_ROLE);
@@ -201,11 +202,7 @@ class TenantPersistenceIntegrationTest {
                 WHERE schemaname = 'dokene' AND tablename = 'workspace_provisioning_records'
                 ORDER BY policyname
                 """, String.class
-        )).containsExactly(
-                "workspace_provisioning_records_insert_policy",
-                "workspace_provisioning_records_migration_policy",
-                "workspace_provisioning_records_select_policy"
-        );
+        )).containsExactly("workspace_provisioning_records_migration_policy");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT privilege_type FROM information_schema.role_table_grants
                 WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = 'tenants'
@@ -224,7 +221,7 @@ class TenantPersistenceIntegrationTest {
                 WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = 'workspace_provisioning_records'
                 ORDER BY privilege_type
                 """, String.class
-        )).containsExactly("INSERT", "SELECT");
+        )).isEmpty();
 
         assertThatThrownBy(() -> executeAsRuntime("CREATE TABLE dokene.runtime_ddl_denied (id INTEGER)"))
                 .isInstanceOf(SQLException.class);
@@ -1371,11 +1368,11 @@ class TenantPersistenceIntegrationTest {
     }
 
     private Tenant saveTenant(Tenant tenant) {
-        return tenantContextProvider.callWithTenantId(tenant.id(), () -> tenantRepository.save(tenant));
+        return TenantTestSupport.saveTenant(tenantRepository, tenantContextProvider, tenant);
     }
 
     private Optional<Tenant> findTenant(TenantId tenantId) {
-        return tenantContextProvider.callWithTenantId(tenantId, () -> tenantRepository.findById(tenantId));
+        return TenantTestSupport.findTenant(tenantRepository, tenantContextProvider, tenantId);
     }
 
     private TenantMembership saveMembership(TenantMembership membership) {

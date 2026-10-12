@@ -3,31 +3,26 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
-import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRecord;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRepository;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.Tuple;
-import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Provisioning records are reachable only through identity-verified security-definer functions: the lookup runs
+ * before any tenant is bound, and the write additionally requires the new tenant's signed context.
+ */
 @Repository
 public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvisioningRepository {
 
-    private final SpringDataWorkspaceProvisioningRepository repository;
     private final EntityManager entityManager;
     private final DatabaseContextSigner databaseContextSigner;
 
-    JpaWorkspaceProvisioningRepositoryAdapter(
-            SpringDataWorkspaceProvisioningRepository repository,
-            EntityManager entityManager,
-            DatabaseContextSigner databaseContextSigner
-    ) {
-        this.repository = repository;
+    JpaWorkspaceProvisioningRepositoryAdapter(EntityManager entityManager, DatabaseContextSigner databaseContextSigner) {
         this.entityManager = entityManager;
         this.databaseContextSigner = databaseContextSigner;
     }
@@ -45,43 +40,40 @@ public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvi
                 .getSingleResult();
     }
 
-    /**
-     * Looks up the caller's own record through the identity-scoped security-definer function, because no
-     * tenant is bound yet and the table is otherwise visible only to its verified tenant.
-     */
     @Override
     public Optional<WorkspaceProvisioningRecord> findByIdentityIdAndIdempotencyKey(IdentityId identityId, String idempotencyKey) {
         SignedDatabaseContext context = databaseContextSigner.issueIdentityContext(identityId);
-        @SuppressWarnings("unchecked")
-        List<Tuple> rows = entityManager.createNativeQuery("""
-                        SELECT id, tenant_id, display_name, created_at
+        List<?> rows = entityManager.createNativeQuery("""
+                        SELECT id, idempotency_key, identity_id, tenant_id, display_name, created_at
                         FROM dokene.find_workspace_provisioning_record(:payload, :signature, :idempotencyKey)
-                        """, Tuple.class)
+                        """, WorkspaceProvisioningEntity.class)
                 .setParameter("payload", context.payload())
                 .setParameter("signature", context.signature())
                 .setParameter("idempotencyKey", idempotencyKey)
                 .getResultList();
-        return rows.stream().findFirst().map(row -> new WorkspaceProvisioningRecord(
-                row.get("id", UUID.class),
-                idempotencyKey,
-                identityId,
-                new TenantId(row.get("tenant_id", UUID.class)),
-                row.get("display_name", String.class),
-                toInstant(row.get("created_at"))
-        ));
+        return rows.stream()
+                .map(WorkspaceProvisioningEntity.class::cast)
+                .map(WorkspaceProvisioningEntity::toDomain)
+                .findFirst();
     }
 
     @Override
     public WorkspaceProvisioningRecord save(WorkspaceProvisioningRecord record) {
-        return repository.saveAndFlush(WorkspaceProvisioningEntity.fromDomain(record)).toDomain();
-    }
-
-    private static Instant toInstant(Object value) {
-        return switch (value) {
-            case Instant instant -> instant;
-            case OffsetDateTime offsetDateTime -> offsetDateTime.toInstant();
-            case java.sql.Timestamp timestamp -> timestamp.toInstant();
-            default -> throw new IllegalStateException("Unexpected provisioning timestamp type: " + value.getClass().getName());
-        };
+        SignedDatabaseContext context = databaseContextSigner.issueIdentityContext(record.identityId());
+        entityManager.createNativeQuery("""
+                        SELECT 1
+                        FROM dokene.record_workspace_provisioning(
+                            :payload, :signature, :id, :idempotencyKey, :tenantId, :displayName, :createdAt
+                        )
+                        """)
+                .setParameter("payload", context.payload())
+                .setParameter("signature", context.signature())
+                .setParameter("id", record.id())
+                .setParameter("idempotencyKey", record.idempotencyKey())
+                .setParameter("tenantId", record.tenantId().value())
+                .setParameter("displayName", record.displayName())
+                .setParameter("createdAt", OffsetDateTime.ofInstant(record.createdAt(), ZoneOffset.UTC))
+                .getSingleResult();
+        return record;
     }
 }

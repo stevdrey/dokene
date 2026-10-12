@@ -114,7 +114,7 @@ CREATE POLICY customers_migration_policy
 
 ### Tenant root and provisioning bootstrap
 
-`dokene.tenants` is itself RLS-protected, keyed on `id = dokene.current_verified_tenant_id()`: runtime code reads or updates a tenant row only inside that tenant's scope, never deletes it, and may update only `display_name`, `status`, `updated_at`, and `version`. Workspace provisioning creates the tenant, owner membership, and `workspace_provisioning_records` row inside `callWithTenantId(newTenantId, ...)`, and resolves idempotent retries through the identity-scoped `dokene.find_workspace_provisioning_record` function. Tests that seed tenants must do so inside the new tenant's scope.
+`dokene.tenants` is itself RLS-protected, keyed on `id = dokene.current_verified_tenant_id()`: runtime code reads or updates a tenant row only inside that tenant's scope, never deletes it, and may update only `display_name`, `status`, `updated_at`, and `version`. Workspace provisioning creates the tenant, owner membership, and `workspace_provisioning_records` row inside `callWithTenantId(newTenantId, ...)`, writes the record through `dokene.record_workspace_provisioning` (identity capability plus the new tenant's context), and resolves idempotent retries through the identity-scoped `dokene.find_workspace_provisioning_record` function; the runtime role has no direct privilege on that table. Tests that seed tenants must do so inside the new tenant's scope.
 
 ---
 
@@ -123,7 +123,7 @@ CREATE POLICY customers_migration_policy
 When adding a new tenant-scoped table:
 1. Verify `Flyway` migration runs cleanly with `dokene_migration` role.
 2. Verify `relrowsecurity = true` and `relforcerowsecurity = true` in `pg_class`.
-3. Verify that `SELECT`, `INSERT`, `UPDATE`, and `DELETE` policies exist in `pg_policies`.
+3. Verify that `SELECT`, `INSERT`, `UPDATE`, and `DELETE` policies exist in `pg_policies`. (not for the tenant root or `workspace_provisioning_records`, whose missing policies are deliberate; see [ADR 0003](../adr/0003-postgresql-rls.md#tenant-root-and-provisioning-records)).
 4. Include Testcontainers integration tests verifying:
    - Queries within Tenant A context return only Tenant A rows (even if query filter is omitted).
    - Attempts to insert or reassign rows to Tenant B while in Tenant A context fail with an RLS policy violation.

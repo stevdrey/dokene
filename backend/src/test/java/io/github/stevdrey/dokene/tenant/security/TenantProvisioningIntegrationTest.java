@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.tenant.application.IdempotencyConflictException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
@@ -21,8 +22,6 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRepository;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -180,6 +179,32 @@ class TenantProvisioningIntegrationTest {
     }
 
     @Test
+    void sequentialRetryReplaysTheWorkspaceAndANameChangeConflicts() throws SQLException {
+        IdentityId identity = new IdentityId(UUID.randomUUID());
+        String idempotencyKey = "key-replay-" + UUID.randomUUID();
+        String workspaceName = "Replay Workspace " + UUID.randomUUID().toString().substring(0, 8);
+
+        ProvisionedWorkspace created = provisioningService.provisionWorkspace(identity, idempotencyKey, workspaceName);
+        ProvisionedWorkspace replayed = provisioningService.provisionWorkspace(identity, idempotencyKey, workspaceName);
+
+        assertThat(created.created()).isTrue();
+        assertThat(replayed.created()).isFalse();
+        assertThat(replayed.tenantId()).isEqualTo(created.tenantId());
+        assertThat(replayed.membershipId()).isEqualTo(created.membershipId());
+        assertThat(replayed.role()).isEqualTo(TenantRole.OWNER);
+
+        assertThatThrownBy(() -> provisioningService.provisionWorkspace(identity, idempotencyKey, workspaceName + " renamed"))
+                .isInstanceOf(IdempotencyConflictException.class);
+
+        assertThat(countAsMigration("SELECT count(*) FROM dokene.tenants WHERE display_name LIKE ?", workspaceName + "%"))
+                .isEqualTo(1);
+        assertThat(countAsMigration(
+                "SELECT count(*) FROM dokene.workspace_provisioning_records WHERE identity_id = ? AND idempotency_key = ?",
+                identity.value(), idempotencyKey
+        )).isEqualTo(1);
+    }
+
+    @Test
     void selectionOfAnotherIdentityWorkspaceIsDenied() {
         IdentityId identityA = new IdentityId(UUID.randomUUID());
         IdentityId identityB = new IdentityId(UUID.randomUUID());
@@ -276,15 +301,8 @@ class TenantProvisioningIntegrationTest {
     }
 
     private static int countAsMigration(String sql, Object... parameters) throws SQLException {
-        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (int index = 0; index < parameters.length; index++) {
-                statement.setObject(index + 1, parameters[index]);
-            }
-            try (ResultSet resultSet = statement.executeQuery()) {
-                resultSet.next();
-                return resultSet.getInt(1);
-            }
+        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection()) {
+            return TenantSecurityIntegrationFixture.queryInt(connection, sql, parameters);
         }
     }
 }
