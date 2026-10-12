@@ -48,6 +48,7 @@ public final class DraftSafetyValidator {
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
     private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
+    private static final Pattern NUMERIC_PREFIX_PATTERN = Pattern.compile("^\\p{N}+(?=\\p{L})");
     private static final Pattern NUMERIC_SUFFIX_PATTERN = Pattern.compile("(?<=\\p{L})\\p{N}+$");
     private static final Pattern LEET_DIGIT_PATTERN = Pattern.compile("[013457@]");
 
@@ -383,8 +384,9 @@ public final class DraftSafetyValidator {
         if (text == null || text.isEmpty()) {
             return "";
         }
-        String folded = FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC))
-                .replaceAll("").toLowerCase(Locale.ROOT);
+        // Normalize again after dropping ignorable characters: "cupo\u200B\u0301n" only composes once the ZWSP is gone.
+        String folded = Normalizer.normalize(FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC))
+                .replaceAll(""), Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
         StringBuilder out = new StringBuilder(folded.length());
         for (int i = 0; i < folded.length(); i++) {
             char c = folded.charAt(i);
@@ -425,8 +427,8 @@ public final class DraftSafetyValidator {
 
     /**
      * Folds common digit/at-sign substitutions, but only inside tokens that also contain letters. With
-     * {@code keepNumericSuffix} a trailing digit run after the last letter is preserved, so "U5D100" becomes
-     * "usd100" and keeps its amount.
+     * {@code keepNumericSuffix} a leading or trailing digit run around the letters is preserved, so "U5D100" becomes
+     * "usd100" and "100U5D" becomes "100usd", keeping their amounts.
      */
     private static String foldLeet(String text, boolean keepNumericSuffix) {
         Matcher tokens = WORD_TOKEN_PATTERN.matcher(text);
@@ -436,9 +438,12 @@ public final class DraftSafetyValidator {
             boolean hasLetter = token.codePoints().anyMatch(Character::isLetter);
             String folded = token;
             if (hasLetter && !COMPACT_PROMOTION_PATTERN.matcher(token).matches()) {
+                Matcher prefix = NUMERIC_PREFIX_PATTERN.matcher(token);
+                int start = keepNumericSuffix && prefix.find() ? prefix.end() : 0;
                 Matcher suffix = NUMERIC_SUFFIX_PATTERN.matcher(token);
-                folded = keepNumericSuffix && suffix.find()
-                        ? leetToken(token.substring(0, suffix.start())) + token.substring(suffix.start())
+                int end = keepNumericSuffix && suffix.find() ? suffix.start() : token.length();
+                folded = keepNumericSuffix
+                        ? token.substring(0, start) + leetToken(token.substring(start, end)) + token.substring(end)
                         : leetToken(token);
             }
             tokens.appendReplacement(out, Matcher.quoteReplacement(folded));

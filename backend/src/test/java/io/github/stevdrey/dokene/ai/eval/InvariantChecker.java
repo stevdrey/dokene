@@ -420,8 +420,9 @@ public final class InvariantChecker {
 
     /** As {@link #fold(String)}; links are scanned with {@code writtenPercentages=false} so "10 pct[.]com" stays a link. */
     static String fold(String raw, boolean writtenPercentages) {
-        String text = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
-                .replaceAll("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]", "").toLowerCase(Locale.ROOT);
+        // Normalize again after dropping ignorable characters so a mark separated from its base letter composes.
+        String text = java.text.Normalizer.normalize(java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
+                .replaceAll("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]", ""), java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
         String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
         String to = "aeopcxyijsdhloaeinptky";
         StringBuilder out = new StringBuilder(text.length());
@@ -446,13 +447,21 @@ public final class InvariantChecker {
             boolean letters = token.chars().anyMatch(Character::isLetter) && !token.matches("\\d+x\\d+");
             String head = token;
             String tail = "";
-            var suffix = Pattern.compile("(?<=\\p{L})\\p{N}+$").matcher(token);
-            if (keepNumericSuffix && letters && suffix.find()) {
-                head = token.substring(0, suffix.start());
-                tail = token.substring(suffix.start());
+            String lead = "";
+            if (keepNumericSuffix && letters) {
+                var prefix = Pattern.compile("^\\p{N}+(?=\\p{L})").matcher(token);
+                if (prefix.find()) {
+                    lead = token.substring(0, prefix.end());
+                    head = token.substring(prefix.end());
+                }
+                var suffix = Pattern.compile("(?<=\\p{L})\\p{N}+$").matcher(head);
+                if (suffix.find()) {
+                    tail = head.substring(suffix.start());
+                    head = head.substring(0, suffix.start());
+                }
             }
             tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(letters
-                    ? head.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
+                    ? lead + head.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
                             .replace('5', 's').replace('7', 't').replace('@', 'a') + tail : token));
         }
         tokens.appendTail(out);

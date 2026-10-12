@@ -776,6 +776,16 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void leadingNumericAmountsAndSeparatedCombiningMarksAreStillChecked() {
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100U5D.", "es-419", List.of()), "Plan USD 50")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100U5D.", "es-419", List.of()), "Plan 100 USD")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Tienes un cupo\u200b\u0301n.", "es-419", List.of()),
+                "Customer: Juan.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Tienes un cupo\u200b\u0301n.", "es-419", List.of()),
+                "Incluye un cup\u00f3n")).isEmpty();
+    }
+
+    @Test
     void compactPromotionStaysVisibleInLeetRefusalChains() {
         assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay 2x1 ni d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();

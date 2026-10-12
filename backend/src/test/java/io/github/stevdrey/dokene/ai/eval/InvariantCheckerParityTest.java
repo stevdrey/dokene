@@ -103,6 +103,8 @@ class InvariantCheckerParityTest {
                 new Probe("Plan USD 100", "Paga U5D100", true),
                 new Probe("Con 10% de descuento", "Visita 10 pct[.]com", false),
                 new Probe("Con 10% de descuento", "Visita 10 pct (dot) com", false),
+                new Probe("Plan USD 50", "Paga 100U5D", false), new Probe("Plan 100 USD", "Paga 100U5D", true),
+                new Probe("Plan sin nada", "Tienes un cupo\u200b\u0301n", false),
                 new Probe("Plan 2x10", "Aprovecha 2x1", false), new Probe("Plan 2x10", "Aprovecha 2x10", true),
                 new Probe("100 unidades, consultar precio", "El precio es 100", false))) {
             EvalCase evalCase = new EvalCase(base.id(), base.family(), base.description(), base.displayName(),
