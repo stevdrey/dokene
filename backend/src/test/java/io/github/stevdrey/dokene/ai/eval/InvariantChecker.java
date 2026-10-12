@@ -89,7 +89,7 @@ public final class InvariantChecker {
                     + "|2 por 1|\\d+\\s*x\\s*\\d+|precios?|" + CURRENCY + ")(?!\\p{L})");
 
     private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
-    private static final Pattern DEFANGED_DOT = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]\\s*");
+    private static final Pattern DEFANGED_DOT = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}]\\s*");
     private static final Pattern DEFANGED_COLON = Pattern.compile("\\s*[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]\\s*");
     /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
     private static final Pattern IDEOGRAPHIC_DOT = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
@@ -453,7 +453,7 @@ public final class InvariantChecker {
     static String fold(String raw, boolean writtenPercentages) {
         // Normalize again after dropping ignorable characters so a mark separated from its base letter composes.
         String text = java.text.Normalizer.normalize(java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
-                .replaceAll("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]", ""), java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+                .replaceAll("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]", ""), java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
         String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
         String to = "aeopcxyijsdhloaeinptky";
         StringBuilder out = new StringBuilder(text.length());
@@ -564,7 +564,15 @@ public final class InvariantChecker {
     /** The text with amounts blanked but commas kept, so "sin descuento, ni oferta" still reads as one negation. */
     private static String withoutAmounts(String rawText) {
         String spaced = rawText.replaceAll("[\\s\\u00a0\\u2007\\u202f\\u2009]+", " ");
-        return AMOUNT.matcher(spaced).replaceAll(" ");
+        // A non-joinable boundary, so "no hay descuento USD 100 ni oferta" does not become one negation chain.
+        return AMOUNT.matcher(spaced).replaceAll(" | ");
+    }
+
+    /** A compact amount ending in a digit that runs into a letter ("USD100A") belongs to a longer identifier. */
+    private static boolean runsIntoLetter(String text, java.util.regex.Matcher match) {
+        String group = match.group();
+        return Character.isDigit(group.charAt(group.length() - 1)) && match.end() < text.length()
+                && Character.isLetter(text.codePointAt(match.end()));
     }
 
     private static String normalizeNumber(String number) {
@@ -580,6 +588,9 @@ public final class InvariantChecker {
         }
         var amounts = AMOUNT.matcher(grounded);
         while (amounts.find()) {
+            if (runsIntoLetter(grounded, amounts)) {
+                continue;
+            }
             var digits = Pattern.compile(NUM).matcher(amounts.group());
             if (digits.find()) {
                 numbers.add(normalizeNumber(digits.group()));
@@ -611,7 +622,7 @@ public final class InvariantChecker {
         if (Character.isLetter(last)) {
             regex.append("(?![\\p{L}])");
         } else if (Character.isDigit(last)) {
-            regex.append("(?![\\p{N}])(?![.,]\\p{N})");
+            regex.append("(?![\\p{N}])(?![.,]\\p{N})(?!\\p{L})");
         }
         return Pattern.compile("(?iuU)" + regex).matcher(grounded).find();
     }

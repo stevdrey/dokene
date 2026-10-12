@@ -786,6 +786,22 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void remainingIgnorablesBracketedIdeographicDotsAndLongerIdentifiersAreHandled() {
+        for (String body : List.of("Con des\u17b4cuento.", "Con des\u17b5cuento.", "Es gra\u00adtis.", "Es gra\u061ctis.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Cliente: Juan."))
+                    .as(body).isPresent();
+        }
+        for (String body : List.of("Visita promo[\u3002]test", "Visita promo(\uff61)test", "Visita promo [\u3002] test")) {
+            DraftSafetyViolation violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Cliente: Juan.").orElseThrow();
+            assertThat(violation.code()).as(body).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "SKU USD100A")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD100")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD 100.")).isEmpty();
+    }
+
+    @Test
     void evidenceValuesErasedByCanonicalizationAreRejected() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
         for (String item : List.of("Compra: \u200b", "Compra: \u2060\ufe0f", "Compra: \u200b\u200d")) {

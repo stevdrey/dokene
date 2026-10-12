@@ -44,7 +44,8 @@ public final class DraftSafetyValidator {
     /** Percentage markers written out after a number ("10 por ciento", "10 pct"); canonicalised to {@code %}. */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
             "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
-    private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{034F}\\x{115F}\\x{1160}\\x{180B}-\\x{180D}\\x{180F}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{E0100}-\\x{E01EF}]");
+    /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
+    private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
     private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
@@ -55,7 +56,7 @@ public final class DraftSafetyValidator {
     /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
     private static final Map<Character, Character> CONFUSABLES = confusables();
 
-    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]\\s*");
+    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}]\\s*");
     /**
      * An ideographic full stop between letters or digits is treated as a dot for URL detection. Prose never uses it
      * between Spanish words, and sentence-case heuristics ("Hola。Gracias" vs "promo。DEV") are bypassable.
@@ -336,6 +337,11 @@ public final class DraftSafetyValidator {
         Set<String> tokens = new HashSet<>();
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
+            // A compact amount that runs into a letter ("USD100A") is part of a longer identifier, not an amount.
+            boolean endsInDigit = Character.isDigit(matcher.group().charAt(matcher.group().length() - 1));
+            if (endsInDigit && matcher.end() < text.length() && Character.isLetter(text.codePointAt(matcher.end()))) {
+                continue;
+            }
             tokens.add(quantityKey(matcher.group()));
         }
         return tokens;
