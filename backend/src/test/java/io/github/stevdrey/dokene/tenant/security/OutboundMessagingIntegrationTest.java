@@ -134,8 +134,8 @@ class OutboundMessagingIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Messaging A " + UUID.randomUUID(), now);
-        Tenant tenantB = seedTenant(tenants, "Messaging B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Messaging A " + UUID.randomUUID(), now);
+        Tenant tenantB = seedTenant(tenants, contexts, "Messaging B " + UUID.randomUUID(), now);
         ownerA = context(seedMembership(memberships, contexts, tenantA.id(), new IdentityId(UUID.randomUUID()),
                 TenantRole.OWNER, now));
         viewerA = context(seedMembership(memberships, contexts, tenantA.id(), new IdentityId(UUID.randomUUID()),

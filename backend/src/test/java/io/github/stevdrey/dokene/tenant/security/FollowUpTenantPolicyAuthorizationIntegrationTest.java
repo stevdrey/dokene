@@ -61,7 +61,7 @@ class FollowUpTenantPolicyAuthorizationIntegrationTest {
     @BeforeEach
     void setUp() {
         Instant now = Instant.now();
-        tenant = seedTenant(tenants, "Tenant policy authz " + UUID.randomUUID(), now);
+        tenant = seedTenant(tenants, contexts, "Tenant policy authz " + UUID.randomUUID(), now);
         ownerContext = context(seedMembership(memberships, contexts, tenant.id(),
                 new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
     }

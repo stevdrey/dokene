@@ -20,7 +20,7 @@ RLS policies on protected tables restrict visible rows to that tenant and reject
 
 ## Rules
 - Protected tenant-scoped tables must enable RLS with `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` to prevent accidental owner bypass.
-- Explicit policies must be defined for `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rather than relying on permissive defaults:
+- Explicit policies must be defined for `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rather than relying on permissive defaults (the tenant root and workspace provisioning records are deliberate exceptions; see [Tenant root and provisioning records](#tenant-root-and-provisioning-records) and do not add the missing policies or privileges there):
   - `SELECT`: `USING (tenant_id = dokene.current_verified_tenant_id())`
   - `INSERT`: `WITH CHECK (tenant_id = dokene.current_verified_tenant_id())`
   - `UPDATE`: `USING (tenant_id = dokene.current_verified_tenant_id()) WITH CHECK (tenant_id = dokene.current_verified_tenant_id())`
@@ -41,3 +41,22 @@ ADR 0006 specializes this policy model for `audit_events`: runtime gets only
 signed-capability isolation. A narrowly constrained global denial INSERT without
 a verified tenant capability is allowed; global rows have no runtime SELECT policy.
 See [ADR 0006](0006-durable-append-only-audit.md) for attribution and failure semantics.
+
+## Tenant root and provisioning records
+
+`dokene.tenants` is the tenant root and is keyed by `id` rather than `tenant_id`; it is
+not a global table for the runtime role. Since V16/V17 (issue #183):
+
+- `tenants` forces RLS with runtime `SELECT`, `INSERT`, and `UPDATE` policies on
+  `id = dokene.current_verified_tenant_id()`. Runtime has no `DELETE` privilege and may
+  update only `display_name`, `status`, `updated_at`, and `version`.
+- `workspace_provisioning_records` forces RLS, has only the `dokene_migration` policy, and grants
+  the runtime role no direct privilege. It is reachable only through two narrowly granted
+  `SECURITY DEFINER` functions that require the identity-scoped signed capability:
+  - `dokene.find_workspace_provisioning_record` runs before any tenant is bound and returns only the
+    authenticated identity's record for the requested idempotency key.
+  - `dokene.record_workspace_provisioning` additionally requires the record's `tenant_id` to equal
+    `dokene.current_verified_tenant_id()` and stores the verified identity, so a tenant context alone
+    cannot record a mapping for another identity. Rejections raise `insufficient_privilege`.
+- Membership discovery and the default follow-up-policy trigger keep working through their
+  `SECURITY DEFINER` functions and the explicit `dokene_migration` policies.

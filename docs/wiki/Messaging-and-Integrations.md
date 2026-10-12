@@ -52,7 +52,7 @@ There is no `DRAFT` state. A draft, whether an AI suggestion or operator text, l
 
 Transitions are validated in the aggregate; arbitrary status mutation is refused with `INVALID_TRANSITION`. Each applied transition advances the message version by one and appends one row to the event log, so the latest event sequence number always equals the message version.
 
-### Tables (V16)
+### Tables (V18)
 
 | Table | Purpose | Runtime grants |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ Transitions are validated in the aggregate; arbitrary status mutation is refused
 
 All six tables carry forced row level security with the standard five policies, and the runtime role never holds `DELETE`. Operator notes stay in the approval and cancellation rows and never reach the audit log or application logs.
 
-V17 extends the audit log with `MESSAGE_*` event types and closed transition metadata (status from, status to, failure category, attempt number). Delivery reports are audited with tenant only attribution under a provider scoped signed context; no member is credited for a provider callback.
+V19 extends the audit log with `MESSAGE_*` event types and closed transition metadata (status from, status to, failure category, attempt number). Delivery reports are audited with tenant only attribution under a provider scoped signed context; no member is credited for a provider callback.
 
 ## Idempotent sending
 
