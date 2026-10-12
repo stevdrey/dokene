@@ -102,8 +102,8 @@ class FollowUpManagementIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, "Follow-up A " + UUID.randomUUID(), now);
-        var tenantB = seedTenant(tenants, "Follow-up B " + UUID.randomUUID(), now);
+        tenantA = seedTenant(tenants, contexts, "Follow-up A " + UUID.randomUUID(), now);
+        var tenantB = seedTenant(tenants, contexts, "Follow-up B " + UUID.randomUUID(), now);
         contextA = context(seedMembership(memberships, contexts, tenantA.id(),
                 new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
         contextB = context(seedMembership(memberships, contexts, tenantB.id(),

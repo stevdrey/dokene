@@ -41,3 +41,19 @@ ADR 0006 specializes this policy model for `audit_events`: runtime gets only
 signed-capability isolation. A narrowly constrained global denial INSERT without
 a verified tenant capability is allowed; global rows have no runtime SELECT policy.
 See [ADR 0006](0006-durable-append-only-audit.md) for attribution and failure semantics.
+
+## Tenant root and provisioning records
+
+`dokene.tenants` is the tenant root and is keyed by `id` rather than `tenant_id`; it is
+not a global table for the runtime role. Since V16 (issue #183):
+
+- `tenants` forces RLS with runtime `SELECT`, `INSERT`, and `UPDATE` policies on
+  `id = dokene.current_verified_tenant_id()`. Runtime has no `DELETE` privilege and may
+  update only `display_name`, `status`, `updated_at`, and `version`.
+- `workspace_provisioning_records` forces RLS with runtime `SELECT` and `INSERT` policies on
+  `tenant_id = dokene.current_verified_tenant_id()`; it remains append-only for the runtime role.
+- The idempotent provisioning lookup runs before any tenant is bound, so it uses the identity-scoped
+  signed capability and the narrowly granted `dokene.find_workspace_provisioning_record` function,
+  which returns only the authenticated identity's record for the requested idempotency key.
+- Membership discovery and the default follow-up-policy trigger keep working through their
+  `SECURITY DEFINER` functions and the explicit `dokene_migration` policies.

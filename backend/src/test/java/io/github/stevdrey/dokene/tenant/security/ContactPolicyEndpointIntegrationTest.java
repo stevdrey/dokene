@@ -61,7 +61,7 @@ class ContactPolicyEndpointIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         Instant now = Instant.now();
-        tenant = seedTenant(tenants, "Endpoint tenant " + UUID.randomUUID(), now);
+        tenant = seedTenant(tenants, contexts, "Endpoint tenant " + UUID.randomUUID(), now);
         owner = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), owner, TenantRole.OWNER, now);
     }
@@ -115,7 +115,7 @@ class ContactPolicyEndpointIntegrationTest {
                 .andExpect(jsonPath("$.nextCursor").isNotEmpty())
                 .andExpect(jsonPath("$.events[0].actorId").value(owner.value().toString()));
 
-        Tenant foreignTenant = seedTenant(tenants, "Foreign endpoint tenant " + UUID.randomUUID(), Instant.now());
+        Tenant foreignTenant = seedTenant(tenants, contexts, "Foreign endpoint tenant " + UUID.randomUUID(), Instant.now());
         IdentityId foreignOwner = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, foreignTenant.id(), foreignOwner, TenantRole.OWNER, Instant.now());
         mvc.perform(get("/api/customers/{id}/contact-policy", customerId).with(user(foreignOwner))

@@ -60,9 +60,14 @@ public final class TenantSecurityIntegrationFixture {
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
     }
 
-    public static Tenant seedTenant(TenantRepository tenants, String displayName, Instant createdAt) {
+    public static Tenant seedTenant(
+            TenantRepository tenants,
+            TenantContextProvider contexts,
+            String displayName,
+            Instant createdAt
+    ) {
         Tenant tenant = Tenant.create(TenantId.random(), displayName, createdAt);
-        return tenants.save(tenant);
+        return contexts.callWithTenantId(tenant.id(), () -> tenants.save(tenant));
     }
 
     public static TenantMembership seedMembership(

@@ -112,6 +112,10 @@ CREATE POLICY customers_migration_policy
 
 `TenantMembershipDiscovery` is an internal port used before the requested tenant is bound. Its PostgreSQL adapter supplies a separate identity-scoped signed capability (`identity|<key_id>|<uuid>|<expiry>|<nonce>`) to `dokene.discover_active_tenant_memberships`, which returns only active memberships for that identity and active tenants. No HTTP tenant-listing endpoint is created by this mechanism.
 
+### Tenant root and provisioning bootstrap
+
+`dokene.tenants` is itself RLS-protected, keyed on `id = dokene.current_verified_tenant_id()`: runtime code reads or updates a tenant row only inside that tenant's scope, never deletes it, and may update only `display_name`, `status`, `updated_at`, and `version`. Workspace provisioning creates the tenant, owner membership, and `workspace_provisioning_records` row inside `callWithTenantId(newTenantId, ...)`, and resolves idempotent retries through the identity-scoped `dokene.find_workspace_provisioning_record` function. Tests that seed tenants must do so inside the new tenant's scope.
+
 ---
 
 ## 4. Testing Checklist for New Tenant-Scoped Tables

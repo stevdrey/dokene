@@ -21,6 +21,8 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRepository;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -79,7 +81,10 @@ class TenantProvisioningIntegrationTest {
         assertThat(result.displayName()).isEqualTo(workspaceName);
         assertThat(result.role()).isEqualTo(TenantRole.OWNER);
 
-        Tenant tenant = tenants.findById(result.tenantId()).orElseThrow();
+        // Without tenant context, RLS hides the tenant row itself
+        assertThat(tenants.findById(result.tenantId())).isEmpty();
+
+        Tenant tenant = contexts.callWithTenantId(result.tenantId(), () -> tenants.findById(result.tenantId()).orElseThrow());
         assertThat(tenant.displayName()).isEqualTo(workspaceName);
         assertThat(tenant.status()).isEqualTo(TenantStatus.ACTIVE);
 
@@ -106,7 +111,7 @@ class TenantProvisioningIntegrationTest {
     }
 
     @Test
-    void failureDuringProvisioningRollsBackPartialState() {
+    void failureDuringProvisioningRollsBackPartialState() throws SQLException {
         IdentityId identity = new IdentityId(UUID.randomUUID());
         String idempotencyKey = "key-rollback-" + UUID.randomUUID();
         String workspaceName = "Rollback Workspace " + UUID.randomUUID().toString().substring(0, 8);
@@ -118,10 +123,7 @@ class TenantProvisioningIntegrationTest {
         })).isInstanceOf(RuntimeException.class).hasMessage("Simulated mid-flight failure");
 
         assertThat(provisioningRecords.findByIdentityIdAndIdempotencyKey(identity, idempotencyKey)).isEmpty();
-        Integer tenantCount = jdbc.queryForObject(
-                "SELECT count(*) FROM dokene.tenants WHERE display_name = ?", Integer.class, workspaceName
-        );
-        assertThat(tenantCount).isZero();
+        assertThat(countAsMigration("SELECT count(*) FROM dokene.tenants WHERE display_name = ?", workspaceName)).isZero();
     }
 
     @Test
@@ -160,21 +162,18 @@ class TenantProvisioningIntegrationTest {
                 assertThat(result.role()).isEqualTo(TenantRole.OWNER);
             }
 
-            Integer tenantCount = jdbc.queryForObject(
-                    "SELECT count(*) FROM dokene.tenants WHERE display_name = ?", Integer.class, workspaceName
-            );
-            assertThat(tenantCount).isEqualTo(1);
+            assertThat(countAsMigration("SELECT count(*) FROM dokene.tenants WHERE display_name = ?", workspaceName))
+                    .isEqualTo(1);
 
             Integer membershipCount = contexts.callWithTenantId(first.tenantId(), () -> jdbc.queryForObject(
                     "SELECT count(*) FROM dokene.tenant_memberships WHERE identity_id = ?", Integer.class, identity.value()
             ));
             assertThat(membershipCount).isEqualTo(1);
 
-            Integer recordCount = jdbc.queryForObject(
+            assertThat(countAsMigration(
                     "SELECT count(*) FROM dokene.workspace_provisioning_records WHERE identity_id = ? AND idempotency_key = ?",
-                    Integer.class, identity.value(), idempotencyKey
-            );
-            assertThat(recordCount).isEqualTo(1);
+                    identity.value(), idempotencyKey
+            )).isEqualTo(1);
         } finally {
             executor.shutdownNow();
         }
@@ -237,9 +236,9 @@ class TenantProvisioningIntegrationTest {
                 identity, "key-" + UUID.randomUUID(), "Suspended Tenant Workspace"
         );
 
-        Tenant tenant = tenants.findById(workspace.tenantId()).orElseThrow();
+        Tenant tenant = contexts.callWithTenantId(workspace.tenantId(), () -> tenants.findById(workspace.tenantId()).orElseThrow());
         tenant.suspend(Instant.now());
-        tenants.save(tenant);
+        contexts.callWithTenantId(workspace.tenantId(), () -> tenants.save(tenant));
 
         assertThat(membershipDiscovery.findActiveMemberships(identity))
                 .extracting(TenantMembershipDiscovery.ActiveTenantMembership::tenantId)
@@ -250,7 +249,7 @@ class TenantProvisioningIntegrationTest {
 
         // Transition to ARCHIVED
         tenant.archive(Instant.now().plusSeconds(1));
-        tenants.save(tenant);
+        contexts.callWithTenantId(workspace.tenantId(), () -> tenants.save(tenant));
 
         assertThat(membershipDiscovery.findActiveMemberships(identity))
                 .extracting(TenantMembershipDiscovery.ActiveTenantMembership::tenantId)
@@ -273,6 +272,19 @@ class TenantProvisioningIntegrationTest {
             statement.execute("SET row_security = off");
             assertThatThrownBy(() -> statement.executeQuery("SELECT id FROM dokene.tenant_memberships"))
                     .isInstanceOf(SQLException.class);
+        }
+    }
+
+    private static int countAsMigration(String sql, Object... parameters) throws SQLException {
+        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int index = 0; index < parameters.length; index++) {
+                statement.setObject(index + 1, parameters[index]);
+            }
+            try (ResultSet resultSet = statement.executeQuery()) {
+                resultSet.next();
+                return resultSet.getInt(1);
+            }
         }
     }
 }

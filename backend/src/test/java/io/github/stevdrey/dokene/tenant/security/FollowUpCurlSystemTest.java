@@ -56,7 +56,7 @@ class FollowUpCurlSystemTest {
     @BeforeEach
     void seed() {
         Instant now = Instant.now();
-        var tenant = seedTenant(tenants, "Follow-up curl " + UUID.randomUUID(), now);
+        var tenant = seedTenant(tenants, contexts, "Follow-up curl " + UUID.randomUUID(), now);
         var identity = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), identity, TenantRole.OWNER, now);
         tenantId = tenant.id().value();
@@ -70,7 +70,7 @@ class FollowUpCurlSystemTest {
         var admin = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), admin, TenantRole.ADMIN, now);
         adminIdentityId = admin.value();
-        var foreignTenant = seedTenant(tenants, "Foreign follow-up curl " + UUID.randomUUID(), now);
+        var foreignTenant = seedTenant(tenants, contexts, "Foreign follow-up curl " + UUID.randomUUID(), now);
         var foreignIdentity = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, foreignTenant.id(), foreignIdentity, TenantRole.OWNER, now);
         foreignTenantId = foreignTenant.id().value();

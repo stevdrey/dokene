@@ -220,7 +220,7 @@ class TenantIsolationSecurityIntegrationTest {
     }
 
     private Tenant tenant(String displayName) {
-        return TenantSecurityIntegrationFixture.seedTenant(tenants, displayName, CREATED_AT);
+        return TenantSecurityIntegrationFixture.seedTenant(tenants, contexts, displayName, CREATED_AT);
     }
 
     private TenantMembership membership(Tenant tenant, IdentityId identity, TenantRole role) {
