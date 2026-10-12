@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import java.text.Normalizer;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Deterministic safety validator for follow-up message drafts.
@@ -21,7 +23,10 @@ public final class DraftSafetyValidator {
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
     private static final String SP = "[\\s\\u00a0\\u2007\\u202f\\u2009]*";
     private static final String NUM = "\\d+(?:[.,]\\d+|[ \\u00a0\\u202f]\\d{3})*(?!\\d)";
-    private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad";
+    private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad|jpy|cny|krw|inr";
+    /** Currency symbols recognised after NFKC folding (fullwidth forms such as {@code ＄} and {@code ￥} fold to these). */
+    private static final String CURRENCY_SYMBOLS = "$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢";
+    private static final String CURRENCY_SYMBOL_CLASS = "[\\" + CURRENCY_SYMBOLS + "]";
     private static final String CURRENCY_WORDS =
             "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras";
 
@@ -33,13 +38,22 @@ public final class DraftSafetyValidator {
             "(?i)\\b(meta_[a-z0-9_]+|whatsapp_[a-z0-9_]+|waba_[a-z0-9_]+|hsm_[a-z0-9_]+|[a-z0-9_]*template_[a-z0-9_]+|template_id|hsm_id|waba_id)\\b"
     );
 
-    private static final List<String> OFFER_SYMBOLS = List.of(
-            "%",
-            "$",
-            "₡",
-            "€",
-            "£"
-    );
+    private static final List<String> OFFER_SYMBOLS = Stream.concat(
+            Stream.of("%"), CURRENCY_SYMBOLS.chars().mapToObj(Character::toString)).toList();
+
+    /** Percentage markers written out after a number ("10 por ciento", "10 pct"); canonicalised to {@code %}. */
+    private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
+            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct\\.?)(?![\\p{L}\\p{N}])");
+    private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("\\p{Cf}");
+    private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
+    private static final Pattern LEET_DIGIT_PATTERN = Pattern.compile("[013457@]");
+
+    /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
+    private static final Map<Character, Character> CONFUSABLES = confusables();
+
+    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]|[。｡]");
+    private static final Pattern DEFANGED_SCHEME_PATTERN = Pattern.compile("\\bhxxp(s?)\\b");
+    private static final Pattern DEFANGED_COLON_PATTERN = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
             Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),
@@ -64,8 +78,8 @@ public final class DraftSafetyValidator {
 
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
-            "(?i)(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)" + SP + NUM
-                    + "|\\b" + NUM + SP + "(?:[\\$₡€£]|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
+            "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)" + SP + NUM
+                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")\\b)"
     );
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
@@ -164,13 +178,15 @@ public final class DraftSafetyValidator {
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText, boolean refusalRationale) {
-        String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
-        String offerContextLower = offerContextText != null ? offerContextText.toLowerCase(Locale.ROOT) : "";
+        String offerContextLower = canonicalize(offerContextText);
         String normalizedContext = normalizeQuantities(offerContextLower);
+        Map<String, String> canonicalTexts = new LinkedHashMap<>();
+        texts.forEach((key, value) -> canonicalTexts.put(key, canonicalize(value)));
+        texts = canonicalTexts;
 
         // 1. External links or URLs
         for (var entry : texts.entrySet()) {
-            if (containsUrl(entry.getValue())) {
+            if (containsCanonicalUrl(entry.getValue())) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_URL,
                         "Draft " + entry.getKey() + " contains unauthorized external link or URL"));
             }
@@ -178,7 +194,7 @@ public final class DraftSafetyValidator {
 
         // 2. Provider template identifiers
         for (var entry : texts.entrySet()) {
-            if (containsProviderTemplate(entry.getValue())) {
+            if (containsCanonicalProviderTemplate(entry.getValue())) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNAUTHORIZED_PROVIDER_TEMPLATE,
                         "Draft " + entry.getKey() + " contains unauthorized provider template identifier"));
             }
@@ -186,8 +202,7 @@ public final class DraftSafetyValidator {
 
         String combinedDraftText = texts.values().stream()
                 .filter(Objects::nonNull)
-                .collect(java.util.stream.Collectors.joining(" "))
-                .toLowerCase(Locale.ROOT);
+                .collect(java.util.stream.Collectors.joining(" "));
 
         // 3. Token-exact quantity grounding: percentages and monetary amounts
         Set<String> contextPercentages = extractTokens(PERCENTAGE_PATTERN, normalizedContext);
@@ -242,14 +257,17 @@ public final class DraftSafetyValidator {
         String offerWordText = refusalRationale
                 ? NEGATED_OFFER_PATTERN.matcher(combinedDraftText).replaceAll(" ")
                 : combinedDraftText;
-        for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
-            Matcher draftMatcher = wordPattern.matcher(offerWordText);
-            while (draftMatcher.find()) {
-                String word = draftMatcher.group().toLowerCase(Locale.ROOT);
-                Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");
-                if (!specificPattern.matcher(offerContextLower).find()) {
-                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
-                            "Offer term '" + word + "' in draft is not present in context"));
+        // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits.
+        for (String candidate : List.of(offerWordText, foldLeet(offerWordText))) {
+            for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
+                Matcher draftMatcher = wordPattern.matcher(candidate);
+                while (draftMatcher.find()) {
+                    String word = draftMatcher.group().toLowerCase(Locale.ROOT);
+                    Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");
+                    if (!specificPattern.matcher(offerContextLower).find()) {
+                        return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
+                                "Offer term '" + word + "' in draft is not present in context"));
+                    }
                 }
             }
         }
@@ -264,7 +282,7 @@ public final class DraftSafetyValidator {
      */
     private static Optional<DraftSafetyViolation> validateEvidence(List<String> evidence, String allowedContextText,
             DraftGroundingContext grounding) {
-        String contextLower = allowedContextText != null ? allowedContextText.toLowerCase(Locale.ROOT) : "";
+        String contextLower = canonicalize(allowedContextText);
         for (String evidenceItem : evidence) {
             String trimmed = evidenceItem.trim();
             int colonIdx = trimmed.indexOf(':');
@@ -274,13 +292,14 @@ public final class DraftSafetyValidator {
             }
             String label = trimmed.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
             String value = trimmed.substring(colonIdx + 1).trim().toLowerCase(Locale.ROOT);
+            String canonicalValue = canonicalize(value);
             DraftGroundingContext.EvidenceSource source = grounding != null ? grounding.sourceForLabel(label) : null;
             if (grounding != null && source == null) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
                         "Draft evidence item uses an unsupported label: '" + evidenceItem + "'"));
             }
             boolean grounded = !value.isEmpty() && (source == null
-                    ? contextLower.contains(value)
+                    ? contextLower.contains(canonicalValue)
                     : source.matches(value));
             if (!grounded) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.UNGROUNDED_EVIDENCE,
@@ -310,16 +329,95 @@ public final class DraftSafetyValidator {
     }
 
     public static boolean containsUrl(String text) {
-        if (text == null || text.isBlank()) {
-            return false;
-        }
-        return URL_PATTERN.matcher(text).find();
+        return containsCanonicalUrl(canonicalize(text));
     }
 
     public static boolean containsProviderTemplate(String text) {
-        if (text == null || text.isBlank()) {
+        return containsCanonicalProviderTemplate(canonicalize(text));
+    }
+
+    private static boolean containsCanonicalUrl(String canonical) {
+        if (canonical.isBlank()) {
             return false;
         }
-        return PROVIDER_TEMPLATE_PATTERN.matcher(text).find();
+        return URL_PATTERN.matcher(canonical).find() || URL_PATTERN.matcher(refang(canonical)).find();
+    }
+
+    private static boolean containsCanonicalProviderTemplate(String canonical) {
+        return !canonical.isBlank() && PROVIDER_TEMPLATE_PATTERN.matcher(canonical).find();
+    }
+
+    /**
+     * Single pre-processing step shared by URL, provider identifier, percentage, amount and offer matching: NFKC folds
+     * fullwidth and compatibility forms, format characters (zero-width space and joiners, soft hyphen, bidi marks)
+     * are dropped, and Cyrillic/Greek look-alikes are folded to Latin so no vocabulary is matched on a raw spelling.
+     */
+    private static String canonicalize(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        String folded = FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC)).replaceAll("")
+                .toLowerCase(Locale.ROOT);
+        StringBuilder out = new StringBuilder(folded.length());
+        for (int i = 0; i < folded.length(); i++) {
+            char c = folded.charAt(i);
+            out.append(CONFUSABLES.getOrDefault(c, c));
+        }
+        return PERCENT_WORD_PATTERN.matcher(out).replaceAll("%");
+    }
+
+    /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */
+    private static String refang(String canonical) {
+        String text = DEFANGED_DOT_PATTERN.matcher(canonical).replaceAll(".");
+        text = DEFANGED_COLON_PATTERN.matcher(text).replaceAll("://");
+        return DEFANGED_SCHEME_PATTERN.matcher(text).replaceAll("http$1");
+    }
+
+    /** Folds common digit/at-sign substitutions, but only inside tokens that also contain letters. */
+    private static String foldLeet(String text) {
+        Matcher tokens = WORD_TOKEN_PATTERN.matcher(text);
+        StringBuilder out = new StringBuilder(text.length());
+        while (tokens.find()) {
+            String token = tokens.group();
+            boolean hasLetter = token.codePoints().anyMatch(Character::isLetter);
+            tokens.appendReplacement(out, Matcher.quoteReplacement(hasLetter ? leetToken(token) : token));
+        }
+        tokens.appendTail(out);
+        return out.toString();
+    }
+
+    private static String leetToken(String token) {
+        if (!LEET_DIGIT_PATTERN.matcher(token).find()) {
+            return token;
+        }
+        StringBuilder out = new StringBuilder(token.length());
+        for (char c : token.toCharArray()) {
+            out.append(switch (c) {
+                case '0' -> 'o';
+                case '1' -> 'i';
+                case '3' -> 'e';
+                case '4' -> 'a';
+                case '5' -> 's';
+                case '7' -> 't';
+                case '@' -> 'a';
+                default -> c;
+            });
+        }
+        return out.toString();
+    }
+
+    private static Map<Character, Character> confusables() {
+        String cyrillic = "аеорсхуіјѕԁһӏ";
+        String cyrillicLatin = "aeopcxyijsdhl";
+        String greek = "οαεινρτκυ";
+        String greekLatin = "oaeinptky";
+        Map<Character, Character> map = new java.util.HashMap<>();
+        for (int i = 0; i < cyrillic.length(); i++) {
+            map.put(cyrillic.charAt(i), cyrillicLatin.charAt(i));
+        }
+        for (int i = 0; i < greek.length(); i++) {
+            map.put(greek.charAt(i), greekLatin.charAt(i));
+        }
+        return Map.copyOf(map);
     }
 }

@@ -662,4 +662,64 @@ class DraftSafetyValidatorTest {
                 draftWith("Crédito de USD\u00a0100 para ti.", "es-419", List.of()), "Ofrecimos USD 100 antes"))
                 .isEmpty();
     }
+
+    private static final String UNGROUNDED_CONTEXT = "Cliente: Juan. Compras: Café molido 250 g.";
+
+    @Test
+    void rejectsUnicodeAndNotationVariantsOfUngroundedClaims() {
+        record Probe(String body, String code) { }
+        List<Probe> probes = List.of(
+                new Probe("Hoy por \uff04\uff11\uff10.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Con \uff11\uff10% menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Con 10\uff05 menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Con 10 por ciento menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Con 10 pct menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Hoy por \u00a51000.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Hoy por \uffe51000.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Hoy por 1000 \u20a9.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Con des\u200bcuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u200btis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u00adtis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("En \u043eferta.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Con d3scuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gr4tis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("En promo[.]test.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En promo(dot)test.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En hxxps[://]promo.test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En promo\u3002test.", DraftSafetyViolation.UNAUTHORIZED_URL));
+        for (Probe probe : probes) {
+            Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                    draftWith(probe.body(), "es-419", List.of()), UNGROUNDED_CONTEXT);
+            assertThat(violation).as(probe.body()).isPresent();
+            assertThat(violation.get().code()).as(probe.body()).isEqualTo(probe.code());
+        }
+    }
+
+    @Test
+    void variantSpellingsStillMatchGroundedClaims() {
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Con \uff11\uff10\uff05 menos.", "es-419", List.of()), "Se acordó 10% de descuento.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Con 10 por ciento de des\u200bcuento.", "es-419", List.of()), "Se acordó 10% de descuento."))
+                .isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Plan por \u00a51000.", "es-419", List.of()), "Plan de \u00a51000")).isEmpty();
+    }
+
+    @Test
+    void ordinaryTextIsNotFlaggedByNormalization() {
+        for (String benign : List.of("\u00bfc\u00f3mo te fue con tu Caf\u00e9 molido 250 g?", "Tu pedido de 3 cajas de caf\u00e9 en la semana 4.",
+                "Hola \u041c\u0430\u0440\u0438\u044f, gracias por tu compra.", "Visita pronto, \u03b1 \u03b2 \u03b3.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(benign, "es-419", List.of()), UNGROUNDED_CONTEXT))
+                    .as(benign).isEmpty();
+        }
+    }
+
+    @Test
+    void refusalNegationIsStillNeutralisedAfterNormalization() {
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay una of\u200berta relevante", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay una oferta, pero tienes 10\uff05", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isPresent();
+    }
 }
