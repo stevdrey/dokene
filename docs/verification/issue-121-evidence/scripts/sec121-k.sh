@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# QA suite #121: SEC-07 fixture. Creates an XSS-payload customer (name/notes/purchase) and makes the stub return HTML/script-like AI text. Provider = stub (FAULT INJECTION).
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; echo 0 > $STUB/delay.ms; : > $STUB/fail
+NAME='XSS <img src=x onerror="window.__xss=1"> QA'
+NOTES='<script>window.__xss=2</script> <a href="javascript:window.__xss=3">clic</a> **markdown** [x](http://evil.test) `code` &lt;b&gt; {{7*7}} ${7*7}'
+DESC="Café <b>negrita</b> <svg onload='window.__xss=4'> molido 250 g"
+XS=$(mk "$NAME" "$(rnd_phone)" "$NOTES"); consent $XS GRANTED >/dev/null; api testoperator POST /api/customers/$XS/purchases "$(jq -nc --arg d "$DESC" '{purchasedAt:"2026-08-01T14:00:00Z",description:$d}')" -H "Idempotency-Key: xss-$RUN"; echo "purchase http $CODE"; echo "$XS" > /home/stevdrey/qa121/out/xs.id
+jq -nc --arg r '<img src=x onerror="window.__xss=5"> Reposición <b>habitual</b> <script>window.__xss=6</script> {{7*7}}' '{recommendation:{outcome:"ACTION",action:"REPEAT_PURCHASE_FOLLOW_UP",templateIntent:"REPEAT_PURCHASE",rationale:$r,confidence:0.8,draftVariables:[]}}' > $STUB/rec.json
+jq -nc --arg b 'Hola <b>x</b> <script>window.__xss=7</script> ¿cómo te fue con tu Café <svg onload="window.__xss=8"> molido 250 g?' --arg e "Compra: $DESC" --arg r '<img src=x onerror="window.__xss=10"> Reposición' '{draft:{outcome:"DRAFT",action:"REPEAT_PURCHASE_FOLLOW_UP",templateIntent:"REPEAT_PURCHASE",body:$b,draftVariables:[],locale:"es-419",evidence:[$e],warnings:["<b>aviso</b> <script>window.__xss=11</script>"],rationale:$r,confidence:0.9}}' > $STUB/draft.json
+rec $XS; echo "rec status: $(echo "$REC_BODY"|jq -r .status) $(echo "$REC_BODY"|jq -r '.unavailableReason // ""')"; draft $XS REPEAT_PURCHASE_FOLLOW_UP REPEAT_PURCHASE; echo "draft status: $(echo "$BODY"|jq -r .status) $(echo "$BODY"|jq -r '.unavailableReason // ""')"; echo "$BODY" | jq -c '.draft|{body,evidence,warnings}' | cut -c1-300

@@ -1,0 +1,47 @@
+  recommendation/draft status: AVAILABLE / AVAILABLE  provider requests: 2
+== what the provider receives (captured by the stub)
+PASS  SEC-08  rec request: no phone number (E.164 or digits)
+PASS  SEC-08  rec request: no customer/tenant/membership UUID
+PASS  SEC-08  rec request: no email address
+PASS  SEC-08  rec request: store=false (no provider-side retention)
+PASS  SEC-08  rec request: no end-user identifier (user field) sent
+  rec request: customer name sent=1  notes sent=1  (observation: what business data reaches the provider)
+  rec request keys: ["input","instructions","model","store","text"]
+PASS  SEC-08  draft request: no phone number (E.164 or digits)
+PASS  SEC-08  draft request: no customer/tenant/membership UUID
+PASS  SEC-08  draft request: no email address
+PASS  SEC-08  draft request: store=false (no provider-side retention)
+PASS  SEC-08  draft request: no end-user identifier (user field) sent
+  draft request: customer name sent=1  notes sent=1  (observation: what business data reaches the provider)
+  draft request keys: ["input","instructions","model","store","text"]
+== server logs (backend container) must not contain raw content
+  log lines: 322
+PASS  SEC-08  logs contain no 'CANARY-NAME-33'
+PASS  SEC-08  logs contain no 'CANARY-NOTE-12'
+PASS  SEC-08  logs contain no 'CANARY-BUY-55'
+PASS  SEC-08  logs contain no 'CANARY-RAT-91'
+PASS  SEC-08  logs contain no 'CANARY-BODY-77'
+PASS  SEC-08  logs contain no '+56971200479'
+PASS  SEC-08  logs contain no '56971200479'
+PASS  SEC-08  logs contain no provider API key
+PASS  SEC-08  logs contain no session cookie / CSRF token of the test sessions
+== audit rows and DB (no raw AI content)
+PASS  SEC-08  audit_events contain no canary marker or phone
+  AI audit row columns populated for the last invocation: AI_INVOCATION_OUTCOME,MESSAGE_DRAFT,GENERATED,NONE,SUCCESS
+  audit_events columns: id,occurred_at,tenant_id,actor_id,membership_id,event_type,target_type,target_id,outcome,correlation_id,permission,denial_reason,previous_role,new_role,ai_operation,ai_outcome,ai_detail
+PASS  SEC-08  no table stores generated bodies (canary body/rationale absent from the whole database dump)
+== client-visible errors never carry provider text
+  provider 401 -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=-
+PASS  SEC-08  provider 401: client response has no provider message/stub text
+  provider 429 -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true
+PASS  SEC-08  provider 429: client response has no provider message/stub text
+  provider 500 -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true
+PASS  SEC-08  provider 500: client response has no provider message/stub text
+  provider 503 -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true
+PASS  SEC-08  provider 503: client response has no provider message/stub text
+== frontend bundle and browser storage
+  bundle files: 1
+PASS  SEC-08  frontend bundle contains no api.openai.com / openai SDK / sk- key
+PASS  SEC-08  frontend bundle does not contain the provider key
+PASS  SEC-08  no actuator/metrics endpoint is reachable from the BFF
+PASS=28 FAIL=0

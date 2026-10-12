@@ -1,0 +1,67 @@
+== operator (OPERATOR in A) under tenant A header using tenant B identifiers
+PASS  SEC-03  GET B customer -> 404
+PASS  SEC-03  GET B customer: no B content in body
+PASS  SEC-03  PUT B customer -> 404
+PASS  SEC-03  PUT B customer: no B content in body
+PASS  SEC-03  DELETE B customer under A by OWNER of A -> 404
+PASS  SEC-03  contact-policy of B customer -> 404
+PASS  SEC-03  contact-policy of B customer: no B content in body
+PASS  SEC-03  contact-eligibility of B customer -> 404
+PASS  SEC-03  contact-eligibility of B customer: no B content in body
+PASS  SEC-03  consent grant on B customer's phone -> 404
+PASS  SEC-03  consent grant on B customer's phone: no B content in body
+PASS  SEC-03  do-not-contact on B customer -> 404
+PASS  SEC-03  do-not-contact on B customer: no B content in body
+PASS  SEC-03  list purchases of B customer -> 404
+PASS  SEC-03  list purchases of B customer: no B content in body
+PASS  SEC-03  read B purchase via B customer -> 404
+PASS  SEC-03  read B purchase via B customer: no B content in body
+PASS  SEC-03  create purchase on B customer -> 404
+PASS  SEC-03  create purchase on B customer: no B content in body
+PASS  SEC-03  read B purchase via A customer id -> 404
+PASS  SEC-03  read B purchase via A customer id: no B content in body
+PASS  SEC-03  purchase history of B purchase via A customer -> 404
+PASS  SEC-03  purchase history of B purchase via A customer: no B content in body
+PASS  SEC-03  A customer + A2's purchase id (same tenant, wrong customer) -> 404
+PASS  SEC-03  A customer + A2's purchase id (same tenant, wrong customer): no B content in body
+PASS  SEC-03  update B purchase via A customer -> 404
+PASS  SEC-03  update B purchase via A customer: no B content in body
+PASS  SEC-03  void B purchase -> 404
+PASS  SEC-03  void B purchase: no B content in body
+PASS  SEC-03  follow-up-policy of B customer -> 404
+PASS  SEC-03  follow-up-policy of B customer: no B content in body
+PASS  SEC-03  follow-up-eligibility of B customer -> 404
+PASS  SEC-03  follow-up-eligibility of B customer: no B content in body
+PASS  SEC-03  PUT follow-up-policy of B customer -> 404
+PASS  SEC-03  PUT follow-up-policy of B customer: no B content in body
+PASS  SEC-03  manual follow-up on B customer -> 404
+PASS  SEC-03  manual follow-up on B customer: no B content in body
+PASS  SEC-03  dismissal on B customer -> 404
+PASS  SEC-03  dismissal on B customer: no B content in body
+PASS  SEC-03  snooze on B customer -> 404
+PASS  SEC-03  snooze on B customer: no B content in body
+PASS  SEC-03  RECOMMENDATION for B customer under A -> 404
+PASS  SEC-03  RECOMMENDATION for B customer under A: no B content in body
+PASS  SEC-03  DRAFT for B customer under A -> 404
+PASS  SEC-03  DRAFT for B customer under A: no B content in body
+PASS  SEC-03  cross-tenant AI calls: no AI audit row and no provider request
+PASS  SEC-03  no customer was created/changed by the writes
+PASS  SEC-03  no purchase was created by the writes
+PASS  SEC-03  B customer unchanged
+PASS  SEC-03  customer list under A contains no B customer
+PASS  SEC-03  A queue contains no B customer
+== workspace header replacement (X-Tenant-Id)
+PASS  SEC-03  A customer id under tenant B header -> 404
+PASS  SEC-03  B customer under B header (legit control) -> 200
+PASS  SEC-03  tenant C header by revoked member -> 403
+PASS  SEC-03  unknown tenant id -> 403
+PASS  SEC-03  revoked-member vs unknown tenant indistinguishable (no existence oracle)
+PASS  SEC-03  malformed tenant header -> 400
+PASS  SEC-03  missing tenant header -> 403
+PASS  SEC-03  tenant C detail by revoked member denied
+PASS  SEC-03  membership list under A has only A memberships
+== cache bleed: same URL, tenant switch in one session
+  A=50 customers, B=1 customers
+PASS  SEC-03  A and B lists differ
+PASS  SEC-03  customer list is Cache-Control no-store
+PASS=62 FAIL=0

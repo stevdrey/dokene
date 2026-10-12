@@ -1,0 +1,29 @@
+purchase text in DB: Café molido 250 g
+FAIL  SEC-06  CONTROL (no claim; ACCEPT is the correct result, so this line is expected to FAIL)  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  ASCII $10
+FAIL  SEC-06  fullwidth currency and digits ＄１０  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  ASCII dollar + fullwidth digits $１０
+PASS  SEC-06  fullwidth digits with CLP: CLP １０００
+FAIL  SEC-06  yen sign ¥1000  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  US$10
+PASS  SEC-06  10$ suffix
+PASS  SEC-06  10 dólares
+FAIL  SEC-06  diez mil (number words, no marker)  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  diez mil pesos
+FAIL  SEC-06  10 por ciento  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  10 pct  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  fullwidth percent 10％  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  fullwidth digits percent １０%
+PASS  SEC-06  half price: mitad de precio
+FAIL  SEC-06  mitad (without 'precio')  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  lucas slang: 10 lucas  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  zero-width split of descuento  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  zero-width split of gratis  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  homoglyph Cyrillic o in oferta  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  leet d3scuento  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  english discount  (expected 'REJECT', got 'ACCEPT')
+FAIL  SEC-06  english free shipping  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  url without scheme: promo.test/x
+FAIL  SEC-06  obfuscated url: promo[.]test  (expected 'REJECT', got 'ACCEPT')
+PASS  SEC-06  wa.me link
+PASS=11 FAIL=16  (PASS = unsafe claim rejected; FAIL = accepted claim, plus the expected control FAIL)

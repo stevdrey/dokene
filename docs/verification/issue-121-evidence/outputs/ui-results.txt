@@ -1,0 +1,15 @@
+SEC-07 / SEC-08 browser checks (built-in browser, http://localhost:5173, user testoperator, tenant "QA Café Norte", tested SHA 29b44a5).
+AI text came from the fault-injection stub (labelled): rationale, evidence, warnings and draft body contain <img onerror>, <script>, <svg onload>, <b>, {{7*7}}.
+Customer name, notes and purchase description were typed through the API with the same kind of payloads.
+
+Queue screen: customer name "XSS <img src=x onerror=\"window.__xss=1\"> QA" rendered as text; window.__xss = undefined; injected nodes (img[src=x], svg[onload], script:not([src])) = 0.
+Recommendation panel (after "Obtener recomendación"): rationale rendered as literal text "<img src=x onerror=\"window.__xss=5\"> Reposición <b>habitual</b> <script>window.__xss=6</script> {{7*7}}"; window.__xss = undefined; injected nodes = 0.
+Draft panel (after "Generar borrador"): editor textarea value is the literal body (HTML tags as text); "DATOS EN LOS QUE SE BASA" and "ADVERTENCIAS PARA REVISAR" show the literal text; b/svg/img nodes inside <main> = 0; window.__xss = undefined.
+Purchase history item: "Café <b>negrita</b> <svg onload='window.__xss=4'> molido 250 g" rendered literally.
+Customers list (search "XSS") and customer detail: name and notes (<script>, javascript: link, markdown, {{7*7}}, ${7*7}) rendered literally; no <a href^="javascript"> element; window.__xss = undefined.
+
+Browser storage after the session: localStorage = [], indexedDB = [], service workers = 0, document.cookie = "" (session cookie is HttpOnly),
+sessionStorage = one key "dokene_active_tenant_id_<identity>" with the workspace id (not a secret).
+Hosts contacted by the page: localhost:5173 and fonts.googleapis.com (third-party stylesheet; see #186). No request to api.openai.com or to any AI host from the browser.
+Response headers (SPA): X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Referrer-Policy: strict-origin-when-cross-origin; NO Content-Security-Policy (see #186).
+Clipboard transformation of AI text was not re-tested here (copy of a plain draft was verified in real Chrome in suite #119).
