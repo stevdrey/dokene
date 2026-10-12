@@ -687,7 +687,9 @@ class DraftSafetyValidatorTest {
                 new Probe("En promo(dot)test.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("En hxxps[://]promo.test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("En www\u3002promo\u3002test.", DraftSafetyViolation.UNAUTHORIZED_URL),
-                new Probe("En promo\u3002test/x.", DraftSafetyViolation.UNAUTHORIZED_URL));
+                new Probe("En promo\u3002test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\u3002dev", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\uff61dev ahora.", DraftSafetyViolation.UNAUTHORIZED_URL));
         for (Probe probe : probes) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                     draftWith(probe.body(), "es-419", List.of()), UNGROUNDED_CONTEXT);

@@ -26,7 +26,7 @@ class InvariantCheckerParityTest {
             "Llama tel:1234", "Visita promo.dev", "Abre 192.168.0.1:8080/x",
             "Hoy por \uff04\uff11\uff10", "Con \uff11\uff10\uff05 menos", "Con 10 por ciento menos", "Con 10 pct menos",
             "Hoy por \u00a51000", "Con des\u200bcuento", "En \u043eferta", "Con d3scuento", "En promo[.]test",
-            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test");
+            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test", "Visita promo\u3002dev", "Con \u0501escuento", "Con cas\u04bbback", "Con \u04cfiquidaci\u00f3n");
 
     private static MessageDraft draft(String body) {
         return new MessageDraft(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE, body,
@@ -70,6 +70,38 @@ class InvariantCheckerParityTest {
                     .as("independent invariants must flag %s grounded by %s", probe.body(), probe.purchase())
                     .isNotEmpty();
         }
+    }
+
+    @Test
+    void everyConfusableFoldedByProductionIsFoldedByTheIndependentInvariantsToo() {
+        EvalCase ungrounded = EvalDatasetLoader.loadDefault().cases().stream()
+                .filter(c -> c.id().equals("mf-02")).findFirst().orElseThrow();
+        String confusables = "\u0430\u0435\u043e\u0440\u0441\u0445\u0443\u0456\u0458\u0455\u0501\u04bb\u04cf"
+                + "\u03bf\u03b1\u03b5\u03b9\u03bd\u03c1\u03c4\u03ba\u03c5";
+        for (char c : confusables.toCharArray()) {
+            // "cashback" and "descuento" need different letters; use the spelling that contains the look-alike.
+            String latin = String.valueOf(c);
+            for (String word : List.of("descuento", "cashback", "liquidaci\u00f3n", "oferta", "gratis")) {
+                for (char target : word.toCharArray()) {
+                    if (DraftSafetyValidator.validate(draft("Con " + word.replace(target, c)), "").isEmpty()) {
+                        continue;
+                    }
+                    assertThat(InvariantChecker.contentViolations(draft("Con " + word.replace(target, c)), ungrounded))
+                            .as("look-alike %s in %s", latin, word).isNotEmpty();
+                }
+            }
+        }
+    }
+
+    @Test
+    void deliveredRefusalNegationSurvivesZeroWidthCharacters() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        var refusal = new io.github.stevdrey.dokene.ai.domain.NoDraft(
+                io.github.stevdrey.dokene.ai.domain.NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay una of\u200berta relevante", RecommendationConfidence.of(0.9));
+        assertThat(DraftSafetyValidator.validate(refusal, "")).isEmpty();
+        assertThat(InvariantChecker.contentViolations(InvariantChecker.visibleTexts(refusal), base)).isEmpty();
     }
 
     @Test

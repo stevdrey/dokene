@@ -413,10 +413,10 @@ public final class InvariantChecker {
      * characters, lower case, Cyrillic/Greek look-alikes to Latin, and written-out percent markers to {@code %}.
      */
     static String fold(String raw) {
-        String text = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
-                .replaceAll("\\p{Cf}", "").toLowerCase(Locale.ROOT);
-        String from = "аеорсхуіјѕοαεινρτκυ";
-        String to = "aeopcxyijsoaeinptky";
+        String text = linkStops(java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
+                .replaceAll("\\p{Cf}", "")).toLowerCase(Locale.ROOT);
+        String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
+        String to = "aeopcxyijsdhloaeinptky";
         StringBuilder out = new StringBuilder(text.length());
         for (char c : text.toCharArray()) {
             int idx = from.indexOf(c);
@@ -440,11 +440,22 @@ public final class InvariantChecker {
         return out.toString();
     }
 
-    /** Restores defanged links; an ideographic stop only counts when its token already looks like a link. */
+    /**
+     * An ideographic stop becomes a dot only inside a link-looking token: scheme/www/path/colon, or a bare
+     * {@code host。tld} whose segments do not start in upper case. Runs before lower-casing, so "Hola。Gracias" is prose.
+     */
+    private static String linkStops(String text) {
+        return IDEOGRAPHIC_TOKEN.matcher(text).replaceAll(m -> {
+            String token = m.group();
+            boolean link = token.matches("(?i)(?:https?|hxxps?|www).*|.*[/:].*")
+                    || token.matches("[\\p{L}\\p{N}-]+(?:[。｡](?!\\p{Lu})[\\p{L}\\p{N}-]+)*[。｡](?!\\p{Lu})\\p{L}{2,}\\p{P}*");
+            return java.util.regex.Matcher.quoteReplacement(link ? token.replaceAll("[。｡]", ".") : token);
+        });
+    }
+
+    /** Restores defanged links ({@code [.]}, {@code (dot)}, {@code hxxp}, {@code [://]}). */
     static String refang(String text) {
-        String stops = IDEOGRAPHIC_TOKEN.matcher(text).replaceAll(m -> java.util.regex.Matcher.quoteReplacement(
-                m.group().matches("(?:https?|hxxps?|www).*|.*[/:].*") ? m.group().replaceAll("[。｡]", ".") : m.group()));
-        String dots = DEFANGED_DOT.matcher(stops).replaceAll(".");
+        String dots = DEFANGED_DOT.matcher(text).replaceAll(".");
         return DEFANGED_COLON.matcher(dots).replaceAll("://").replaceAll("\\bhxxp(s?)\\b", "http$1");
     }
 
@@ -568,11 +579,11 @@ public final class InvariantChecker {
 
     /** A refusal may say there is no offer; the negation is neutralised, amounts, links and affirmations are not. */
     static List<String> visibleTexts(NoRecommendation refusal) {
-        return List.of(NEGATED_OFFER.matcher(refusal.rationale()).replaceAll(" "));
+        return List.of(NEGATED_OFFER.matcher(fold(refusal.rationale())).replaceAll(" "));
     }
 
     static List<String> visibleTexts(NoDraft refusal) {
-        return List.of(NEGATED_OFFER.matcher(refusal.rationale()).replaceAll(" "));
+        return List.of(NEGATED_OFFER.matcher(fold(refusal.rationale())).replaceAll(" "));
     }
 
     /** Operator-visible texts of every delivered outcome of the case (action, draft and both refusal kinds). */

@@ -54,7 +54,10 @@ public final class DraftSafetyValidator {
     private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
     /** An ideographic full stop is sentence punctuation unless its whitespace-delimited token looks like a link. */
     private static final Pattern IDEOGRAPHIC_STOP_TOKEN_PATTERN = Pattern.compile("\\S*[。｡]\\S*");
-    private static final Pattern LINK_HINT_PATTERN = Pattern.compile("(?:https?|hxxps?|www).*|.*[/:].*");
+    private static final Pattern LINK_HINT_PATTERN = Pattern.compile("(?i)(?:https?|hxxps?|www).*|.*[/:].*");
+    /** A bare {@code host。tld} token whose segments do not start in upper case (a capital means a new sentence). */
+    private static final Pattern BARE_HOST_PATTERN = Pattern.compile(
+            "[\\p{L}\\p{N}-]+(?:[。｡](?!\\p{Lu})[\\p{L}\\p{N}-]+)*[。｡](?!\\p{Lu})\\p{L}{2,}\\p{P}*");
     private static final Pattern DEFANGED_SCHEME_PATTERN = Pattern.compile("\\bhxxp(s?)\\b");
     private static final Pattern DEFANGED_COLON_PATTERN = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
 
@@ -361,8 +364,8 @@ public final class DraftSafetyValidator {
         if (text == null || text.isEmpty()) {
             return "";
         }
-        String folded = FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC)).replaceAll("")
-                .toLowerCase(Locale.ROOT);
+        String folded = restoreLinkStops(FORMAT_CHARACTER_PATTERN.matcher(Normalizer.normalize(text, Normalizer.Form.NFKC))
+                .replaceAll("")).toLowerCase(Locale.ROOT);
         StringBuilder out = new StringBuilder(folded.length());
         for (int i = 0; i < folded.length(); i++) {
             char c = folded.charAt(i);
@@ -371,12 +374,22 @@ public final class DraftSafetyValidator {
         return PERCENT_WORD_PATTERN.matcher(out).replaceAll("%");
     }
 
+    /**
+     * An ideographic full stop is turned into a dot only inside a token that looks like a link (scheme, {@code www},
+     * a path or colon, or a lower-case bare {@code host。tld}). It runs before lower-casing so that a sentence stop
+     * followed by a capital ("Hola。Gracias") stays punctuation.
+     */
+    private static String restoreLinkStops(String text) {
+        return IDEOGRAPHIC_STOP_TOKEN_PATTERN.matcher(text).replaceAll(match -> {
+            String token = match.group();
+            boolean link = LINK_HINT_PATTERN.matcher(token).matches() || BARE_HOST_PATTERN.matcher(token).matches();
+            return Matcher.quoteReplacement(link ? token.replaceAll("[。｡]", ".") : token);
+        });
+    }
+
     /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */
     private static String refang(String canonical) {
-        String text = IDEOGRAPHIC_STOP_TOKEN_PATTERN.matcher(canonical).replaceAll(match ->
-                Matcher.quoteReplacement(LINK_HINT_PATTERN.matcher(match.group()).matches()
-                        ? match.group().replaceAll("[。｡]", ".") : match.group()));
-        text = DEFANGED_DOT_PATTERN.matcher(text).replaceAll(".");
+        String text = DEFANGED_DOT_PATTERN.matcher(canonical).replaceAll(".");
         text = DEFANGED_COLON_PATTERN.matcher(text).replaceAll("://");
         return DEFANGED_SCHEME_PATTERN.matcher(text).replaceAll("http$1");
     }
