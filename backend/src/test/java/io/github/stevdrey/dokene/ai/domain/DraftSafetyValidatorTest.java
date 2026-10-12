@@ -686,7 +686,8 @@ class DraftSafetyValidatorTest {
                 new Probe("En promo[.]test.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("En promo(dot)test.", DraftSafetyViolation.UNAUTHORIZED_URL),
                 new Probe("En hxxps[://]promo.test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
-                new Probe("En promo\u3002test.", DraftSafetyViolation.UNAUTHORIZED_URL));
+                new Probe("En www\u3002promo\u3002test.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En promo\u3002test/x.", DraftSafetyViolation.UNAUTHORIZED_URL));
         for (Probe probe : probes) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                     draftWith(probe.body(), "es-419", List.of()), UNGROUNDED_CONTEXT);
@@ -712,6 +713,18 @@ class DraftSafetyValidatorTest {
                 "Hola \u041c\u0430\u0440\u0438\u044f, gracias por tu compra.", "Visita pronto, \u03b1 \u03b2 \u03b3.")) {
             assertThat(DraftSafetyValidator.validate(draftWith(benign, "es-419", List.of()), UNGROUNDED_CONTEXT))
                     .as(benign).isEmpty();
+        }
+    }
+
+    @Test
+    void leetSpellingInGroundedContextAndIdeographicStopsAreNotFalsePositives() {
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha d3scuento.", "es-419", List.of()), "Plan con d3scuento")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha d3scuento.", "es-419", List.of()), "Plan sin nada")).isPresent();
+        for (String prose : List.of("Hola\u3002Gracias por tu compra", "Hola\uff61Gracias por tu compra")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(prose, "es-419", List.of()), "Cliente: Juan."))
+                    .as(prose).isEmpty();
         }
     }
 

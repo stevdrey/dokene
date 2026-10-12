@@ -57,16 +57,17 @@ public final class InvariantChecker {
                     + "|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}])");
     /** Mirrors production: dot/comma decimals or groups, or space/NBSP/narrow-NBSP/figure/thin-space thousands groups. */
     private static final String NUM = "\\d+(?:[.,]\\d+|[ \\u00a0\\u202f\\u2007\\u2009]\\d{3})*(?!\\d)";
-    private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad";
+    private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad|jpy|cny|krw|inr";
     private static final String CURRENCY_WORDS =
             "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras";
+    private static final String SYMBOL = "[$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢]";
     private static final String CURRENCY = CURRENCY_CODES + "|" + CURRENCY_WORDS;
     /** Complete percentage and monetary tokens; they must be grounded exactly, not by their symbol or word. */
     private static final Pattern AMOUNT = Pattern.compile(
             "(?iuU)" + NUM + "\\s*%"
-                    + "|[$₡€£]\\s*" + NUM
+                    + "|" + SYMBOL + "\\s*" + NUM
                     + "|\\b(?:" + CURRENCY + ")\\s*" + NUM
-                    + "|" + NUM + "\\s*(?:[$₡€£]|\\b(?:" + CURRENCY + ")\\b)");
+                    + "|" + NUM + "\\s*(?:" + SYMBOL + "|\\b(?:" + CURRENCY + ")\\b)");
     /** Unmarked amounts attached to a price term ("el total es 999", "cuesta 50"). */
     private static final Pattern PRICE_TERM_NUMBER = Pattern.compile(
             "(?iuU)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")");
@@ -81,11 +82,16 @@ public final class InvariantChecker {
                     + "(?:(?:\\s+(?:relevantes?|disponibles?|vigentes?|aplicables?))?\\s*,?\\s+(?:ni|o)\\s+"
                     + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
                     + "(?![\\p{L}\\p{N}])");
-    private static final Pattern OFFER_SYMBOL = Pattern.compile("[%$₡€£]");
+    private static final Pattern OFFER_SYMBOL = Pattern.compile("[%$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢]");
     private static final Pattern OFFER_WORD = Pattern.compile(
             "(?iu)\\b(?:descuentos?|rebajas?|cupón|cupon|cupones|gratis|gratuit[oa]s?|promoci[oó]n(?:es)?"
                     + "|ofertas?|liquidaci[oó]n|regalos?|obsequios?|bonos?|cashback|reembolsos?|sin costo|black friday"
                     + "|2 por 1|\\d+\\s*x\\s*\\d+|precios?|" + CURRENCY + ")\\b");
+
+    private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct\\.?)(?![\\p{L}\\p{N}])");
+    private static final Pattern DEFANGED_DOT = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
+    private static final Pattern DEFANGED_COLON = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
+    private static final Pattern IDEOGRAPHIC_TOKEN = Pattern.compile("\\S*[。｡]\\S*");
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -382,14 +388,14 @@ public final class InvariantChecker {
      * descriptions is allowed (amounts must match a grounded amount exactly); customer notes never ground anything.
      */
     static List<String> contentViolations(List<String> texts, EvalCase evalCase) {
-        String text = String.join("\n", texts);
-        String grounded = evalCase.setup().purchases().stream()
-                .map(EvalCase.PurchaseSpec::description).reduce("", (a, b) -> a + " " + b).toLowerCase(Locale.ROOT);
+        String text = fold(String.join("\n", texts));
+        String grounded = fold(evalCase.setup().purchases().stream()
+                .map(EvalCase.PurchaseSpec::description).reduce("", (a, b) -> a + " " + b));
         List<String> violations = new ArrayList<>();
         if (TEMPLATE_ID.matcher(text).find()) {
             violations.add("TEMPLATE_ID_IN_CONTENT");
         }
-        if (LINK.matcher(text).find()) {
+        if (LINK.matcher(text).find() || LINK.matcher(refang(text)).find()) {
             violations.add("LINK_IN_CONTENT");
         }
         if (ungroundedOffer(text, grounded)) {
@@ -400,6 +406,46 @@ public final class InvariantChecker {
 
     static List<String> contentViolations(MessageDraft draft, EvalCase evalCase) {
         return contentViolations(visibleTexts(draft), evalCase);
+    }
+
+    /**
+     * Independent twin of the gate's text canonicalization (own code, not the production helper): NFKC, no format
+     * characters, lower case, Cyrillic/Greek look-alikes to Latin, and written-out percent markers to {@code %}.
+     */
+    static String fold(String raw) {
+        String text = java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
+                .replaceAll("\\p{Cf}", "").toLowerCase(Locale.ROOT);
+        String from = "аеорсхуіјѕοαεινρτκυ";
+        String to = "aeopcxyijsoaeinptky";
+        StringBuilder out = new StringBuilder(text.length());
+        for (char c : text.toCharArray()) {
+            int idx = from.indexOf(c);
+            out.append(idx >= 0 ? to.charAt(idx) : c);
+        }
+        return PERCENT_WORD.matcher(out).replaceAll("%");
+    }
+
+    /** Digit/at-sign substitutions undone inside letter-bearing tokens; used for offer words only. */
+    static String leet(String text) {
+        var tokens = Pattern.compile("[\\p{L}\\p{N}@]+").matcher(text);
+        StringBuilder out = new StringBuilder();
+        while (tokens.find()) {
+            String token = tokens.group();
+            boolean letters = token.chars().anyMatch(Character::isLetter);
+            tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(letters
+                    ? token.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
+                            .replace('5', 's').replace('7', 't').replace('@', 'a') : token));
+        }
+        tokens.appendTail(out);
+        return out.toString();
+    }
+
+    /** Restores defanged links; an ideographic stop only counts when its token already looks like a link. */
+    static String refang(String text) {
+        String stops = IDEOGRAPHIC_TOKEN.matcher(text).replaceAll(m -> java.util.regex.Matcher.quoteReplacement(
+                m.group().matches("(?:https?|hxxps?|www).*|.*[/:].*") ? m.group().replaceAll("[。｡]", ".") : m.group()));
+        String dots = DEFANGED_DOT.matcher(stops).replaceAll(".");
+        return DEFANGED_COLON.matcher(dots).replaceAll("://").replaceAll("\\bhxxp(s?)\\b", "http$1");
     }
 
     /** Mirrors production {@code normalizeQuantities}: one space, no thousands-group spaces, comma as period. */
@@ -430,8 +476,10 @@ public final class InvariantChecker {
                 return true;
             }
         }
+        String groundedViews = grounded + " " + leet(grounded);
         return matchesUngrounded(OFFER_SYMBOL, rest.toString(), grounded, false)
-                || matchesUngrounded(OFFER_WORD, rest.toString(), grounded, true);
+                || matchesUngrounded(OFFER_WORD, rest.toString(), groundedViews, true)
+                || matchesUngrounded(OFFER_WORD, leet(rest.toString()), groundedViews, true);
     }
 
     private static String normalizeNumber(String number) {

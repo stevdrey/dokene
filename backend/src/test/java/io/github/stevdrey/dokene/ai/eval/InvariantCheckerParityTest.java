@@ -23,7 +23,10 @@ class InvariantCheckerParityTest {
             "Un bono para ti", "Con cashback", "Con reembolso", "Envío sin costo", "Llegó Black Friday",
             "Compra 2 por 1", "Es gratis", "Un descuento especial", "Una promoción", "foo_template_bar",
             "usa meta_promo_2026", "usa hsm_welcome", "revisa template_id", "Escribe a mailto:ventas@example.test",
-            "Llama tel:1234", "Visita promo.dev", "Abre 192.168.0.1:8080/x");
+            "Llama tel:1234", "Visita promo.dev", "Abre 192.168.0.1:8080/x",
+            "Hoy por \uff04\uff11\uff10", "Con \uff11\uff10\uff05 menos", "Con 10 por ciento menos", "Con 10 pct menos",
+            "Hoy por \u00a51000", "Con des\u200bcuento", "En \u043eferta", "Con d3scuento", "En promo[.]test",
+            "En hxxps[://]promo.test/x", "En www\u3002promo\u3002test");
 
     private static MessageDraft draft(String body) {
         return new MessageDraft(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE, body,
@@ -66,6 +69,23 @@ class InvariantCheckerParityTest {
             assertThat(InvariantChecker.contentViolations(draft, grounded))
                     .as("independent invariants must flag %s grounded by %s", probe.body(), probe.purchase())
                     .isNotEmpty();
+        }
+    }
+
+    @Test
+    void leetSpellingGroundedByThePurchaseAndIdeographicStopsAreAcceptedByBoth() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        EvalCase grounded = new EvalCase(base.id(), base.family(), base.description(), base.displayName(),
+                base.locale(), new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                        List.of(new EvalCase.PurchaseSpec(40, "Plan con d3scuento"))),
+                base.request(), base.script(), base.expect(), base.rubricHints());
+        var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                List.of("Plan con d3scuento"), List.of(), "DUE", "2026-09-29");
+        for (String body : List.of("Recuerda tu d3scuento", "Hola\u3002Gracias por tu compra")) {
+            MessageDraft draft = draft(body);
+            assertThat(DraftSafetyValidator.validate(draft, "Plan con d3scuento", grounding)).as(body).isEmpty();
+            assertThat(InvariantChecker.contentViolations(draft, grounded)).as(body).isEmpty();
         }
     }
 

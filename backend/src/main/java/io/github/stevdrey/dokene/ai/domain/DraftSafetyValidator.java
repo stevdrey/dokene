@@ -51,7 +51,10 @@ public final class DraftSafetyValidator {
     /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
     private static final Map<Character, Character> CONFUSABLES = confusables();
 
-    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]|[。｡]");
+    private static final Pattern DEFANGED_DOT_PATTERN = Pattern.compile("[\\[({]\\s*(?:\\.|dot)\\s*[\\])}]");
+    /** An ideographic full stop is sentence punctuation unless its whitespace-delimited token looks like a link. */
+    private static final Pattern IDEOGRAPHIC_STOP_TOKEN_PATTERN = Pattern.compile("\\S*[。｡]\\S*");
+    private static final Pattern LINK_HINT_PATTERN = Pattern.compile("(?:https?|hxxps?|www).*|.*[/:].*");
     private static final Pattern DEFANGED_SCHEME_PATTERN = Pattern.compile("\\bhxxp(s?)\\b");
     private static final Pattern DEFANGED_COLON_PATTERN = Pattern.compile("[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]");
 
@@ -258,13 +261,15 @@ public final class DraftSafetyValidator {
                 ? NEGATED_OFFER_PATTERN.matcher(combinedDraftText).replaceAll(" ")
                 : combinedDraftText;
         // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits.
+        String foldedOfferContext = foldLeet(offerContextLower);
         for (String candidate : List.of(offerWordText, foldLeet(offerWordText))) {
             for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {
                     String word = draftMatcher.group().toLowerCase(Locale.ROOT);
                     Pattern specificPattern = Pattern.compile("(?i)\\b" + Pattern.quote(word) + "\\b");
-                    if (!specificPattern.matcher(offerContextLower).find()) {
+                    if (!specificPattern.matcher(offerContextLower).find()
+                            && !specificPattern.matcher(foldedOfferContext).find()) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
                                 "Offer term '" + word + "' in draft is not present in context"));
                     }
@@ -368,7 +373,10 @@ public final class DraftSafetyValidator {
 
     /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */
     private static String refang(String canonical) {
-        String text = DEFANGED_DOT_PATTERN.matcher(canonical).replaceAll(".");
+        String text = IDEOGRAPHIC_STOP_TOKEN_PATTERN.matcher(canonical).replaceAll(match ->
+                Matcher.quoteReplacement(LINK_HINT_PATTERN.matcher(match.group()).matches()
+                        ? match.group().replaceAll("[。｡]", ".") : match.group()));
+        text = DEFANGED_DOT_PATTERN.matcher(text).replaceAll(".");
         text = DEFANGED_COLON_PATTERN.matcher(text).replaceAll("://");
         return DEFANGED_SCHEME_PATTERN.matcher(text).replaceAll("http$1");
     }
