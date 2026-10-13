@@ -998,6 +998,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       ) : (
         /* Desktop Split View or Mobile List Screen */
         <div
+          data-testid="follow-up-queue-grid"
           style={{
             display: 'grid',
             gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 5fr) minmax(0, 7fr)',

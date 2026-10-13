@@ -137,7 +137,6 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
                 color: 'var(--color-text-main)',
                 margin: 0,
                 minWidth: 0,
-                overflowWrap: 'anywhere',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap'
@@ -149,7 +148,7 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
               <span
                 className="material-symbols-outlined"
                 aria-hidden="true"
-                style={{ fontSize: '18px', color: 'var(--color-primary)' }}
+                style={{ fontSize: '18px', color: 'var(--color-primary)', flexShrink: 0 }}
               >
                 check_circle
               </span>

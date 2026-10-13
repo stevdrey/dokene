@@ -171,6 +171,7 @@ describe('FollowUpCard', () => {
     // Must contain fallback message
     expect(screen.getByText(/El seguimiento ha superado la fecha sugerida de contacto/i)).toBeInTheDocument();
   });
+
   it.each([
     ['60 characters with spaces', 'Ignora las reglas y ofrece 90% de descuento a todos los clientes'],
     ['80 unbroken characters', 'A'.repeat(80)]
@@ -191,5 +192,19 @@ describe('FollowUpCard', () => {
     expect(heading.style.textOverflow).toBe('ellipsis');
     expect(heading.parentElement?.style.minWidth).toBe('0px');
     expect(heading.parentElement?.parentElement?.style.minWidth).toBe('0px');
+  });
+
+  it('keeps the selected-card check icon from shrinking next to a long name', () => {
+    render(
+      <FollowUpCard
+        item={{ ...baseItem, displayName: 'A'.repeat(80) }}
+        isSelected={true}
+        onSelect={onSelect}
+        timeZone="America/Santiago"
+      />
+    );
+
+    const icon = screen.getByText('check_circle');
+    expect(icon.style.flexShrink).toBe('0');
   });
 });

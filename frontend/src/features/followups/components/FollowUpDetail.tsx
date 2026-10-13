@@ -225,14 +225,16 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', minWidth: 0 }}>
               <h2
                 style={{
                   fontSize: 'var(--font-size-page-heading)',
                   fontWeight: 600,
                   color: 'var(--color-text-main)',
-                  margin: 0
+                  margin: 0,
+                  minWidth: 0,
+                  overflowWrap: 'anywhere'
                 }}
               >
                 {item.displayName}
@@ -270,8 +272,10 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
               <div
                 style={{
                   display: 'inline-flex',
+                  flexWrap: 'wrap',
                   alignItems: 'center',
                   gap: 'var(--space-8)',
+                  maxWidth: '100%',
                   marginTop: 'var(--space-8)',
                   padding: '4px 10px',
                   backgroundColor: 'var(--color-bg-inset)',

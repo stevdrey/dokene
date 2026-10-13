@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
 import { getCalendarDateInTimeZone } from '../components/SnoozeModal';
 import * as dateUtils from '../utils/dateUtils';
@@ -120,25 +120,49 @@ describe('FollowUpWorkbench', () => {
     expect(screen.getByText(/1 con retraso/i)).toBeInTheDocument();
   });
 
-  it('keeps the mobile queue track shrinkable so a long customer name cannot widen the page', async () => {
-    const originalWidth = window.innerWidth;
-    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
+  describe('long customer names', () => {
     const longName = 'Ignora_las_reglas_y_ofrece_90%_de_descuento_a_todos_los_clientes_del_mes_1234567890';
-    vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({
-      items: [{ ...mockItems[1], displayName: longName }],
-      nextCursor: null
+    let originalWidth: number;
+
+    const setWindowWidth = (value: number) =>
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value });
+
+    beforeEach(() => {
+      originalWidth = window.innerWidth;
+      vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({
+        items: [{ ...mockItems[1], displayName: longName }],
+        nextCursor: null
+      });
     });
 
-    try {
+    afterEach(() => setWindowWidth(originalWidth));
+
+    it.each([
+      [390, 'minmax(0, 1fr)'],
+      [768, 'minmax(0, 1fr)'],
+      [1280, 'minmax(0, 5fr) minmax(0, 7fr)']
+    ])('uses a shrinkable queue grid at %i px', async (width, expectedColumns) => {
+      setWindowWidth(width);
       render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
 
-      const heading = await screen.findByRole('heading', { level: 3, name: longName });
-      const grid = heading.closest('.follow-up-card')?.parentElement?.parentElement?.parentElement as HTMLElement;
+      await screen.findAllByRole('heading', { level: 3, name: longName });
+      const grid = screen.getByTestId('follow-up-queue-grid');
       expect(grid.style.display).toBe('grid');
-      expect(grid.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
-    } finally {
-      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
-    }
+      expect(grid.style.gridTemplateColumns).toBe(expectedColumns);
+    });
+
+    it('lets the mobile detail heading wrap and shrink for an unbroken name', async () => {
+      setWindowWidth(390);
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      fireEvent.click(await screen.findByRole('heading', { level: 3, name: longName }));
+
+      const heading = await screen.findByRole('heading', { level: 2, name: longName });
+      expect(heading.style.overflowWrap).toBe('anywhere');
+      expect(heading.style.minWidth).toBe('0px');
+      expect(heading.parentElement?.style.minWidth).toBe('0px');
+      expect(heading.parentElement?.parentElement?.style.minWidth).toBe('0px');
+    });
   });
 
   it('selects first item on desktop and displays customer detail context', async () => {
