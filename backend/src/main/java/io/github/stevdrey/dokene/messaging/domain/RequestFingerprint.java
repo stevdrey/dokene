@@ -21,8 +21,16 @@ public final class RequestFingerprint {
     public static String of(MessageOperation operation, List<String> fields) {
         Objects.requireNonNull(operation, "Operation is required");
         Objects.requireNonNull(fields, "Fields are required");
+        return digest(operation.name(), fields);
+    }
+
+    /**
+     * SHA-256 hex over the domain label followed by each field in the canonical form above. Shared with
+     * {@link ApprovalFingerprint} so both fingerprints use one encoding; distinct labels keep them apart.
+     */
+    static String digest(String domain, List<String> fields) {
         var canonical = new ByteArrayOutputStream();
-        write(canonical, operation.name());
+        write(canonical, domain);
         for (String field : fields) {
             write(canonical, field);
         }

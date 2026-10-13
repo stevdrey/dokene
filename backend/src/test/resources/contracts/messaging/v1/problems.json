@@ -1,0 +1,168 @@
+{
+  "valid": {
+    "INVALID_INPUT": {
+      "type": "about:blank",
+      "title": "Bad Request",
+      "status": 400,
+      "code": "INVALID_INPUT"
+    },
+    "FORBIDDEN": {
+      "type": "about:blank",
+      "title": "Forbidden",
+      "status": 403,
+      "code": "FORBIDDEN"
+    },
+    "NOT_FOUND": {
+      "type": "about:blank",
+      "title": "Not Found",
+      "status": 404,
+      "code": "NOT_FOUND"
+    },
+    "STALE_VERSION": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "STALE_VERSION"
+    },
+    "IDEMPOTENCY_KEY_REUSED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "IDEMPOTENCY_KEY_REUSED"
+    },
+    "INVALID_TRANSITION": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "INVALID_TRANSITION"
+    },
+    "CUSTOMER_ARCHIVED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "CUSTOMER_ARCHIVED"
+    },
+    "DO_NOT_CONTACT": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "DO_NOT_CONTACT"
+    },
+    "NO_CONTACT_CONSENT": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "NO_CONTACT_CONSENT"
+    },
+    "CONTACT_NOT_OWNED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "CONTACT_NOT_OWNED"
+    },
+    "FOLLOW_UP_INELIGIBLE": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "FOLLOW_UP_INELIGIBLE"
+    },
+    "MESSAGE_ALREADY_OPEN": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "MESSAGE_ALREADY_OPEN"
+    },
+    "CONTACT_FREQUENCY_EXCEEDED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "CONTACT_FREQUENCY_EXCEEDED"
+    },
+    "TEMPLATE_NOT_MAPPED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "TEMPLATE_NOT_MAPPED"
+    },
+    "BODY_REJECTED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "BODY_REJECTED"
+    },
+    "OUTBOUND_DISABLED_GLOBALLY": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "OUTBOUND_DISABLED_GLOBALLY"
+    },
+    "OUTBOUND_DISABLED_FOR_TENANT": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "OUTBOUND_DISABLED_FOR_TENANT"
+    },
+    "INTEGRATION_DISABLED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "INTEGRATION_DISABLED"
+    },
+    "SEND_ATTEMPTS_EXHAUSTED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "SEND_ATTEMPTS_EXHAUSTED"
+    },
+    "RATE_LIMITED": {
+      "type": "about:blank",
+      "title": "Too Many Requests",
+      "status": 429,
+      "code": "RATE_LIMITED"
+    },
+    "PROVIDER_UNAVAILABLE": {
+      "type": "about:blank",
+      "title": "Service Unavailable",
+      "status": 503,
+      "code": "PROVIDER_UNAVAILABLE"
+    },
+    "APPROVAL_INVALIDATED": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "APPROVAL_INVALIDATED"
+    }
+  },
+  "invalid": {
+    "freeTextDetail": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "STALE_VERSION",
+      "detail": "Version 3 expected"
+    },
+    "unknownCode": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409,
+      "code": "PROVIDER_SAID_NO"
+    },
+    "statusMismatch": {
+      "type": "about:blank",
+      "title": "Bad Request",
+      "status": 400,
+      "code": "STALE_VERSION"
+    },
+    "customType": {
+      "type": "https://dokene.example/problems/stale",
+      "title": "Conflict",
+      "status": 409,
+      "code": "STALE_VERSION"
+    },
+    "missingCode": {
+      "type": "about:blank",
+      "title": "Conflict",
+      "status": 409
+    }
+  }
+}

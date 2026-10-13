@@ -36,6 +36,11 @@ class ModuleDependencyArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage(ROOT + ".integration..")
             .because("ADR 0023 §1: integration implements messaging ports, never the reverse");
 
+    private static final ArchRule TEMPLATE_NEVER_DEPENDS_ON_MESSAGING_OR_INTEGRATION = noClasses().that()
+            .resideInAPackage(ROOT + ".template..")
+            .should().dependOnClassesThat().resideInAnyPackage(ROOT + ".messaging..", ROOT + ".integration..")
+            .because("ADR 0023 §1 and ADR 0024 §3: messaging consumes the template port, never the reverse");
+
     private static final ArchRule MESSAGING_DOMAIN_IS_PURE = noClasses().that()
             .resideInAPackage(ROOT + ".messaging.domain..")
             .should().dependOnClassesThat(
@@ -54,6 +59,11 @@ class ModuleDependencyArchitectureTest {
     @Test
     void messagingNeverDependsOnIntegration() {
         MESSAGING_NEVER_DEPENDS_ON_INTEGRATION.check(production);
+    }
+
+    @Test
+    void templateNeverDependsOnMessagingOrIntegration() {
+        TEMPLATE_NEVER_DEPENDS_ON_MESSAGING_OR_INTEGRATION.check(production);
     }
 
     @Test

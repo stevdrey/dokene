@@ -18,6 +18,15 @@ An initial adapter can integrate with Meta WhatsApp Cloud API. Future adapters m
 
 The provider abstraction should expose application-level semantics, not leak arbitrary provider JSON into the domain.
 
+### Frozen Phase 3 contracts
+
+[ADR 0024](../adr/0024-phase-3-messaging-contract-freeze.md) freezes the v1 messaging contract that both Phase 3 tracks build against:
+
+- HTTP records in `messaging.api.MessagingApiContract`, mirrored by `frontend/src/features/messages/types`;
+- synthetic fixtures in `backend/src/test/resources/contracts/messaging/v1/`, checked by `MessagingContractFixturesTest` (backend) and `contractFixtures.test.ts` (frontend), so an incompatible change fails both workflows;
+- ports with fail-closed rules: `OutboundSafetyControl` (kill switches, integration enabled, sender identity), `TemplateMappingResolver`, `IntegrationSecretResolver` (secrets never leave `integration`) and `VerifiedWebhookEvent`;
+- the approval fingerprint (`approval/v1`): an approval binds recipient, content, template mapping revision, sending identity and consent revision; if any of them changes before send, the send is refused with `APPROVAL_INVALIDATED` and the operator cancels and resubmits.
+
 ## Message lifecycle
 
 The message state machine is durable and explicit. [ADR 0023](../adr/0023-phase-3-outbound-messaging-contracts.md) fixes the states and the sixteen transitions; `OutboundMessage` in `backend/src/main/java/io/github/stevdrey/dokene/messaging/domain` is the only place a status changes.
