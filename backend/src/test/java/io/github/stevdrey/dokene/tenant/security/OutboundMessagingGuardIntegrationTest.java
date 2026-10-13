@@ -237,6 +237,61 @@ class OutboundMessagingGuardIntegrationTest {
         assertThat(rowCount(ownerA, "outbound_message_approvals")).isEqualTo(1);
     }
 
+    /** covers: AC-4 (T3 guard step 2: a reject one version behind is refused and writes no event and no audit). */
+    @Test
+    void rejectOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+        assertThat(message.version()).isEqualTo(1);
+        List<UUID> auditBefore = auditEventIds();
+
+        assertThatRefused(() -> inContext(ownerA, () -> commands.reject(
+                new ApprovalCommand(message.id(), null, "0", "r-" + UUID.randomUUID()))),
+                MessagingErrorCode.STALE_VERSION);
+
+        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
+                .orElseThrow();
+        assertThat(unchanged.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        assertThat(unchanged.version()).isEqualTo(1);
+        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
+        assertThat(rowCount(ownerA, "outbound_message_approvals")).isZero();
+        assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
+        assertThat(auditEventIds()).isEqualTo(auditBefore);
+
+        // Control: the same reject at the current version lands, so the refusal above was about the version alone.
+        OutboundMessage rejected = inContext(ownerA, () -> commands.reject(
+                new ApprovalCommand(message.id(), null, "1", "r-" + UUID.randomUUID()))).message();
+        assertThat(rejected.status()).isEqualTo(MessageStatus.REJECTED);
+        assertThat(rejected.version()).isEqualTo(2);
+        assertThat(rowCount(ownerA, "outbound_message_approvals")).isEqualTo(1);
+    }
+
+    /** covers: ADR 0023 §2 (the submitted text and recipient cannot change, even for the tenant that owns them). */
+    @Test
+    void theOwningTenantCannotRewriteTheSubmittedBodyOrRecipientAsTheRuntimeRole() throws Exception {
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+
+        try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnection(
+                signer.issueTenantContext(tenantA.id()))) {
+            // Control: the capability may update this row, so the refusals below come from the trigger, not RLS.
+            assertThat(touchRows(connection, "outbound_messages", "updated_at", tenantA.id().value())).isEqualTo(1);
+            for (String column : List.of("body", "recipient_phone")) {
+                assertThatThrownBy(() -> TenantSecurityIntegrationFixture.executeUpdate(connection,
+                        "UPDATE dokene.outbound_messages SET " + column + " = '+50688880000' WHERE id = ?",
+                        message.id())).as(column).isInstanceOfSatisfying(SQLException.class, refusal -> {
+                            assertThat(refusal.getSQLState()).isEqualTo("23000");
+                            assertThat(refusal.getMessage()).contains("Outbound message identity is immutable");
+                        });
+            }
+        }
+
+        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
+                .orElseThrow();
+        assertThat(unchanged.body()).isEqualTo(message.body());
+        assertThat(unchanged.recipientPhone()).isEqualTo(message.recipientPhone());
+    }
+
     /** covers: AC-2 (the partial unique index is the backstop when the service lock is bypassed). */
     @Test
     void openMessageIndexRefusesASecondOpenRowInsertedBehindTheService() throws Exception {

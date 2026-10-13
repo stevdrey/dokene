@@ -43,15 +43,7 @@ public final class TenantSecurityIntegrationFixture {
     }
 
     public static void configure(DynamicPropertyRegistry registry) throws SQLException {
-        POSTGRES.start();
-        if (DATABASE_ROLES_CREATED.compareAndSet(false, true)) {
-            try {
-                createDatabaseRoles();
-            } catch (SQLException exception) {
-                DATABASE_ROLES_CREATED.set(false);
-                throw exception;
-            }
-        }
+        startWithDatabaseRoles();
 
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", () -> RUNTIME_ROLE);
@@ -62,6 +54,41 @@ public final class TenantSecurityIntegrationFixture {
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
+    }
+
+    private static void startWithDatabaseRoles() throws SQLException {
+        POSTGRES.start();
+        if (DATABASE_ROLES_CREATED.compareAndSet(false, true)) {
+            try {
+                createDatabaseRoles();
+            } catch (SQLException exception) {
+                DATABASE_ROLES_CREATED.set(false);
+                throw exception;
+            }
+        }
+    }
+
+    /**
+     * Creates an empty database in the shared container with the same role grants as the default one and returns
+     * its JDBC URL, for tests that drive Flyway themselves instead of starting from the fully migrated schema.
+     */
+    public static String createEmptyDatabase(String name) throws SQLException {
+        startWithDatabaseRoles();
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                Statement statement = connection.createStatement()) {
+            statement.execute("CREATE DATABASE " + name);
+            statement.execute("REVOKE ALL ON DATABASE " + name + " FROM PUBLIC");
+            statement.execute("GRANT CONNECT, CREATE ON DATABASE " + name + " TO " + MIGRATION_ROLE);
+            statement.execute("GRANT CONNECT ON DATABASE " + name + " TO " + RUNTIME_ROLE);
+        }
+        String url = "jdbc:postgresql://%s:%d/%s".formatted(
+                POSTGRES.getHost(), POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT), name);
+        try (Connection connection = DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
+                Statement statement = connection.createStatement()) {
+            statement.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
+        }
+        return url;
     }
 
     public static Tenant seedTenant(
