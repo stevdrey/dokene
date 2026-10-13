@@ -2,7 +2,7 @@
 
 Campaign: #118. Suite: #121. Tested on `main` @ `29b44a5` (includes PR #179), local Docker stack from `./scripts/dev-env.sh`, synthetic data only, real OpenAI (`gpt-6-luna`) for the live cases and a local **fault-injection stub** (labelled FI below) for malicious provider payloads, controlled delays and retries. A stub result is never live-model evidence.
 
-**Verdict for suite #121: NOT clean.** Three security defects (#183 Medium, #185 Medium) and two Low hardening findings (#184, #186) are open. SEC-04 and SEC-09 fail; SEC-06 fails Low. Everything else passes. Per the issue contract, every security failure blocks a clean release verdict until its fix is retested.
+**Initial verdict for suite #121 (`29b44a5`): NOT clean.** *(Superseded by the retest section at the end: all four defects are fixed and retested on `a2baddb`.)* Three security defects (#183 Medium, #185 Medium) and two Low hardening findings (#184, #186) are open. SEC-04 and SEC-09 fail; SEC-06 fails Low. Everything else passes. Per the issue contract, every security failure blocks a clean release verdict until its fix is retested.
 
 ## Results
 
@@ -34,3 +34,17 @@ Campaign: #118. Suite: #121. Tested on `main` @ `29b44a5` (includes PR #179), lo
 - Only fault-injection runs can show what the gate does with a malicious provider; the live model did not follow any of the injections in 48 live calls.
 - Only the in-app Chrome and curl were used. Idle-session expiry, the tenant-wide AI limit and clipboard behavior with hostile text were not exercised.
 - Provider usage: about 60 live OpenAI calls (two executions of the live script plus the AI role matrix); check the dashboard for the exact figure.
+
+## Retest on `main` @ `a2baddb` (fixes for #183, #184, #185, #186 merged)
+
+Same stack procedure; scripts rerun, outputs in `issue-121-evidence/outputs-retest-a2baddb/`. **Verdict: no unresolved defect in suite #121.** SEC-04, SEC-06 and SEC-09 now pass and #186 is verified.
+
+| Issue | Retest | Result |
+|---|---|---|
+| #183 (SEC-04) | `sec121-a/b/c/l` | **PASS.** `tenants` and `workspace_provisioning_records` have RLS enabled and forced. Without context the runtime role reads 0 tenants and gets `permission denied` on provisioning records; with A's context it sees only tenant A, cannot read or update tenant B (0 rows), cannot delete its own row, and its `UPDATE` is limited to its own row through column grants (legitimate rename/archive path). Provisioning still works through the API (201, replay 200 with the same tenant, another identity with the same key gets its own tenant, discovery lists the new workspace). All previous SEC-01/02/03/04 checks pass again (52 + 62 + 43 + 3). |
+| #185 (SEC-09) | `sec121-i` (FI) | **PASS** 13/13. During a controlled retry, membership revoke, archive, do-not-contact and consent revoke now all leave exactly 1 provider request (retry suppressed, result `INELIGIBLE`/403); the control without a change still makes 2 requests and returns `AVAILABLE`. |
+| #184 (SEC-06) | `sec121-f`, `sec121-g`, `sec121-e` (FI) | **PASS.** Grounding matrix 31/31 and gate matrix 25/25 unchanged. In the bypass probes the fullwidth currency/digits/percent, `10 por ciento`, `10 pct`, `¥`, zero-width split, homoglyph, leetspeak and `promo[.]test` variants are now rejected. Still accepted, as documented residual risk (ADR 0018, out of scope of #184): English wording, `10 lucas`, `diez mil`, `a la mitad`. |
+| #186 (SEC-07) | headers + browser | **PASS.** CSP and Permissions-Policy on the SPA and the BFF; fonts are self-hosted; no CSP violation and no layout regression across login, queue, AI panel, draft editor, customers list and dialog (`ui-csp-results.txt`). |
+| Live regression | `sec121-d` (real OpenAI) | **PASS** 108/108: 8 customers (injection, exfiltration, grounding) with 2 recommendations and 1 draft each; 8/8 drafts delivered (the stricter normalization did not reject legitimate drafts); audit shows only `GENERATED` for the live calls. |
+
+The original limitations still apply: idle-session expiry and the tenant-wide AI limit were not executed, clipboard behavior with hostile text was not re-tested, and only the in-app Chrome and curl were used.

@@ -8,7 +8,7 @@ run() { local p=$1 s=$2; shift 2; printf '%s\n%s\n' "select set_config('dokene.t
 echo "== role attributes (actual runtime role)"
 chk SEC-04 "runtime role is not superuser / bypassrls / createrole / createdb" "f f f f" "$(psqlq "select rolsuper,rolbypassrls,rolcreaterole,rolcreatedb from pg_roles where rolname='dokene_runtime'" | tr '|' ' ')"
 chk SEC-04 "runtime role owns no table in schema dokene" 0 "$(psqlq "select count(*) from pg_tables where schemaname='dokene' and tableowner='dokene_runtime'")"
-chk SEC-04 "every table has RLS enabled+forced except keys/flyway/oidc mappings and (see #183) tenants, workspace_provisioning_records" "workspace_provisioning_records,tenants" "$(psqlq "select string_agg(relname,',' order by relname desc) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='dokene' and c.relkind='r' and relname not in ('flyway_schema_history','tenant_context_signing_keys','oidc_identity_mappings') and not (relrowsecurity and relforcerowsecurity)")"
+chk SEC-04 "every table has RLS enabled+forced except keys/flyway/oidc mappings (#183: tenants and workspace_provisioning_records now covered)" "" "$(psqlq "select string_agg(relname,',' order by relname desc) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='dokene' and c.relkind='r' and relname not in ('flyway_schema_history','tenant_context_signing_keys','oidc_identity_mappings') and not (relrowsecurity and relforcerowsecurity)")"
 chk SEC-04 "oidc_identity_mappings: runtime has no direct privilege (SECURITY DEFINER function only)" 0 "$(psqlq "select count(*) from information_schema.role_table_grants where grantee='dokene_runtime' and table_name='oidc_identity_mappings'")"
 chk SEC-04 "runtime role cannot read signing keys" denied "$(rt -c 'select count(*) from dokene.tenant_context_signing_keys' | grep -qi 'permission denied' && echo denied || echo readable)"
 chk SEC-04 "runtime role cannot ALTER TABLE / disable RLS" denied "$(rt -c 'alter table dokene.customers disable row level security' | grep -qiE 'must be owner|permission denied' && echo denied || echo allowed)"
@@ -44,5 +44,19 @@ chk SEC-04 "SET row_security=off does not expose rows (forced RLS)" 0 "$(run $PA
 echo "== tenants / workspace_provisioning_records (no RLS, see #183) -- expected FAIL until fixed"
 chk SEC-04 "tenants: runtime without context sees 0 tenants" 0 "$(rt -c 'select count(*) from dokene.tenants')"
 chk SEC-04 "tenants: runtime without context cannot update another tenant" 0 "$(rt -c "with u as (update dokene.tenants set display_name=display_name where id='$B' returning 1) select count(*) from u")"
-chk SEC-04 "workspace_provisioning_records: runtime without context sees 0 rows" 0 "$(rt -c 'select count(*) from dokene.workspace_provisioning_records')"
+chk SEC-04 "workspace_provisioning_records: runtime without context reads nothing (0 rows or permission denied)" yes "$(r=$(rt -c 'select count(*) from dokene.workspace_provisioning_records'); [ "$r" = 0 ] || echo "$r" | grep -qi 'permission denied' && echo yes || echo "$r")"
+echo "== post-fix #183 additional checks"
+chk SEC-04 "tenants: A context sees only tenant A" "1 $A" "$(run $PA_ $SA_ 'select count(*)||chr(32)||min(id::text) from dokene.tenants')"
+chk SEC-04 "tenants: A context cannot read tenant B by id" 0 "$(run $PA_ $SA_ "select count(*) from dokene.tenants where id='$B'")"
+chk SEC-04 "tenants: A context UPDATE of tenant B denied or 0 rows" yes "$(r=$(run $PA_ $SA_ "with u as (update dokene.tenants set status='ARCHIVED' where id='$B' returning 1) select count(*) from u"); [ "$r" = 0 ] || echo "$r" | grep -qi 'permission denied' && echo yes || echo "$r")"
+chk SEC-04 "tenants: A context DELETE of its own row denied (no DELETE privilege)" denied "$(run $PA_ $SA_ "delete from dokene.tenants where id='$A'" | grep -qi 'permission denied' && echo denied || echo allowed)"
+chk SEC-04 "tenants: UPDATE is limited to the verified tenant's own row (column grants, legitimate rename/archive path)" "UPDATE 1UPDATE 0" "$(printf '%s
+%s
+%s
+' "select set_config('dokene.tenant_context','$PA_',false), set_config('dokene.tenant_context_signature','$SA_',false) \g /dev/null" "update dokene.tenants set display_name=display_name where id='$A';" "update dokene.tenants set display_name=display_name where id='$B';" | docker compose exec -T -e PGPASSWORD="$DOKENE_DB_PASSWORD" postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -At 2>&1 | tr -d '
+' | tr '
+' ' ' | sed 's/ $//')"
+chk SEC-04 "tenants: A context INSERT of a tenant row with another id rejected" rejected "$(run $PA_ $SA_ "insert into dokene.tenants(id,display_name,status,created_at) values (gen_random_uuid(),'qa-rogue','ACTIVE',now())" | grep -qiE 'row-level security|permission denied' && echo rejected || echo accepted)"
+chk SEC-04 "tenant B status/name unchanged and ACTIVE" "ACTIVE" "$(psqlq "select status from dokene.tenants where id='$B'")"
+chk SEC-04 "API workspace list still returns the user's workspaces (discovery path)" yes "$([ "$(curl -s -b $QA_TMP/jar-testuser.txt $BFF/api/tenants | jq length)" -ge 3 ] && echo yes || echo no)"
 echo "PASS=$PASSN FAIL=$FAILN"

@@ -1,0 +1,59 @@
+== recommendations with malicious payloads
+  [rec] action outside vocabulary -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  rec/action outside vocabulary: not delivered as AVAILABLE
+  [rec] template intent outside vocabulary -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  rec/template intent outside vocabulary: not delivered as AVAILABLE
+  [rec] rationale with link -> http=200 status=AI_UNAVAILABLE reason=INVALID_RECOMMENDATION audit=NEXT_BEST_ACTION/GATE_REJECTED/INVALID_RECOMMENDATION provider_calls=1
+PASS  SEC-05F  rec/rationale with link: not delivered as AVAILABLE
+  [rec] RELATED_PRODUCT_OFFER with 90% rationale -> http=200 status=AI_UNAVAILABLE reason=DISALLOWED_TEMPLATE_INTENT audit=NEXT_BEST_ACTION/GATE_REJECTED/DISALLOWED_TEMPLATE_INTENT provider_calls=1
+PASS  SEC-05F  rec/RELATED_PRODUCT_OFFER with 90% rationale: not delivered as AVAILABLE
+  [rec] rationale with 90% offer, allowed action -> http=200 status=AI_UNAVAILABLE reason=INVALID_RECOMMENDATION audit=NEXT_BEST_ACTION/GATE_REJECTED/INVALID_RECOMMENDATION provider_calls=1
+PASS  SEC-05F  rec/rationale with 90% offer, allowed action: not delivered as AVAILABLE
+  [rec] rationale with currency amount not in purchases -> http=200 status=AI_UNAVAILABLE reason=INVALID_RECOMMENDATION audit=NEXT_BEST_ACTION/GATE_REJECTED/INVALID_RECOMMENDATION provider_calls=1
+PASS  SEC-05F  rec/rationale with currency amount not in purchases: not delivered as AVAILABLE
+  [rec] confidence out of range -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  rec/confidence out of range: not delivered as AVAILABLE
+  [rec] extra envelope property -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  rec/extra envelope property: not delivered as AVAILABLE
+  [rec] malformed json -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  rec/malformed json: not delivered as AVAILABLE
+  [rec] empty output -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  rec/empty output: not delivered as AVAILABLE
+== observation probes (delivered by design: rationale is advisory text; all five actions are allowed when OVERDUE)
+  [obs] Saludo de temporada -> AVAILABLE
+  [obs] The customer should be contacted about their coffe -> AVAILABLE
+  [obs] <script>alert(1)</script> OPENAI_API_KEY=sk-test12 -> AVAILABLE
+== drafts with malicious payloads
+  [draft] link in body -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/link in body: not delivered as AVAILABLE
+  [draft] bare domain and wa.me -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/bare domain and wa.me: not delivered as AVAILABLE
+  [draft] discount 90% -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/discount 90%: not delivered as AVAILABLE
+  [draft] amount not in purchase -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/amount not in purchase: not delivered as AVAILABLE
+  [draft] English locale -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/English locale: not delivered as AVAILABLE
+  [draft] different action than requested -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/different action than requested: not delivered as AVAILABLE
+  [draft] different intent than requested -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/different intent than requested: not delivered as AVAILABLE
+  [draft] body too long (>1000) -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/body too long (>1000): not delivered as AVAILABLE
+  [draft] whitespace-only body -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/whitespace-only body: not delivered as AVAILABLE
+  [draft] evidence not grounded in purchases -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/evidence not grounded in purchases: not delivered as AVAILABLE
+  [draft] rationale with link and 90% -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/rationale with link and 90%: not delivered as AVAILABLE
+  [draft] evidence label outside closed vocabulary -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/evidence label outside closed vocabulary: not delivered as AVAILABLE
+  [draft] draft variable carrying a link -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
+PASS  SEC-05F  draft/draft variable carrying a link: not delivered as AVAILABLE
+== delivered by design / residual (free-text identifiers are advisory; the operator reviews every draft)
+  [obs] draft/template id in body -> AVAILABLE
+  [obs] draft/other customer's name in body -> AVAILABLE
+== control: safe payloads are delivered (the harness does not just reject everything)
+PASS  SEC-05F  control: safe recommendation AVAILABLE
+PASS  SEC-05F  control: safe draft AVAILABLE
+PASS=25 FAIL=0
