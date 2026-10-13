@@ -626,6 +626,27 @@ class AiOutcomeReportingTest {
     }
 
     @Test
+    void draftStaleRetryForACustomerNoLongerDueReportsTheIneligibilityReason() {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        FollowUpEvaluation notDue = mock();
+        when(notDue.eligible()).thenReturn(false);
+        when(notDue.reasons()).thenReturn(List.of(FollowUpReason.DO_NOT_CONTACT));
+        when(followUps.evaluateSnapshot(customerId))
+                .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(notDue, 1L));
+        when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        when(gate.retryBlockingReason(customerId, assembly))
+                .thenReturn(java.util.Optional.of(ActionGateRejectionReason.STALE_STATE));
+
+        FollowUpDraftResult result = drafts.draftSafe(customerId, null, null, timeout, null);
+
+        assertThat(result.status()).isEqualTo(DraftStatus.INELIGIBLE);
+        verify(draftProvider, times(1)).draft(any());
+    }
+
+    @Test
     void draftOutcomesAreReportedWithTheDraftOperation() {
         TenantContextProvider tenantContexts = mock();
         AiProvider draftProvider = mock();

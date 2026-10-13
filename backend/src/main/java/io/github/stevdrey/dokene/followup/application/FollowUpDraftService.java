@@ -368,7 +368,11 @@ public final class FollowUpDraftService {
         if (expectedVersion != null && expectedVersion != freshVersion) {
             throw new FollowUpConflictException();
         }
-        if (reason == ActionGateRejectionReason.STALE_STATE && eval != null && eval.eligible()) {
+        if (reason == ActionGateRejectionReason.STALE_STATE) {
+            // Same mapping as the post-provider gate path: stale and no longer due reports the ineligibility reason.
+            if (eval != null && !eval.eligible()) {
+                return FollowUpDraftResult.ineligible(eval, deriveIneligibilityReason(eval), freshVersion);
+            }
             return FollowUpDraftResult.staleState(eval, freshVersion);
         }
         return FollowUpDraftResult.ineligible(eval, reason, freshVersion);
