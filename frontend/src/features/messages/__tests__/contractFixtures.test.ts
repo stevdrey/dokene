@@ -30,24 +30,46 @@ import {
   type SubmitMessageRequest
 } from '../types';
 
-// Consumer side of the frozen messaging v1 contract (ADR 0024 §1). Each Shape<T> must name every member of T
-// (tsc enforces it), and every fixture must match its shape exactly, so drift on either side fails here.
+// Consumer side of the frozen messaging v1 contract (ADR 0024 §1). Shape<T> derives the rule each member must use
+// from its TypeScript type (kind, enum values, nullability and optionality), so tsc fails when a DTO member is added,
+// removed, retyped or changes nullability without its rule; the runtime check then pins every fixture to the rules.
 type Rule =
   | { kind: 'string' | 'uuid' | 'instant' | 'integer' | 'boolean'; nullable?: boolean; optional?: boolean; maxLength?: number }
-  | { kind: 'enum'; values: readonly string[]; nullable?: boolean }
-  | { kind: 'object'; shape: Record<string, Rule>; nullable?: boolean }
-  | { kind: 'array'; item: Rule };
-type Shape<T> = { [K in keyof T]-?: Rule };
+  | { kind: 'enum'; values: readonly string[]; nullable?: boolean; optional?: boolean }
+  | { kind: 'object'; shape: Record<string, Rule>; nullable?: boolean; optional?: boolean }
+  | { kind: 'array'; item: Rule; nullable?: boolean; optional?: boolean };
+
+type KindFor<V> = [V] extends [boolean]
+  ? { kind: 'boolean' }
+  : [V] extends [number]
+    ? { kind: 'integer' }
+    : [V] extends [readonly (infer E)[]]
+      ? { kind: 'array'; item: RuleFor<E, false> }
+      : [V] extends [string]
+        ? string extends V
+          ? { kind: 'string' | 'uuid' | 'instant'; maxLength?: number }
+          : { kind: 'enum'; values: readonly V[] }
+        : [V] extends [object]
+          ? { kind: 'object'; shape: Shape<V> }
+          : never;
+type RuleFor<V, Optional extends boolean> = KindFor<NonNullable<V>> &
+  (null extends V ? { nullable: true } : { nullable?: false }) &
+  (Optional extends true ? { optional: true } : { optional?: false });
+type OptionalKeys<T> = { [K in keyof T]-?: object extends Pick<T, K> ? K : never }[keyof T];
+type Shape<T> = { [K in keyof T]-?: RuleFor<T[K], K extends OptionalKeys<T> ? true : false> };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
-const uuid: Rule = { kind: 'uuid' };
-const instant: Rule = { kind: 'instant' };
-const nullableInstant: Rule = { kind: 'instant', nullable: true };
-const integer: Rule = { kind: 'integer' };
-const bool: Rule = { kind: 'boolean' };
-const enumOf = (values: readonly string[], nullable = false): Rule => ({ kind: 'enum', values, nullable });
-const note: Rule = { kind: 'string', nullable: true, optional: true, maxLength: MESSAGE_NOTE_MAX_LENGTH };
+const uuid = { kind: 'uuid' } as const;
+const instant = { kind: 'instant' } as const;
+const nullableInstant = { kind: 'instant', nullable: true } as const;
+const integer = { kind: 'integer' } as const;
+const bool = { kind: 'boolean' } as const;
+const text = { kind: 'string' } as const;
+const enumOf = <const V extends string>(values: readonly V[]) => ({ kind: 'enum', values }) as const;
+const nullableEnumOf = <const V extends string>(values: readonly V[]) =>
+  ({ kind: 'enum', values, nullable: true }) as const;
+const note = { kind: 'string', nullable: true, optional: true, maxLength: MESSAGE_NOTE_MAX_LENGTH } as const;
 
 const approvalShape: Shape<ApprovalSummary> = {
   decision: enumOf(APPROVAL_DECISIONS),
@@ -58,23 +80,23 @@ const attemptShape: Shape<AttemptSummary> = {
   attemptNumber: integer,
   startedAt: instant,
   outcome: enumOf(SEND_ATTEMPT_OUTCOMES),
-  failureCategory: enumOf(FAILURE_CATEGORIES, true)
+  failureCategory: nullableEnumOf(FAILURE_CATEGORIES)
 };
 const messageShape: Shape<MessageResponse> = {
   messageId: uuid,
   customerId: uuid,
   contactId: uuid,
   contactRemoved: bool,
-  recipientPhone: { kind: 'string' },
+  recipientPhone: text,
   channel: enumOf(MESSAGE_CHANNELS),
   status: enumOf(MESSAGE_STATUSES),
   outcomeUnknown: bool,
-  failureCategory: enumOf(FAILURE_CATEGORIES, true),
+  failureCategory: nullableEnumOf(FAILURE_CATEGORIES),
   action: enumOf(SEMANTIC_ACTIONS),
   templateIntent: enumOf(SEMANTIC_TEMPLATE_INTENTS),
-  locale: { kind: 'string' },
+  locale: text,
   origin: enumOf(MESSAGE_ORIGINS),
-  body: { kind: 'string' },
+  body: text,
   sourcePolicyVersion: integer,
   approval: { kind: 'object', shape: approvalShape, nullable: true },
   attempts: { kind: 'array', item: { kind: 'object', shape: attemptShape } },
@@ -107,11 +129,11 @@ const pageShape: Shape<MessagePageResponse> = {
 const eventShape: Shape<MessageEventItem> = {
   sequenceNumber: integer,
   type: enumOf(MESSAGE_EVENT_TYPES),
-  statusFrom: enumOf(MESSAGE_STATUSES, true),
+  statusFrom: nullableEnumOf(MESSAGE_STATUSES),
   statusTo: enumOf(MESSAGE_STATUSES),
   applied: bool,
   actorKind: enumOf(MESSAGE_ACTOR_KINDS),
-  failureCategory: enumOf(FAILURE_CATEGORIES, true),
+  failureCategory: nullableEnumOf(FAILURE_CATEGORIES),
   attemptNumber: { kind: 'integer', nullable: true },
   occurredAt: instant
 };
@@ -124,8 +146,8 @@ const requestShapes = {
     contactId: uuid,
     action: enumOf(SEMANTIC_ACTIONS),
     templateIntent: enumOf(SEMANTIC_TEMPLATE_INTENTS),
-    body: { kind: 'string' },
-    locale: { kind: 'string' },
+    body: text,
+    locale: text,
     origin: enumOf(MESSAGE_ORIGINS)
   } satisfies Shape<SubmitMessageRequest>,
   approval: { decision: enumOf(APPROVAL_DECISIONS), note } satisfies Shape<ApprovalRequest>,

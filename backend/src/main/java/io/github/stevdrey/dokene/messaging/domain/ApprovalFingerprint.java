@@ -4,8 +4,6 @@ package io.github.stevdrey.dokene.messaging.domain;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -39,11 +37,13 @@ public record ApprovalFingerprint(String value) {
      * Everything an approval vouches for. {@code parameterValues} are the exact ordered values the provider
      * receives; the send command carries the values of the binding whose fingerprint just matched. The message
      * version, kill switches and the follow-up policy version are deliberately absent: they are re-checked live by
-     * the send policy and must not void approvals on their own.
+     * the send policy and must not void approvals on their own. {@code consentRevision} is the contact policy
+     * version recorded by the latest WhatsApp consent change for the contact; it strictly increases on every change,
+     * so a revocation followed by a re-grant always yields a new value, unlike a timestamp.
      */
     public record Binding(UUID tenantId, UUID messageId, UUID customerId, UUID contactId, String recipientPhone,
             MessageChannel channel, SemanticAction action, SemanticTemplateIntent templateIntent, String locale,
-            String body, long sourcePolicyVersion, Instant consentChangedAt, TemplateRevision template,
+            String body, long sourcePolicyVersion, long consentRevision, TemplateRevision template,
             List<String> parameterValues, SenderRevision sender) {
         public Binding {
             Objects.requireNonNull(tenantId, "Tenant id is required");
@@ -56,7 +56,6 @@ public record ApprovalFingerprint(String value) {
             Objects.requireNonNull(templateIntent, "Template intent is required");
             Objects.requireNonNull(locale, "Locale is required");
             Objects.requireNonNull(body, "Body is required");
-            Objects.requireNonNull(consentChangedAt, "Consent revision is required");
             Objects.requireNonNull(template, "Template revision is required");
             Objects.requireNonNull(sender, "Sender revision is required");
             // List.copyOf also rejects null elements, so a missing value cannot hash like an empty one.
@@ -67,8 +66,10 @@ public record ApprovalFingerprint(String value) {
             if (sourcePolicyVersion < 0) {
                 throw new IllegalArgumentException("Source policy version cannot be negative");
             }
-            // Postgres keeps microseconds; truncating here keeps an in-memory and a reloaded binding equal.
-            consentChangedAt = consentChangedAt.truncatedTo(ChronoUnit.MICROS);
+            // Granted consent always has at least one history row, whose policy version starts at 1.
+            if (consentRevision < 1) {
+                throw new IllegalArgumentException("Consent revision starts at 1");
+            }
         }
 
         List<String> canonicalFields() {
@@ -84,7 +85,7 @@ public record ApprovalFingerprint(String value) {
             fields.add(locale);
             fields.add(body);
             fields.add(Long.toString(sourcePolicyVersion));
-            fields.add(consentChangedAt.toString());
+            fields.add(Long.toString(consentRevision));
             fields.add(Long.toString(template.version()));
             fields.add(template.providerTemplateName());
             fields.add(template.language());

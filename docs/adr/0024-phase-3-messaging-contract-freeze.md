@@ -42,7 +42,7 @@ Each consumer has a contract test.
   - For each request, the valid examples together name every record component. The round trip ignores omitted optional members, so without this check a new optional member would pass unnoticed.
   - `enums.json` equals the Java enums, and every `MessagingErrorCode` has exactly one problem with its fixed status.
 - **Frontend, `contractFixtures.test.ts`:**
-  - Every response interface has a `Shape<T>` table. `tsc` fails if the table misses or adds a member.
+  - Every response and request interface has a `Shape<T>` table whose rule types are derived from the interface's member types (kind, enum values, nullability and optionality). `tsc` fails if a member is added, removed, retyped or changes nullability or optionality without its rule.
   - Every fixture must match its table exactly: no extra member, no missing member, known enum values and a valid null.
   - Invalid requests and invalid problems must be refused.
 
@@ -84,7 +84,7 @@ The fields, in this order:
 | Identity | tenant id, message id, customer id, contact id |
 | Recipient and content | recipient E.164, channel, semantic action, template intent, locale, body |
 | Policy snapshot | `sourcePolicyVersion`, the snapshot the operator submitted against |
-| Consent revision | `changedAt` of the contact's WhatsApp consent evidence, truncated to microseconds to match Postgres |
+| Consent revision | the contact policy version recorded by the latest WhatsApp consent change for the contact (`customer_consent_history.policy_version`). Every consent change advances the customer's contact policy version by compare-and-set, so the value strictly increases; a timestamp is not used because two changes can share one at database precision |
 | Template mapping | mapping version, provider template name, language, parameter count, then each parameter name in order |
 | Parameter values | the exact ordered values the provider will receive, one per parameter name |
 | Sender identity | integration id, `phoneNumberId`, `businessAccountId` |
@@ -107,7 +107,7 @@ How each kind of change is handled:
 | --- | --- |
 | Edit the text | Cancel and resubmit (bodies are immutable, ADR 0023 §2). |
 | Consent revoked | Step 6 refuses the send with `NO_CONTACT_CONSENT`. |
-| Consent revoked and later granted again | Still voids the approval, because `changedAt` moved. |
+| Consent revoked and later granted again | Still voids the approval, because the consent revision increased. |
 | Template mapping edited | Voids the approval through the mapping version. |
 | A parameter value would render differently (for example, the customer name or product changed) | Voids the approval through the parameter values. |
 | Integration moved to another number or account | Voids the approval through the sender identity. |
