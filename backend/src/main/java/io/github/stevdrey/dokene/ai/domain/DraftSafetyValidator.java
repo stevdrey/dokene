@@ -270,9 +270,17 @@ public final class DraftSafetyValidator {
             }
         }
 
-        // 4. Offer symbols and terms grounding check
+        // 4. Offer symbols and terms grounding check, both against the same normalized offer-context views as the
+        // quantity checks (a purchase "10 pc7" grounds "%"); token-exact quantities were already validated above.
+        List<String> offerContextViews = null;
         for (String symbol : OFFER_SYMBOLS) {
-            if (combinedDraftText.contains(symbol) && !offerContextLower.contains(symbol)) {
+            if (!combinedDraftText.contains(symbol)) {
+                continue;
+            }
+            if (offerContextViews == null) {
+                offerContextViews = withLeetViews(offerContextLower);
+            }
+            if (offerContextViews.stream().noneMatch(context -> context.contains(symbol))) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_SYMBOL,
                         "Offer symbol '" + symbol + "' in draft is not present in context"));
             }
@@ -280,7 +288,6 @@ public final class DraftSafetyValidator {
 
         // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits. The refusal
         // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
-        List<String> offerContextViews = null;
         for (String view : draftViews) {
             String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
             for (Pattern wordPattern : OFFER_WORD_PATTERNS) {

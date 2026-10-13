@@ -850,6 +850,21 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void offerSymbolsAreGroundedOnTheSameNormalizedPurchaseViewsAsQuantities() {
+        record Probe(String purchase, String notes, boolean grounded) { }
+        for (Probe probe : List.of(new Probe("Plan con 10 pc7", null, true),
+                new Probe("Plan con 10 por cien7o", null, true), new Probe("Plan con 15 pc7", null, false),
+                new Probe(null, "10 pc7", false), new Probe("Plan con 10 pct", null, true),
+                new Probe("Plan con 10 por ciento", null, true), new Probe("Plan con 10%", null, true))) {
+            List<String> purchases = probe.purchase() == null ? List.of() : List.of(probe.purchase());
+            var grounding = new DraftGroundingContext("Ana", probe.notes(), purchases, List.of(), "DUE", "2026-09-29");
+            String allowed = String.join(" ", purchases) + " " + (probe.notes() == null ? "" : probe.notes());
+            assertThat(DraftSafetyValidator.validate(draftWith("Con 10% menos", "es-419", List.of()), allowed, grounding)
+                    .isEmpty()).as("%s | notes=%s", probe.purchase(), probe.notes()).isEqualTo(probe.grounded());
+        }
+    }
+
+    @Test
     void evidenceValuesErasedByCanonicalizationAreRejected() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
         for (String item : List.of("Compra: \u200b", "Compra: \u2060\ufe0f", "Compra: \u200b\u200d")) {

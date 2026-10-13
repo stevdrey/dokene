@@ -121,6 +121,32 @@ class InvariantCheckerParityTest {
     }
 
     @Test
+    void offerSymbolsAreGroundedOnTheSameNormalizedPurchaseViewsInBoth() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        record Probe(String purchase, String notes, boolean grounded) { }
+        for (Probe probe : List.of(new Probe("Plan con 10 pc7", null, true),
+                new Probe("Plan con 10 por cien7o", null, true), new Probe("Plan con 15 pc7", null, false),
+                new Probe(null, "10 pc7", false), new Probe("Plan con 10 pct", null, true),
+                new Probe("Plan con 10 por ciento", null, true), new Probe("Plan con 10%", null, true))) {
+            List<EvalCase.PurchaseSpec> specs = probe.purchase() == null ? List.of()
+                    : List.of(new EvalCase.PurchaseSpec(40, probe.purchase()));
+            EvalCase evalCase = new EvalCase(base.id(), base.family(), base.description(), base.displayName(),
+                    base.locale(), new EvalCase.Setup(probe.notes(), false, "GRANTED", false, null, null, specs),
+                    base.request(), base.script(), base.expect(), base.rubricHints());
+            List<String> purchases = probe.purchase() == null ? List.of() : List.of(probe.purchase());
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", probe.notes(),
+                    purchases, List.of(), "DUE", "2026-09-29");
+            String allowed = String.join(" ", purchases) + " " + (probe.notes() == null ? "" : probe.notes());
+            MessageDraft draft = draft("Con 10% menos");
+            assertThat(DraftSafetyValidator.validate(draft, allowed, grounding).isEmpty())
+                    .as("production %s | notes=%s", probe.purchase(), probe.notes()).isEqualTo(probe.grounded());
+            assertThat(InvariantChecker.contentViolations(draft, evalCase).isEmpty())
+                    .as("independent %s | notes=%s", probe.purchase(), probe.notes()).isEqualTo(probe.grounded());
+        }
+    }
+
+    @Test
     void foldedAmountsDefangedDomainsAndGroundingViewsAgreeWithProduction() {
         EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
                 .findFirst().orElseThrow();
