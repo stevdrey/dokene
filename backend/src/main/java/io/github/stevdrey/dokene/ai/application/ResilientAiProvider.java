@@ -20,9 +20,9 @@ import java.util.function.LongSupplier;
  *       runs with the requested timeout: the minimum budget only gates retries, so an explicit short client timeout
  *       is honored as given.</li>
  *   <li>It wraps only the provider call. Authorization revalidation, rate limiting and the Action Gate run in
- *       the caller, before and after it, and the caller's {@link RetryGuard} re-validates authorization and the customer-level
- *       hard constraints (archive, do-not-contact, consent, state drift) before every retry, so retry cannot
- *       bypass them or send customer context after a revocation.</li>
+ *       the caller, before and after it, and the caller's {@link RetryGuard} re-validates authorization and the
+ *       customer-level hard constraints (archive, do-not-contact, consent, state drift) before every retry, so
+ *       retry cannot bypass them or send customer context after a revocation.</li>
  *   <li>Raw provider exception messages are never copied: unexpected runtime failures become
  *       {@link AiFailureCategory#UNAVAILABLE}.</li>
  * </ul>

@@ -14,7 +14,6 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
-import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -231,7 +230,7 @@ public final class FollowUpRecommendationService {
                     return FollowUpRecommendationResult.available(evaluation, action, freshVersion);
                 } else if (decision.recommendation() instanceof NoRecommendation refusal) {
                     if (!evaluation.eligible()) {
-                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                        ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(evaluation);
                         return FollowUpRecommendationResult.ineligible(evaluation, ineligibilityReason, freshVersion);
                     }
                     return FollowUpRecommendationResult.refusal(evaluation, refusal, freshVersion);
@@ -249,7 +248,7 @@ public final class FollowUpRecommendationService {
                 }
                 if (reason == ActionGateRejectionReason.STALE_STATE) {
                     if (evaluation != null && !evaluation.eligible()) {
-                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                        ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(evaluation);
                         return FollowUpRecommendationResult.ineligible(evaluation, ineligibilityReason, freshVersion);
                     }
                     return FollowUpRecommendationResult.staleState(evaluation, freshVersion);
@@ -295,7 +294,7 @@ public final class FollowUpRecommendationService {
             return FollowUpRecommendationResult.staleState(eval, freshVersion);
         }
         if (eval != null && !eval.eligible()) {
-            ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+            ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(eval);
             return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
         }
         return FollowUpRecommendationResult.aiUnavailable(eval, reason, freshVersion);
@@ -313,8 +312,7 @@ public final class FollowUpRecommendationService {
         }
         return resilience.wrap(rawProvider, previousAttempt -> {
             lastAttempt.set(previousAttempt);
-            gate.revalidateAuthorization(customerId);
-            gate.retryBlockingReason(customerId, assembly).ifPresent(reason -> {
+            gate.revalidateBeforeRetry(customerId, assembly, AiOperation.NEXT_BEST_ACTION).ifPresent(reason -> {
                 throw new RetryNoLongerEligibleException(reason);
             });
         });
@@ -401,20 +399,6 @@ public final class FollowUpRecommendationService {
         return new FollowUpService.FollowUpEvaluationSnapshot(eval, freshVersion);
     }
 
-    private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {
-        if (evaluation != null && evaluation.reasons() != null) {
-            if (evaluation.reasons().contains(FollowUpReason.DO_NOT_CONTACT)) {
-                return ActionGateRejectionReason.DO_NOT_CONTACT;
-            }
-            if (evaluation.reasons().contains(FollowUpReason.NO_ELIGIBLE_CONTACT)) {
-                return ActionGateRejectionReason.NO_CONTACT_CONSENT;
-            }
-            if (evaluation.reasons().contains(FollowUpReason.CUSTOMER_ARCHIVED)) {
-                return ActionGateRejectionReason.CUSTOMER_ARCHIVED;
-            }
-        }
-        return ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE;
-    }
 
     private long resolvePolicyVersion(CustomerId customerId, long fallbackVersion) {
         if (followUps == null) {

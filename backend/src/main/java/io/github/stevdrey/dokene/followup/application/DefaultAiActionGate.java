@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
@@ -246,19 +247,11 @@ public class DefaultAiActionGate implements AiActionGate {
             }
 
             // 9. Consent and Do-Not-Contact State (strictly for action recommendations)
-            if (contactPolicy.doNotContact()) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE");
-                return ActionGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
-                        "Customer has active do-not-contact restriction", currentEvaluation, outcome, evaluatedVersion);
-            }
-            boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
-                    .anyMatch(consent -> consent.contactId().equals(phone.id())
-                            && consent.channel() == ContactChannel.WHATSAPP
-                            && consent.status() == ConsentStatus.GRANTED));
-            if (!eligibleContact) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT");
-                return ActionGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
-                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome, evaluatedVersion);
+            Optional<ActionGateRejectionReason> contactBlock = contactBlockingReason(customer, contactPolicy);
+            if (contactBlock.isPresent()) {
+                ActionGateRejectionReason reason = contactBlock.get();
+                emitRejection(tenantContextOpt, customerId, reason, contactDiagnosticCode(reason));
+                return ActionGateDecision.rejected(reason, contactMessage(reason), currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 10. Stale State Detection (for action recommendations)
@@ -380,11 +373,9 @@ public class DefaultAiActionGate implements AiActionGate {
             return Optional.of(ActionGateRejectionReason.CUSTOMER_ARCHIVED);
         }
         ContactPolicy contactPolicy = contacts.find(customer);
-        if (contactPolicy.doNotContact()) {
-            return Optional.of(ActionGateRejectionReason.DO_NOT_CONTACT);
-        }
-        if (!hasGrantedWhatsappConsent(customer, contactPolicy)) {
-            return Optional.of(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+        Optional<ActionGateRejectionReason> contactBlock = contactBlockingReason(customer, contactPolicy);
+        if (contactBlock.isPresent()) {
+            return contactBlock;
         }
         var tenantPolicy = policies.tenantPolicy(customer.tenantId());
         var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
@@ -399,10 +390,41 @@ public class DefaultAiActionGate implements AiActionGate {
                 currentEvaluation, lastPurchaseOpt.map(Purchase::id).orElse(null))) {
             return Optional.of(ActionGateRejectionReason.STALE_STATE);
         }
+        // Only reachable without a baseline (null assembly): with one, any change of status or reasons was already
+        // reported as STALE_STATE above. Kept so a missing baseline fails closed instead of allowing the retry.
         if (!currentEvaluation.eligible()) {
             return Optional.of(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
         }
         return Optional.empty();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ActionGateRejectionReason> revalidateBeforeRetry(CustomerId customerId,
+                                                                     RecommendationContextAssembler.Assembly assembly,
+                                                                     AiOperation operation) {
+        // One transaction for authorization and eligibility, so both are read from the same snapshot.
+        return AiActionGate.super.revalidateBeforeRetry(customerId, assembly, operation);
+    }
+
+    private Optional<ActionGateRejectionReason> contactBlockingReason(Customer customer, ContactPolicy contactPolicy) {
+        if (contactPolicy.doNotContact()) {
+            return Optional.of(ActionGateRejectionReason.DO_NOT_CONTACT);
+        }
+        if (!hasGrantedWhatsappConsent(customer, contactPolicy)) {
+            return Optional.of(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+        }
+        return Optional.empty();
+    }
+
+    private static String contactDiagnosticCode(ActionGateRejectionReason reason) {
+        return reason == ActionGateRejectionReason.DO_NOT_CONTACT ? "DO_NOT_CONTACT_ACTIVE" : "NO_GRANTED_WHATSAPP_CONSENT";
+    }
+
+    private static String contactMessage(ActionGateRejectionReason reason) {
+        return reason == ActionGateRejectionReason.DO_NOT_CONTACT
+                ? "Customer has active do-not-contact restriction"
+                : "Customer lacks granted contact consent for WhatsApp";
     }
 
     private boolean hasGrantedWhatsappConsent(Customer customer, ContactPolicy contactPolicy) {
@@ -581,19 +603,11 @@ public class DefaultAiActionGate implements AiActionGate {
             }
 
             // 9. Consent and Do-Not-Contact State
-            if (contactPolicy.doNotContact()) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.DO_NOT_CONTACT, "DO_NOT_CONTACT_ACTIVE", TenantPermission.MESSAGE_DRAFT);
-                return DraftGateDecision.rejected(ActionGateRejectionReason.DO_NOT_CONTACT,
-                        "Customer has active do-not-contact restriction", currentEvaluation, outcome, evaluatedVersion);
-            }
-            boolean eligibleContact = customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
-                    .anyMatch(consent -> consent.contactId().equals(phone.id())
-                            && consent.channel() == ContactChannel.WHATSAPP
-                            && consent.status() == ConsentStatus.GRANTED));
-            if (!eligibleContact) {
-                emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.NO_CONTACT_CONSENT, "NO_GRANTED_WHATSAPP_CONSENT", TenantPermission.MESSAGE_DRAFT);
-                return DraftGateDecision.rejected(ActionGateRejectionReason.NO_CONTACT_CONSENT,
-                        "Customer lacks granted contact consent for WhatsApp", currentEvaluation, outcome, evaluatedVersion);
+            Optional<ActionGateRejectionReason> contactBlock = contactBlockingReason(customer, contactPolicy);
+            if (contactBlock.isPresent()) {
+                ActionGateRejectionReason reason = contactBlock.get();
+                emitRejection(tenantContextOpt, customerId, reason, contactDiagnosticCode(reason), TenantPermission.MESSAGE_DRAFT);
+                return DraftGateDecision.rejected(reason, contactMessage(reason), currentEvaluation, outcome, evaluatedVersion);
             }
 
             // 10. Stale State Detection

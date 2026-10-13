@@ -542,7 +542,7 @@ class AiOutcomeReportingTest {
         assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
         verify(provider, times(2)).recommend(any());
         // the only revalidation on this path is the pre-retry guard
-        verify(gate, times(1)).revalidateAuthorization(customerId);
+        verify(gate, times(1)).revalidateBeforeRetry(customerId, assembly, AiOperation.NEXT_BEST_ACTION);
     }
 
     @ParameterizedTest
@@ -551,7 +551,7 @@ class AiOutcomeReportingTest {
             ActionGateRejectionReason reason) {
         when(provider.recommend(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
         RuntimeException lost = boundaryException(reason);
-        org.mockito.Mockito.doThrow(lost).when(gate).revalidateAuthorization(customerId);
+        when(gate.revalidateBeforeRetry(customerId, assembly, AiOperation.NEXT_BEST_ACTION)).thenThrow(lost);
 
         assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, null)).isSameAs(lost);
 
@@ -572,8 +572,8 @@ class AiOutcomeReportingTest {
                 mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
         when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
         RuntimeException lost = boundaryException(reason);
-        // 1st: the fail-closed check before data reaches the provider; 2nd: the pre-retry guard
-        org.mockito.Mockito.doNothing().doThrow(lost).when(gate).revalidateDraftAuthorization(customerId);
+        // the fail-closed check before data reaches the provider passes; the pre-retry guard then fails
+        when(gate.revalidateBeforeRetry(customerId, assembly, AiOperation.MESSAGE_DRAFT)).thenThrow(lost);
 
         assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, null)).isSameAs(lost);
 
@@ -590,7 +590,8 @@ class AiOutcomeReportingTest {
     void customerBecomingIneligibleBetweenAttemptsAbandonsTheRetryBeforeContextIsSentAgain(
             ActionGateRejectionReason reason) {
         when(provider.recommend(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
-        when(gate.retryBlockingReason(customerId, assembly)).thenReturn(java.util.Optional.of(reason));
+        when(gate.revalidateBeforeRetry(eq(customerId), eq(assembly), any()))
+                .thenReturn(java.util.Optional.of(reason));
 
         FollowUpRecommendationResult result = recommendations.recommendSafe(customerId, timeout, null);
 
@@ -613,7 +614,8 @@ class AiOutcomeReportingTest {
         FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
                 mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
         when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
-        when(gate.retryBlockingReason(customerId, assembly)).thenReturn(java.util.Optional.of(reason));
+        when(gate.revalidateBeforeRetry(eq(customerId), eq(assembly), any()))
+                .thenReturn(java.util.Optional.of(reason));
 
         FollowUpDraftResult result = drafts.draftSafe(customerId, null, null, timeout, null);
 
@@ -637,13 +639,47 @@ class AiOutcomeReportingTest {
         when(followUps.evaluateSnapshot(customerId))
                 .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(notDue, 1L));
         when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
-        when(gate.retryBlockingReason(customerId, assembly))
+        when(gate.revalidateBeforeRetry(customerId, assembly, AiOperation.MESSAGE_DRAFT))
                 .thenReturn(java.util.Optional.of(ActionGateRejectionReason.STALE_STATE));
 
         FollowUpDraftResult result = drafts.draftSafe(customerId, null, null, timeout, null);
 
         assertThat(result.status()).isEqualTo(DraftStatus.INELIGIBLE);
         verify(draftProvider, times(1)).draft(any());
+    }
+
+    @Test
+    void abandonedRetryWithAMovedPolicyVersionConflictsWhenIfMatchNoLongerMatches() {
+        when(provider.recommend(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        when(gate.revalidateBeforeRetry(customerId, assembly, AiOperation.NEXT_BEST_ACTION))
+                .thenReturn(java.util.Optional.of(ActionGateRejectionReason.STALE_STATE));
+        when(followUps.evaluateSnapshot(customerId))
+                .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(due, 2L));
+
+        assertThatThrownBy(() -> recommendations.recommendSafe(customerId, timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+
+        verify(provider, times(1)).recommend(any());
+        assertThat(audit.events).containsExactly("gateRejected:NEXT_BEST_ACTION:STALE_STATE");
+    }
+
+    @Test
+    void draftAbandonedRetryWithAMovedPolicyVersionConflictsWhenIfMatchNoLongerMatches() {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        when(gate.revalidateBeforeRetry(customerId, assembly, AiOperation.MESSAGE_DRAFT))
+                .thenReturn(java.util.Optional.of(ActionGateRejectionReason.STALE_STATE));
+        when(followUps.evaluateSnapshot(customerId))
+                .thenReturn(new FollowUpService.FollowUpEvaluationSnapshot(due, 2L));
+
+        assertThatThrownBy(() -> drafts.draftSafe(customerId, null, null, timeout, 1L))
+                .isInstanceOf(FollowUpConflictException.class);
+
+        verify(draftProvider, times(1)).draft(any());
+        assertThat(audit.events).containsExactly("gateRejected:MESSAGE_DRAFT:STALE_STATE");
     }
 
     @Test
