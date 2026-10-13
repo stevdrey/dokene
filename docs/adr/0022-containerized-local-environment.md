@@ -44,6 +44,6 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
 - The containerized and host-run backends use the same issuer, so identities and memberships are interchangeable.
 - The Keycloak configuration remains local-only (`start --optimized`, HTTP, relaxed hostname); production differences are
   documented in `infra/docker/README.md` and are unchanged by this decision.
-- The frontend image adds only basic response headers (`nosniff`, frame denial, referrer policy). A Content Security Policy
-  is not set because the SPA still loads Google Fonts; tightening this belongs to a production deployment decision.
+- The frontend image sets response security headers, including a Content Security Policy and Permissions-Policy
+  (see [ADR 0023](0023-spa-and-bff-response-security-headers.md)).
 - Tests are not run during the image build; CI (`./gradlew test`, `npm test`) remains the verification gate.

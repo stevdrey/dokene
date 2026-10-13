@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { spaSecurityHeaders } from './securityHeaders';
 
 export default defineConfig({
   plugins: [react()],
@@ -9,9 +10,14 @@ export default defineConfig({
       '@': new URL('./src', import.meta.url).pathname
     }
   },
+  preview: {
+    headers: spaSecurityHeaders
+  },
   server: {
     port: 5173,
     strictPort: true,
+    // The header test reads the nginx snippets (?raw); allow exactly that folder besides the project root.
+    fs: { allow: ['.', '../infra/docker/frontend'] },
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
@@ -34,6 +40,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: './src/setupTests.ts'
+    setupFiles: './src/setupTests.ts',
+    // Layout rules live in bundled CSS files (the CSP forbids inline <style>); load them so jsdom applies them.
+    css: { include: [/\/src\/.*\.css$/] }
   }
 });

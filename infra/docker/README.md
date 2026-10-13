@@ -64,6 +64,15 @@ while creating the bridge (for example `Bind for 127.0.0.1:8080 failed`), Docker
 `dev-env.sh` removes containers left unstarted by such a failure and, on the next `up`, recreates a bridge found
 without a network, so freeing the port and rerunning `up` is enough (no `down` needed).
 
+### Response security headers
+
+nginx sets a `Content-Security-Policy` and `Permissions-Policy` on the SPA (snippets in
+`infra/docker/frontend/security-headers-*.conf`); the BFF routes get theirs from Spring Security and nginx passes them
+through (rationale in [ADR 0023](../../docs/adr/0023-spa-and-bff-response-security-headers.md)).
+The SPA policy allows only same-origin resources, so assets must be self-hosted. Any production edge that serves the
+SPA must replicate these headers. Verify with `./scripts/tests/nginx-headers-smoke.sh` (Docker only). For host-run
+development, `npm run dev` has no CSP; use `npm run build && npm run preview` (same headers) to check violations.
+
 ### Troubleshooting
 
 - `Host port N is already in use`: another process owns the port (for PostgreSQL, often a locally installed

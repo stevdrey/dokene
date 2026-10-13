@@ -41,12 +41,6 @@ const MainAppContent: React.FC = () => {
           progress_activity
         </span>
         <span>Cargando Dokene...</span>
-        <style>{`
-          @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     );
   }
@@ -127,12 +121,6 @@ const MainAppContent: React.FC = () => {
           progress_activity
         </span>
         <span>Cargando espacios de trabajo...</span>
-        <style>{`
-          @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     );
   }

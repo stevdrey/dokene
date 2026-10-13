@@ -34,7 +34,7 @@ check "unknown command exits 2" unknown_command_fails
 check "restart-backend rejects unknown options" restart_backend_rejects_unknown_option
 # Scripts that are ShellCheck-clean today. The scripts/verify-issue-*.sh helpers still carry findings and are not listed.
 shellcheck_targets=(
-  scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
+  scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
