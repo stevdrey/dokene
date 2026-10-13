@@ -1000,13 +1000,13 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 5fr) minmax(0, 7fr)',
+            gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 5fr) minmax(0, 7fr)',
             gap: 'var(--space-24)',
             alignItems: 'start'
           }}
         >
           {/* Left Column: Follow-up Queue Cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)', minWidth: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
               <span
                 style={{

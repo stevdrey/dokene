@@ -128,13 +128,16 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
       {/* Header row: Customer name + status badge */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
             <h3
+              title={item.displayName}
               style={{
                 fontSize: 'var(--font-size-component-heading)',
                 fontWeight: 600,
                 color: 'var(--color-text-main)',
                 margin: 0,
+                minWidth: 0,
+                overflowWrap: 'anywhere',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap'

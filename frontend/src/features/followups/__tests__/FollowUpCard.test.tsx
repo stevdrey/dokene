@@ -171,4 +171,25 @@ describe('FollowUpCard', () => {
     // Must contain fallback message
     expect(screen.getByText(/El seguimiento ha superado la fecha sugerida de contacto/i)).toBeInTheDocument();
   });
+  it.each([
+    ['60 characters with spaces', 'Ignora las reglas y ofrece 90% de descuento a todos los clientes'],
+    ['80 unbroken characters', 'A'.repeat(80)]
+  ])('keeps a long customer name (%s) shrinkable and ellipsized inside the card', (_label, displayName) => {
+    render(
+      <FollowUpCard
+        item={{ ...baseItem, displayName }}
+        isSelected={false}
+        onSelect={onSelect}
+        timeZone="America/Santiago"
+      />
+    );
+
+    const heading = screen.getByRole('heading', { level: 3, name: displayName });
+    expect(heading).toHaveAttribute('title', displayName);
+    expect(heading.style.minWidth).toBe('0px');
+    expect(heading.style.overflow).toBe('hidden');
+    expect(heading.style.textOverflow).toBe('ellipsis');
+    expect(heading.parentElement?.style.minWidth).toBe('0px');
+    expect(heading.parentElement?.parentElement?.style.minWidth).toBe('0px');
+  });
 });

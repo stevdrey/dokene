@@ -120,6 +120,27 @@ describe('FollowUpWorkbench', () => {
     expect(screen.getByText(/1 con retraso/i)).toBeInTheDocument();
   });
 
+  it('keeps the mobile queue track shrinkable so a long customer name cannot widen the page', async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
+    const longName = 'Ignora_las_reglas_y_ofrece_90%_de_descuento_a_todos_los_clientes_del_mes_1234567890';
+    vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({
+      items: [{ ...mockItems[1], displayName: longName }],
+      nextCursor: null
+    });
+
+    try {
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      const heading = await screen.findByRole('heading', { level: 3, name: longName });
+      const grid = heading.closest('.follow-up-card')?.parentElement?.parentElement?.parentElement as HTMLElement;
+      expect(grid.style.display).toBe('grid');
+      expect(grid.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
+    }
+  });
+
   it('selects first item on desktop and displays customer detail context', async () => {
     render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
 
