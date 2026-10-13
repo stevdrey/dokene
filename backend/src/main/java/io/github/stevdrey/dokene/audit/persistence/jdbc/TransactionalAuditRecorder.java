@@ -13,6 +13,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -35,6 +36,7 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private static final Logger log = LoggerFactory.getLogger(TransactionalAuditRecorder.class);
     private final JdbcAuditStore store;
     private final TenantContextProvider contexts;
+    private final ProviderContextProvider providerContexts;
     private final DatabaseContextSigner signer;
     private final AuditExecutionContext execution;
     private final Clock clock;
@@ -42,10 +44,11 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private final TransactionTemplate mandatory;
 
     TransactionalAuditRecorder(JdbcAuditStore store, TenantContextProvider contexts,
-            DatabaseContextSigner signer, AuditExecutionContext execution,
+            ProviderContextProvider providerContexts, DatabaseContextSigner signer, AuditExecutionContext execution,
             Clock clock, PlatformTransactionManager transactions) {
         this.store = store;
         this.contexts = contexts;
+        this.providerContexts = providerContexts;
         this.signer = signer;
         this.execution = execution;
         this.clock = clock;
@@ -160,6 +163,10 @@ class TransactionalAuditRecorder implements AuditRecorder {
         Objects.requireNonNull(tenantId, "Tenant id is required");
         if (contexts.current().isPresent()) {
             throw new IllegalStateException("Provider attributed audit cannot run under a member context");
+        }
+        // The caller's tenant is not trusted on its own: it must be the tenant the webhook boundary bound.
+        if (!providerContexts.requireCurrent().tenantId().equals(tenantId)) {
+            throw new IllegalStateException("Provider attributed audit tenant does not match the provider context");
         }
         AuditEvent event = new AuditEvent(UUID.randomUUID(), clock.instant(), tenantId, null, null,
                 AuditEventType.MESSAGE_DELIVERY_UPDATED, new AuditTarget(AuditTarget.Type.MESSAGE, messageId),

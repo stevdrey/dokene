@@ -60,6 +60,7 @@ public interface AuditRecorder {
     /**
      * Requires an existing business transaction. Written for the provider webhook path with tenant attribution and
      * no actor or membership (ADR 0023 §4.5); the caller must have established that tenant as the RLS context.
+     * Refused unless a provider context is bound and names the same tenant.
      */
     default void messageDeliveryUpdated(TenantId tenantId, UUID messageId,
             AuditMetadata.MessageTransition metadata) {

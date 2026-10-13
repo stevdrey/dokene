@@ -44,6 +44,7 @@ import io.github.stevdrey.dokene.messaging.application.OutboundMessageTestDriver
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatus;
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatusReport;
+import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
@@ -121,6 +122,8 @@ class OutboundMessagingIntegrationTest {
 
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Logger messagingLogger = (Logger) LoggerFactory.getLogger("io.github.stevdrey.dokene.messaging");
+    private final ListAppender<ILoggingEvent> applicationLogs = new ListAppender<>();
+    private final Logger applicationLogger = (Logger) LoggerFactory.getLogger("io.github.stevdrey.dokene");
 
     private Tenant tenantA;
     private TenantContext ownerA;
@@ -160,12 +163,16 @@ class OutboundMessagingIntegrationTest {
                 new TransactionTemplate(transactionManager), clock);
         logs.start();
         messagingLogger.addAppender(logs);
+        applicationLogs.start();
+        applicationLogger.addAppender(applicationLogs);
     }
 
     @AfterEach
     void detachLogs() {
         messagingLogger.detachAppender(logs);
         logs.stop();
+        applicationLogger.detachAppender(applicationLogs);
+        applicationLogs.stop();
     }
 
     @Test
@@ -285,6 +292,41 @@ class OutboundMessagingIntegrationTest {
     }
 
     @Test
+    void replayAfterTheMessageAdvancedReturnsTheCurrentRepresentationAndTheChildRecordOfTheFirstRequest()
+            throws Exception {
+        // ADR 0023 §4.2: a replay confirms the first request and reads the message as it is now, not as it was.
+        String submitKey = "rs-" + UUID.randomUUID();
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(submit(BODY, submitKey))).message();
+        String approveKey = "ra-" + UUID.randomUUID();
+        ApprovalCommand approval = new ApprovalCommand(message.id(), NOTE, "1", approveKey);
+        UUID approvalId = ((MessageApproval) inContext(ownerA, () -> commands.approve(approval)).record().orElseThrow()).id();
+
+        CommandResult submitReplay = inContext(ownerA, () -> commands.submit(submit(BODY, submitKey)));
+        assertThat(submitReplay.created()).isFalse();
+        assertThat(submitReplay.message().id()).isEqualTo(message.id());
+        assertThat(submitReplay.message().status()).isEqualTo(MessageStatus.APPROVED);
+        assertThat(submitReplay.message().version()).isEqualTo(2);
+        assertThat(submitReplay.record()).isEmpty();
+
+        inContext(ownerA, () -> commands.cancel(new CancellationCommand(message.id(), NOTE, "2", "rc-" + UUID.randomUUID())));
+        CommandResult approveReplay = inContext(ownerA, () -> commands.approve(approval));
+        assertThat(approveReplay.created()).isFalse();
+        assertThat(approveReplay.message().status()).isEqualTo(MessageStatus.CANCELLED);
+        assertThat(approveReplay.message().version()).isEqualTo(3);
+        assertThat(approveReplay.record()).get().isInstanceOfSatisfying(MessageApproval.class,
+                stored -> assertThat(stored.id()).isEqualTo(approvalId));
+
+        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id())))
+                .extracting(MessageEvent::type).containsExactly(MessageEventType.SUBMITTED, MessageEventType.APPROVED,
+                        MessageEventType.CANCELLED);
+        assertThat(rowCount("outbound_message_approvals")).isEqualTo(1);
+        assertThat(rowCount("outbound_message_idempotency_keys")).isEqualTo(3);
+        List<AuditEvent> audit = inContext(ownerA, () -> auditReader.read(null, 100).events());
+        assertThat(audit).filteredOn(event -> event.type() == AuditEventType.MESSAGE_SUBMITTED).hasSize(1);
+        assertThat(audit).filteredOn(event -> event.type() == AuditEventType.MESSAGE_APPROVED).hasSize(1);
+    }
+
+    @Test
     void refusesSubmitWhenForbiddenStaleUnmappedOrCrossTenantWithoutLeavingRows() throws Exception {
         assertThatRefused(() -> inContext(viewerA, () -> commands.submit(submit(BODY, "v-" + UUID.randomUUID()))),
                 MessagingErrorCode.FORBIDDEN);
@@ -318,6 +360,77 @@ class OutboundMessagingIntegrationTest {
         assertThat(messageCount()).isZero();
         assertThat(rowCount("outbound_message_events")).isZero();
         assertThat(rowCount("outbound_message_idempotency_keys")).isZero();
+    }
+
+    @Test
+    void auditFailureRollsBackAnApprovalItsRecordItsEventAndItsIdempotencyKey() throws Exception {
+        OutboundMessage pending = submitted();
+        doThrow(new AuditPersistenceException()).when(auditRecorder).messageTransition(any(), any(), any());
+
+        assertThatThrownBy(() -> inContext(ownerA, () -> commands.approve(
+                new ApprovalCommand(pending.id(), NOTE, "1", "afa-" + UUID.randomUUID()))))
+                .isInstanceOf(AuditPersistenceException.class);
+
+        assertThatNothingChangedSince(pending, 1, 1);
+        assertThat(rowCount("outbound_message_approvals")).isZero();
+        assertThatFailureLogsAreClean(pending, null);
+    }
+
+    @Test
+    void auditFailureRollsBackARejectionItsRecordItsEventAndItsIdempotencyKey() throws Exception {
+        OutboundMessage pending = submitted();
+        doThrow(new AuditPersistenceException()).when(auditRecorder).messageTransition(any(), any(), any());
+
+        assertThatThrownBy(() -> inContext(ownerA, () -> commands.reject(
+                new ApprovalCommand(pending.id(), NOTE, "1", "afr-" + UUID.randomUUID()))))
+                .isInstanceOf(AuditPersistenceException.class);
+
+        assertThatNothingChangedSince(pending, 1, 1);
+        assertThat(rowCount("outbound_message_approvals")).isZero();
+        assertThatFailureLogsAreClean(pending, null);
+    }
+
+    @Test
+    void auditFailureRollsBackACancellationItsRecordItsEventAndItsIdempotencyKey() throws Exception {
+        OutboundMessage pending = submitted();
+        doThrow(new AuditPersistenceException()).when(auditRecorder).messageTransition(any(), any(), any());
+
+        assertThatThrownBy(() -> inContext(ownerA, () -> commands.cancel(
+                new CancellationCommand(pending.id(), NOTE, "1", "afc-" + UUID.randomUUID()))))
+                .isInstanceOf(AuditPersistenceException.class);
+
+        assertThatNothingChangedSince(pending, 1, 1);
+        assertThat(rowCount("outbound_message_cancellations")).isZero();
+        assertThatFailureLogsAreClean(pending, null);
+    }
+
+    @Test
+    void auditFailureRollsBackAnAppliedDeliveryReportItsEventAndTheCadenceAnchor() throws Exception {
+        OutboundMessage pending = submitted();
+        inContext(ownerA, () -> commands.approve(new ApprovalCommand(pending.id(), NOTE, "1", "afd-" + UUID.randomUUID())));
+        String providerMessageId = "wamid." + UUID.randomUUID();
+        inContext(ownerA, () -> driver.sendUnknownOutcome(ownerA, pending.id(), providerMessageId));
+        OutboundMessage sending = inContext(ownerA, () -> messages.findById(tenantA.id().value(), pending.id())).orElseThrow();
+        assertThat(sending.status()).isEqualTo(MessageStatus.SENDING);
+        int eventsBefore = rowCount("outbound_message_events");
+        int keysBefore = rowCount("outbound_message_idempotency_keys");
+        LocalDate anchorBefore = inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate();
+        long policyVersionBefore = inContext(ownerA, () -> followUps.evaluateSnapshot(customer.id())).policyVersion();
+        doThrow(new AuditPersistenceException()).when(auditRecorder).messageDeliveryUpdated(any(), any(), any());
+
+        // SENDING to SENT is the applied report that also moves the cadence anchor, so the touch must roll back too.
+        assertThatThrownBy(() -> asProvider(() -> sink.apply(new DeliveryStatusReport(providerMessageId,
+                DeliveryStatus.SENT, clock.instant(), Optional.empty()))))
+                .isInstanceOf(AuditPersistenceException.class);
+
+        assertThatNothingChangedSince(sending, eventsBefore, keysBefore);
+        assertThat(inContext(ownerA, () -> followUps.customerPolicy(customer.id())).lastOutboundMessageDate())
+                .isEqualTo(anchorBefore);
+        assertThat(inContext(ownerA, () -> followUps.evaluateSnapshot(customer.id())).policyVersion())
+                .isEqualTo(policyVersionBefore);
+        assertThat(inContext(ownerA, () -> auditReader.read(null, 100).events())).extracting(AuditEvent::type)
+                .doesNotContain(AuditEventType.MESSAGE_DELIVERY_UPDATED);
+        assertThatFailureLogsAreClean(sending, providerMessageId);
     }
 
     @Test
@@ -500,6 +613,28 @@ class OutboundMessagingIntegrationTest {
     private SubmitMessageCommand submit(String body, String idempotencyKey) {
         return new SubmitMessageCommand(customer.id().value(), contactId, "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP",
                 body, "es-419", "MANUAL", Long.toString(policyVersion), idempotencyKey);
+    }
+
+    private OutboundMessage submitted() throws Exception {
+        UUID id = inContext(ownerA, () -> commands.submit(submit(BODY, "s-" + UUID.randomUUID()))).message().id();
+        return inContext(ownerA, () -> messages.findById(tenantA.id().value(), id)).orElseThrow();
+    }
+
+    /** The stored message is compared whole, so status, version and every timestamp are covered at once. */
+    private void assertThatNothingChangedSince(OutboundMessage before, int events, int idempotencyKeys) throws Exception {
+        assertThat(inContext(ownerA, () -> messages.findById(tenantA.id().value(), before.id()))).contains(before);
+        assertThat(rowCount("outbound_message_events")).isEqualTo(events);
+        assertThat(rowCount("outbound_message_idempotency_keys")).isEqualTo(idempotencyKeys);
+    }
+
+    private void assertThatFailureLogsAreClean(OutboundMessage message, String providerMessageId) {
+        for (ILoggingEvent entry : applicationLogs.list) {
+            String line = entry.getFormattedMessage();
+            assertThat(line).doesNotContain(BODY).doesNotContain(NOTE).doesNotContain(message.recipientPhone());
+            if (providerMessageId != null) {
+                assertThat(line).doesNotContain(providerMessageId);
+            }
+        }
     }
 
     /** Counts run under the tenant context because RLS hides every row from a context free statement. */
