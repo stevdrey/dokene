@@ -14,7 +14,6 @@ import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
-import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -138,10 +137,12 @@ public final class FollowUpRecommendationService {
         AiRecommendationResponse response;
         AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
         try {
-            response = invocationProvider(customerId, lastAttempt).recommend(request);
+            response = invocationProvider(customerId, assembly, lastAttempt).recommend(request);
         } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
             reportBoundaryRejection(customerId, ex, lastAttempt.get());
             throw ex;
+        } catch (RetryNoLongerEligibleException ex) {
+            return retryAbandoned(customerId, assembly, ex.reason(), lastAttempt.get());
         }
         RecommendationOutcome outcome = response.outcome();
 
@@ -229,7 +230,7 @@ public final class FollowUpRecommendationService {
                     return FollowUpRecommendationResult.available(evaluation, action, freshVersion);
                 } else if (decision.recommendation() instanceof NoRecommendation refusal) {
                     if (!evaluation.eligible()) {
-                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                        ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(evaluation);
                         return FollowUpRecommendationResult.ineligible(evaluation, ineligibilityReason, freshVersion);
                     }
                     return FollowUpRecommendationResult.refusal(evaluation, refusal, freshVersion);
@@ -247,7 +248,7 @@ public final class FollowUpRecommendationService {
                 }
                 if (reason == ActionGateRejectionReason.STALE_STATE) {
                     if (evaluation != null && !evaluation.eligible()) {
-                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                        ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(evaluation);
                         return FollowUpRecommendationResult.ineligible(evaluation, ineligibilityReason, freshVersion);
                     }
                     return FollowUpRecommendationResult.staleState(evaluation, freshVersion);
@@ -293,7 +294,7 @@ public final class FollowUpRecommendationService {
             return FollowUpRecommendationResult.staleState(eval, freshVersion);
         }
         if (eval != null && !eval.eligible()) {
-            ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+            ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(eval);
             return FollowUpRecommendationResult.ineligible(eval, ineligibilityReason, freshVersion);
         }
         return FollowUpRecommendationResult.aiUnavailable(eval, reason, freshVersion);
@@ -304,14 +305,33 @@ public final class FollowUpRecommendationService {
      * retry so a retry can never send customer context after the caller's access was revoked or the customer
      * disappeared.
      */
-    private AiProvider invocationProvider(CustomerId customerId, AtomicReference<AiInvocationMetadata> lastAttempt) {
+    private AiProvider invocationProvider(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+            AtomicReference<AiInvocationMetadata> lastAttempt) {
         if (resilience == null || gate == null) {
             return provider;
         }
         return resilience.wrap(rawProvider, previousAttempt -> {
             lastAttempt.set(previousAttempt);
-            gate.revalidateAuthorization(customerId);
+            gate.revalidateBeforeRetry(customerId, assembly, AiOperation.NEXT_BEST_ACTION).ifPresent(reason -> {
+                throw new RetryNoLongerEligibleException(reason);
+            });
         });
+    }
+
+    /**
+     * The customer stopped being eligible while the first attempt was in flight: the retry was abandoned before
+     * any further customer context left the system. The invocation is reported once as a gate rejection with the
+     * exact reason, against the provider/model that was actually called.
+     */
+    private Invocation retryAbandoned(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+            ActionGateRejectionReason reason, AiInvocationMetadata lastAttempt) {
+        reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason, lastAttempt);
+        long baselineVersion = assembly.policyVersion() != null ? assembly.policyVersion() : 0L;
+        FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, baselineVersion);
+        FollowUpEvaluation evaluation = snapshot.evaluation() != null ? snapshot.evaluation() : assembly.evaluation();
+        ActionGateDecision rejected = ActionGateDecision.rejected(reason,
+                "Customer is no longer eligible for a retry", evaluation, snapshot.policyVersion());
+        return new Invocation(FollowUpDecision.rejected(evaluation, rejected), false, null);
     }
 
     /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */
@@ -379,20 +399,6 @@ public final class FollowUpRecommendationService {
         return new FollowUpService.FollowUpEvaluationSnapshot(eval, freshVersion);
     }
 
-    private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {
-        if (evaluation != null && evaluation.reasons() != null) {
-            if (evaluation.reasons().contains(FollowUpReason.DO_NOT_CONTACT)) {
-                return ActionGateRejectionReason.DO_NOT_CONTACT;
-            }
-            if (evaluation.reasons().contains(FollowUpReason.NO_ELIGIBLE_CONTACT)) {
-                return ActionGateRejectionReason.NO_CONTACT_CONSENT;
-            }
-            if (evaluation.reasons().contains(FollowUpReason.CUSTOMER_ARCHIVED)) {
-                return ActionGateRejectionReason.CUSTOMER_ARCHIVED;
-            }
-        }
-        return ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE;
-    }
 
     private long resolvePolicyVersion(CustomerId customerId, long fallbackVersion) {
         if (followUps == null) {

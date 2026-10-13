@@ -20,7 +20,6 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpEvaluation;
-import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -156,7 +155,7 @@ public final class FollowUpDraftService {
                 if (gate != null) {
                     gate.revalidateDraftAuthorization(customerId);
                 }
-                ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(evaluation);
+                ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(evaluation);
                 return FollowUpDraftResult.ineligible(evaluation, ineligibilityReason, policyVersion);
             }
 
@@ -214,10 +213,12 @@ public final class FollowUpDraftService {
             AiDraftResponse response;
             AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
             try {
-                response = invocationProvider(customerId, lastAttempt).draft(request);
+                response = invocationProvider(customerId, assembly, lastAttempt).draft(request);
             } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
                 reportBoundaryRejection(customerId, ex, lastAttempt.get());
                 throw ex;
+            } catch (RetryNoLongerEligibleException ex) {
+                return retryAbandoned(customerId, policyVersion, expectedVersion, ex.reason(), lastAttempt.get());
             }
             if (response == null || response.metadata() == null
                     || response.metadata().status() != AiCompletionStatus.SUCCEEDED) {
@@ -266,7 +267,7 @@ public final class FollowUpDraftService {
                     return FollowUpDraftResult.available(effectiveEvaluation, draft, freshVersion);
                 } else if (gateDecision.rawOutcome().orElse(null) instanceof NoDraft refusal) {
                     if (!effectiveEvaluation.eligible()) {
-                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(effectiveEvaluation);
+                        ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(effectiveEvaluation);
                         return FollowUpDraftResult.ineligible(effectiveEvaluation, ineligibilityReason, freshVersion);
                     }
                     return FollowUpDraftResult.refusal(effectiveEvaluation, refusal, freshVersion);
@@ -278,7 +279,7 @@ public final class FollowUpDraftService {
                 ActionGateRejectionReason reason = gateDecision.rejectionReason().get();
                 if (reason == ActionGateRejectionReason.STALE_STATE) {
                     if (!effectiveEvaluation.eligible()) {
-                        ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(effectiveEvaluation);
+                        ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(effectiveEvaluation);
                         return FollowUpDraftResult.ineligible(effectiveEvaluation, ineligibilityReason, freshVersion);
                     }
                     return FollowUpDraftResult.staleState(effectiveEvaluation, freshVersion);
@@ -327,7 +328,7 @@ public final class FollowUpDraftService {
             return FollowUpDraftResult.staleState(eval, freshVersion);
         }
         if (eval != null && !eval.eligible()) {
-            ActionGateRejectionReason ineligibilityReason = deriveIneligibilityReason(eval);
+            ActionGateRejectionReason ineligibilityReason = FollowUpIneligibility.reasonFor(eval);
             return FollowUpDraftResult.ineligible(eval, ineligibilityReason, freshVersion);
         }
         return FollowUpDraftResult.aiUnavailable(eval, reason, freshVersion);
@@ -338,14 +339,41 @@ public final class FollowUpDraftService {
      * retry so a retry can never send customer context after the caller's access was revoked or the customer
      * disappeared.
      */
-    private AiProvider invocationProvider(CustomerId customerId, AtomicReference<AiInvocationMetadata> lastAttempt) {
+    private AiProvider invocationProvider(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+            AtomicReference<AiInvocationMetadata> lastAttempt) {
         if (resilience == null || gate == null) {
             return provider;
         }
         return resilience.wrap(rawProvider, previousAttempt -> {
             lastAttempt.set(previousAttempt);
-            gate.revalidateDraftAuthorization(customerId);
+            gate.revalidateBeforeRetry(customerId, assembly, AiOperation.MESSAGE_DRAFT).ifPresent(reason -> {
+                throw new RetryNoLongerEligibleException(reason);
+            });
         });
+    }
+
+    /**
+     * The customer stopped being eligible while the first attempt was in flight: the retry was abandoned before
+     * any further customer context left the system. The invocation is reported once as a gate rejection with the
+     * exact reason, against the provider/model that was actually called.
+     */
+    private FollowUpDraftResult retryAbandoned(CustomerId customerId, long policyVersion, Long expectedVersion,
+            ActionGateRejectionReason reason, AiInvocationMetadata lastAttempt) {
+        reporter.gateRejected(customerId, AiOperation.MESSAGE_DRAFT, reason, lastAttempt);
+        FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, policyVersion);
+        FollowUpEvaluation eval = snapshot.evaluation();
+        long freshVersion = snapshot.policyVersion();
+        if (expectedVersion != null && expectedVersion != freshVersion) {
+            throw new FollowUpConflictException();
+        }
+        if (reason == ActionGateRejectionReason.STALE_STATE) {
+            // Same mapping as the post-provider gate path: stale and no longer due reports the ineligibility reason.
+            if (eval != null && !eval.eligible()) {
+                return FollowUpDraftResult.ineligible(eval, FollowUpIneligibility.reasonFor(eval), freshVersion);
+            }
+            return FollowUpDraftResult.staleState(eval, freshVersion);
+        }
+        return FollowUpDraftResult.ineligible(eval, reason, freshVersion);
     }
 
     /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */
@@ -421,20 +449,6 @@ public final class FollowUpDraftService {
         }
     }
 
-    private ActionGateRejectionReason deriveIneligibilityReason(FollowUpEvaluation evaluation) {
-        if (evaluation != null && evaluation.reasons() != null) {
-            if (evaluation.reasons().contains(FollowUpReason.DO_NOT_CONTACT)) {
-                return ActionGateRejectionReason.DO_NOT_CONTACT;
-            }
-            if (evaluation.reasons().contains(FollowUpReason.NO_ELIGIBLE_CONTACT)) {
-                return ActionGateRejectionReason.NO_CONTACT_CONSENT;
-            }
-            if (evaluation.reasons().contains(FollowUpReason.CUSTOMER_ARCHIVED)) {
-                return ActionGateRejectionReason.CUSTOMER_ARCHIVED;
-            }
-        }
-        return ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE;
-    }
 
     private long resolvePolicyVersion(CustomerId customerId, long fallbackVersion) {
         if (followUps == null) {

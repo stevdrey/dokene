@@ -373,6 +373,118 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void retryIsNotBlockedWhileTheCustomerRemainsEligibleAndUnchanged() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).isEmpty();
+    }
+
+    @Test
+    void retryIsBlockedWhenTheCustomerWasArchivedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        Customer archived = Customer.restore(customerId, tenantId, "Test Customer",
+                "Some internal notes", List.of(primaryPhone), CustomerStatus.ARCHIVED,
+                now.minusSeconds(86400), now, now, 1L);
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(archived));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.CUSTOMER_ARCHIVED);
+    }
+
+    @Test
+    void retryIsBlockedWhenDoNotContactWasEnabledMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ContactPolicy dncPolicy = new ContactPolicy(customerId, 2L, true, null, null, validContactPolicy.consents());
+        when(contacts.find(activeCustomer)).thenReturn(dncPolicy);
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.DO_NOT_CONTACT);
+    }
+
+    @Test
+    void retryIsBlockedWhenWhatsAppConsentWasRevokedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ContactConsent revoked = new ContactConsent(primaryPhone.id(), ContactChannel.WHATSAPP,
+                ConsentStatus.REVOKED, ContactIntentSource.CUSTOMER_WRITTEN, now.minusSeconds(3600));
+        when(contacts.find(activeCustomer))
+                .thenReturn(new ContactPolicy(customerId, 2L, false, null, null, List.of(revoked)));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+    }
+
+    @Test
+    void retryIsBlockedWhenTheCustomerNotesChangedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        Customer edited = Customer.create(customerId, tenantId, "Test Customer",
+                "Edited after the first attempt", List.of(primaryPhone), now.minusSeconds(86400));
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(edited));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void retryIsBlockedWhenTheCustomerDisplayNameChangedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        Customer renamed = Customer.create(customerId, tenantId, "Renamed Customer",
+                "Some internal notes", List.of(primaryPhone), now.minusSeconds(86400));
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(renamed));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void retryIsBlockedWhenANewPurchaseWasRecordedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        Purchase newer = Purchase.create(new PurchaseId(UUID.randomUUID()), tenantId, customerId,
+                now.minusSeconds(3600), "Purchase 2", now.minusSeconds(3600));
+        when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(newer));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void retryIsBlockedWhenTheTenantDateRolledOverMeanwhile() {
+        FollowUpEvaluation yesterdayBaseline = new FollowUpPolicyEvaluator(Clock.fixed(now.minusSeconds(86400), zoneId))
+                .evaluate(activeCustomer, validContactPolicy, tenantPolicy, customerPolicy, lastPurchaseTime);
+        RecommendationContextAssembler.Assembly assembly = assembly(yesterdayBaseline, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
+    void retryWithoutABaselineIsAllowedWhileTheCustomerIsDue() {
+        assertThat(gate.retryBlockingReason(customerId, null)).isEmpty();
+    }
+
+    @Test
+    void retryWithoutABaselineIsBlockedWhenTheCustomerIsNotDue() {
+        when(purchases.lastValid(tenantId, customerId)).thenReturn(Optional.of(Purchase.create(
+                new PurchaseId(UUID.randomUUID()), tenantId, customerId, now.minusSeconds(3600), "Fresh", now)));
+
+        assertThat(gate.retryBlockingReason(customerId, null))
+                .contains(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
+    }
+
+    @Test
+    void revalidateBeforeRetryRevalidatesAuthorizationBeforeLookingAtEligibility() {
+        when(memberships.findByTenantIdAndIdentityId(tenantId, tenantContext.identityId()))
+                .thenReturn(Optional.of(TenantMembership.restore(TenantMembershipId.random(), tenantId,
+                        tenantContext.identityId(), TenantRole.OPERATOR, TenantMembershipStatus.REVOKED, now, now, 1L)));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> gate.revalidateBeforeRetry(
+                customerId, null, io.github.stevdrey.dokene.ai.application.AiOperation.NEXT_BEST_ACTION))
+                .isInstanceOf(io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException.class);
+    }
+
+    @Test
+    void retryIsBlockedWhenTheFollowUpPolicyVersionMovedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation, null, List.of(), 1L);
+        when(policies.customerPolicy(tenantId, customerId))
+                .thenReturn(new CustomerFollowUpPolicy(tenantId, customerId, 30, null, null, null, 2L));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
     void rejectsWhenCustomerIsArchived() {
         Customer archived = Customer.restore(customerId, tenantId, "Archived Customer",
                 "notes", List.of(primaryPhone), CustomerStatus.ARCHIVED,

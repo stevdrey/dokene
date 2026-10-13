@@ -1,7 +1,9 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import java.util.Optional;
 
 /**
  * Deterministic application-owned policy gate enforcing ADR 0004 for recommendations and drafts.
@@ -72,5 +74,40 @@ public interface AiActionGate {
      * @param customerId target customer identifier
      */
     default void revalidateDraftAuthorization(CustomerId customerId) {
+    }
+
+    /**
+     * Deterministic customer-level re-check run before every provider retry, after the authorization
+     * revalidation. It applies the same hard constraints the gate enforces on the result (archive,
+     * do-not-contact, WhatsApp consent, follow-up eligibility and state drift against the baseline) so a
+     * retry never transmits customer context after the customer stopped being eligible.
+     *
+     * @param customerId target customer identifier
+     * @param assembly baseline assembly used when the first attempt was sent, if available
+     * @return the closed reason that blocks the retry, or empty when the retry may proceed
+     *
+     * <p>Fail-closed by design: any drift of the baseline (including the tenant date rolling over during the
+     * backoff) blocks the retry as {@code STALE_STATE}, matching what the gate would decide for the result anyway,
+     * so allowing the retry would only spend a provider call.
+     */
+    default Optional<ActionGateRejectionReason> retryBlockingReason(CustomerId customerId,
+                                                                    RecommendationContextAssembler.Assembly assembly) {
+        return Optional.empty();
+    }
+
+    /**
+     * Single pre-retry check for the retry guard: authorization revalidation for {@code operation} (throwing as
+     * {@link #revalidateAuthorization} / {@link #revalidateDraftAuthorization}) followed by
+     * {@link #retryBlockingReason}.
+     */
+    default Optional<ActionGateRejectionReason> revalidateBeforeRetry(CustomerId customerId,
+                                                                      RecommendationContextAssembler.Assembly assembly,
+                                                                      AiOperation operation) {
+        if (operation == AiOperation.MESSAGE_DRAFT) {
+            revalidateDraftAuthorization(customerId);
+        } else {
+            revalidateAuthorization(customerId);
+        }
+        return retryBlockingReason(customerId, assembly);
     }
 }
