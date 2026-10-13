@@ -23,11 +23,15 @@ import io.github.stevdrey.dokene.customer.domain.ContactChannel;
 import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
+import io.github.stevdrey.dokene.followup.application.FollowUpTouchRecorder;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
+import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.CommandResult;
+import io.github.stevdrey.dokene.messaging.application.MessageAuditPort;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
+import io.github.stevdrey.dokene.messaging.application.OutboundMessageTestDriver;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
 import io.github.stevdrey.dokene.messaging.domain.MessageOrigin;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
@@ -35,6 +39,8 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -42,11 +48,15 @@ import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -55,6 +65,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +74,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {"dokene.ai.provider=fake",
         "dokene.messaging.template-gate.stub.enabled-intents=GENERAL_FOLLOW_UP"})
@@ -79,16 +93,20 @@ class OutboundMessagingGuardIntegrationTest {
 
     @Autowired OutboundMessageCommandService commands;
     @Autowired OutboundMessageRepository messages;
+    @Autowired MessageAuditPort messageAudit;
     @Autowired FollowUpService followUps;
+    @Autowired FollowUpTouchRecorder touches;
     @Autowired ContactPolicyService contacts;
     @Autowired PurchaseService purchases;
     @Autowired CustomerService customers;
     @Autowired TenantRepository tenants;
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
+    @Autowired DatabaseContextSigner signer;
     @Autowired AuditExecutionContext auditExecution;
     @Autowired AuditReader auditReader;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
     @Autowired Clock clock;
 
     private Tenant tenantA;
@@ -190,6 +208,35 @@ class OutboundMessagingGuardIntegrationTest {
                 .extracting(AuditEvent::type).doesNotContain(AuditEventType.MESSAGE_APPROVED);
     }
 
+    /** covers: AC-4 (T2 guard step 2: an approve one version behind is refused and writes no event and no audit). */
+    @Test
+    void approveOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+        assertThat(message.version()).isEqualTo(1);
+        List<UUID> auditBefore = auditEventIds();
+
+        assertThatRefused(() -> inContext(ownerA, () -> commands.approve(
+                new ApprovalCommand(message.id(), null, "0", "a-" + UUID.randomUUID()))),
+                MessagingErrorCode.STALE_VERSION);
+
+        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
+                .orElseThrow();
+        assertThat(unchanged.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        assertThat(unchanged.version()).isEqualTo(1);
+        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
+        assertThat(rowCount(ownerA, "outbound_message_approvals")).isZero();
+        assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
+        assertThat(auditEventIds()).isEqualTo(auditBefore);
+
+        // Control: the same approve at the current version lands, so the refusal above was about the version alone.
+        OutboundMessage approved = inContext(ownerA, () -> commands.approve(
+                new ApprovalCommand(message.id(), null, "1", "a-" + UUID.randomUUID()))).message();
+        assertThat(approved.status()).isEqualTo(MessageStatus.APPROVED);
+        assertThat(approved.version()).isEqualTo(2);
+        assertThat(rowCount(ownerA, "outbound_message_approvals")).isEqualTo(1);
+    }
+
     /** covers: AC-2 (the partial unique index is the backstop when the service lock is bypassed). */
     @Test
     void openMessageIndexRefusesASecondOpenRowInsertedBehindTheService() throws Exception {
@@ -254,6 +301,66 @@ class OutboundMessagingGuardIntegrationTest {
         assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
     }
 
+    /** covers: AC-8 (as the runtime role, a forged or expired tenant capability reads and writes no table). */
+    @Test
+    void forgedAndExpiredTenantCapabilitiesCanNeitherReadNorWriteAnyMessagingTable() throws Exception {
+        seedEveryMessagingTable();
+        UUID tenantAId = tenantA.id().value();
+        UUID tenantBId = ownerB.tenantId().value();
+
+        try (Connection genuine = TenantSecurityIntegrationFixture.runtimeConnection(
+                signer.issueTenantContext(tenantA.id()))) {
+            for (String table : MESSAGING_TABLES) {
+                assertThat(TenantSecurityIntegrationFixture.queryInt(genuine, "SELECT count(*) FROM dokene." + table))
+                        .as(table).isPositive();
+                // Control: the genuine capability passes the insert policy, so the bare row dies on NOT NULL instead.
+                assertThatThrownBy(() -> insertBareRow(genuine, table, tenantAId)).as(table)
+                        .isInstanceOfSatisfying(SQLException.class,
+                                refusal -> assertThat(refusal.getSQLState()).isEqualTo("23502"));
+            }
+            assertThat(touchRows(genuine, "outbound_messages", "updated_at", tenantAId)).isEqualTo(2);
+            assertThat(touchRows(genuine, "outbound_send_attempts", "started_at", tenantAId)).isEqualTo(1);
+        }
+
+        SignedDatabaseContext foreign = signer.issueTenantContext(ownerB.tenantId());
+        SignedDatabaseContext forged = new SignedDatabaseContext(
+                foreign.payload().replace(tenantBId.toString(), tenantAId.toString()), foreign.signature(),
+                foreign.expiresAt());
+        assertThat(forged.payload()).contains(tenantAId.toString()).doesNotContain(tenantBId.toString());
+        assertNoMessagingAccess("forged", forged);
+        assertNoMessagingAccess("expired", expired(signer.issueTenantContext(tenantA.id()), 3));
+    }
+
+    /** covers: issue #133 verification (only a genuine provider capability appends the provider audit event). */
+    @Test
+    void forgedAndExpiredProviderCapabilitiesCannotAppendTheProviderAttributedAuditEvent() throws Exception {
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+        String tenantAId = tenantA.id().value().toString();
+        String tenantBId = ownerB.tenantId().value().toString();
+        SignedDatabaseContext foreign = signer.issueProviderAuditContext(ownerB.tenantId());
+        SignedDatabaseContext forged = new SignedDatabaseContext(foreign.payload().replace(tenantBId, tenantAId),
+                foreign.signature(), foreign.expiresAt());
+        assertThat(forged.payload()).contains(tenantAId).doesNotContain(tenantBId);
+
+        try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnection(
+                signer.issueTenantContext(tenantA.id()))) {
+            assertProviderAppendRefused(connection, message.id(), forged, "Invalid audit capability signature");
+            assertProviderAppendRefused(connection, message.id(), foreign,
+                    "Audit tenant capability does not match active verified tenant");
+            assertProviderAppendRefused(connection, message.id(),
+                    expired(signer.issueProviderAuditContext(tenantA.id()), 5), "Audit capability expired");
+            assertThat(deliveryAuditEvents()).isEmpty();
+
+            // Control: the same call with a genuine capability lands, so the refusals above are about the capability.
+            appendDeliveryAudit(connection, message.id(), signer.issueProviderAuditContext(tenantA.id()));
+        }
+        assertThat(deliveryAuditEvents()).singleElement().satisfies(event -> {
+            assertThat(event.actorId()).isNull();
+            assertThat(event.membershipId()).isNull();
+        });
+    }
+
     /**
      * covers: spec 0001 trade-off "phone number corrections do not propagate to pending messages; operators must
      * cancel and resubmit", which assumes the correction itself still succeeds after a message exists.
@@ -296,6 +403,93 @@ class OutboundMessagingGuardIntegrationTest {
     private int rowCount(TenantContext context, String table) throws Exception {
         return inContext(context, () -> jdbc.queryForObject(
                 "SELECT count(*) FROM dokene." + table + " WHERE tenant_id = ?", Integer.class, tenantA.id().value()));
+    }
+
+    private void seedEveryMessagingTable() throws Exception {
+        OutboundMessage sent = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+        inContext(ownerA, () -> commands.approve(new ApprovalCommand(sent.id(), null, "1", "a-" + UUID.randomUUID())));
+        OutboundMessageTestDriver driver = new OutboundMessageTestDriver(messages, messageAudit, touches,
+                new TransactionTemplate(transactionManager), clock);
+        inContext(ownerA, () -> driver.sendAccepted(ownerA, sent.id(), "wamid." + UUID.randomUUID()));
+
+        Customer other = eligibleCustomer("Guard cancelled customer");
+        OutboundMessage cancelled = inContext(ownerA, () -> commands.submit(
+                submit(other, other.phones().getFirst().id(), "s-" + UUID.randomUUID()))).message();
+        inContext(ownerA, () -> commands.cancel(
+                new CancellationCommand(cancelled.id(), null, "1", "c-" + UUID.randomUUID())));
+    }
+
+    private void assertNoMessagingAccess(String label, SignedDatabaseContext capability) throws Exception {
+        UUID tenantAId = tenantA.id().value();
+        try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnection(capability)) {
+            for (String table : MESSAGING_TABLES) {
+                String description = label + " capability on " + table;
+                assertThat(TenantSecurityIntegrationFixture.queryInt(connection,
+                        "SELECT count(*) FROM dokene." + table)).as(description).isZero();
+                assertThatThrownBy(() -> insertBareRow(connection, table, tenantAId)).as(description)
+                        .isInstanceOfSatisfying(SQLException.class,
+                                refusal -> assertThat(refusal.getSQLState()).isEqualTo("42501"));
+            }
+            assertThat(touchRows(connection, "outbound_messages", "updated_at", tenantAId)).as(label).isZero();
+            assertThat(touchRows(connection, "outbound_send_attempts", "started_at", tenantAId)).as(label).isZero();
+        }
+    }
+
+    private static int insertBareRow(Connection connection, String table, UUID tenantId) throws SQLException {
+        return TenantSecurityIntegrationFixture.executeUpdate(connection,
+                "INSERT INTO dokene." + table + " (tenant_id) VALUES (?)", tenantId);
+    }
+
+    /** A no op update: it reports how many of the tenant's rows the capability may write without changing any. */
+    private static int touchRows(Connection connection, String table, String column, UUID tenantId)
+            throws SQLException {
+        return TenantSecurityIntegrationFixture.executeUpdate(connection,
+                "UPDATE dokene." + table + " SET " + column + " = " + column + " WHERE tenant_id = ?", tenantId);
+    }
+
+    /** Signed with the real key, so only the expiry field at {@code expiryIndex} can be what gets it refused. */
+    private static SignedDatabaseContext expired(SignedDatabaseContext genuine, int expiryIndex) throws Exception {
+        assertThat(sign(genuine.payload())).isEqualTo(genuine.signature());
+        Instant expiredAt = Instant.now().minusSeconds(3600);
+        String[] parts = genuine.payload().split("\\|");
+        parts[expiryIndex] = Long.toString(expiredAt.getEpochSecond());
+        String payload = String.join("|", parts);
+        return new SignedDatabaseContext(payload, sign(payload), expiredAt);
+    }
+
+    private static String sign(String payload) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(HexFormat.of().parseHex(TenantSecurityIntegrationFixture.TENANT_CONTEXT_SIGNING_KEY),
+                "HmacSHA256"));
+        return HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static void appendDeliveryAudit(Connection connection, UUID messageId, SignedDatabaseContext capability)
+            throws SQLException {
+        TenantSecurityIntegrationFixture.queryUuids(connection, """
+                SELECT dokene.append_audit_event(
+                    gen_random_uuid(), now(), 'MESSAGE_DELIVERY_UPDATED', 'MESSAGE', ?, 'SUCCESS', gen_random_uuid(),
+                    NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL, 'SENT', 'DELIVERED')
+                """, messageId, capability.payload(), capability.signature());
+    }
+
+    private static void assertProviderAppendRefused(Connection connection, UUID messageId,
+            SignedDatabaseContext capability, String reason) {
+        assertThatThrownBy(() -> appendDeliveryAudit(connection, messageId, capability))
+                .isInstanceOfSatisfying(SQLException.class, refusal -> {
+                    assertThat(refusal.getSQLState()).isEqualTo("28000");
+                    assertThat(refusal.getMessage()).contains(reason);
+                });
+    }
+
+    private List<AuditEvent> deliveryAuditEvents() throws Exception {
+        return inContext(ownerA, () -> auditReader.read(null, 100).events()).stream()
+                .filter(event -> event.type() == AuditEventType.MESSAGE_DELIVERY_UPDATED).toList();
+    }
+
+    private List<UUID> auditEventIds() throws Exception {
+        return inContext(ownerA, () -> auditReader.read(null, 100).events()).stream().map(AuditEvent::id).toList();
     }
 
     private static void assertThatRefused(Callable<?> operation, MessagingErrorCode code) {
