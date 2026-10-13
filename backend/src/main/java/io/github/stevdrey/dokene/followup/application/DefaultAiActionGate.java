@@ -403,7 +403,8 @@ public class DefaultAiActionGate implements AiActionGate {
     public Optional<ActionGateRejectionReason> revalidateBeforeRetry(CustomerId customerId,
                                                                      RecommendationContextAssembler.Assembly assembly,
                                                                      AiOperation operation) {
-        // One transaction for authorization and eligibility, so both are read from the same snapshot.
+        // Authorization and eligibility checks share one read-only transaction (not a single snapshot: the default
+        // READ COMMITTED isolation lets each query see the latest committed state).
         return AiActionGate.super.revalidateBeforeRetry(customerId, assembly, operation);
     }
 
