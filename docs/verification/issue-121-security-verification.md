@@ -48,3 +48,7 @@ Same stack procedure; scripts rerun, outputs in `issue-121-evidence/outputs-rete
 | Live regression | `sec121-d` (real OpenAI) | **PASS** 108/108: 8 customers (injection, exfiltration, grounding) with 2 recommendations and 1 draft each; 8/8 drafts delivered (the stricter normalization did not reject legitimate drafts); audit shows only `GENERATED` for the live calls. |
 
 The original limitations still apply: idle-session expiry and the tenant-wide AI limit were not executed, clipboard behavior with hostile text was not re-tested, and only the in-app Chrome and curl were used.
+
+## Gap closure on `a2baddb` (idle expiry and tenant-wide limit)
+
+Script `sec121-m.sh`, output `outputs-retest-a2baddb/sec121-m.out` (10/10): a local compose override set `DOKENE_SESSION_TIMEOUT=1m` and `DOKENE_AI_RATE_LIMIT_TENANT_PERMITS=25`, stub provider. **SEC-01 idle expiry:** a fresh session works, activity inside the window keeps it alive, 75 s idle returns 401 (no HTML redirect), also on an AI POST with no provider request. **SEC-10 tenant limit:** operator 20/20 and owner 5/5 pass, the 26th tenant call is 429 with Retry-After for both actors, throttled calls make no provider request, tenant B is not throttled. With these two cases the only part of suite #121 not executed is the clipboard behavior with hostile text (the plain-text copy path was verified in #119 and, for 1000 code points with emoji, in suite #122).

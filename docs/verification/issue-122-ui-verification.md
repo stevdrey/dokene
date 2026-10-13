@@ -2,7 +2,7 @@
 
 Campaign: #118. Suite: #122. Tested on `main` @ `a2baddb` (includes #187-#190), local Docker stack, synthetic data only. Browsers: Chrome 155.0.8059.39 and Firefox 157.0.1 (both headless, fresh profiles, driven by real input events through the DevTools Protocol and WebDriver BiDi), plus the Claude in-app browser for the earlier spot checks. Live OpenAI (`gpt-6-luna`) produced the recommendation and draft content of UX-01 to UX-06 (partly), UX-08 to UX-11; the fault-injection stub (labelled FI) produced long/malicious AI text and provider failures (UX-06b, UX-07). Screenshots are in `issue-122-evidence/screenshots/`.
 
-**Verdict for suite #122: NOT clean.** Six defects were filed (#191-#197 below; #191 and #192 are Medium). UX-07, UX-08, UX-09 and UX-10 pass, the keyboard journey passes, and the measured contrast and target sizes pass.
+**Verdict for suite #122: NOT clean.** Seven defects were filed (#191-#197 below; #191, #192 and #193 are Medium or Medium-Low). UX-07, UX-08, UX-09 and UX-10 pass, the keyboard journey passes, and the measured contrast and target sizes pass.
 
 ## Results
 
