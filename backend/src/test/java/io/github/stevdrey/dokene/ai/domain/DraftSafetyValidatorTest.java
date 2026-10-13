@@ -662,4 +662,261 @@ class DraftSafetyValidatorTest {
                 draftWith("Crédito de USD\u00a0100 para ti.", "es-419", List.of()), "Ofrecimos USD 100 antes"))
                 .isEmpty();
     }
+
+    private static final String UNGROUNDED_CONTEXT = "Cliente: Juan. Compras: Café molido 250 g.";
+
+    @Test
+    void rejectsUnicodeAndNotationVariantsOfUngroundedClaims() {
+        record Probe(String body, String code) { }
+        List<Probe> probes = List.of(
+                new Probe("Hoy por \uff04\uff11\uff10.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Con \uff11\uff10% menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Con 10\uff05 menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Con 10 por ciento menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Con 10 pct menos.", DraftSafetyViolation.HALLUCINATED_PERCENTAGE),
+                new Probe("Hoy por \u00a51000.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Hoy por \uffe51000.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Hoy por 1000 \u20a9.", DraftSafetyViolation.HALLUCINATED_PRICE),
+                new Probe("Con des\u200bcuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u200btis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u00adtis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("En \u043eferta.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Con d3scuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gr4tis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("En promo[.]test.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En promo(dot)test.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En hxxps[://]promo.test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En www\u3002promo\u3002test.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("En promo\u3002test/x.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\u3002dev", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\uff61dev ahora.", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo\u3002DEV", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo [.] test", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita promo (dot) test", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita hxxps [://] promo.test", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita 10 pct.com", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Visita 10 porciento.com/x", DraftSafetyViolation.UNAUTHORIZED_URL),
+                new Probe("Con des\ufe0fcuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Con des\udb40\udd00cuento.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u034ftis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Es gra\u180btis.", DraftSafetyViolation.HALLUCINATED_OFFER_TERM),
+                new Probe("Visita promo\u3002Dev", DraftSafetyViolation.UNAUTHORIZED_URL));
+        for (Probe probe : probes) {
+            Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                    draftWith(probe.body(), "es-419", List.of()), UNGROUNDED_CONTEXT);
+            assertThat(violation).as(probe.body()).isPresent();
+            assertThat(violation.get().code()).as(probe.body()).isEqualTo(probe.code());
+        }
+    }
+
+    @Test
+    void variantSpellingsStillMatchGroundedClaims() {
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Con \uff11\uff10\uff05 menos.", "es-419", List.of()), "Se acordó 10% de descuento.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Con 10 por ciento de des\u200bcuento.", "es-419", List.of()), "Se acordó 10% de descuento."))
+                .isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Plan por \u00a51000.", "es-419", List.of()), "Plan de \u00a51000")).isEmpty();
+    }
+
+    @Test
+    void ordinaryTextIsNotFlaggedByNormalization() {
+        for (String benign : List.of("\u00bfc\u00f3mo te fue con tu Caf\u00e9 molido 250 g?", "Tu pedido de 3 cajas de caf\u00e9 en la semana 4.",
+                "Hola \u041c\u0430\u0440\u0438\u044f, gracias por tu compra.", "Visita pronto, \u03b1 \u03b2 \u03b3.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(benign, "es-419", List.of()), UNGROUNDED_CONTEXT))
+                    .as(benign).isEmpty();
+        }
+    }
+
+    @Test
+    void leetSpellingInGroundedContextAndIdeographicStopsAreNotFalsePositives() {
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha d3scuento.", "es-419", List.of()), "Plan con d3scuento")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha d3scuento.", "es-419", List.of()), "Plan sin nada")).isPresent();
+        // Stops with a space or at the end of a sentence are punctuation; between letters they separate a host.
+        for (String prose : List.of("Hola\u3002 Gracias por tu compra", "Gracias por tu compra\u3002")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(prose, "es-419", List.of()), "Cliente: Juan."))
+                    .as(prose).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola\u3002Gracias por tu compra", "es-419", List.of()),
+                "Cliente: Juan.")).isPresent();
+    }
+
+    @Test
+    void compactCurrencyAmountsAndFoldedCurrencyCodesNeedGroundedAmounts() {
+        for (String body : List.of("Paga JPY100.", "Paga USD100.", "Paga U5D 100.", "Paga 100USD.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Plan USD 50"))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga JPY100.", "es-419", List.of()), "Plan JPY100")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD 100")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D 100.", "es-419", List.of()), "Plan USD 100")).isEmpty();
+    }
+
+    @Test
+    void compactFoldedAmountsDefangedDomainsAfterPercentagesAndLongerPromotionsAreNotGrounded() {
+        for (String body : List.of("Paga U5D100.", "Paga u5d100 hoy.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Plan USD 50"))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D100.", "es-419", List.of()), "Plan USD 100")).isEmpty();
+        for (String body : List.of("Visita 10 pct[.]com", "Visita 10 pct (dot) com", "Visita 10 pct\u3002com")) {
+            DraftSafetyViolation violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Se acord\u00f3 10% de descuento").orElseThrow();
+            assertThat(violation.code()).as(body).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+        }
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha 2x1.", "es-419", List.of()), "Plan 2x10")).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Aprovecha 2x10.", "es-419", List.of()), "Plan 2x10")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Es un b0n0.", "es-419", List.of()), "Incluye b0n0")).isEmpty();
+    }
+
+    @Test
+    void leadingNumericAmountsAndSeparatedCombiningMarksAreStillChecked() {
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100U5D.", "es-419", List.of()), "Plan USD 50")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100U5D.", "es-419", List.of()), "Plan 100 USD")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Tienes un cupo\u200b\u0301n.", "es-419", List.of()),
+                "Customer: Juan.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Tienes un cupo\u200b\u0301n.", "es-419", List.of()),
+                "Incluye un cup\u00f3n")).isEmpty();
+    }
+
+    @Test
+    void remainingIgnorablesBracketedIdeographicDotsAndLongerIdentifiersAreHandled() {
+        for (String body : List.of("Con des\u17b4cuento.", "Con des\u17b5cuento.", "Es gra\u00adtis.", "Es gra\u061ctis.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Cliente: Juan."))
+                    .as(body).isPresent();
+        }
+        for (String body : List.of("Visita promo[\u3002]test", "Visita promo(\uff61)test", "Visita promo [\u3002] test")) {
+            DraftSafetyViolation violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Cliente: Juan.").orElseThrow();
+            assertThat(violation.code()).as(body).isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL);
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "SKU USD100A")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD100")).isEmpty();
+        // The same whole identifier in the purchase and the draft is a grounded product code, not an amount.
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Gracias por comprar USD100A.", "es-419", List.of()), "SKU USD100A")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Gracias por comprar USD100A.", "es-419", List.of()), "SKU USD100B")).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Gracias por comprar USD100A.", "es-419", List.of()), "Cliente: Juan.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD 100.")).isEmpty();
+    }
+
+    @Test
+    void embeddedAmountsDefangedContextDomainsLeetPercentagesAndTrailingDigitsAreChecked() {
+        for (String ctx : List.of("Cliente: Juan.", "Plan USD 50")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D100A.", "es-419", List.of()), ctx))
+                    .as("U5D100A | " + ctx).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D100A.", "es-419", List.of()), "SKU U5D100A")).isEmpty();
+        // A defanged domain in the trusted context must not fabricate a grounded percentage.
+        assertThat(DraftSafetyValidator.validate(draftWith("Ahorra 10%.", "es-419", List.of()),
+                "Producto 10 pct[.]com")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Ahorra 10%.", "es-419", List.of()),
+                "Producto 10 pct(dot)com")).isPresent();
+        for (String body : List.of("Ahorra 10 pc7.", "Ahorra 10 por cien7o.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Cliente: Juan."))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Ahorra 10 pc7.", "es-419", List.of()),
+                "Se acord\u00f3 10% de descuento")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100USD200.", "es-419", List.of()), "Plan 100 USD")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100USD.", "es-419", List.of()), "Plan 100 USD")).isEmpty();
+    }
+
+    @Test
+    void contextAmountsFollowedByUnitLettersStillGroundTheirDraftAmount() {
+        assertThat(DraftSafetyValidator.validate(draftWith("Plan de $20 mensuales.", "es-419", List.of()),
+                "Plan $20mensual")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Plan de \u20a15000 por caja.", "es-419", List.of()),
+                "Caja \u20a15000c/u")).isEmpty();
+        // Compact code-first identifiers are still not amounts.
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "SKU USD100A")).isPresent();
+    }
+
+    @Test
+    void lookAlikeLettersForVAndKAreFolded() {
+        for (String body : List.of("Paga 100 boli\u03bdares.", "Paga 100 boli\u0475ares.", "Es un cashbac\u043a.",
+                "Con cas\u04bbbac\u043a.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Cliente: Juan."))
+                    .as(body).isPresent();
+        }
+    }
+
+    @Test
+    void offerSymbolsAreGroundedOnTheSameNormalizedPurchaseViewsAsQuantities() {
+        record Probe(String purchase, String notes, boolean grounded) { }
+        for (Probe probe : List.of(new Probe("Plan con 10 pc7", null, true),
+                new Probe("Plan con 10 por cien7o", null, true), new Probe("Plan con 15 pc7", null, false),
+                new Probe(null, "10 pc7", false), new Probe("Plan con 10 pct", null, true),
+                new Probe("Plan con 10 por ciento", null, true), new Probe("Plan con 10%", null, true))) {
+            List<String> purchases = probe.purchase() == null ? List.of() : List.of(probe.purchase());
+            var grounding = new DraftGroundingContext("Ana", probe.notes(), purchases, List.of(), "DUE", "2026-09-29");
+            String allowed = String.join(" ", purchases) + " " + (probe.notes() == null ? "" : probe.notes());
+            assertThat(DraftSafetyValidator.validate(draftWith("Con 10% menos", "es-419", List.of()), allowed, grounding)
+                    .isEmpty()).as("%s | notes=%s", probe.purchase(), probe.notes()).isEqualTo(probe.grounded());
+        }
+    }
+
+    @Test
+    void evidenceValuesErasedByCanonicalizationAreRejected() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
+        for (String item : List.of("Compra: \u200b", "Compra: \u2060\ufe0f", "Compra: \u200b\u200d")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola.", "es-419", List.of(item)), "Plan de $10", grounding))
+                    .as(item).isPresent();
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola.", "es-419", List.of(item)), "Plan de $10"))
+                    .as(item + " (flattened context)").isPresent();
+        }
+    }
+
+    @Test
+    void typedEvidenceSourcesMatchUnderTheSameCanonicalizationAsTheRestOfTheDraft() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Plan por $10.", "es-419", List.of("Compra: Plan de \uff04\uff11\uff10")),
+                "Plan de $10", grounding)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Hola.", "es-419", List.of("Compra: Plan de \uff04\uff12\uff10")),
+                "Plan de $10", grounding)).isPresent();
+    }
+
+    @Test
+    void compactPromotionStaysVisibleInLeetRefusalChains() {
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay 2x1 ni d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay 2x1, pero tienes d3scuento", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isPresent();
+    }
+
+    @Test
+    void leetSpellingInRefusalNegationAndSpacedPercentMarkersAreHandledSymmetrically() {
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay d3scuento disponible", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay d3scuento, pero tienes d3scuento", RecommendationConfidence.of(0.9)), "Customer: Juan."))
+                .isPresent();
+        for (String[] pair : new String[][] {{"Con 10 por ciento menos.", "Se acord\u00f3 10 % de descuento."},
+                {"Con 10 % menos.", "Se acord\u00f3 10 por ciento de descuento."},
+                {"Con 10% menos.", "Se acord\u00f3 10 % de descuento."},
+                {"Plan por $ 100.", "Plan de $100"}, {"Plan por USD100.", "Plan de USD 100"}}) {
+            assertThat(DraftSafetyValidator.validate(draftWith(pair[0], "es-419", List.of()), pair[1]))
+                    .as(pair[0] + " | " + pair[1]).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Con 10 por ciento menos.", "es-419", List.of()), "Se acord\u00f3 15 % de descuento.")).isPresent();
+    }
+
+    @Test
+    void refusalNegationIsStillNeutralisedAfterNormalization() {
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay una of\u200berta relevante", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
+                "No hay una oferta, pero tienes 10\uff05", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isPresent();
+    }
 }

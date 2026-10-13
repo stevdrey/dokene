@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.ai.domain;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /**
  * Authoritative fields an evidence citation may refer to, kept separate so a value is only
@@ -38,8 +39,10 @@ public record DraftGroundingContext(String customerName, String notes, List<Stri
     enum MatchMode { EXACT, WHOLE_WORD, SUBSTRING }
 
     record EvidenceSource(List<String> values, MatchMode mode) {
-        boolean matches(String lowerCaseValue) {
-            return values.stream().map(v -> v.toLowerCase(Locale.ROOT).strip()).anyMatch(candidate -> switch (mode) {
+        /** Whether the cited value matches an authoritative value, canonicalized the same way as the cited value. */
+        boolean matches(String lowerCaseValue, UnaryOperator<String> canonicalizer) {
+            return values.stream().map(v -> canonicalizer.apply(v.toLowerCase(Locale.ROOT).strip()).strip())
+                    .anyMatch(candidate -> switch (mode) {
                 case EXACT -> candidate.equals(lowerCaseValue);
                 case WHOLE_WORD -> java.util.regex.Pattern
                         .compile("(?<![\\p{L}\\p{N}])" + java.util.regex.Pattern.quote(lowerCaseValue) + "(?![\\p{L}\\p{N}])")
