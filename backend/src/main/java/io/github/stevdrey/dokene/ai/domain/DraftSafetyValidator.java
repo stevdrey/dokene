@@ -43,14 +43,12 @@ public final class DraftSafetyValidator {
 
     /** Percentage markers written out after a number ("10 por ciento", "10 pct"); canonicalised to {@code %}. */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
-            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
+            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
     private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
-    private static final Pattern NUMERIC_PREFIX_PATTERN = Pattern.compile("^\\p{N}+(?=\\p{L})");
-    private static final Pattern NUMERIC_SUFFIX_PATTERN = Pattern.compile("(?<=\\p{L})\\p{N}+$");
     private static final Pattern LEET_DIGIT_PATTERN = Pattern.compile("[013457@]");
 
     /** Cyrillic and Greek letters that render like Latin ones; folded so homoglyph spellings match the vocabularies. */
@@ -89,7 +87,7 @@ public final class DraftSafetyValidator {
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
             "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))" + SP + NUM
-                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))"
+                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?:" + NUM + ")?)"
     );
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
@@ -438,7 +436,9 @@ public final class DraftSafetyValidator {
     /** The text itself plus its leetspeak views (digits folded everywhere, or kept in a trailing numeric suffix). */
     private static List<String> withLeetViews(String text) {
         List<String> views = new java.util.ArrayList<>(List.of(text));
-        for (String folded : List.of(foldLeet(text, false), foldLeet(text, true))) {
+        for (String leet : List.of(foldLeet(text, false), foldLeet(text, true))) {
+            // A written percentage marker can itself be spelled in leetspeak ("10 pc7").
+            String folded = PERCENT_WORD_PATTERN.matcher(leet).replaceAll("%");
             if (!views.contains(folded)) {
                 views.add(folded);
             }
@@ -470,17 +470,37 @@ public final class DraftSafetyValidator {
             boolean hasLetter = token.codePoints().anyMatch(Character::isLetter);
             String folded = token;
             if (hasLetter && !COMPACT_PROMOTION_PATTERN.matcher(token).matches()) {
-                Matcher prefix = NUMERIC_PREFIX_PATTERN.matcher(token);
-                int start = keepNumericSuffix && prefix.find() ? prefix.end() : 0;
-                Matcher suffix = NUMERIC_SUFFIX_PATTERN.matcher(token);
-                int end = keepNumericSuffix && suffix.find() ? suffix.start() : token.length();
-                folded = keepNumericSuffix
-                        ? token.substring(0, start) + leetToken(token.substring(start, end)) + token.substring(end)
-                        : leetToken(token);
+                folded = keepNumericSuffix ? leetKeepingNumbers(token) : leetToken(token);
             }
             tokens.appendReplacement(out, Matcher.quoteReplacement(folded));
         }
         tokens.appendTail(out);
+        return out.toString();
+    }
+
+    /**
+     * Folds only isolated single digits between letters ("U5D100A" is "usd100a"); digit runs at either end of the
+     * token or of two or more digits keep their value, so an amount next to an obfuscated currency code survives.
+     * A single digit between letters ("U5D5A") stays ambiguous and is folded (accepted limitation, see ADR 0018).
+     */
+    private static String leetKeepingNumbers(String token) {
+        StringBuilder out = new StringBuilder(token.length());
+        int i = 0;
+        while (i < token.length()) {
+            char c = token.charAt(i);
+            if (!Character.isDigit(c)) {
+                out.append(c == '@' ? 'a' : c);
+                i++;
+                continue;
+            }
+            int end = i;
+            while (end < token.length() && Character.isDigit(token.charAt(end))) {
+                end++;
+            }
+            boolean isolated = end - i == 1 && i > 0 && end < token.length();
+            out.append(isolated ? leetToken(token.substring(i, end)) : token.substring(i, end));
+            i = end;
+        }
         return out.toString();
     }
 

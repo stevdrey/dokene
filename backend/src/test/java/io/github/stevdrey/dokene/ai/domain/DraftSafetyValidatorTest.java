@@ -809,6 +809,28 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void embeddedAmountsDefangedContextDomainsLeetPercentagesAndTrailingDigitsAreChecked() {
+        for (String ctx : List.of("Cliente: Juan.", "Plan USD 50")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D100A.", "es-419", List.of()), ctx))
+                    .as("U5D100A | " + ctx).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga U5D100A.", "es-419", List.of()), "SKU U5D100A")).isEmpty();
+        // A defanged domain in the trusted context must not fabricate a grounded percentage.
+        assertThat(DraftSafetyValidator.validate(draftWith("Ahorra 10%.", "es-419", List.of()),
+                "Producto 10 pct[.]com")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Ahorra 10%.", "es-419", List.of()),
+                "Producto 10 pct(dot)com")).isPresent();
+        for (String body : List.of("Ahorra 10 pc7.", "Ahorra 10 por cien7o.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Cliente: Juan."))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Ahorra 10 pc7.", "es-419", List.of()),
+                "Se acord\u00f3 10% de descuento")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100USD200.", "es-419", List.of()), "Plan 100 USD")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 100USD.", "es-419", List.of()), "Plan 100 USD")).isEmpty();
+    }
+
+    @Test
     void evidenceValuesErasedByCanonicalizationAreRejected() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
         for (String item : List.of("Compra: \u200b", "Compra: \u2060\ufe0f", "Compra: \u200b\u200d")) {

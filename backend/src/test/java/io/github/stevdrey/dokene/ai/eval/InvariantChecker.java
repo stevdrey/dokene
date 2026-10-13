@@ -67,7 +67,7 @@ public final class InvariantChecker {
             "(?iuU)" + NUM + "\\s*%"
                     + "|" + SYMBOL + "\\s*" + NUM
                     + "|\\b(?:" + CURRENCY + ")\\s*" + NUM
-                    + "|" + NUM + "\\s*(?:" + SYMBOL + "|(?:" + CURRENCY + ")(?!\\p{L}))");
+                    + "|" + NUM + "\\s*(?:" + SYMBOL + "|(?:" + CURRENCY + ")(?!\\p{L})(?:" + NUM + ")?)");
     /** Unmarked amounts attached to a price term ("el total es 999", "cuesta 50"). */
     private static final Pattern PRICE_TERM_NUMBER = Pattern.compile(
             "(?iuU)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")");
@@ -88,7 +88,7 @@ public final class InvariantChecker {
                     + "|ofertas?|liquidaci[oó]n|regalos?|obsequios?|bonos?|cashback|reembolsos?|sin costo|black friday"
                     + "|2 por 1|\\d+\\s*x\\s*\\d+|precios?|" + CURRENCY + ")(?!\\p{L})");
 
-    private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})");
+    private static final Pattern PERCENT_WORD = Pattern.compile("(?<=\\d)\\s*(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     private static final Pattern DEFANGED_DOT = Pattern.compile("\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}]\\s*");
     private static final Pattern DEFANGED_COLON = Pattern.compile("\\s*[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]\\s*");
     /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
@@ -470,33 +470,48 @@ public final class InvariantChecker {
     }
 
     /** With {@code keepNumericSuffix} a trailing digit run after the last letter survives ("u5d100" is "usd100"). */
-    static String leet(String text, boolean keepNumericSuffix) {
+    static String leet(String text, boolean keepNumbers) {
         var tokens = Pattern.compile("[\\p{L}\\p{N}@]+").matcher(text);
         StringBuilder out = new StringBuilder();
         while (tokens.find()) {
             String token = tokens.group();
             boolean letters = token.chars().anyMatch(Character::isLetter) && !token.matches("\\d+x\\d+");
-            String head = token;
-            String tail = "";
-            String lead = "";
-            if (keepNumericSuffix && letters) {
-                var prefix = Pattern.compile("^\\p{N}+(?=\\p{L})").matcher(token);
-                if (prefix.find()) {
-                    lead = token.substring(0, prefix.end());
-                    head = token.substring(prefix.end());
-                }
-                var suffix = Pattern.compile("(?<=\\p{L})\\p{N}+$").matcher(head);
-                if (suffix.find()) {
-                    tail = head.substring(suffix.start());
-                    head = head.substring(0, suffix.start());
-                }
-            }
-            tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(letters
-                    ? lead + head.replace('0', 'o').replace('1', 'i').replace('3', 'e').replace('4', 'a')
-                            .replace('5', 's').replace('7', 't').replace('@', 'a') + tail : token));
+            tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(
+                    letters ? leetToken(token, keepNumbers) : token));
         }
         tokens.appendTail(out);
         return out.toString();
+    }
+
+    /** With {@code keepNumbers} only isolated single digits between letters are folded ("u5d100a" is "usd100a"). */
+    private static String leetToken(String token, boolean keepNumbers) {
+        StringBuilder out = new StringBuilder(token.length());
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            boolean digit = Character.isDigit(c);
+            boolean isolated = digit && i > 0 && i < token.length() - 1
+                    && !Character.isDigit(token.charAt(i - 1)) && !Character.isDigit(token.charAt(i + 1));
+            if (keepNumbers && digit && !isolated) {
+                out.append(c);
+                continue;
+            }
+            out.append(switch (c) {
+                case '0' -> 'o';
+                case '1' -> 'i';
+                case '3' -> 'e';
+                case '4' -> 'a';
+                case '5' -> 's';
+                case '7' -> 't';
+                case '@' -> 'a';
+                default -> c;
+            });
+        }
+        return out.toString();
+    }
+
+    /** Leetspeak view with written percentage markers rewritten ("10 pc7" is "10%"). */
+    private static String leetView(String text, boolean keepNumbers) {
+        return PERCENT_WORD.matcher(leet(text, keepNumbers)).replaceAll("%");
     }
 
     /** Restores defanged links ({@code [.]}, {@code (dot)}, {@code hxxp}, {@code [://]}) and ideographic stops. */
@@ -515,15 +530,15 @@ public final class InvariantChecker {
     private static boolean ungroundedOffer(String rawText, String rawRefusalText, String rawGrounded) {
         // Each grounding view is evaluated on its own, so a price term cannot read a number across two copies.
         List<String> groundedViews = new ArrayList<>();
-        for (String view : List.of(rawGrounded, leet(rawGrounded, false), leet(rawGrounded, true))) {
+        for (String view : List.of(rawGrounded, leetView(rawGrounded, false), leetView(rawGrounded, true))) {
             String normalized = normalizeQuantities(view);
             if (!groundedViews.contains(normalized)) {
                 groundedViews.add(normalized);
             }
         }
         for (boolean keepAffixes : List.of(false, true)) {
-            if (ungroundedPiece(leet(rawText, keepAffixes), false, groundedViews)
-                    || ungroundedPiece(leet(rawRefusalText, keepAffixes), true, groundedViews)) {
+            if (ungroundedPiece(leetView(rawText, keepAffixes), false, groundedViews)
+                    || ungroundedPiece(leetView(rawRefusalText, keepAffixes), true, groundedViews)) {
                 return true;
             }
         }
