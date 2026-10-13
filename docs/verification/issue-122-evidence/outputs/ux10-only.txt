@@ -1,0 +1,10 @@
+== UX-10 ineligibility notice (consent revoked without a policy-version change; Chrome 155, live OpenAI)
+-- variant: queue refresh success, customer "UX10 Fresh…"
+PASS  success: consent revoked in the other tab  -- status 200
+  policy ETag unchanged by the revoke: "0"; panel: 
+PASS  notice names the customer and says the list was updated, after the successful refresh
+PASS  automatic selection fallback: the ineligible customer left the list  -- now selected: "Sin resultados en los seguimientos cargados"
+PASS  notice survives the automatic selection fallback  -- selected now: Sin resultados en los seguimientos cargados
+  after clearing the search the notice is gone
+PASS  notice clears when the operator selects another customer
+PASS=5 FAIL=0

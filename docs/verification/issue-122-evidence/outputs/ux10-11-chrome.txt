@@ -1,0 +1,28 @@
+== UX-10 ineligibility notice (consent revoked without a policy-version change; Chrome 155, live OpenAI)
+-- variant: queue refresh success, customer "Chars Test C2…"
+  customer not in the loaded page
+-- variant: queue refresh refresh-failure, customer "Chars Test C4…"
+PASS  refresh-failure: consent revoked in the other tab  -- status 200
+  policy ETag unchanged by the revoke: "0"; panel: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Recomendación no disponible para este cliente No pudimos actualizar la lista de seguimientos. Reintentar actualizar lista Ahora no se puede sugerir un contacto: el seguimiento ya no está pendiente.
+PASS  refresh failed: panel says the list could not be updated and offers "Reintentar actualizar lista"
+PASS  refresh failed: the "ya no es elegible… se ha actualizado" notice is NOT shown yet
+PASS  after a successful retry the customer notice appears
+== UX-11 navigation and races (live OpenAI; the in-flight result is the real provider call)
+-- (a) workspace change while a recommendation is pending
+workspace options: ["QA Café NorteOperador(a)check","QA Café NorteOperador(a)","QA Café Norte","QA Café SurOperador(a)","QA Café Sur"]
+PASS  after switching workspace no content of the first workspace/customer remains  -- UI Sur QA
+PASS  no AI panel text from the previous tenant
+active workspace now: ad083076-ada1-4a78-acd1-4ffb04c467c7
+-- (b) logout while a recommendation is pending
+PASS  after logout during a pending request: login screen, no advice shown  -- spa Dokene Gestión de relaciones y seguimiento a clientes para pequeños negocios
+-- (c) browser Back / Forward
+history after navigating to Clientes: before=5 http://localhost:5173/ after=5 http://localhost:5173/ (SPA state-based navigation: the URL does not change)
+after Back: url=http://localhost:5173/ | text starts: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos gr
+   Back leaves the application page (no in-app history entry) and stays in the app
+after Forward: url=http://localhost:5173/ | session intact: true | text: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos gr
+-- (d) crossing the responsive breakpoint (1440 -> 900 -> 390 -> 1440) with a draft being edited
+PASS  edited text present at 1440
+   at 900px: editor value kept=false; panel mentions: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Obtener recome; selected: Dormant Té QA
+   at 390px: editor value kept=false; panel mentions: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Obtener recome; selected: Dormant Té QA
+   at 1440px: editor value kept=false; panel mentions: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Obtener recome; selected: Dormant Té QA
+PASS=8 FAIL=0

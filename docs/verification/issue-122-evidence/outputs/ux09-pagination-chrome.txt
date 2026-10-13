@@ -1,0 +1,31 @@
+== UX-09 queue pagination (Chrome 155, 1440x900, 81 due customers in 2 pages of 50 + 31; live OpenAI for AI-driven refresh)
+initial list: 50 cards, buttons: ["Cargar más seguimientos"]
+PASS  first page shows exactly 50 cards
+PASS  initial load made one queue request  -- ["/api/follow-up-queue?limit=50"]
+PASS  "Cargar más" appends the second page: 81 cards in total  -- 81 cards
+PASS  exactly one extra request with a cursor  -- /api/follow-up-queue?cursor=MjAyNi0wOC0zMXxhYzlmZDJlNy05ZGYyLTQ1OGItOWI1NC02MDM5ZTg4NGRiN2I&limit=50
+PASS  cursor exhausted: no further "Cargar más" button  -- []
+PASS  end-of-list text is shown or nothing misleading  -- (no end marker)
+PASS  UI list equals the API list, same order, nothing truncated or duplicated  -- api 81 vs ui 81
+selecting a page-2 customer: "SideEffects QA" (index 70)
+PASS  detail shows the selected later-page customer  -- SideEffects QA
+PASS  live recommendation for the page-2 customer
+PASS  policy changed in the other tab (cadence 12 days: due date moves, queue reorders)  -- status 200
+during the refresh, buttons: ["Actualizar recomendación"]
+queue requests during the AI-driven refresh: 2: ["/api/follow-up-queue?limit=50","/api/follow-up-queue?cursor=MjAyNi0wOC0zMXw5ZmRmZDhiYS0yY2RlLTQ4OTItOTY1OS1iNTIxMDc1ZTA3ZTg&limit=50"]
+PASS  refresh reloaded the pages already loaded (2 requests: first page + cursor page), no duplicates  -- 2 requests
+PASS  list is not truncated after the refresh (81 cards)  -- 81 -> 81
+PASS  selection retained: detail still shows the same customer  -- SideEffects QA
+customer moved in the list: index 70 -> 4
+PASS  customer reordered by the new due date and still highlighted
+panel after refresh: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación. Actualizar recomendación
+-- filters: "Vencidos" tab and text search keep the selection and exhaust cursors
+Vencidos tab: 50 cards; selected: SideEffects QA
+PASS  Vencidos filter lists only overdue items and keeps/falls back the selection coherently
+"Cargar más" on Vencidos: ["Cargar más seguimientos"]
+Vencidos after exhausting: 81 cards
+PASS  Vencidos UI count equals the API OVERDUE count  -- ui 81 vs api 81
+Pendientes tab: 50 cards
+search "Grounding": 18 cards: ["Grounding Sin Precio","Grounding Agrupado","Grounding NBSP","Grounding NBSP 021399423","Grounding Sin Precio","Grounding Unicode","Grounding Diez","Grounding Unicode 021399423"]; helper text: Buscando en 50 cargados
+PASS  search filters across all loaded pages
+PASS=17 FAIL=0

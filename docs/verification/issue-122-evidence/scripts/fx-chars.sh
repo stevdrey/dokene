@@ -1,0 +1,3 @@
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh
+mkp() { api testoperator POST /api/customers/$1/purchases "$(jq -nc --arg d "$3" --arg t "$2" '{purchasedAt:$t,description:$d}')" -H "Idempotency-Key: c122-$RUN-$RANDOM" >/dev/null; }
+i=0; for desc in 'Café "comillas" 1 kg' 'Café & más 1 kg' 'Café <b>negrita</b> 1 kg' "Té 'Earl Grey' 1 kg" 'Pantalón 5" azul'; do i=$((i+1)); id=$(mk "Chars Test C$i$RUN" "$(rnd_phone)" ""); consent $id GRANTED >/dev/null; mkp $id 2026-08-01T14:00:00Z "$desc"; ok=0; for k in 1 2 3; do sleep 3.5; draft $id REPEAT_PURCHASE_FOLLOW_UP REPEAT_PURCHASE; [ "$(echo "$BODY"|jq -r .status)" = AVAILABLE ] && ok=$((ok+1)); done; echo "[$desc] AVAILABLE $ok/3"; done

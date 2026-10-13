@@ -1,0 +1,2 @@
+Firefox 157.0.1, 1440x900, customer with a 70-char unbroken name and 180-char unbroken note/purchase: docScrollW=1711/1440 overflow=true beyond=8
+search icon vs input box while a query is active: {"inputTop":187,"inputBottom":231,"iconTop":199,"iconBottom":219}

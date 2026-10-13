@@ -1,0 +1,6 @@
+== UX-06 content stress (live OpenAI for the AI text; fixtures are labelled synthetic UI data)
+-- live AI on the emoji customer at 1440x900: recommendation, draft, counter, copy
+  live draft: "Hola, queríamos saber cómo te fue con el Café 1 kg que compraste el 1 de agosto. Si necesitas reponerlo, estamos aquí para ayudarte. ¿Te gustaría hacer un nuevo"
+  typed 780 code points of emoji/ZWJ/flag/combining text; textarea holds 780 code points (1140 UTF-16 units); counter shows "780 / 1000"; first/last code points intact: true
+  lone surrogate in editor value: false
+  clipboard after Copiar: equals editor value = true (780 code points), toast/feedback: copiado
