@@ -8,6 +8,7 @@ import {
   MAX_WORKSPACE_NAME_CODE_POINTS,
 } from '../../features/tenants/TenantContext';
 import { ApiError } from '../../api/apiClient';
+import './WorkspaceSelector.css';
 
 export interface WorkspaceSelectorProps {
   compact?: boolean;
@@ -356,12 +357,6 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
           )}
         </div>
       )}
-      <style>{`
-        .workspace-option:focus-visible {
-          outline: 2px solid var(--color-primary);
-          outline-offset: -2px;
-        }
-      `}</style>
     </div>
   );
 };

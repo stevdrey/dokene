@@ -16,6 +16,7 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
 # `nginx` is an additional build context (infra/docker/frontend) declared in compose.yaml.
 COPY --from=nginx nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=nginx security-headers-base.conf security-headers-spa.conf security-headers-api.conf /etc/nginx/snippets/
 
 # The base image already runs as uid 101; declaring it explicitly keeps the non-root guarantee visible to scanners (Trivy DS-0002).
 USER 101

@@ -95,6 +95,12 @@ class TenantSecurityConfiguration {
         return source;
     }
 
+    /** BFF responses are JSON, redirects or plain errors: they never need to load or embed anything. */
+    static final String API_CONTENT_SECURITY_POLICY =
+            "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    static final String PERMISSIONS_POLICY =
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()";
+
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -115,6 +121,9 @@ class TenantSecurityConfiguration {
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .sessionFixation(fixation -> fixation.changeSessionId()))
                 .cors(Customizer.withDefaults())
+                .headers(headers -> headers
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(API_CONTENT_SECURITY_POLICY))
+                        .permissionsPolicyHeader(policy -> policy.policy(PERMISSIONS_POLICY)))
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),

@@ -122,6 +122,15 @@ button, a.nav-link, select, input[type="button"], input[type="submit"], .interac
   border: 0;
 }
 
+/* Inter (Self-hosted, variable) */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  src: url('/fonts/inter-variable.woff2') format('woff2');
+  font-display: swap;
+}
+
 /* Material Symbols Outlined (Self-hosted) */
 @font-face {
   font-family: 'Material Symbols Outlined';
@@ -145,4 +154,10 @@ button, a.nav-link, select, input[type="button"], input[type="submit"], .interac
   direction: ltr;
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
+}
+
+/* Loading spinner (used with inline `animation: spin ...`) */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

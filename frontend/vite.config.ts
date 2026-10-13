@@ -34,6 +34,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: './src/setupTests.ts'
+    setupFiles: './src/setupTests.ts',
+    // Layout rules live in bundled CSS files (the CSP forbids inline <style>); load them so jsdom applies them.
+    css: { include: [/.+/] }
   }
 });
