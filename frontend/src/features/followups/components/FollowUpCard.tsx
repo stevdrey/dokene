@@ -1,6 +1,7 @@
 import React from 'react';
 import { QueueItemResponse } from '@/features/followups/types';
 import { getCalendarDateInTimeZone, computeDaysOverdueInTimeZone } from '../utils/dateUtils';
+import './FollowUpLayout.css';
 
 interface FollowUpCardProps {
   item: QueueItemResponse;
@@ -128,23 +129,22 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
       {/* Header row: Customer name + status badge */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="follow-up-card__title-row">
             <h3
+              className="follow-up-card__title"
+              title={item.displayName}
               style={{
                 fontSize: 'var(--font-size-component-heading)',
                 fontWeight: 600,
                 color: 'var(--color-text-main)',
-                margin: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
+                margin: 0
               }}
             >
               {item.displayName}
             </h3>
             {isSelected && (
               <span
-                className="material-symbols-outlined"
+                className="material-symbols-outlined follow-up-card__select-icon"
                 aria-hidden="true"
                 style={{ fontSize: '18px', color: 'var(--color-primary)' }}
               >

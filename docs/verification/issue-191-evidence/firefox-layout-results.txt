@@ -1,0 +1,17 @@
+Firefox 157.0.1 - this branch (Vite :5174), QA stack, fresh load per width
+--- queue (long-name card)
+320 {"vw":320,"docScrollW":308,"titleW":108,"titleH":40,"clamped":true,"grid":"276px"} ok
+360 {"vw":360,"docScrollW":348,"titleW":148,"titleH":40,"clamped":true,"grid":"316px"} ok
+390 {"vw":390,"docScrollW":378,"titleW":178,"titleH":40,"clamped":true,"grid":"346px"} ok
+560 {"vw":560,"docScrollW":548,"titleW":348,"titleH":40,"clamped":false,"grid":"516px"} ok
+768 {"vw":768,"docScrollW":756,"titleW":308,"titleH":40,"clamped":false,"grid":"476px"} ok
+820 {"vw":820,"docScrollW":808,"titleW":360,"titleH":40,"clamped":false,"grid":"528px"} ok
+1440 {"vw":1440,"docScrollW":1428,"titleW":300,"titleH":40,"clamped":false,"grid":"468.333px 655.667px"} ok
+--- detail of the long-name customer (clicking the card; < 1024 px opens the mobile detail, >= 1024 px the side pane)
+320 {"vw":320,"docScrollW":308,"h2W":226,"h2H":87,"btnOnOwnLine":null} ok
+360 {"vw":360,"docScrollW":348,"h2W":266,"h2H":87,"btnOnOwnLine":null} ok
+390 {"vw":390,"docScrollW":378,"h2W":296,"h2H":87,"btnOnOwnLine":null} ok
+768 {"vw":768,"docScrollW":756,"h2W":426,"h2H":58,"btnOnOwnLine":null} ok
+1100 {"vw":1100,"docScrollW":1088,"h2W":407,"h2H":58,"btnOnOwnLine":true} ok
+1440 {"vw":1440,"docScrollW":1428,"h2W":586,"h2H":29,"btnOnOwnLine":true} ok
+--- selected-card check icon at 1100 px {"w":18,"h":18,"flexShrink":"0"}

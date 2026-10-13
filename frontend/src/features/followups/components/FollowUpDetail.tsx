@@ -8,6 +8,7 @@ import { DismissModal } from './DismissModal';
 import { Button } from '@/shared/components/Button';
 import { computeDaysOverdueInTimeZone } from '../utils/dateUtils';
 import { AiAssistantPanel } from './AiAssistantPanel';
+import './FollowUpLayout.css';
 import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 
 interface FollowUpDetailProps {
@@ -225,9 +226,10 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+          <div className="follow-up-detail__name-block">
+            <div className="follow-up-detail__name-row">
               <h2
+                className="follow-up-detail__name"
                 style={{
                   fontSize: 'var(--font-size-page-heading)',
                   fontWeight: 600,
@@ -268,10 +270,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
             {/* Phone & Channel with Copy Button */}
             {item.primaryPhone && (
               <div
+                className="follow-up-detail__contact-pill"
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-8)',
                   marginTop: 'var(--space-8)',
                   padding: '4px 10px',
                   backgroundColor: 'var(--color-bg-inset)',
