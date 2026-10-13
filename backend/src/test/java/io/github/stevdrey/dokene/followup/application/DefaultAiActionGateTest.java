@@ -373,6 +373,54 @@ class DefaultAiActionGateTest {
     }
 
     @Test
+    void retryIsNotBlockedWhileTheCustomerRemainsEligibleAndUnchanged() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).isEmpty();
+    }
+
+    @Test
+    void retryIsBlockedWhenTheCustomerWasArchivedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        Customer archived = Customer.restore(customerId, tenantId, "Test Customer",
+                "Some internal notes", List.of(primaryPhone), CustomerStatus.ARCHIVED,
+                now.minusSeconds(86400), now, now, 1L);
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(archived));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.CUSTOMER_ARCHIVED);
+    }
+
+    @Test
+    void retryIsBlockedWhenDoNotContactWasEnabledMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ContactPolicy dncPolicy = new ContactPolicy(customerId, 2L, true, null, null, validContactPolicy.consents());
+        when(contacts.find(activeCustomer)).thenReturn(dncPolicy);
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.DO_NOT_CONTACT);
+    }
+
+    @Test
+    void retryIsBlockedWhenWhatsAppConsentWasRevokedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));
+        ContactConsent revoked = new ContactConsent(primaryPhone.id(), ContactChannel.WHATSAPP,
+                ConsentStatus.REVOKED, ContactIntentSource.CUSTOMER_WRITTEN, now.minusSeconds(3600));
+        when(contacts.find(activeCustomer))
+                .thenReturn(new ContactPolicy(customerId, 2L, false, null, null, List.of(revoked)));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+    }
+
+    @Test
+    void retryIsBlockedWhenTheFollowUpPolicyVersionMovedMeanwhile() {
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(
+                dueEvaluation, null, List.of(), 1L);
+        when(policies.customerPolicy(tenantId, customerId))
+                .thenReturn(new CustomerFollowUpPolicy(tenantId, customerId, 30, null, null, null, 2L));
+
+        assertThat(gate.retryBlockingReason(customerId, assembly)).contains(ActionGateRejectionReason.STALE_STATE);
+    }
+
+    @Test
     void rejectsWhenCustomerIsArchived() {
         Customer archived = Customer.restore(customerId, tenantId, "Archived Customer",
                 "notes", List.of(primaryPhone), CustomerStatus.ARCHIVED,

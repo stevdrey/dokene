@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import java.util.Optional;
 
 /**
  * Deterministic application-owned policy gate enforcing ADR 0004 for recommendations and drafts.
@@ -72,5 +73,20 @@ public interface AiActionGate {
      * @param customerId target customer identifier
      */
     default void revalidateDraftAuthorization(CustomerId customerId) {
+    }
+
+    /**
+     * Deterministic customer-level re-check run before every provider retry, after the authorization
+     * revalidation. It applies the same hard constraints the gate enforces on the result (archive,
+     * do-not-contact, WhatsApp consent, follow-up eligibility and state drift against the baseline) so a
+     * retry never transmits customer context after the customer stopped being eligible.
+     *
+     * @param customerId target customer identifier
+     * @param assembly baseline assembly used when the first attempt was sent, if available
+     * @return the closed reason that blocks the retry, or empty when the retry may proceed
+     */
+    default Optional<ActionGateRejectionReason> retryBlockingReason(CustomerId customerId,
+                                                                    RecommendationContextAssembler.Assembly assembly) {
+        return Optional.empty();
     }
 }

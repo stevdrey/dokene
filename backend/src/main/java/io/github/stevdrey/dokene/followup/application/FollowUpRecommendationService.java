@@ -138,10 +138,12 @@ public final class FollowUpRecommendationService {
         AiRecommendationResponse response;
         AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
         try {
-            response = invocationProvider(customerId, lastAttempt).recommend(request);
+            response = invocationProvider(customerId, assembly, lastAttempt).recommend(request);
         } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
             reportBoundaryRejection(customerId, ex, lastAttempt.get());
             throw ex;
+        } catch (RetryNoLongerEligibleException ex) {
+            return retryAbandoned(customerId, assembly, ex.reason(), lastAttempt.get());
         }
         RecommendationOutcome outcome = response.outcome();
 
@@ -304,14 +306,34 @@ public final class FollowUpRecommendationService {
      * retry so a retry can never send customer context after the caller's access was revoked or the customer
      * disappeared.
      */
-    private AiProvider invocationProvider(CustomerId customerId, AtomicReference<AiInvocationMetadata> lastAttempt) {
+    private AiProvider invocationProvider(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+            AtomicReference<AiInvocationMetadata> lastAttempt) {
         if (resilience == null || gate == null) {
             return provider;
         }
         return resilience.wrap(rawProvider, previousAttempt -> {
             lastAttempt.set(previousAttempt);
             gate.revalidateAuthorization(customerId);
+            gate.retryBlockingReason(customerId, assembly).ifPresent(reason -> {
+                throw new RetryNoLongerEligibleException(reason);
+            });
         });
+    }
+
+    /**
+     * The customer stopped being eligible while the first attempt was in flight: the retry was abandoned before
+     * any further customer context left the system. The invocation is reported once as a gate rejection with the
+     * exact reason, against the provider/model that was actually called.
+     */
+    private Invocation retryAbandoned(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+            ActionGateRejectionReason reason, AiInvocationMetadata lastAttempt) {
+        reporter.gateRejected(customerId, AiOperation.NEXT_BEST_ACTION, reason, lastAttempt);
+        long baselineVersion = assembly.policyVersion() != null ? assembly.policyVersion() : 0L;
+        FollowUpService.FollowUpEvaluationSnapshot snapshot = resolveFallbackSnapshot(customerId, baselineVersion);
+        FollowUpEvaluation evaluation = snapshot.evaluation() != null ? snapshot.evaluation() : assembly.evaluation();
+        ActionGateDecision rejected = ActionGateDecision.rejected(reason,
+                "Customer is no longer eligible for a retry", evaluation, snapshot.policyVersion());
+        return new Invocation(FollowUpDecision.rejected(evaluation, rejected), false, null);
     }
 
     /** Raised by the pre-retry guard: the provider was already called once, so the invocation is still reported. */

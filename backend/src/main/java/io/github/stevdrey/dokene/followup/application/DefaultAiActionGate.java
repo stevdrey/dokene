@@ -369,6 +369,51 @@ public class DefaultAiActionGate implements AiActionGate {
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<ActionGateRejectionReason> retryBlockingReason(CustomerId customerId,
+                                                                   RecommendationContextAssembler.Assembly assembly) {
+        Objects.requireNonNull(customerId, "Customer ID is required");
+        TenantContext tenantContext = contexts.current()
+                .orElseThrow(() -> new TenantAccessDeniedException("Active authenticated tenant context is required"));
+        Customer customer = customers.findById(tenantContext.tenantId(), customerId)
+                .orElseThrow(CustomerNotFoundException::new);
+        if (customer.status() == CustomerStatus.ARCHIVED) {
+            return Optional.of(ActionGateRejectionReason.CUSTOMER_ARCHIVED);
+        }
+        ContactPolicy contactPolicy = contacts.find(customer);
+        if (contactPolicy.doNotContact()) {
+            return Optional.of(ActionGateRejectionReason.DO_NOT_CONTACT);
+        }
+        if (!hasGrantedWhatsappConsent(customer, contactPolicy)) {
+            return Optional.of(ActionGateRejectionReason.NO_CONTACT_CONSENT);
+        }
+        var tenantPolicy = policies.tenantPolicy(customer.tenantId());
+        var customerPolicy = policies.customerPolicy(customer.tenantId(), customer.id());
+        if (assembly != null && assembly.policyVersion() != null
+                && assembly.policyVersion() != customerPolicy.version()) {
+            return Optional.of(ActionGateRejectionReason.STALE_STATE);
+        }
+        Optional<Purchase> lastPurchaseOpt = purchases.lastValid(customer.tenantId(), customer.id());
+        FollowUpEvaluation currentEvaluation = evaluator.evaluate(customer, contactPolicy, tenantPolicy,
+                customerPolicy, lastPurchaseOpt.map(Purchase::purchasedAt).orElse(null));
+        if (assembly != null && assembly.evaluation() != null && isAssemblyStale(assembly, customer,
+                currentEvaluation, lastPurchaseOpt.map(Purchase::id).orElse(null))) {
+            return Optional.of(ActionGateRejectionReason.STALE_STATE);
+        }
+        if (!currentEvaluation.eligible()) {
+            return Optional.of(ActionGateRejectionReason.FOLLOW_UP_INELIGIBLE);
+        }
+        return Optional.empty();
+    }
+
+    private boolean hasGrantedWhatsappConsent(Customer customer, ContactPolicy contactPolicy) {
+        return customer.phones().stream().anyMatch(phone -> contactPolicy.consents().stream()
+                .anyMatch(consent -> consent.contactId().equals(phone.id())
+                        && consent.channel() == ContactChannel.WHATSAPP
+                        && consent.status() == ConsentStatus.GRANTED));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public DraftGateDecision evaluateDraft(CustomerId customerId,
                                            RecommendationContextAssembler.Assembly assembly,
                                            DraftOutcome outcome) {

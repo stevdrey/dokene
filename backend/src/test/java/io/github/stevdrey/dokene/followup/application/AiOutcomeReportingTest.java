@@ -584,6 +584,47 @@ class AiOutcomeReportingTest {
         assertThat(audit.events).isEmpty();
     }
 
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class,
+            names = {"CUSTOMER_ARCHIVED", "DO_NOT_CONTACT", "NO_CONTACT_CONSENT", "STALE_STATE"})
+    void customerBecomingIneligibleBetweenAttemptsAbandonsTheRetryBeforeContextIsSentAgain(
+            ActionGateRejectionReason reason) {
+        when(provider.recommend(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        when(gate.retryBlockingReason(customerId, assembly)).thenReturn(java.util.Optional.of(reason));
+
+        FollowUpRecommendationResult result = recommendations.recommendSafe(customerId, timeout, null);
+
+        assertThat(result.status()).isEqualTo(reason == ActionGateRejectionReason.STALE_STATE
+                ? RecommendationStatus.STALE_STATE : RecommendationStatus.INELIGIBLE);
+        verify(provider, times(1)).recommend(any());
+        assertThat(telemetry.retries).isEmpty();
+        assertThat(telemetry.outcomes).containsExactly("NEXT_BEST_ACTION:test/test-model:GATE_REJECTED");
+        assertThat(telemetry.gateRejections).containsExactly("NEXT_BEST_ACTION:" + reason.name());
+        assertThat(audit.events).containsExactly("gateRejected:NEXT_BEST_ACTION:" + reason.name());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ActionGateRejectionReason.class,
+            names = {"CUSTOMER_ARCHIVED", "DO_NOT_CONTACT", "NO_CONTACT_CONSENT"})
+    void draftCustomerBecomingIneligibleBetweenAttemptsAbandonsTheRetryBeforeContextIsSentAgain(
+            ActionGateRejectionReason reason) {
+        AiProvider draftProvider = mock();
+        stubTimeouts(draftProvider);
+        FollowUpDraftService drafts = new FollowUpDraftService(draftProvider, assembler, gate, authorization,
+                mock(TenantContextProvider.class), followUps, null, null, resilience, reporter);
+        when(draftProvider.draft(any())).thenThrow(failure(AiFailureCategory.THROTTLED));
+        when(gate.retryBlockingReason(customerId, assembly)).thenReturn(java.util.Optional.of(reason));
+
+        FollowUpDraftResult result = drafts.draftSafe(customerId, null, null, timeout, null);
+
+        assertThat(result.status()).isEqualTo(DraftStatus.INELIGIBLE);
+        verify(draftProvider, times(1)).draft(any());
+        assertThat(telemetry.retries).isEmpty();
+        assertThat(telemetry.outcomes).containsExactly("MESSAGE_DRAFT:test/test-model:GATE_REJECTED");
+        assertThat(telemetry.gateRejections).containsExactly("MESSAGE_DRAFT:" + reason.name());
+        assertThat(audit.events).containsExactly("gateRejected:MESSAGE_DRAFT:" + reason.name());
+    }
+
     @Test
     void draftOutcomesAreReportedWithTheDraftOperation() {
         TenantContextProvider tenantContexts = mock();
