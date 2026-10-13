@@ -7,22 +7,25 @@ nginx (SPA and proxied BFF routes) and Spring Security (BFF) now send a restrict
 policies: [ADR 0023](../adr/0023-spa-and-bff-response-security-headers.md).
 
 ## Evidence
-Code under test: commit `9664ac2` (clean tree), based on `main` at `d9e55da`. Synthetic QA data only.
+Code under test: commit `80c0b29` (clean tree; initial implementation `9664ac2` plus the code-review fixes), based on `main` at `d9e55da`. Synthetic QA data only.
 
 - **Automated, backend** (`backend/`, JDK 26 toolchain): `./gradlew check` — passed, including the new
   `BffResponseSecurityHeadersIntegrationTest` (CSP, Permissions-Policy, nosniff and frame denial on an
   unauthenticated `/api/session` 401).
-- **Automated, frontend** (`frontend/`): `npm test` — 366/366 passed in the final run; `npm run build` — passed, and
+- **Automated, frontend** (`frontend/`): `npm test` — 370/370 passed in the final run; `npm run build` — passed, and
   `dist/index.html` contains no inline script/style and no external host. `selfHostedAssets.test.ts` fails if
   `index.html` or `tokens.css` references an external host, if `index.html` has inline script/style, or if any
   component renders a `<style>` element. One earlier full run had 5 intermittent failures under heavy machine load;
   the identical suite passed on rerun (not investigated further).
-- **nginx headers** — `issue-186-evidence/nginx-headers.txt`: image built from the commit above and run with `curl -I`
-  on `/`, a hashed JS and CSS asset, the font, `/api/session` (401) and `/oauth2/authorization/dokene` (302). SPA
-  locations carry the SPA CSP, BFF locations carry `default-src 'none'; …`, every response carries
-  `Permissions-Policy`, and each header appears exactly once. Limitation: the BFF behind this test instance was the
-  QA stack's backend (an older commit without the Spring headers), so the BFF values in this file came from nginx;
-  the Spring side is covered by the integration test above.
+- **nginx headers** — `scripts/tests/nginx-headers-smoke.sh` (runs in the Frontend CI workflow; output in
+  `issue-186-evidence/nginx-headers-smoke.txt`, 23/23 passed): builds the image and, for `/`, a hashed asset, the font
+  and an SPA fallback route, asserts exactly one CSP and one Permissions-Policy, same-origin-only sources (no `unsafe-*`,
+  no third-party host), `frame-ancestors 'none'`, nosniff/frame denial/referrer policy; fonts cached for 30 days; the
+  entry HTML revalidated; and that nginx adds no CSP of its own on proxied `/api/*` (the backend owns BFF headers).
+- **Code-review follow-up** (8 findings, all fixed): `interest-cohort` removed; BFF headers now owned only by Spring
+  (incl. Referrer-Policy, asserted by the integration test); `/fonts/` caching; `vite preview` serves the nginx headers
+  (`frontend/securityHeaders.ts`, compared with the snippets by `securityHeaders.test.ts`); stricter
+  `selfHostedAssets.test.ts`; `AppShell` test asserts the computed style; Vitest processes only `src` CSS.
 - **Manual, built-in browser, SPA served by nginx with the CSP, QA stack on `localhost:5173`** (the stack's own
   frontend container was stopped for the test and restored afterwards):
   - First load of the pre-fix build reported `Applying inline style violates … style-src 'self'` (the `<style>`

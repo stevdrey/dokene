@@ -1,0 +1,26 @@
+# scripts/tests/nginx-headers-smoke.sh, code commit 80c0b29 (clean tree), 2026-10-13T05:35:09Z
+[pass] / sends exactly one CSP
+[pass] / sends exactly one Permissions-Policy
+[pass] / CSP is same-origin only (no unsafe-*, no third-party host)
+[pass] / CSP forbids framing
+[pass] / sends nosniff, frame denial and referrer policy
+[pass] /assets/index-Dlbbl7RN.js sends exactly one CSP
+[pass] /assets/index-Dlbbl7RN.js sends exactly one Permissions-Policy
+[pass] /assets/index-Dlbbl7RN.js CSP is same-origin only (no unsafe-*, no third-party host)
+[pass] /assets/index-Dlbbl7RN.js CSP forbids framing
+[pass] /assets/index-Dlbbl7RN.js sends nosniff, frame denial and referrer policy
+[pass] /fonts/inter-variable.woff2 sends exactly one CSP
+[pass] /fonts/inter-variable.woff2 sends exactly one Permissions-Policy
+[pass] /fonts/inter-variable.woff2 CSP is same-origin only (no unsafe-*, no third-party host)
+[pass] /fonts/inter-variable.woff2 CSP forbids framing
+[pass] /fonts/inter-variable.woff2 sends nosniff, frame denial and referrer policy
+[pass] /some/spa/route sends exactly one CSP
+[pass] /some/spa/route sends exactly one Permissions-Policy
+[pass] /some/spa/route CSP is same-origin only (no unsafe-*, no third-party host)
+[pass] /some/spa/route CSP forbids framing
+[pass] /some/spa/route sends nosniff, frame denial and referrer policy
+[pass] fonts are cached for 30 days
+[pass] the entry HTML is always revalidated
+[pass] proxied /api/ routes get no nginx-added CSP
+all checks passed
+exit=0
