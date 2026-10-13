@@ -7,6 +7,8 @@ import io.github.stevdrey.dokene.audit.domain.AiAuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
+import io.github.stevdrey.dokene.audit.domain.AuditFailureCategory;
+import io.github.stevdrey.dokene.audit.domain.AuditMessageStatus;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
@@ -42,11 +44,15 @@ class JdbcAuditStore {
                 ? value : null;
         AuditMetadata.AiInvocation ai = event.metadata() instanceof AuditMetadata.AiInvocation value
                 ? value : null;
+        AuditMetadata.MessageTransition transition = event.metadata() instanceof AuditMetadata.MessageTransition value
+                ? value : null;
+        AuditMetadata.IntegrationToggle toggle = event.metadata() instanceof AuditMetadata.IntegrationToggle value
+                ? value : null;
         String previousRole = change == null ? null : change.previousRole().name();
         String newRole = change != null ? change.newRole().name() : (created != null ? created.role().name() : null);
         jdbc.queryForObject("""
                 SELECT dokene.append_audit_event(
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 UUID.class,
                 event.id(), Timestamp.from(event.timestamp()),
@@ -60,7 +66,12 @@ class JdbcAuditStore {
                 capability == null ? null : capability.signature(),
                 ai == null ? null : ai.operation().name(),
                 ai == null ? null : ai.outcome().name(),
-                ai == null ? null : ai.detail().name());
+                ai == null ? null : ai.detail().name(),
+                transition == null || transition.from() == null ? null : transition.from().name(),
+                transition == null ? null : transition.to().name(),
+                transition == null || transition.failureCategory() == null ? null : transition.failureCategory().name(),
+                transition == null ? null : transition.attemptNumber(),
+                toggle == null ? null : toggle.enabled());
     }
 
     List<AuditEvent> read(TenantId tenant, AuditCursor before, int limit) {
@@ -97,10 +108,24 @@ class JdbcAuditStore {
                     AiAuditOperation.valueOf(row.getString("ai_operation")),
                     AiAuditOutcome.valueOf(row.getString("ai_outcome")),
                     AiAuditDetail.valueOf(row.getString("ai_detail")));
+            case MESSAGE_SUBMITTED, MESSAGE_APPROVED, MESSAGE_REJECTED, MESSAGE_CANCELLED, MESSAGE_SEND_REQUESTED,
+                    MESSAGE_SENT, MESSAGE_SEND_FAILED, MESSAGE_SEND_OUTCOME_UNKNOWN, MESSAGE_DELIVERY_UPDATED ->
+                    new AuditMetadata.MessageTransition(
+                            row.getString("status_from") == null ? null
+                                    : AuditMessageStatus.valueOf(row.getString("status_from")),
+                            AuditMessageStatus.valueOf(row.getString("status_to")),
+                            row.getString("failure_category") == null ? null
+                                    : AuditFailureCategory.valueOf(row.getString("failure_category")),
+                            (Integer) row.getObject("attempt_number"));
+            case TEMPLATE_MAPPING_UPDATED, INTEGRATION_UPDATED, OUTBOUND_KILL_SWITCH_CHANGED ->
+                    new AuditMetadata.IntegrationToggle(row.getBoolean("enabled"));
         };
+        UUID actorId = row.getObject("actor_id", UUID.class);
+        UUID membershipId = row.getObject("membership_id", UUID.class);
         return new AuditEvent(row.getObject("id", UUID.class), row.getTimestamp("occurred_at").toInstant(),
-                new TenantId(row.getObject("tenant_id", UUID.class)), new IdentityId(row.getObject("actor_id", UUID.class)),
-                new TenantMembershipId(row.getObject("membership_id", UUID.class)), type,
+                new TenantId(row.getObject("tenant_id", UUID.class)),
+                actorId == null ? null : new IdentityId(actorId),
+                membershipId == null ? null : new TenantMembershipId(membershipId), type,
                 row.getString("target_type") == null ? null : new AuditTarget(
                         AuditTarget.Type.valueOf(row.getString("target_type")), row.getObject("target_id", UUID.class)),
                 AuditOutcome.valueOf(row.getString("outcome")), row.getObject("correlation_id", UUID.class), metadata);

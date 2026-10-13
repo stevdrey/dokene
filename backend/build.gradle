@@ -44,6 +44,8 @@ dependencies {
     testImplementation platform('org.testcontainers:testcontainers-bom:2.0.5')
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'org.testcontainers:testcontainers-postgresql'
+    // Module dependency rules from ADR 0023 §1 (ModuleDependencyArchitectureTest).
+    testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1'
 }
 
 tasks.named('test') {

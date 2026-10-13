@@ -106,3 +106,7 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
 - Operators can review bounded, sorted due/overdue follow-up lists and record definitive dispositions.
 - Dismissals advance customer cadence cycles so dismissed customers remain eligible and return when their next cadence is reached.
 - The design remains entirely provider-neutral and asynchronous-message-free.
+
+## Amended by ADR 0023
+
+[ADR 0023](0023-phase-3-outbound-messaging-contracts.md) adds `last_outbound_message_date` (set when an outbound message reaches `SENT`) to the anchor precedence list, so a sent follow-up message advances the cadence cycle like a dismissal or manual completion.

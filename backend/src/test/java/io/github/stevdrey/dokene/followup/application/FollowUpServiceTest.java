@@ -288,6 +288,16 @@ class FollowUpServiceTest {
     }
 
     @Test
+    void configureCustomerAcquiresTheCustomerLockForUpdate() {
+        // A messaging command evaluates the policy under this lock; a configuration change must queue behind it.
+        when(policies.updateCustomerPolicy(eq(tenantId), eq(customerId), any(), any(), eq(0L)))
+                .thenReturn(new CustomerFollowUpPolicy(tenantId, customerId, 14, null, null, null, 1L));
+        service.configureCustomer(customerId, 14, null, 0L);
+        verify(customers).findByIdForUpdate(tenantId, customerId);
+        verify(customers, never()).findById(tenantId, customerId);
+    }
+
+    @Test
     void dispositionsAcquireCustomerLockForUpdate() {
         when(policies.snooze(eq(tenantId), eq(customerId), any(), eq(0L)))
                 .thenReturn(new CustomerFollowUpPolicy(tenantId, customerId, 30, null, null, null, 1L));

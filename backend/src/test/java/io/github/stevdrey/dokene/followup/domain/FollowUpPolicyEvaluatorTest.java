@@ -190,4 +190,37 @@ class FollowUpPolicyEvaluatorTest {
                 Instant.parse("2026-02-01T00:00:00Z"));
         assertThat(resultManual.timingSource()).isEqualTo(FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP);
     }
+
+    @Test
+    void anchorsCadenceOnTheLatestOutboundMessageAndBreaksTiesTowardManualThenDismissal() {
+        LocalDate tenantToday = LocalDate.of(2026, 3, 8);
+        Instant purchase = Instant.parse("2026-01-01T00:00:00Z");
+
+        var outboundOnly = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null, null, null,
+                tenantToday.minusDays(2), 0);
+        var fromOutbound = evaluator.evaluate(customer, contactPolicy, tenantPolicy, outboundOnly, purchase);
+        assertThat(fromOutbound.timingSource()).isEqualTo(FollowUpTimingSource.LAST_OUTBOUND_MESSAGE);
+        assertThat(fromOutbound.status()).isEqualTo(FollowUpStatus.NOT_YET_DUE);
+        assertThat(fromOutbound.nextFollowUpDate()).isEqualTo(tenantToday.plusDays(5));
+
+        var manualNewer = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null,
+                tenantToday.minusDays(1), null, tenantToday.minusDays(2), 0);
+        assertThat(evaluator.evaluate(customer, contactPolicy, tenantPolicy, manualNewer, purchase).timingSource())
+                .isEqualTo(FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP);
+
+        var sameDay = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null,
+                tenantToday.minusDays(2), tenantToday.minusDays(2), tenantToday.minusDays(2), 0);
+        assertThat(evaluator.evaluate(customer, contactPolicy, tenantPolicy, sameDay, purchase).timingSource())
+                .isEqualTo(FollowUpTimingSource.LAST_MANUAL_FOLLOW_UP);
+
+        var dismissalAndOutbound = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null, null,
+                tenantToday.minusDays(2), tenantToday.minusDays(2), 0);
+        assertThat(evaluator.evaluate(customer, contactPolicy, tenantPolicy, dismissalAndOutbound, purchase)
+                .timingSource()).isEqualTo(FollowUpTimingSource.LAST_DISMISSAL);
+
+        var outboundBeforePurchase = new CustomerFollowUpPolicy(tenantId, customerId, 7, null, null, null, null,
+                LocalDate.of(2025, 12, 1), 0);
+        assertThat(evaluator.evaluate(customer, contactPolicy, tenantPolicy, outboundBeforePurchase, purchase)
+                .timingSource()).isEqualTo(FollowUpTimingSource.LAST_PURCHASE);
+    }
 }

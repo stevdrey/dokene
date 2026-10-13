@@ -34,4 +34,7 @@ public interface FollowUpPolicyRepository {
             long expectedVersion, String idempotencyKey, Instant occurredAt, IdentityId actorId,
             TenantMembershipId membershipId, String notes);
     CustomerFollowUpPolicy snooze(TenantId tenantId, CustomerId customerId, LocalDate until, long expectedVersion);
+
+    /** ADR 0023 §4.6: a sent message is a completed follow up. Runs under the caller's customer lock. */
+    CustomerFollowUpPolicy recordOutboundMessage(TenantId tenantId, CustomerId customerId, LocalDate tenantDate);
 }

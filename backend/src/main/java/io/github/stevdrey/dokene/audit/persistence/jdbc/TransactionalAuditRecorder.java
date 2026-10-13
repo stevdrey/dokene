@@ -13,13 +13,16 @@ import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,7 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private static final Logger log = LoggerFactory.getLogger(TransactionalAuditRecorder.class);
     private final JdbcAuditStore store;
     private final TenantContextProvider contexts;
+    private final ProviderContextProvider providerContexts;
     private final DatabaseContextSigner signer;
     private final AuditExecutionContext execution;
     private final Clock clock;
@@ -40,10 +44,11 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private final TransactionTemplate mandatory;
 
     TransactionalAuditRecorder(JdbcAuditStore store, TenantContextProvider contexts,
-            DatabaseContextSigner signer, AuditExecutionContext execution,
+            ProviderContextProvider providerContexts, DatabaseContextSigner signer, AuditExecutionContext execution,
             Clock clock, PlatformTransactionManager transactions) {
         this.store = store;
         this.contexts = contexts;
+        this.providerContexts = providerContexts;
         this.signer = signer;
         this.execution = execution;
         this.clock = clock;
@@ -139,6 +144,40 @@ class TransactionalAuditRecorder implements AuditRecorder {
         append(context, event(context, AuditEventType.AI_INVOCATION_OUTCOME,
                 new AuditTarget(AuditTarget.Type.CUSTOMER, customerId), auditOutcome,
                 new AuditMetadata.AiInvocation(operation, outcome, detail)), independent);
+    }
+
+    @Override
+    public void messageTransition(UUID messageId, AuditEventType eventType,
+            AuditMetadata.MessageTransition metadata) {
+        if (!eventType.isMessageTransition() || eventType == AuditEventType.MESSAGE_DELIVERY_UPDATED) {
+            throw new IllegalArgumentException("Unsupported message audit event");
+        }
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, eventType, new AuditTarget(AuditTarget.Type.MESSAGE, messageId),
+                AuditOutcome.SUCCESS, metadata), mandatory);
+    }
+
+    @Override
+    public void messageDeliveryUpdated(TenantId tenantId, UUID messageId,
+            AuditMetadata.MessageTransition metadata) {
+        Objects.requireNonNull(tenantId, "Tenant id is required");
+        if (contexts.current().isPresent()) {
+            throw new IllegalStateException("Provider attributed audit cannot run under a member context");
+        }
+        // The caller's tenant is not trusted on its own: it must be the tenant the webhook boundary bound.
+        if (!providerContexts.requireCurrent().tenantId().equals(tenantId)) {
+            throw new IllegalStateException("Provider attributed audit tenant does not match the provider context");
+        }
+        AuditEvent event = new AuditEvent(UUID.randomUUID(), clock.instant(), tenantId, null, null,
+                AuditEventType.MESSAGE_DELIVERY_UPDATED, new AuditTarget(AuditTarget.Type.MESSAGE, messageId),
+                AuditOutcome.SUCCESS, execution.requireCurrent(), metadata);
+        SignedDatabaseContext capability = signer.issueProviderAuditContext(tenantId);
+        try {
+            mandatory.executeWithoutResult(status -> store.append(event, capability));
+        } catch (RuntimeException exception) {
+            log.error("Audit persistence failed; correlationId={}", event.correlationId());
+            throw new AuditPersistenceException();
+        }
     }
 
     private AuditEvent event(TenantContext context, AuditEventType type, AuditTarget target,

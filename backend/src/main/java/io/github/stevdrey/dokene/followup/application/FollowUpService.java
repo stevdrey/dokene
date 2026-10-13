@@ -99,7 +99,9 @@ public class FollowUpService {
     @Transactional
     public CustomerFollowUpPolicy configureCustomer(CustomerId customerId, Integer cadenceDays,
             LocalDate explicitNextDate, long expectedVersion) {
-        Customer customer = requireCustomer(customerId, TenantPermission.FOLLOWUP_WRITE);
+        // Same customer lock as the other policy writers, so a messaging command that evaluated this policy under
+        // that lock cannot be overtaken by a configuration change before it commits (spec 0001 AC-4).
+        Customer customer = requireCustomerForUpdate(customerId, TenantPermission.FOLLOWUP_WRITE);
         new CustomerFollowUpPolicy(customer.tenantId(), customer.id(), cadenceDays, explicitNextDate, null, null,
                 expectedVersion);
         var updated = policies.updateCustomerPolicy(customer.tenantId(), customer.id(), cadenceDays,

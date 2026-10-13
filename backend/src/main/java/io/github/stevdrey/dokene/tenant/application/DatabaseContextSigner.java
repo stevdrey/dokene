@@ -18,4 +18,10 @@ public interface DatabaseContextSigner {
             IdentityId actorId,
             TenantMembershipId membershipId
     );
+
+    /**
+     * Audit capability for the trusted provider webhook path: tenant attribution with no actor or membership
+     * (ADR 0023 §4.5). PostgreSQL accepts it only for {@code MESSAGE_DELIVERY_UPDATED}.
+     */
+    SignedDatabaseContext issueProviderAuditContext(TenantId tenantId);
 }
