@@ -43,6 +43,7 @@ class BffResponseSecurityHeadersIntegrationTest {
                         TenantSecurityConfiguration.API_CONTENT_SECURITY_POLICY))
                 .andExpect(header().string("Permissions-Policy", TenantSecurityConfiguration.PERMISSIONS_POLICY))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
-                .andExpect(header().string("X-Frame-Options", "DENY"));
+                .andExpect(header().string("X-Frame-Options", "DENY"))
+                .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"));
     }
 }

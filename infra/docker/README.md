@@ -66,10 +66,12 @@ without a network, so freeing the port and rerunning `up` is enough (no `down` n
 
 ### Response security headers
 
-nginx sets a `Content-Security-Policy` and `Permissions-Policy` on the SPA and on the proxied BFF routes (snippets in
-`infra/docker/frontend/security-headers-*.conf`; rationale in [ADR 0023](../../docs/adr/0023-spa-and-bff-response-security-headers.md)).
+nginx sets a `Content-Security-Policy` and `Permissions-Policy` on the SPA (snippets in
+`infra/docker/frontend/security-headers-*.conf`); the BFF routes get theirs from Spring Security and nginx passes them
+through (rationale in [ADR 0023](../../docs/adr/0023-spa-and-bff-response-security-headers.md)).
 The SPA policy allows only same-origin resources, so assets must be self-hosted. Any production edge that serves the
-SPA must replicate these headers; the BFF sets its own via Spring Security.
+SPA must replicate these headers. Verify with `./scripts/tests/nginx-headers-smoke.sh` (Docker only). For host-run
+development, `npm run dev` has no CSP; use `npm run build && npm run preview` (same headers) to check violations.
 
 ### Troubleshooting
 

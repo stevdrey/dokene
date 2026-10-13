@@ -1,5 +1,4 @@
 import React from 'react';
-import appShellCss from './AppShell.css?raw';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AppShell, ActiveTab } from './AppShell';
@@ -456,6 +455,10 @@ describe('AppShell', () => {
   });
 
   it('defines min-width: 0 on .desktop-main to prevent horizontal flex overflow on 768px tablet viewports', () => {
-    expect(appShellCss).toMatch(/\.desktop-main\s*\{[^}]*min-width:\s*0;/);
+    const { container } = render(<AppShell />);
+    const main = container.querySelector('.desktop-main');
+
+    expect(main).not.toBeNull();
+    expect(getComputedStyle(main as Element).minWidth).toBe('0px');
   });
 });

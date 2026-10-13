@@ -6,3 +6,5 @@ The SPA is served under a strict Content-Security-Policy (`font-src 'self'`, [AD
 | --- | --- | --- | --- |
 | `inter-variable.woff2` | Inter v4.1, `web/InterVariable.woff2` from https://github.com/rsms/inter/releases/tag/v4.1 | SIL OFL 1.1 (`Inter-OFL.txt`) | `693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3` |
 | `material-symbols-outlined.woff2` | Google Material Symbols Outlined | Apache 2.0 | n/a |
+
+Fonts are unhashed and nginx caches `/fonts/` for 30 days (not `immutable`): to change a font, add it under a new file name and update the `@font-face` in `src/tokens.css`.

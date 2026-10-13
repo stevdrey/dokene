@@ -27,6 +27,7 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
@@ -99,7 +100,7 @@ class TenantSecurityConfiguration {
     static final String API_CONTENT_SECURITY_POLICY =
             "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
     static final String PERMISSIONS_POLICY =
-            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()";
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 
     @Bean
     SecurityFilterChain securityFilterChain(
@@ -123,7 +124,8 @@ class TenantSecurityConfiguration {
                 .cors(Customizer.withDefaults())
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp.policyDirectives(API_CONTENT_SECURITY_POLICY))
-                        .permissionsPolicyHeader(policy -> policy.policy(PERMISSIONS_POLICY)))
+                        .permissionsPolicyHeader(policy -> policy.policy(PERMISSIONS_POLICY))
+                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),

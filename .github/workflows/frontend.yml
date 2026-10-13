@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - 'frontend/**'
+      - 'infra/docker/frontend/**'
+      - 'scripts/tests/nginx-headers-smoke.sh'
       - '.github/workflows/frontend.yml'
   push:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'infra/docker/frontend/**'
+      - 'scripts/tests/nginx-headers-smoke.sh'
       - '.github/workflows/frontend.yml'
 
 permissions:
@@ -32,3 +36,8 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  nginx-headers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./scripts/tests/nginx-headers-smoke.sh

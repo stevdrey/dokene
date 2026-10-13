@@ -21,11 +21,16 @@ UI (security invariant 22). Neither the nginx entry point nor the Spring BFF sen
 - Fonts are self-hosted (`frontend/public/fonts/`); the SPA references no third-party host. A frontend test fails if
   `index.html` or `tokens.css` reintroduces one.
 - BFF responses (`/api`, `/oauth2`, `/login`, `/logout`) carry `default-src 'none'; base-uri 'none'; form-action 'none';
-  frame-ancestors 'none'`. Spring Security sets it (`TenantSecurityConfiguration`) so it applies with or without nginx;
-  nginx hides the upstream copies and sets identical values so no header is sent twice.
-- Every response also carries `Permissions-Policy` denying camera, microphone, geolocation, payment, USB and FLoC.
-- nginx headers live in shared snippets included by each location, because `add_header` is not inherited into a block
-  that defines its own.
+  frame-ancestors 'none'`, plus nosniff, frame denial and referrer policy. Spring Security is the single owner of these
+  headers (`TenantSecurityConfiguration`); nginx passes them through untouched and adds none of its own on those routes.
+- Every response also carries `Permissions-Policy` denying camera, microphone, geolocation, payment and USB.
+- SPA headers live in nginx snippets included by each static location, because `add_header` is not inherited into a
+  block that defines its own. `scripts/tests/nginx-headers-smoke.sh` (run in the Frontend CI workflow) builds the image
+  and asserts one CSP and one Permissions-Policy per static response, same-origin-only sources and pass-through on BFF
+  routes. `vite preview` serves the production build with identical headers (`frontend/securityHeaders.ts`, compared
+  header by header with the snippets by `securityHeaders.test.ts`); `npm run dev` cannot run under this CSP (HMR needs
+  inline scripts), so check CSP violations with `npm run build && npm run preview`.
+- Fonts are unhashed and cached for 30 days; changing a font means renaming the file.
 
 ## Consequences
 
