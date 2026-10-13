@@ -84,6 +84,9 @@ class OutboundMessagingGuardIntegrationTest {
     private static final List<String> MESSAGING_TABLES = List.of("outbound_messages", "outbound_message_approvals",
             "outbound_message_cancellations", "outbound_send_attempts", "outbound_message_events",
             "outbound_message_idempotency_keys");
+    /** Zero based position of the expiry epoch in the pipe separated payload of each capability kind. */
+    private static final int TENANT_CAPABILITY_EXPIRY_FIELD = 3;
+    private static final int PROVIDER_CAPABILITY_EXPIRY_FIELD = 5;
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws Exception {
@@ -211,59 +214,25 @@ class OutboundMessagingGuardIntegrationTest {
     /** covers: AC-4 (T2 guard step 2: an approve one version behind is refused and writes no event and no audit). */
     @Test
     void approveOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
-        OutboundMessage message = inContext(ownerA, () -> commands.submit(
-                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
-        assertThat(message.version()).isEqualTo(1);
-        List<UUID> auditBefore = auditEventIds();
-
-        assertThatRefused(() -> inContext(ownerA, () -> commands.approve(
-                new ApprovalCommand(message.id(), null, "0", "a-" + UUID.randomUUID()))),
-                MessagingErrorCode.STALE_VERSION);
-
-        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
-                .orElseThrow();
-        assertThat(unchanged.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
-        assertThat(unchanged.version()).isEqualTo(1);
-        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
-        assertThat(rowCount(ownerA, "outbound_message_approvals")).isZero();
-        assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
-        assertThat(auditEventIds()).isEqualTo(auditBefore);
-
-        // Control: the same approve at the current version lands, so the refusal above was about the version alone.
-        OutboundMessage approved = inContext(ownerA, () -> commands.approve(
-                new ApprovalCommand(message.id(), null, "1", "a-" + UUID.randomUUID()))).message();
-        assertThat(approved.status()).isEqualTo(MessageStatus.APPROVED);
-        assertThat(approved.version()).isEqualTo(2);
-        assertThat(rowCount(ownerA, "outbound_message_approvals")).isEqualTo(1);
+        assertOneVersionBehindWritesNothingThenLands((messageId, ifMatch) -> commands.approve(
+                new ApprovalCommand(messageId, null, ifMatch, "a-" + UUID.randomUUID())),
+                MessageStatus.APPROVED, "outbound_message_approvals");
     }
 
     /** covers: AC-4 (T3 guard step 2: a reject one version behind is refused and writes no event and no audit). */
     @Test
     void rejectOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
-        OutboundMessage message = inContext(ownerA, () -> commands.submit(
-                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
-        assertThat(message.version()).isEqualTo(1);
-        List<UUID> auditBefore = auditEventIds();
+        assertOneVersionBehindWritesNothingThenLands((messageId, ifMatch) -> commands.reject(
+                new ApprovalCommand(messageId, null, ifMatch, "r-" + UUID.randomUUID())),
+                MessageStatus.REJECTED, "outbound_message_approvals");
+    }
 
-        assertThatRefused(() -> inContext(ownerA, () -> commands.reject(
-                new ApprovalCommand(message.id(), null, "0", "r-" + UUID.randomUUID()))),
-                MessagingErrorCode.STALE_VERSION);
-
-        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
-                .orElseThrow();
-        assertThat(unchanged.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
-        assertThat(unchanged.version()).isEqualTo(1);
-        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
-        assertThat(rowCount(ownerA, "outbound_message_approvals")).isZero();
-        assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
-        assertThat(auditEventIds()).isEqualTo(auditBefore);
-
-        // Control: the same reject at the current version lands, so the refusal above was about the version alone.
-        OutboundMessage rejected = inContext(ownerA, () -> commands.reject(
-                new ApprovalCommand(message.id(), null, "1", "r-" + UUID.randomUUID()))).message();
-        assertThat(rejected.status()).isEqualTo(MessageStatus.REJECTED);
-        assertThat(rejected.version()).isEqualTo(2);
-        assertThat(rowCount(ownerA, "outbound_message_approvals")).isEqualTo(1);
+    /** covers: AC-4 (T4 guard step 2: a cancel one version behind is refused and writes no event and no audit). */
+    @Test
+    void cancelOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
+        assertOneVersionBehindWritesNothingThenLands((messageId, ifMatch) -> commands.cancel(
+                new CancellationCommand(messageId, null, ifMatch, "c-" + UUID.randomUUID())),
+                MessageStatus.CANCELLED, "outbound_message_cancellations");
     }
 
     /** covers: ADR 0023 §2 (the submitted text and recipient cannot change, even for the tenant that owns them). */
@@ -383,7 +352,7 @@ class OutboundMessagingGuardIntegrationTest {
                 foreign.expiresAt());
         assertThat(forged.payload()).contains(tenantAId.toString()).doesNotContain(tenantBId.toString());
         assertNoMessagingAccess("forged", forged);
-        assertNoMessagingAccess("expired", expired(signer.issueTenantContext(tenantA.id()), 3));
+        assertNoMessagingAccess("expired", expired(signer.issueTenantContext(tenantA.id()), TENANT_CAPABILITY_EXPIRY_FIELD));
     }
 
     /** covers: issue #133 verification (only a genuine provider capability appends the provider audit event). */
@@ -404,7 +373,7 @@ class OutboundMessagingGuardIntegrationTest {
             assertProviderAppendRefused(connection, message.id(), foreign,
                     "Audit tenant capability does not match active verified tenant");
             assertProviderAppendRefused(connection, message.id(),
-                    expired(signer.issueProviderAuditContext(tenantA.id()), 5), "Audit capability expired");
+                    expired(signer.issueProviderAuditContext(tenantA.id()), PROVIDER_CAPABILITY_EXPIRY_FIELD), "Audit capability expired");
             assertThat(deliveryAuditEvents()).isEmpty();
 
             // Control: the same call with a genuine capability lands, so the refusals above are about the capability.
@@ -458,6 +427,39 @@ class OutboundMessagingGuardIntegrationTest {
     private int rowCount(TenantContext context, String table) throws Exception {
         return inContext(context, () -> jdbc.queryForObject(
                 "SELECT count(*) FROM dokene." + table + " WHERE tenant_id = ?", Integer.class, tenantA.id().value()));
+    }
+
+    /** An operator command on a pending message, parameterised by the {@code If-Match} version it claims. */
+    @FunctionalInterface
+    private interface VersionedCommand {
+        CommandResult run(UUID messageId, String ifMatch) throws Exception;
+    }
+
+    private void assertOneVersionBehindWritesNothingThenLands(VersionedCommand command, MessageStatus landed,
+            String recordTable) throws Exception {
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+        assertThat(message.version()).isEqualTo(1);
+        List<UUID> auditBefore = auditEventIds();
+
+        assertThatRefused(() -> inContext(ownerA, () -> command.run(message.id(), "0")),
+                MessagingErrorCode.STALE_VERSION);
+
+        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
+                .orElseThrow();
+        assertThat(unchanged.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        assertThat(unchanged.version()).isEqualTo(1);
+        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
+        assertThat(rowCount(ownerA, "outbound_message_approvals")).isZero();
+        assertThat(rowCount(ownerA, "outbound_message_cancellations")).isZero();
+        assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
+        assertThat(auditEventIds()).isEqualTo(auditBefore);
+
+        // Control: the same command at the current version lands, so the refusal above was about the version alone.
+        OutboundMessage after = inContext(ownerA, () -> command.run(message.id(), "1")).message();
+        assertThat(after.status()).isEqualTo(landed);
+        assertThat(after.version()).isEqualTo(2);
+        assertThat(rowCount(ownerA, recordTable)).isEqualTo(1);
     }
 
     private void seedEveryMessagingTable() throws Exception {
