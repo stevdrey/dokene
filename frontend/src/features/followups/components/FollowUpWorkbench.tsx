@@ -8,6 +8,7 @@ import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpA
 import { Button } from '@/shared/components/Button';
 import { getCalendarDateInTimeZone } from '../utils/dateUtils';
 import { ApiError } from '@/shared/api/httpClient';
+import './FollowUpLayout.css';
 
 interface FollowUpWorkbenchProps {
   onNavigateToCustomer: (customerId: string) => void;
@@ -997,17 +998,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         />
       ) : (
         /* Desktop Split View or Mobile List Screen */
-        <div
-          data-testid="follow-up-queue-grid"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 5fr) minmax(0, 7fr)',
-            gap: 'var(--space-24)',
-            alignItems: 'start'
-          }}
-        >
+        <div className={`follow-up-queue-grid${isMobile ? ' follow-up-queue-grid--stacked' : ''}`}>
           {/* Left Column: Follow-up Queue Cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)', minWidth: 0 }}>
+          <div className="follow-up-queue-column">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
               <span
                 style={{

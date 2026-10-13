@@ -138,17 +138,20 @@ describe('FollowUpWorkbench', () => {
     afterEach(() => setWindowWidth(originalWidth));
 
     it.each([
-      [390, 'minmax(0, 1fr)'],
-      [768, 'minmax(0, 1fr)'],
-      [1280, 'minmax(0, 5fr) minmax(0, 7fr)']
-    ])('uses a shrinkable queue grid at %i px', async (width, expectedColumns) => {
+      [390, true],
+      [768, true],
+      [1280, false]
+    ])('uses a shrinkable queue grid at %i px', async (width, stacked) => {
       setWindowWidth(width);
-      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      const { container } = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
 
       await screen.findAllByRole('heading', { level: 3, name: longName });
-      const grid = screen.getByTestId('follow-up-queue-grid');
-      expect(grid.style.display).toBe('grid');
-      expect(grid.style.gridTemplateColumns).toBe(expectedColumns);
+      const grid = container.querySelector('.follow-up-queue-grid') as HTMLElement;
+      expect(grid.classList.contains('follow-up-queue-grid--stacked')).toBe(stacked);
+      expect(getComputedStyle(grid).gridTemplateColumns).toBe(
+        stacked ? 'minmax(0, 1fr)' : 'minmax(0, 5fr) minmax(0, 7fr)'
+      );
+      expect(getComputedStyle(container.querySelector('.follow-up-queue-column') as HTMLElement).minWidth).toBe('0px');
     });
 
     it('lets the mobile detail heading wrap and shrink for an unbroken name', async () => {
@@ -158,10 +161,10 @@ describe('FollowUpWorkbench', () => {
       fireEvent.click(await screen.findByRole('heading', { level: 3, name: longName }));
 
       const heading = await screen.findByRole('heading', { level: 2, name: longName });
-      expect(heading.style.overflowWrap).toBe('anywhere');
-      expect(heading.style.minWidth).toBe('0px');
-      expect(heading.parentElement?.style.minWidth).toBe('0px');
-      expect(heading.parentElement?.parentElement?.style.minWidth).toBe('0px');
+      const style = getComputedStyle(heading);
+      expect(style.overflowWrap).toBe('anywhere');
+      expect(style.minWidth).toBe('0px');
+      expect(getComputedStyle(heading.closest('.follow-up-detail__name-row') as HTMLElement).flexWrap).toBe('wrap');
     });
   });
 

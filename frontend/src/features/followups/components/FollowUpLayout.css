@@ -1,0 +1,68 @@
+/* Layout rules that keep long customer names inside the viewport (Issue #191).
+   Grid tracks and flex items default to min-width: auto, so they must opt in to shrinking. */
+
+.follow-up-queue-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-24);
+  align-items: start;
+}
+
+.follow-up-queue-grid--stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.follow-up-queue-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.follow-up-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Up to two lines, then an ellipsis; unbroken strings wrap instead of widening the card. */
+.follow-up-card__title {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.follow-up-card__select-icon {
+  flex-shrink: 0;
+}
+
+.follow-up-detail__name-block {
+  min-width: 0;
+}
+
+/* The name and the "Ver cliente" button wrap instead of squeezing the name. */
+.follow-up-detail__name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.follow-up-detail__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.follow-up-detail__contact-pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  max-width: 100%;
+}
