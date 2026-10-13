@@ -544,7 +544,8 @@ public final class InvariantChecker {
             rest.append(text, last, amounts.start()).append(' ');
             last = amounts.end();
             String token = amounts.group().toLowerCase(Locale.ROOT).replaceAll("(?U)\\s+", "");
-            if (groundedViews.stream().noneMatch(grounded -> containsToken(grounded, token))) {
+            if (groundedViews.stream().noneMatch(grounded -> containsToken(grounded, token))
+                    && !isGroundedIdentifier(text, amounts, groundedViews)) {
                 return true;
             }
         }
@@ -566,6 +567,24 @@ public final class InvariantChecker {
         String spaced = rawText.replaceAll("[\\s\\u00a0\\u2007\\u202f\\u2009]+", " ");
         // A non-joinable boundary, so "no hay descuento USD 100 ni oferta" does not become one negation chain.
         return AMOUNT.matcher(spaced).replaceAll(" | ");
+    }
+
+    /** A draft amount running into a letter ("USD100A") is fine only when that whole identifier is in the grounding. */
+    private static boolean isGroundedIdentifier(String text, java.util.regex.Matcher amount, List<String> groundedViews) {
+        if (!runsIntoLetter(text, amount)) {
+            return false;
+        }
+        int start = amount.start();
+        while (start > 0 && Character.isLetterOrDigit(text.codePointBefore(start))) {
+            start = text.offsetByCodePoints(start, -1);
+        }
+        int end = amount.end();
+        while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
+            end = text.offsetByCodePoints(end, 1);
+        }
+        Pattern identifier = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(text.substring(start, end))
+                + "(?![\\p{L}\\p{N}])");
+        return groundedViews.stream().anyMatch(grounded -> identifier.matcher(grounded).find());
     }
 
     /** A compact amount ending in a digit that runs into a letter ("USD100A") belongs to a longer identifier. */

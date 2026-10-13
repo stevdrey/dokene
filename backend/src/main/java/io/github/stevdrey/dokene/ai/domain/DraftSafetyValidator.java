@@ -227,7 +227,8 @@ public final class DraftSafetyValidator {
         // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
         // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
-        for (String contextView : withLeetViews(normalizedContext)) {
+        List<String> contextViews = withLeetViews(normalizedContext);
+        for (String contextView : contextViews) {
             contextPercentages.addAll(extractTokens(PERCENTAGE_PATTERN, contextView));
             contextAmounts.addAll(extractTokens(AMOUNT_PATTERN, contextView));
             Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(contextView);
@@ -251,7 +252,8 @@ public final class DraftSafetyValidator {
             }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
-                if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))) {
+                if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
+                        && !isGroundedIdentifier(view, draftAmtMatcher, contextViews)) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                             "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
                 }
@@ -345,6 +347,29 @@ public final class DraftSafetyValidator {
             tokens.add(quantityKey(matcher.group()));
         }
         return tokens;
+    }
+
+    /**
+     * A draft amount that runs into a letter ("USD100A") is read as part of a longer identifier. It is not an invented
+     * amount only when that exact identifier, as a whole word, appears in the context ("SKU USD100A").
+     */
+    private static boolean isGroundedIdentifier(String text, Matcher amount, List<String> contextViews) {
+        String group = amount.group();
+        if (!Character.isDigit(group.charAt(group.length() - 1)) || amount.end() >= text.length()
+                || !Character.isLetter(text.codePointAt(amount.end()))) {
+            return false;
+        }
+        int start = amount.start();
+        while (start > 0 && Character.isLetterOrDigit(text.codePointBefore(start))) {
+            start = text.offsetByCodePoints(start, -1);
+        }
+        int end = amount.end();
+        while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
+            end = text.offsetByCodePoints(end, 1);
+        }
+        Pattern identifier = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(text.substring(start, end))
+                + "(?![\\p{L}\\p{N}])");
+        return contextViews.stream().anyMatch(context -> identifier.matcher(context).find());
     }
 
     /** Comparison key of a percentage or amount: whitespace-insensitive, so "10 %" equals "10%" and "$ 5" equals "$5". */

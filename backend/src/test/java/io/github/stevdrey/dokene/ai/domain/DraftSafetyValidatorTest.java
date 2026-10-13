@@ -798,6 +798,13 @@ class DraftSafetyValidatorTest {
         }
         assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "SKU USD100A")).isPresent();
         assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD100")).isEmpty();
+        // The same whole identifier in the purchase and the draft is a grounded product code, not an amount.
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Gracias por comprar USD100A.", "es-419", List.of()), "SKU USD100A")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Gracias por comprar USD100A.", "es-419", List.of()), "SKU USD100B")).isPresent();
+        assertThat(DraftSafetyValidator.validate(
+                draftWith("Gracias por comprar USD100A.", "es-419", List.of()), "Cliente: Juan.")).isPresent();
         assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "Plan USD 100.")).isEmpty();
     }
 

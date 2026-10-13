@@ -105,7 +105,9 @@ class InvariantCheckerParityTest {
                 new Probe("Con 10% de descuento", "Visita 10 pct (dot) com", false),
                 new Probe("Plan USD 50", "Paga 100U5D", false), new Probe("Plan 100 USD", "Paga 100U5D", true),
                 new Probe("Plan sin nada", "Tienes un cupo\u200b\u0301n", false),
-                new Probe("SKU USD100A", "Paga USD100", false), new Probe("Plan USD100", "Paga USD100", true),
+                new Probe("SKU USD100A", "Paga USD100", false),
+                new Probe("SKU USD100A", "Gracias por comprar USD100A", true),
+                new Probe("SKU USD100B", "Gracias por comprar USD100A", false), new Probe("Plan USD100", "Paga USD100", true),
                 new Probe("Plan USD 100.", "Paga USD100", true),
                 new Probe("Plan 2x10", "Aprovecha 2x1", false), new Probe("Plan 2x10", "Aprovecha 2x10", true),
                 new Probe("100 unidades, consultar precio", "El precio es 100", false))) {
