@@ -13,6 +13,20 @@ Agents should work from repository evidence rather than assumptions. Before impl
 - preserve existing public contracts unless the task explicitly changes them;
 - prefer small, reviewable changes over broad speculative refactors.
 
+## Pull Request Scope Guard
+
+Before implementation, estimate the scope and prefer PRs with 30 changed files
+or fewer. The hard limit is 40 files per PR, including tests, documentation,
+migrations, configuration, and generated files. The required GitHub Actions
+job `PR file count` is the authoritative enforcement boundary.
+
+If an implementation is expected to exceed 40 files, stop and propose
+smaller, logically scoped PRs with explicit ordering and acceptance criteria.
+Keep each intermediate PR independently reviewable, testable, and safe. Do not
+remove necessary tests or documentation, weaken security, or split changes into
+broken intermediate states solely to satisfy the count. For thresholds and
+administrative setup, see `docs/verification/pr-size-guard.md`.
+
 ## Execution Discipline
 
 Use a deliberate task lifecycle rather than repeatedly rediscovering state:
