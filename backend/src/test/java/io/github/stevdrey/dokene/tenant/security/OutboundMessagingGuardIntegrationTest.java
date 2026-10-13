@@ -57,7 +57,9 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -214,7 +216,7 @@ class OutboundMessagingGuardIntegrationTest {
     /** covers: AC-4 (T2 guard step 2: an approve one version behind is refused and writes no event and no audit). */
     @Test
     void approveOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
-        assertOneVersionBehindWritesNothingThenLands((messageId, ifMatch) -> commands.approve(
+        assertOneVersionBehindWritesNothingThenLands(pendingMessage(), (messageId, ifMatch) -> commands.approve(
                 new ApprovalCommand(messageId, null, ifMatch, "a-" + UUID.randomUUID())),
                 MessageStatus.APPROVED, "outbound_message_approvals");
     }
@@ -222,7 +224,7 @@ class OutboundMessagingGuardIntegrationTest {
     /** covers: AC-4 (T3 guard step 2: a reject one version behind is refused and writes no event and no audit). */
     @Test
     void rejectOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
-        assertOneVersionBehindWritesNothingThenLands((messageId, ifMatch) -> commands.reject(
+        assertOneVersionBehindWritesNothingThenLands(pendingMessage(), (messageId, ifMatch) -> commands.reject(
                 new ApprovalCommand(messageId, null, ifMatch, "r-" + UUID.randomUUID())),
                 MessageStatus.REJECTED, "outbound_message_approvals");
     }
@@ -230,35 +232,51 @@ class OutboundMessagingGuardIntegrationTest {
     /** covers: AC-4 (T4 guard step 2: a cancel one version behind is refused and writes no event and no audit). */
     @Test
     void cancelOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
-        assertOneVersionBehindWritesNothingThenLands((messageId, ifMatch) -> commands.cancel(
+        assertOneVersionBehindWritesNothingThenLands(pendingMessage(), (messageId, ifMatch) -> commands.cancel(
                 new CancellationCommand(messageId, null, ifMatch, "c-" + UUID.randomUUID())),
                 MessageStatus.CANCELLED, "outbound_message_cancellations");
     }
 
-    /** covers: ADR 0023 §2 (the submitted text and recipient cannot change, even for the tenant that owns them). */
+    /** covers: AC-4 (T5 guard step 2: cancelling an approved message one version behind writes nothing either). */
     @Test
-    void theOwningTenantCannotRewriteTheSubmittedBodyOrRecipientAsTheRuntimeRole() throws Exception {
-        OutboundMessage message = inContext(ownerA, () -> commands.submit(
-                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+    void cancelOfAnApprovedMessageOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit() throws Exception {
+        OutboundMessage pending = pendingMessage();
+        OutboundMessage approved = inContext(ownerA, () -> commands.approve(
+                new ApprovalCommand(pending.id(), null, "1", "a-" + UUID.randomUUID()))).message();
+        assertThat(approved.status()).isEqualTo(MessageStatus.APPROVED);
+
+        assertOneVersionBehindWritesNothingThenLands(approved, (messageId, ifMatch) -> commands.cancel(
+                new CancellationCommand(messageId, null, ifMatch, "c-" + UUID.randomUUID())),
+                MessageStatus.CANCELLED, "outbound_message_cancellations");
+    }
+
+    /** covers: ADR 0023 §2 (what was submitted for approval cannot change, even for the tenant that owns it). */
+    @Test
+    void theOwningTenantCannotRewriteWhatWasSubmittedForApprovalAsTheRuntimeRole() throws Exception {
+        OutboundMessage message = pendingMessage();
+        OutboundMessage stored = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
+                .orElseThrow();
+        Map<String, String> rewrites = Map.of("body", "'Otro texto'", "recipient_phone", "'+50688880000'",
+                "action", "'REWRITTEN'", "template_intent", "'REWRITTEN'", "locale", "'en-US'",
+                "customer_id", "gen_random_uuid()", "contact_id", "gen_random_uuid()");
 
         try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnection(
                 signer.issueTenantContext(tenantA.id()))) {
             // Control: the capability may update this row, so the refusals below come from the trigger, not RLS.
             assertThat(touchRows(connection, "outbound_messages", "updated_at", tenantA.id().value())).isEqualTo(1);
-            for (String column : List.of("body", "recipient_phone")) {
+            for (Map.Entry<String, String> rewrite : rewrites.entrySet()) {
                 assertThatThrownBy(() -> TenantSecurityIntegrationFixture.executeUpdate(connection,
-                        "UPDATE dokene.outbound_messages SET " + column + " = '+50688880000' WHERE id = ?",
-                        message.id())).as(column).isInstanceOfSatisfying(SQLException.class, refusal -> {
+                        "UPDATE dokene.outbound_messages SET " + rewrite.getKey() + " = " + rewrite.getValue()
+                                + " WHERE id = ?", message.id()))
+                        .as(rewrite.getKey()).isInstanceOfSatisfying(SQLException.class, refusal -> {
                             assertThat(refusal.getSQLState()).isEqualTo("23000");
                             assertThat(refusal.getMessage()).contains("Outbound message identity is immutable");
                         });
             }
         }
 
-        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
-                .orElseThrow();
-        assertThat(unchanged.body()).isEqualTo(message.body());
-        assertThat(unchanged.recipientPhone()).isEqualTo(message.recipientPhone());
+        assertThat(inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())))
+                .contains(stored);
     }
 
     /** covers: AC-2 (the partial unique index is the backstop when the service lock is bypassed). */
@@ -429,37 +447,49 @@ class OutboundMessagingGuardIntegrationTest {
                 "SELECT count(*) FROM dokene." + table + " WHERE tenant_id = ?", Integer.class, tenantA.id().value()));
     }
 
-    /** An operator command on a pending message, parameterised by the {@code If-Match} version it claims. */
+    /** An operator command on a message, parameterised by the {@code If-Match} version it claims. */
     @FunctionalInterface
     private interface VersionedCommand {
         CommandResult run(UUID messageId, String ifMatch) throws Exception;
     }
 
-    private void assertOneVersionBehindWritesNothingThenLands(VersionedCommand command, MessageStatus landed,
-            String recordTable) throws Exception {
-        OutboundMessage message = inContext(ownerA, () -> commands.submit(
-                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
-        assertThat(message.version()).isEqualTo(1);
+    private void assertOneVersionBehindWritesNothingThenLands(OutboundMessage message, VersionedCommand command,
+            MessageStatus landed, String recordTable) throws Exception {
+        long current = message.version();
+        OutboundMessage stored = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
+                .orElseThrow();
+        Map<String, Integer> rowsBefore = messagingRowCounts();
         List<UUID> auditBefore = auditEventIds();
 
-        assertThatRefused(() -> inContext(ownerA, () -> command.run(message.id(), "0")),
+        assertThatRefused(() -> inContext(ownerA, () -> command.run(message.id(), Long.toString(current - 1))),
                 MessagingErrorCode.STALE_VERSION);
 
-        OutboundMessage unchanged = inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id()))
-                .orElseThrow();
-        assertThat(unchanged.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
-        assertThat(unchanged.version()).isEqualTo(1);
-        assertThat(inContext(ownerA, () -> messages.findEvents(tenantA.id().value(), message.id()))).hasSize(1);
-        assertThat(rowCount(ownerA, "outbound_message_approvals")).isZero();
-        assertThat(rowCount(ownerA, "outbound_message_cancellations")).isZero();
-        assertThat(rowCount(ownerA, "outbound_message_idempotency_keys")).isEqualTo(1);
+        assertThat(inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())))
+                .contains(stored);
+        assertThat(messagingRowCounts()).isEqualTo(rowsBefore);
         assertThat(auditEventIds()).isEqualTo(auditBefore);
 
         // Control: the same command at the current version lands, so the refusal above was about the version alone.
-        OutboundMessage after = inContext(ownerA, () -> command.run(message.id(), "1")).message();
+        OutboundMessage after = inContext(ownerA, () -> command.run(message.id(), Long.toString(current)))
+                .message();
         assertThat(after.status()).isEqualTo(landed);
-        assertThat(after.version()).isEqualTo(2);
-        assertThat(rowCount(ownerA, recordTable)).isEqualTo(1);
+        assertThat(after.version()).isEqualTo(current + 1);
+        assertThat(rowCount(ownerA, recordTable)).isEqualTo(rowsBefore.get(recordTable) + 1);
+    }
+
+    private OutboundMessage pendingMessage() throws Exception {
+        OutboundMessage message = inContext(ownerA, () -> commands.submit(
+                submit(customer, contactId, "s-" + UUID.randomUUID()))).message();
+        assertThat(message.status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        return message;
+    }
+
+    private Map<String, Integer> messagingRowCounts() throws Exception {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String table : MESSAGING_TABLES) {
+            counts.put(table, rowCount(ownerA, table));
+        }
+        return counts;
     }
 
     private void seedEveryMessagingTable() throws Exception {
@@ -510,6 +540,8 @@ class OutboundMessagingGuardIntegrationTest {
         assertThat(sign(genuine.payload())).isEqualTo(genuine.signature());
         Instant expiredAt = Instant.now().minusSeconds(3600);
         String[] parts = genuine.payload().split("\\|");
+        // Guards the field position: a wrong index would corrupt another field and be refused for that instead.
+        assertThat(parts[expiryIndex]).isEqualTo(Long.toString(genuine.expiresAt().getEpochSecond()));
         parts[expiryIndex] = Long.toString(expiredAt.getEpochSecond());
         String payload = String.join("|", parts);
         return new SignedDatabaseContext(payload, sign(payload), expiredAt);
