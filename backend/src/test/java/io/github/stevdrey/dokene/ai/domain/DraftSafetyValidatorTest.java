@@ -831,6 +831,25 @@ class DraftSafetyValidatorTest {
     }
 
     @Test
+    void contextAmountsFollowedByUnitLettersStillGroundTheirDraftAmount() {
+        assertThat(DraftSafetyValidator.validate(draftWith("Plan de $20 mensuales.", "es-419", List.of()),
+                "Plan $20mensual")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Plan de \u20a15000 por caja.", "es-419", List.of()),
+                "Caja \u20a15000c/u")).isEmpty();
+        // Compact code-first identifiers are still not amounts.
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga USD100.", "es-419", List.of()), "SKU USD100A")).isPresent();
+    }
+
+    @Test
+    void lookAlikeLettersForVAndKAreFolded() {
+        for (String body : List.of("Paga 100 boli\u03bdares.", "Paga 100 boli\u0475ares.", "Es un cashbac\u043a.",
+                "Con cas\u04bbbac\u043a.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Cliente: Juan."))
+                    .as(body).isPresent();
+        }
+    }
+
+    @Test
     void evidenceValuesErasedByCanonicalizationAreRejected() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Plan de $10"), List.of(), "DUE", "2026-09-29");
         for (String item : List.of("Compra: \u200b", "Compra: \u2060\ufe0f", "Compra: \u200b\u200d")) {

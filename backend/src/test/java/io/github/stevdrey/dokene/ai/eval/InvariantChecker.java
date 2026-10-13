@@ -10,12 +10,14 @@ import io.github.stevdrey.dokene.ai.domain.NoDraft;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationJsonSchema;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -93,6 +95,12 @@ public final class InvariantChecker {
     private static final Pattern DEFANGED_COLON = Pattern.compile("\\s*[\\[({]\\s*:\\s*(?://)?\\s*[\\])}]\\s*");
     /** A full stop written as an ideographic one between letters or digits is a host separator, never prose. */
     private static final Pattern IDEOGRAPHIC_DOT = Pattern.compile("(?<=[\\p{L}\\p{N}-])[。｡](?=[\\p{L}\\p{N}-])");
+
+    /** Unicode Default_Ignorable_Code_Point, spelled out because java.util.regex lacks it (independent of production). */
+    private static final Pattern IGNORABLE = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
+    private static final Pattern WORD_TOKEN = Pattern.compile("[\\p{L}\\p{N}@]+");
+    private static final Pattern COMPACT_PROMOTION = Pattern.compile("\\d+x\\d+");
+    private static final Pattern CURRENCY_TERM = Pattern.compile("(?:" + CURRENCY + ")");
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -452,10 +460,10 @@ public final class InvariantChecker {
     /** As {@link #fold(String)}; links are scanned with {@code writtenPercentages=false} so "10 pct[.]com" stays a link. */
     static String fold(String raw, boolean writtenPercentages) {
         // Normalize again after dropping ignorable characters so a mark separated from its base letter composes.
-        String text = java.text.Normalizer.normalize(java.text.Normalizer.normalize(raw, java.text.Normalizer.Form.NFKC)
-                .replaceAll("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]", ""), java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
-        String from = "аеорсхуіјѕԁһӏοαεινρτκυ";
-        String to = "aeopcxyijsdhloaeinptky";
+        String text = Normalizer.normalize(IGNORABLE.matcher(Normalizer.normalize(raw, Normalizer.Form.NFKC))
+                .replaceAll(""), Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+        String from = "аеорсхуіјѕԁһӏкѵԛοαεινρτκυ";
+        String to = "aeopcxyijsdhlkvqoaeivptky";
         StringBuilder out = new StringBuilder(text.length());
         for (char c : text.toCharArray()) {
             int idx = from.indexOf(c);
@@ -464,19 +472,14 @@ public final class InvariantChecker {
         return writtenPercentages ? PERCENT_WORD.matcher(out).replaceAll("%") : out.toString();
     }
 
-    /** Digit/at-sign substitutions undone inside letter-bearing tokens; used for offer words only. */
-    static String leet(String text) {
-        return leet(text, false);
-    }
-
-    /** With {@code keepNumericSuffix} a trailing digit run after the last letter survives ("u5d100" is "usd100"). */
+    /** Digit/at-sign substitutions undone inside letter-bearing tokens (see {@link #leetToken}). */
     static String leet(String text, boolean keepNumbers) {
-        var tokens = Pattern.compile("[\\p{L}\\p{N}@]+").matcher(text);
+        var tokens = WORD_TOKEN.matcher(text);
         StringBuilder out = new StringBuilder();
         while (tokens.find()) {
             String token = tokens.group();
-            boolean letters = token.chars().anyMatch(Character::isLetter) && !token.matches("\\d+x\\d+");
-            tokens.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(
+            boolean letters = token.chars().anyMatch(Character::isLetter) && !COMPACT_PROMOTION.matcher(token).matches();
+            tokens.appendReplacement(out, Matcher.quoteReplacement(
                     letters ? leetToken(token, keepNumbers) : token));
         }
         tokens.appendTail(out);
@@ -559,7 +562,8 @@ public final class InvariantChecker {
             rest.append(text, last, amounts.start()).append(' ');
             last = amounts.end();
             String token = amounts.group().toLowerCase(Locale.ROOT).replaceAll("(?U)\\s+", "");
-            if (groundedViews.stream().noneMatch(grounded -> containsToken(grounded, token))
+            boolean compact = isCompactCodeFirst(amounts.group());
+            if (groundedViews.stream().noneMatch(grounded -> containsToken(grounded, token, compact))
                     && !isGroundedIdentifier(text, amounts, groundedViews)) {
                 return true;
             }
@@ -585,7 +589,7 @@ public final class InvariantChecker {
     }
 
     /** A draft amount running into a letter ("USD100A") is fine only when that whole identifier is in the grounding. */
-    private static boolean isGroundedIdentifier(String text, java.util.regex.Matcher amount, List<String> groundedViews) {
+    private static boolean isGroundedIdentifier(String text, Matcher amount, List<String> groundedViews) {
         if (!runsIntoLetter(text, amount)) {
             return false;
         }
@@ -602,10 +606,16 @@ public final class InvariantChecker {
         return groundedViews.stream().anyMatch(grounded -> identifier.matcher(grounded).find());
     }
 
-    /** A compact amount ending in a digit that runs into a letter ("USD100A") belongs to a longer identifier. */
-    private static boolean runsIntoLetter(String text, java.util.regex.Matcher match) {
-        String group = match.group();
-        return Character.isDigit(group.charAt(group.length() - 1)) && match.end() < text.length()
+    /** A compact code-first token ("USD100": starts with a letter, no whitespace, ends in a digit). */
+    private static boolean isCompactCodeFirst(String group) {
+        return Character.isLetter(group.codePointAt(0))
+                && group.codePoints().noneMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c))
+                && Character.isDigit(group.charAt(group.length() - 1));
+    }
+
+    /** A compact code-first amount that runs into a letter ("USD100A") belongs to a longer identifier. */
+    private static boolean runsIntoLetter(String text, Matcher match) {
+        return isCompactCodeFirst(match.group()) && match.end() < text.length()
                 && Character.isLetter(text.codePointAt(match.end()));
     }
 
@@ -638,7 +648,7 @@ public final class InvariantChecker {
      * (10% inside 110%, $10 or USD 10 inside $100 / USD 100) or word, whatever its prefix. Whitespace inside the
      * token is flexible ("USD 100" matches "USD100").
      */
-    private static boolean containsToken(String grounded, String compactToken) {
+    private static boolean containsToken(String grounded, String compactToken, boolean compactCodeFirst) {
         StringBuilder regex = new StringBuilder();
         char first = compactToken.charAt(0);
         char last = compactToken.charAt(compactToken.length() - 1);
@@ -656,7 +666,10 @@ public final class InvariantChecker {
         if (Character.isLetter(last)) {
             regex.append("(?![\\p{L}])");
         } else if (Character.isDigit(last)) {
-            regex.append("(?![\\p{N}])(?![.,]\\p{N})(?!\\p{L})");
+            regex.append("(?![\\p{N}])(?![.,]\\p{N})");
+            if (compactCodeFirst) {
+                regex.append("(?!\\p{L})");
+            }
         }
         return Pattern.compile("(?iuU)" + regex).matcher(grounded).find();
     }
@@ -668,7 +681,7 @@ public final class InvariantChecker {
         while (matcher.find()) {
             String found = matcher.group().toLowerCase(Locale.ROOT);
             // Currency codes may touch a digit ("JPY100"); every other term must not continue into a letter or digit.
-            boolean currency = found.matches("(?:" + CURRENCY + ")");
+            boolean currency = CURRENCY_TERM.matcher(found).matches();
             Pattern term = Pattern.compile(currency
                     ? "(?iuU)(?<!\\p{L})" + Pattern.quote(found) + "(?!\\p{L})"
                     : "(?iuU)(?<![\\p{L}\\p{N}])" + Pattern.quote(found) + "(?![\\p{L}\\p{N}])");

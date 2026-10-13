@@ -77,20 +77,46 @@ class InvariantCheckerParityTest {
     void everyConfusableFoldedByProductionIsFoldedByTheIndependentInvariantsToo() {
         EvalCase ungrounded = EvalDatasetLoader.loadDefault().cases().stream()
                 .filter(c -> c.id().equals("mf-02")).findFirst().orElseThrow();
-        String confusables = "\u0430\u0435\u043e\u0440\u0441\u0445\u0443\u0456\u0458\u0455\u0501\u04bb\u04cf"
+        // Look-alike letters and the Latin letter each one must fold to (Cyrillic, then Greek).
+        String lookAlikes = "\u0430\u0435\u043e\u0440\u0441\u0445\u0443\u0456\u0458\u0455\u0501\u04bb\u04cf\u043a\u0475\u051b"
                 + "\u03bf\u03b1\u03b5\u03b9\u03bd\u03c1\u03c4\u03ba\u03c5";
-        for (char c : confusables.toCharArray()) {
-            // "cashback" and "descuento" need different letters; use the spelling that contains the look-alike.
-            String latin = String.valueOf(c);
-            for (String word : List.of("descuento", "cashback", "liquidaci\u00f3n", "oferta", "gratis")) {
-                for (char target : word.toCharArray()) {
-                    if (DraftSafetyValidator.validate(draft("Con " + word.replace(target, c)), "").isEmpty()) {
-                        continue;
-                    }
-                    assertThat(InvariantChecker.contentViolations(draft("Con " + word.replace(target, c)), ungrounded))
-                            .as("look-alike %s in %s", latin, word).isNotEmpty();
-                }
-            }
+        String latin = "aeopcxyijsdhlkvqoaeivptky";
+        // Vocabulary words (offer terms, currency words and codes) that together contain every folded letter.
+        List<String> words = List.of("descuento", "cashback", "liquidaci\u00f3n", "oferta", "gratis", "bolivares",
+                "quetzales", "jpy", "mxn");
+        assertThat(lookAlikes).hasSameSizeAs(latin);
+        for (int i = 0; i < lookAlikes.length(); i++) {
+            char lookAlike = lookAlikes.charAt(i);
+            char letter = latin.charAt(i);
+            String word = words.stream().filter(w -> w.indexOf(letter) >= 0).findFirst()
+                    .orElseThrow(() -> new AssertionError("no vocabulary word contains " + letter));
+            // Spelled with the look-alike, and preceded by an amount so currency words and codes are judged too.
+            MessageDraft draft = draft("Paga 100 " + word.replace(letter, lookAlike));
+            assertThat(DraftSafetyValidator.validate(draft, "")).as("production: %s (U+%04X for %s)", word, (int) lookAlike, letter).isPresent();
+            assertThat(InvariantChecker.contentViolations(draft, ungrounded))
+                    .as("independent invariants: look-alike for %s in %s", letter, word).isNotEmpty();
+        }
+    }
+
+    @Test
+    void contextAmountsFollowedByUnitLettersGroundTheSameWayInBoth() {
+        EvalCase base = EvalDatasetLoader.loadDefault().cases().stream().filter(c -> c.id().equals("mf-02"))
+                .findFirst().orElseThrow();
+        record Probe(String purchase, String body, boolean safe) { }
+        for (Probe probe : List.of(new Probe("Plan $20mensual", "Plan de $20 mensuales", true),
+                new Probe("Caja \u20a15000c/u", "Caja de \u20a15000", true),
+                new Probe("SKU USD100A", "Paga USD100", false))) {
+            EvalCase evalCase = new EvalCase(base.id(), base.family(), base.description(), base.displayName(),
+                    base.locale(), new EvalCase.Setup(null, false, "GRANTED", false, null, null,
+                            List.of(new EvalCase.PurchaseSpec(40, probe.purchase()))),
+                    base.request(), base.script(), base.expect(), base.rubricHints());
+            var grounding = new io.github.stevdrey.dokene.ai.domain.DraftGroundingContext("Ana", null,
+                    List.of(probe.purchase()), List.of(), "DUE", "2026-09-29");
+            MessageDraft draft = draft(probe.body());
+            assertThat(DraftSafetyValidator.validate(draft, probe.purchase(), grounding).isEmpty())
+                    .as("production %s | %s", probe.body(), probe.purchase()).isEqualTo(probe.safe());
+            assertThat(InvariantChecker.contentViolations(draft, evalCase).isEmpty())
+                    .as("independent %s | %s", probe.body(), probe.purchase()).isEqualTo(probe.safe());
         }
     }
 

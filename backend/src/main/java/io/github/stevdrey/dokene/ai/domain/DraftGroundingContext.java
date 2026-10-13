@@ -39,11 +39,7 @@ public record DraftGroundingContext(String customerName, String notes, List<Stri
     enum MatchMode { EXACT, WHOLE_WORD, SUBSTRING }
 
     record EvidenceSource(List<String> values, MatchMode mode) {
-        boolean matches(String lowerCaseValue) {
-            return matches(lowerCaseValue, UnaryOperator.identity());
-        }
-
-        /** As {@link #matches(String)}, canonicalizing each authoritative value like the cited value was. */
+        /** Whether the cited value matches an authoritative value, canonicalized the same way as the cited value. */
         boolean matches(String lowerCaseValue, UnaryOperator<String> canonicalizer) {
             return values.stream().map(v -> canonicalizer.apply(v.toLowerCase(Locale.ROOT).strip()).strip())
                     .anyMatch(candidate -> switch (mode) {
