@@ -25,7 +25,7 @@ for ep in "POST /api/customers/$CA/recommendation" "POST /api/customers/$CA/draf
 J=$QA_TMP/jar-testoperator.txt; TOK=$(curl -s -b $J $BFF/api/session | jq -r .csrfToken); b=$(ai_rows); n0=$(wc -l < $STUB/requests.log)
 for ep in "POST /api/customers/$CA/recommendation" "POST /api/customers/$CA/draft" "POST /api/customers" "PUT /api/follow-up-policy" "POST /api/customers/$CA/manual-follow-ups"; do set -- $ep
   raw $J $1 $2 -H "X-Tenant-Id: $A" -H 'Content-Type: application/json' -d '{}'; chk SEC-01 "session, absent CSRF $ep -> 403" 403 "$RC"
-  raw $J $1 $2 -H "X-Tenant-Id: $A" -H 'X-CSRF-TOKEN: not-a-valid-token' -H 'Content-Type: application/json' -d '{}'; chk SEC-01 "session, invalid CSRF $ep -> 403" 403 "$RC"; done
+  raw $J $1 $2 -H "X-Tenant-Id: $A" -H 'X-CSRF-TOKEN: invalid-qa-value' -H 'Content-Type: application/json' -d '{}'; chk SEC-01 "session, invalid CSRF $ep -> 403" 403 "$RC"; done
 chk SEC-01 "CSRF-rejected AI POSTs: no AI audit row and no provider request" "0 0" "$(( $(ai_rows) - b )) $(( $(wc -l < $STUB/requests.log) - n0 ))"
 raw $J POST /api/customers/$CA/recommendation -H "X-Tenant-Id: $A" -H "X-CSRF-TOKEN: $TOK" -H 'Origin: http://evil.test' -H 'Content-Type: application/json'; chk SEC-01 "valid CSRF but unapproved Origin http://evil.test -> 403" 403 "$RC"
 raw $J POST /api/customers -H "X-Tenant-Id: $A" -H "X-CSRF-TOKEN: $TOK" -H 'Origin: http://evil.test' -H 'Content-Type: application/json' -d '{"displayName":"EVIL-ORIGIN-CANARY"}'; chk SEC-01 "business mutation with unapproved Origin -> 403" 403 "$RC"

@@ -1,0 +1,3 @@
+# Suite #121 evidence: invented probe strings in QA scripts (no real credential), present in commit f30c732
+f30c7320a2613cb34de919e82ffcb1eab366656f:docs/verification/issue-121-evidence/scripts/sec121-e.sh:generic-api-key:24
+f30c7320a2613cb34de919e82ffcb1eab366656f:docs/verification/issue-121-evidence/scripts/sec121-a.sh:curl-auth-header:25

@@ -21,7 +21,7 @@ tryrec "extra envelope property" '{"recommendation":{"outcome":"ACTION","action"
 tryrec "malformed json" '{"recommendation":{'
 tryrec "empty output" ''
 echo "== observation probes (delivered by design: rationale is advisory text; all five actions are allowed when OVERDUE)"
-for pr in "SEASONAL_GREETING|SEASONAL_EVENT|Saludo de temporada" "$RA|$RI|The customer should be contacted about their coffee" "$RA|$RI|<script>alert(1)</script> OPENAI_API_KEY=sk-test1234567890"; do IFS='|' read a i r <<< "$pr"; echo "$(recp "$a" "$i" "$r")" > $STUB/rec.json; sleep 3.2; rec $I1; echo "  [obs] ${r:0:50} -> $(echo "$REC_BODY"|jq -r .status)"; done
+for pr in "SEASONAL_GREETING|SEASONAL_EVENT|Saludo de temporada" "$RA|$RI|The customer should be contacted about their coffee" "$RA|$RI|<script>alert(1)</script> OPENAI_API_KEY=<fake-value>"; do IFS='|' read a i r <<< "$pr"; echo "$(recp "$a" "$i" "$r")" > $STUB/rec.json; sleep 3.2; rec $I1; echo "  [obs] ${r:0:50} -> $(echo "$REC_BODY"|jq -r .status)"; done
 echo "== drafts with malicious payloads"
 trydraft "link in body" "$(draftp $RA $RI 'Hola, mira https://promo.test/oferta tu Café de grano 1 kg' es-419 "$EV")"
 trydraft "bare domain and wa.me" "$(draftp $RA $RI 'Hola, escríbenos a wa.me/56912345678 o promo.com por tu Café de grano 1 kg' es-419 "$EV")"

@@ -22,7 +22,7 @@ PASS  SEC-05F  rec/empty output: not delivered as AVAILABLE
 == observation probes (delivered by design: rationale is advisory text; all five actions are allowed when OVERDUE)
   [obs] Saludo de temporada -> AVAILABLE
   [obs] The customer should be contacted about their coffe -> AVAILABLE
-  [obs] <script>alert(1)</script> OPENAI_API_KEY=sk-test12 -> AVAILABLE
+  [obs] <script>alert(1)</script> OPENAI_API_KEY=<fake-value> -> AVAILABLE
 == drafts with malicious payloads
   [draft] link in body -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE audit=MESSAGE_DRAFT/FAILED/INVALID_STRUCTURED_RESPONSE provider_calls=1
 PASS  SEC-05F  draft/link in body: not delivered as AVAILABLE
