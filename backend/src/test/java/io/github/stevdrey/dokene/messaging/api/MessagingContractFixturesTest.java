@@ -28,9 +28,11 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -110,6 +112,14 @@ class MessagingContractFixturesTest {
         assertThat(requests.propertyNames()).containsExactlyInAnyOrderElementsOf(types.keySet());
         var tests = new ArrayList<DynamicTest>();
         types.forEach((operation, type) -> {
+            // Null stripping below would hide a new optional member, so the valid examples must name every member.
+            tests.add(dynamicTest(operation + ".valid examples cover every member", () -> {
+                var members = new LinkedHashSet<String>();
+                named(requests.get(operation).get("valid")).values()
+                        .forEach(node -> members.addAll(node.propertyNames()));
+                assertThat(members).containsExactlyInAnyOrderElementsOf(Arrays.stream(type.getRecordComponents())
+                        .map(RecordComponent::getName).toList());
+            }));
             named(requests.get(operation).get("valid")).forEach((name, node) -> tests.add(
                     dynamicTest(operation + ".valid." + name, () -> assertRoundTrip(node, type))));
             named(requests.get(operation).get("invalid")).forEach((name, node) -> tests.add(

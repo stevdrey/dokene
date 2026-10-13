@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.Binding;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.TemplateRevision;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -29,12 +30,12 @@ class ApprovalFingerprintTest {
             MessageChannel.WHATSAPP, SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
             "es-419", "Hola Ana", 7, CONSENT,
             new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("customer_name", "product_name")),
-            new SenderRevision(INTEGRATION, "100000000000001", "200000000000001"));
+            List.of("Ana", "Café 1 kg"), new SenderRevision(INTEGRATION, "100000000000001", "200000000000001"));
 
     @Test
     /** Independently reproducible: SHA-256 of each field as a 4 byte big endian length plus UTF-8 bytes. */
     void encodingIsStable() {
-        assertThat(ApprovalFingerprint.of(BASE).value()).isEqualTo("ea65694bdb2ee33f224593c18ccc30b45a4e3032181651774d38941d91a6d5a9");
+        assertThat(ApprovalFingerprint.of(BASE).value()).isEqualTo("d1a83887dcb16e8523f8f1caf2a214f4225c904ec3918625d59ebef37e94d06d");
     }
 
     @Test
@@ -60,6 +61,8 @@ class ApprovalFingerprintTest {
                 Map.entry("template name", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v2", "es", List.of("customer_name", "product_name")))),
                 Map.entry("template language", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es_MX", List.of("customer_name", "product_name")))),
                 Map.entry("parameter order", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("product_name", "customer_name")))),
+                Map.entry("parameter value", b -> withValues(b, List.of("Ana", "Café 2 kg"))),
+                Map.entry("parameter value order", b -> withValues(b, List.of("Café 1 kg", "Ana"))),
                 Map.entry("integration", b -> withSender(b, new SenderRevision(UUID.randomUUID(), "100000000000001", "200000000000001"))),
                 Map.entry("sender number", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000002", "200000000000001"))),
                 Map.entry("business account", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000001", "200000000000002"))));
@@ -70,11 +73,18 @@ class ApprovalFingerprintTest {
 
     @Test
     void lengthPrefixKeepsAdjacentParametersApart() {
-        Binding joined = withTemplate(BASE, new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("ab", "c")));
-        Binding split = withTemplate(BASE, new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("a", "bc")));
-        Binding fewer = withTemplate(BASE, new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("abc")));
-        assertThat(ApprovalFingerprint.of(joined)).isNotEqualTo(ApprovalFingerprint.of(split))
-                .isNotEqualTo(ApprovalFingerprint.of(fewer));
+        Binding joined = withValues(BASE, List.of("Ana C", "afé"));
+        Binding split = withValues(BASE, List.of("Ana", " Café"));
+        assertThat(ApprovalFingerprint.of(joined)).isNotEqualTo(ApprovalFingerprint.of(split));
+    }
+
+    @Test
+    void everyTemplateParameterNeedsExactlyOneValue() {
+        assertThatThrownBy(() -> withValues(BASE, List.of("Ana"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> withValues(BASE, List.of("Ana", "Café", "extra")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> withValues(BASE, Arrays.asList("Ana", null)))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
@@ -103,12 +113,18 @@ class ApprovalFingerprintTest {
             Instant consent, TemplateRevision template, SenderRevision sender, SemanticTemplateIntent intent,
             long policyVersion) {
         return new Binding(tenant, message, b.customerId(), contact, phone, b.channel(), b.action(), intent,
-                b.locale(), body, policyVersion, consent, template, sender);
+                b.locale(), body, policyVersion, consent, template, b.parameterValues(), sender);
     }
 
     private static Binding withTemplate(Binding b, TemplateRevision template) {
         return with(b, b.tenantId(), b.messageId(), b.contactId(), b.recipientPhone(), b.body(),
                 b.consentChangedAt(), template, b.sender(), b.templateIntent(), b.sourcePolicyVersion());
+    }
+
+    private static Binding withValues(Binding b, List<String> values) {
+        return new Binding(b.tenantId(), b.messageId(), b.customerId(), b.contactId(), b.recipientPhone(),
+                b.channel(), b.action(), b.templateIntent(), b.locale(), b.body(), b.sourcePolicyVersion(),
+                b.consentChangedAt(), b.template(), values, b.sender());
     }
 
     private static Binding withSender(Binding b, SenderRevision sender) {

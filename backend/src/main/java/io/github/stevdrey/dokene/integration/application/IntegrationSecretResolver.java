@@ -4,10 +4,11 @@ package io.github.stevdrey.dokene.integration.application;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 public interface IntegrationSecretResolver {
-    /** Throws when the reference cannot be resolved; there is no default or empty secret (fail closed). */
+    /** Throws when unresolvable; there is no default or empty secret (fail closed). The caller closes the result. */
     ResolvedSecret resolve(SecretReference reference);
 
     /** An opaque key such as an environment variable or secret-manager name; safe to store and display. */
@@ -22,9 +23,13 @@ public interface IntegrationSecretResolver {
         }
     }
 
-    /** Secret material held as characters so the caller can wipe it once the provider call is done. */
-    final class ResolvedSecret {
+    /**
+     * Secret material held as characters. Consumers read it only through {@link #withValue}, which hands out a copy
+     * and wipes that copy when the callback returns or throws; {@link #close()} wipes the held array.
+     */
+    final class ResolvedSecret implements AutoCloseable {
         private final char[] value;
+        private boolean closed;
 
         public ResolvedSecret(char[] value) {
             Objects.requireNonNull(value, "Secret value is required");
@@ -34,12 +39,24 @@ public interface IntegrationSecretResolver {
             this.value = value.clone();
         }
 
-        public char[] value() {
-            return value.clone();
+        /** The callback must not keep the array or anything derived from it beyond its own return. */
+        public <T> T withValue(Function<char[], T> use) {
+            Objects.requireNonNull(use, "Callback is required");
+            if (closed) {
+                throw new IllegalStateException("Secret already closed");
+            }
+            char[] copy = value.clone();
+            try {
+                return use.apply(copy);
+            } finally {
+                Arrays.fill(copy, '\0');
+            }
         }
 
-        public void clear() {
+        @Override
+        public void close() {
             Arrays.fill(value, '\0');
+            closed = true;
         }
 
         @Override

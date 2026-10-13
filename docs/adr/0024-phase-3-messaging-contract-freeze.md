@@ -39,6 +39,7 @@ Each consumer has a contract test.
   - Every valid example deserializes into its record, using a mapper with `FAIL_ON_UNKNOWN_PROPERTIES`.
   - Re-serializing it gives the same JSON. Responses must emit every member, nulls included; requests may omit optional members.
   - Every `invalid` example is rejected.
+  - For each request, the valid examples together name every record component. The round trip ignores omitted optional members, so without this check a new optional member would pass unnoticed.
   - `enums.json` equals the Java enums, and every `MessagingErrorCode` has exactly one problem with its fixed status.
 - **Frontend, `contractFixtures.test.ts`:**
   - Every response interface has a `Shape<T>` table. `tsc` fails if the table misses or adds a member.
@@ -85,6 +86,7 @@ The fields, in this order:
 | Policy snapshot | `sourcePolicyVersion`, the snapshot the operator submitted against |
 | Consent revision | `changedAt` of the contact's WhatsApp consent evidence, truncated to microseconds to match Postgres |
 | Template mapping | mapping version, provider template name, language, parameter count, then each parameter name in order |
+| Parameter values | the exact ordered values the provider will receive, one per parameter name |
 | Sender identity | integration id, `phoneNumberId`, `businessAccountId` |
 
 Deliberately excluded:
@@ -95,8 +97,8 @@ Deliberately excluded:
 
 When the fingerprint is computed, stored and checked:
 
-1. **At T2 (approve):** it is computed under the customer lock, from the resolved mapping and the integration's current sender identity, and stored on the approval record. The column belongs to [#136](https://github.com/stevdrey/dokene/issues/136). It is never returned to the browser, written to audit or logged.
-2. **At T6, as new send policy step 5b:** it runs after step 5 (`APPROVED` with an `APPROVE` decision). The service recomputes the fingerprint from current state and compares it with the stored value. On a mismatch the send is refused with `409 APPROVAL_INVALIDATED`. The refusal writes no row and changes no state, like every other policy refusal; the message stays `APPROVED`.
+1. **At T2 (approve):** it is computed under the customer lock, from the resolved mapping, the rendered parameter values and the integration's configured sender identity (`OutboundSafetyControl.configuredSender`), and stored on the approval record. Kill-switch state is not a T2 guard: an approval can be given while sending is switched off. If the tenant has no integration configured at all, T2 is refused with `INTEGRATION_DISABLED`, because there is no sender to bind. The column belongs to [#136](https://github.com/stevdrey/dokene/issues/136). It is never returned to the browser, written to audit or logged.
+2. **At T6, as new send policy step 5b:** it runs after step 5 (`APPROVED` with an `APPROVE` decision). The service recomputes the fingerprint from current state and compares it with the stored value. On a mismatch the send is refused with `409 APPROVAL_INVALIDATED`. The refusal writes no row and changes no state, like every other policy refusal; the message stays `APPROVED`. On a match, the `OutboundSendCommand` is built from that same binding: its `parameters` are exactly the bound `parameterValues`, never re-rendered after the check.
 3. **Recovery:** the operator cancels (T5) and submits again. No new transition is added.
 
 How each kind of change is handled:
@@ -107,6 +109,7 @@ How each kind of change is handled:
 | Consent revoked | Step 6 refuses the send with `NO_CONTACT_CONSENT`. |
 | Consent revoked and later granted again | Still voids the approval, because `changedAt` moved. |
 | Template mapping edited | Voids the approval through the mapping version. |
+| A parameter value would render differently (for example, the customer name or product changed) | Voids the approval through the parameter values. |
 | Integration moved to another number or account | Voids the approval through the sender identity. |
 
 ### 3. Ports
@@ -115,17 +118,19 @@ How each kind of change is handled:
 | --- | --- | --- | --- |
 | `MessagingProvider.send(OutboundSendCommand) -> ProviderSendResult` (existing) | `messaging.application`, implemented in `integration.whatsapp` | dispatch (T7 to T11) | Exceptions never cross; a timeout after the request left is `OutcomeUnknown`, never a retry. |
 | `DeliveryStatusSink.apply(DeliveryStatusReport)` (existing) | `messaging.application` | webhook boundary | Applied only under a `ProviderContext`. |
-| `OutboundSafetyControl.evaluate(TenantId) -> Permitted(SenderRevision) \| Blocked(code)` | `messaging.application`, implemented by `integration` | send policy steps 3 and 4, plus the fingerprint sender identity | Read at send time, never cached. `Blocked` admits only `OUTBOUND_DISABLED_GLOBALLY`, `OUTBOUND_DISABLED_FOR_TENANT` and `INTEGRATION_DISABLED`. Missing configuration throws. |
+| `OutboundSafetyControl.configuredSender(TenantId) -> Optional<SenderRevision>` | `messaging.application`, implemented by `integration` | T2 fingerprint | Returns the configured sender regardless of kill switches and the enabled flag; empty only when no integration exists, which refuses T2 with `INTEGRATION_DISABLED`. |
+| `OutboundSafetyControl.evaluate(TenantId) -> Permitted(SenderRevision) \| Blocked(code)` | `messaging.application`, implemented by `integration` | send policy steps 3 and 4, plus the T6 fingerprint sender identity | Read at send time, never cached. `Blocked` admits only `OUTBOUND_DISABLED_GLOBALLY`, `OUTBOUND_DISABLED_FOR_TENANT` and `INTEGRATION_DISABLED`. Missing configuration throws. |
 | `TemplateMappingResolver.resolve(SemanticTemplateIntent) -> Resolved \| NotMapped \| Disabled` | `template.application` | submit, approve, send and dispatch | Only `Resolved` continues; it carries the mapping version for the fingerprint. It supersedes `TemplateMappingGate` and its stub when [#135](https://github.com/stevdrey/dokene/issues/135) lands. |
-| `IntegrationSecretResolver.resolve(SecretReference) -> ResolvedSecret` | `integration.application` | the Meta adapter and webhook verifier only | An unresolvable reference throws; there is no default or empty secret. `ResolvedSecret` is held as a `char[]` with a redacted `toString` and `clear()`, and never leaves `integration`. |
-| `VerifiedWebhookEvent(provider, providerEventId, tenantId, DeliveryStatusReport)` | `integration.application` | webhook boundary to `DeliveryStatusSink` | Built only after the HMAC check on the raw bytes, schema validation, tenant lookup by the stored `phoneNumberId` and dedup on `(provider, providerEventId)`. |
+| `IntegrationSecretResolver.resolve(SecretReference) -> ResolvedSecret` | `integration.application` | the Meta adapter and webhook verifier only | An unresolvable reference throws; there is no default or empty secret. `ResolvedSecret` is `AutoCloseable`: consumers read it only through `withValue(callback)`, which hands out a copy and zero-fills that copy when the callback returns or throws; `close()` wipes the held array. `toString` is redacted, and the secret never leaves `integration`. |
+| `VerifiedWebhookEvent(provider, providerEventId, tenantId, DeliveryStatusReport)` | `integration.application` | webhook boundary | Built only after the HMAC check on the raw bytes, schema validation, tenant lookup by the stored `phoneNumberId` and dedup on `(provider, providerEventId)`. |
+| `VerifiedWebhookEventHandler.handle(VerifiedWebhookEvent)` | `integration.application` | webhook parsers | The only path from a provider event to `DeliveryStatusSink`. Outside `messaging`, only implementations of this handler may depend on the sink; `ModuleDependencyArchitectureTest` enforces this, with a negative-proof fixture. |
 
 Credentials, secret values and raw provider JSON never enter `messaging` types, HTTP DTOs, audit metadata or logs. `messaging` never depends on `integration`, and `template` depends on neither. Both rules are enforced in `ModuleDependencyArchitectureTest`.
 
 ### 4. Trusted contexts, audit and fail-closed behaviour
 
 - **Member commands (T1 to T6, T12)** run under the authenticated member's `TenantContext`. In Phase 3, dispatch (T7 to T11) runs synchronously inside the same request and context (ADR 0023 §3.1). No new context type is introduced for it.
-- **Webhooks** run with no member. After verification, the boundary binds `ProviderContext(tenantId)` with `ProviderContextProvider.callWithContext`, opens a correlation scope and calls `DeliveryStatusSink`. If a member context is present, the call is refused. Provider-attributed audit is signed only for the tenant that the `ProviderContext` names. `TransactionalAuditRecorder.messageDeliveryUpdated` already enforces both rules.
+- **Webhooks** run with no member. After verification, the `VerifiedWebhookEventHandler` binds `ProviderContext(tenantId)` with `ProviderContextProvider.callWithContext`, opens a correlation scope and calls `DeliveryStatusSink`. If a member context is present, the call is refused. Provider-attributed audit is signed only for the tenant that the `ProviderContext` names. `TransactionalAuditRecorder.messageDeliveryUpdated` already enforces both rules.
 - **The Phase 4 asynchronous worker** is reserved as a third trusted context: a tenant plus a durable claim id, with no membership. Its permission to dispatch comes from the committed `QUEUED` claim and the approval fingerprint, never from a member session. It is specified here and built in Phase 4 together with multi-instance claiming.
 - **Missing context:** any path that finds no context, or an ambiguous one, throws. No path falls back to a default tenant.
 - **Audit:**

@@ -10,6 +10,9 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnMessagingFixture;
+import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEventHandler;
+import io.github.stevdrey.dokene.integration.archfixture.RawReportBypassFixture;
+import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -41,6 +44,12 @@ class ModuleDependencyArchitectureTest {
             .should().dependOnClassesThat().resideInAnyPackage(ROOT + ".messaging..", ROOT + ".integration..")
             .because("ADR 0023 §1 and ADR 0024 §3: messaging consumes the template port, never the reverse");
 
+    private static final ArchRule ONLY_VERIFIED_HANDLERS_REACH_THE_DELIVERY_SINK = noClasses()
+            .that().resideOutsideOfPackage(ROOT + ".messaging..")
+            .and().areNotAssignableTo(VerifiedWebhookEventHandler.class)
+            .should().dependOnClassesThat().areAssignableTo(DeliveryStatusSink.class)
+            .because("ADR 0024 §3: provider reports reach the sink only as a VerifiedWebhookEvent");
+
     private static final ArchRule MESSAGING_DOMAIN_IS_PURE = noClasses().that()
             .resideInAPackage(ROOT + ".messaging.domain..")
             .should().dependOnClassesThat(
@@ -64,6 +73,20 @@ class ModuleDependencyArchitectureTest {
     @Test
     void templateNeverDependsOnMessagingOrIntegration() {
         TEMPLATE_NEVER_DEPENDS_ON_MESSAGING_OR_INTEGRATION.check(production);
+    }
+
+    @Test
+    void onlyVerifiedWebhookHandlersReachTheDeliverySink() {
+        ONLY_VERIFIED_HANDLERS_REACH_THE_DELIVERY_SINK.check(production);
+    }
+
+    /** Negative proof: an integration class handing a raw report to the sink is reported. */
+    @Test
+    void aRawReportBypassFailsTheSinkRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(RawReportBypassFixture.class, DeliveryStatusSink.class);
+
+        assertThat(ONLY_VERIFIED_HANDLERS_REACH_THE_DELIVERY_SINK.evaluate(fixture).hasViolation()).isTrue();
     }
 
     @Test

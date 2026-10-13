@@ -1,4 +1,4 @@
-// ABOUTME: Binds an approval to exactly what was approved: recipient, content, template and sender revisions (ADR 0024 §2).
+// ABOUTME: Binds an approval to what was approved: recipient, content, parameter values, template and sender (ADR 0024 §2).
 // ABOUTME: Computed at approval, recomputed before send; any difference refuses the send with APPROVAL_INVALIDATED.
 package io.github.stevdrey.dokene.messaging.domain;
 
@@ -36,13 +36,15 @@ public record ApprovalFingerprint(String value) {
     }
 
     /**
-     * Everything an approval vouches for. The message version, kill switches and the follow-up policy version are
-     * deliberately absent: they are re-checked live by the send policy and must not void approvals on their own.
+     * Everything an approval vouches for. {@code parameterValues} are the exact ordered values the provider
+     * receives; the send command carries the values of the binding whose fingerprint just matched. The message
+     * version, kill switches and the follow-up policy version are deliberately absent: they are re-checked live by
+     * the send policy and must not void approvals on their own.
      */
     public record Binding(UUID tenantId, UUID messageId, UUID customerId, UUID contactId, String recipientPhone,
             MessageChannel channel, SemanticAction action, SemanticTemplateIntent templateIntent, String locale,
             String body, long sourcePolicyVersion, Instant consentChangedAt, TemplateRevision template,
-            SenderRevision sender) {
+            List<String> parameterValues, SenderRevision sender) {
         public Binding {
             Objects.requireNonNull(tenantId, "Tenant id is required");
             Objects.requireNonNull(messageId, "Message id is required");
@@ -57,6 +59,11 @@ public record ApprovalFingerprint(String value) {
             Objects.requireNonNull(consentChangedAt, "Consent revision is required");
             Objects.requireNonNull(template, "Template revision is required");
             Objects.requireNonNull(sender, "Sender revision is required");
+            // List.copyOf also rejects null elements, so a missing value cannot hash like an empty one.
+            parameterValues = List.copyOf(Objects.requireNonNull(parameterValues, "Parameter values are required"));
+            if (parameterValues.size() != template.parameterNames().size()) {
+                throw new IllegalArgumentException("Each template parameter needs exactly one value");
+            }
             if (sourcePolicyVersion < 0) {
                 throw new IllegalArgumentException("Source policy version cannot be negative");
             }
@@ -83,6 +90,7 @@ public record ApprovalFingerprint(String value) {
             fields.add(template.language());
             fields.add(Integer.toString(template.parameterNames().size()));
             fields.addAll(template.parameterNames());
+            fields.addAll(parameterValues);
             fields.add(sender.integrationId().toString());
             fields.add(sender.phoneNumberId());
             fields.add(sender.businessAccountId());

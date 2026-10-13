@@ -1,14 +1,21 @@
-// ABOUTME: Port the integration module implements to answer send policy steps 3 and 4 (ADR 0023 §4.3, ADR 0024 §3).
-// ABOUTME: Fails closed: anything but Permitted blocks the send, and Permitted names the sender the approval binds.
+// ABOUTME: Port the integration module implements for the sender identity and send policy steps 3 and 4 (ADR 0024 §3).
+// ABOUTME: Fails closed: anything but Permitted blocks the send; the configured sender is readable while sending is off.
 package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public interface OutboundSafetyControl {
+    /**
+     * The configured integration's sending identity, independent of both kill switches and the enabled flag, so an
+     * approval (T2) can bind it while sending is switched off. Empty only when the tenant has no integration.
+     */
+    Optional<ApprovalFingerprint.SenderRevision> configuredSender(TenantId tenantId);
+
     /** Read at send time, never cached across requests; implementations throw rather than guess on missing state. */
     Decision evaluate(TenantId tenantId);
 

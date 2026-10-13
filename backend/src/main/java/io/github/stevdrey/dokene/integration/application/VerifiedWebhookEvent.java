@@ -1,5 +1,5 @@
 // ABOUTME: A provider delivery event that passed signature verification, schema validation and stored tenant resolution.
-// ABOUTME: Only this type reaches DeliveryStatusSink under a ProviderContext; raw provider JSON never leaves the adapter.
+// ABOUTME: Reaches DeliveryStatusSink only through VerifiedWebhookEventHandler; raw provider JSON never leaves the adapter.
 package io.github.stevdrey.dokene.integration.application;
 
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatusReport;

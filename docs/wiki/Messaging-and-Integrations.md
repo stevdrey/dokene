@@ -25,7 +25,7 @@ The provider abstraction should expose application-level semantics, not leak arb
 - HTTP records in `messaging.api.MessagingApiContract`, mirrored by `frontend/src/features/messages/types`;
 - synthetic fixtures in `backend/src/test/resources/contracts/messaging/v1/`, checked by `MessagingContractFixturesTest` (backend) and `contractFixtures.test.ts` (frontend), so an incompatible change fails both workflows;
 - ports with fail-closed rules: `OutboundSafetyControl` (kill switches, integration enabled, sender identity), `TemplateMappingResolver`, `IntegrationSecretResolver` (secrets never leave `integration`) and `VerifiedWebhookEvent`;
-- the approval fingerprint (`approval/v1`): an approval binds recipient, content, template mapping revision, sending identity and consent revision; if any of them changes before send, the send is refused with `APPROVAL_INVALIDATED` and the operator cancels and resubmits.
+- the approval fingerprint (`approval/v1`): an approval binds recipient, content, template mapping revision, exact parameter values, sending identity and consent revision; if any of them changes before send, the send is refused with `APPROVAL_INVALIDATED` and the operator cancels and resubmits.
 
 ## Message lifecycle
 
