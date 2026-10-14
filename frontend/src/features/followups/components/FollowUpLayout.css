@@ -95,3 +95,8 @@
 .follow-up-detail__purchase-status {
   flex-shrink: 0;
 }
+
+/* The queue uses display: flex, which otherwise overrides the native hidden rule. */
+.follow-up-queue-column[hidden] {
+  display: none;
+}

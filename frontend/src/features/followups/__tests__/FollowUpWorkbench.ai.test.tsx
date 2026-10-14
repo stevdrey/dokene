@@ -1,12 +1,12 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act, cleanup } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
 import { useTenant } from '@/features/tenants/TenantContext';
 import { followUpApi } from '../api/followUpApi';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { ApiError } from '@/shared/api/httpClient';
-import type { QueueItemResponse, RecommendationResponse } from '../types';
+import type { QueueItemResponse, RecommendationResponse, DraftResponse } from '../types';
 
 vi.mock('@/features/tenants/TenantContext', () => ({
   useTenant: vi.fn()
@@ -91,6 +91,124 @@ describe('FollowUpWorkbench AI assistance', () => {
     await screen.findByRole('button', { name: 'Obtener recomendación' });
     return utils;
   }
+
+  describe('responsive state preservation (Issue #193)', () => {
+    const originalWidth = window.innerWidth;
+    const draftData: DraftResponse = {
+        status: 'AVAILABLE',
+        customerId: 'cust-1',
+        evaluation: null,
+        draft: {
+          action: 'REPEAT_PURCHASE_FOLLOW_UP',
+          templateIntent: 'REPEAT_PURCHASE',
+          body: 'Hola Valentina.',
+          draftVariables: [],
+          locale: 'es-419',
+          evidence: [],
+          warnings: [],
+          rationale: 'r',
+          confidence: 0.8
+        },
+        refusal: null,
+        refusalReason: null,
+        rejectionReason: null,
+        unavailableReason: null,
+        retryable: false
+      };
+
+    function resize(width: number) {
+      act(() => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+        window.dispatchEvent(new Event('resize'));
+      });
+    }
+
+    afterEach(() => {
+      cleanup();
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+    });
+
+    async function generateEditedDraft(width: number) {
+      resize(width);
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: recommendation, version: 2 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: draftData, version: 2 });
+      const utils = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      if (width < 1024) fireEvent.click(await screen.findByRole('button', { name: /Valentina Morales/ }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Obtener recomendación' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Generar borrador' }));
+      const editor = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(editor, { target: { value: 'Mi texto editado' } });
+      return { ...utils, editor };
+    }
+
+    it.each([1440, 768])('preserves the edited draft starting at %i px without extra requests', async (width) => {
+      const { container, editor } = await generateEditedDraft(width);
+      const requestCounts = () => [followUpApi.getFollowUpQueue, customerApi.listPurchases,
+        followUpApi.requestRecommendation, followUpApi.requestDraft].map((fn) => vi.mocked(fn).mock.calls.length);
+      const calls = requestCounts();
+      for (const nextWidth of [1440, 1100, 1023, 1024, 1440, 768]) {
+        resize(nextWidth);
+        await act(async () => {});
+        expect(screen.getByLabelText('Borrador del mensaje (editable)')).toBe(editor);
+        expect(editor).toHaveValue('Mi texto editado');
+        expect(screen.getByText('Suele repetir su compra cada dos meses.')).toBeInTheDocument();
+        expect(container.querySelector('.follow-up-queue-column')).toHaveProperty('hidden', nextWidth < 1024);
+        expect(screen.queryByRole('button', { name: /Volver a Seguimientos/ }) !== null).toBe(nextWidth < 1024);
+        expect(requestCounts()).toEqual(calls);
+      }
+    });
+
+    it.each(['recommendation', 'draft'] as const)('keeps a pending %s request alive across resize', async (step) => {
+      resize(1440);
+      const recPending = deferred<{ data: RecommendationResponse; version: number }>();
+      const draftPending = deferred<{ data: DraftResponse; version: number }>();
+      const rec = vi.spyOn(followUpApi, 'requestRecommendation').mockReturnValue(recPending.promise);
+      const draft = vi.spyOn(followUpApi, 'requestDraft').mockReturnValue(draftPending.promise);
+      await renderWorkbench();
+      fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+      if (step === 'draft') {
+        await act(async () => recPending.resolve({ data: recommendation, version: 2 }));
+        fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+      }
+      const signal = step === 'draft' ? draft.mock.calls[0].at(-1) : rec.mock.calls[0].at(-1);
+      resize(1023);
+      resize(1024);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect((signal as AbortSignal).aborted).toBe(false);
+      await act(async () => {
+        if (step === 'draft') draftPending.resolve({ data: draftData, version: 2 });
+        else recPending.resolve({ data: recommendation, version: 2 });
+      });
+      if (step === 'draft') expect(await screen.findByLabelText('Borrador del mensaje (editable)')).toHaveValue('Hola Valentina.');
+      else expect(await screen.findByText('Suele repetir su compra cada dos meses.')).toBeInTheDocument();
+    });
+
+    it('discards local state when returning to the mobile list', async () => {
+      await generateEditedDraft(768);
+      fireEvent.click(screen.getByRole('button', { name: /Volver a Seguimientos/ }));
+      expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Valentina Morales/ }));
+      expect(screen.getByRole('button', { name: 'Obtener recomendación' })).toBeInTheDocument();
+    });
+
+    it('discards an edited draft on workspace change', async () => {
+      const { rerender } = await generateEditedDraft(1440);
+      setTenant('tenant-B');
+      rerender(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findByRole('button', { name: 'Obtener recomendación' });
+      expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
+    });
+
+    it('discards an edited draft on customer change', async () => {
+      vi.mocked(followUpApi.getFollowUpQueue).mockResolvedValue({
+        items: [baseItem, { ...baseItem, customerId: 'cust-2', displayName: 'Otra Cliente' }], nextCursor: null
+      });
+      await generateEditedDraft(1440);
+      fireEvent.click(screen.getByRole('button', { name: /Otra Cliente/ }));
+      expect(screen.getByRole('button', { name: 'Obtener recomendación' })).toBeInTheDocument();
+      expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
+    });
+  });
 
   it('keeps the deterministic due reason distinct from the AI recommendation', async () => {
     const rec = vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: recommendation, version: 2 });

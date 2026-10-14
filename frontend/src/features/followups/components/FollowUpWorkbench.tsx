@@ -71,9 +71,13 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     typeof window !== 'undefined' ? window.innerWidth < 1024 : false
   );
 
+  // Queue callbacks read the current layout without making resize a fetch dependency.
+  const isMobileRef = useRef(isMobile);
+
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth < 1024);
+      isMobileRef.current = window.innerWidth < 1024;
+      setIsMobile(isMobileRef.current);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -215,14 +219,14 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         if (prevId && page.items?.some((it) => it.customerId === prevId)) {
           return prevId;
         }
-        if (!isMobile && page.items && page.items.length > 0) {
+        if (!isMobileRef.current && page.items && page.items.length > 0) {
           return page.items[0].customerId;
         }
         return null;
       });
       return 'applied';
     },
-    [isMobile]
+    []
   );
 
   // Centralized queue replacement: invalidates and aborts in-flight pagination, clears loadingMore,
@@ -980,27 +984,11 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             )}
           </div>
         </div>
-      ) : isMobile && selectedItem ? (
-        /* Mobile Stacked View: Detail Screen */
-        <FollowUpDetail
-          key={`${activeWorkspace?.tenantId ?? ''}:${selectedItem.customerId}`}
-          item={selectedItem}
-          isMobileView={true}
-          timeZone={tenantTimeZone}
-          onBack={() => setSelectedCustomerId(null)}
-          onNavigateToCustomer={onNavigateToCustomer}
-          onRecordManualFollowUp={handleRecordManualFollowUp}
-          onSnooze={handleSnooze}
-          onDismiss={handleDismiss}
-          canWrite={canWrite}
-          canUseAi={canUseAi}
-          onRequestRefresh={refreshQueue}
-        />
       ) : (
         /* Desktop Split View or Mobile List Screen */
         <div className={`follow-up-queue-grid${isMobile ? ' follow-up-queue-grid--stacked' : ''}`}>
           {/* Left Column: Follow-up Queue Cards */}
-          <div className="follow-up-queue-column">
+          <div className="follow-up-queue-column" hidden={isMobile && !!selectedItem}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
               <span
                 style={{
@@ -1050,39 +1038,38 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             )}
           </div>
 
-          {/* Right Column: Contextual Detail Panel (Desktop only) */}
-          {!isMobile && (
-            <div>
-              {selectedItem ? (
-                <FollowUpDetail
-                  key={`${activeWorkspace?.tenantId ?? ''}:${selectedItem.customerId}`}
-                  item={selectedItem}
-                  isMobileView={false}
-                  timeZone={tenantTimeZone}
-                  onNavigateToCustomer={onNavigateToCustomer}
-                  onRecordManualFollowUp={handleRecordManualFollowUp}
-                  onSnooze={handleSnooze}
-                  onDismiss={handleDismiss}
-                  canWrite={canWrite}
-                  canUseAi={canUseAi}
-                  onRequestRefresh={refreshQueue}
-                />
-              ) : (
-                <div
-                  style={{
-                    backgroundColor: 'var(--color-surface)',
-                    border: '1px solid var(--color-outline)',
-                    borderRadius: 'var(--radius-lg)',
-                    padding: 'var(--space-32)',
-                    textAlign: 'center',
-                    color: 'var(--color-text-muted)'
-                  }}
-                >
-                  Selecciona un cliente de la lista para ver su detalle de seguimiento.
-                </div>
-              )}
-            </div>
-          )}
+          {/* Keep the detail in one stable tree across responsive layout changes. */}
+          <div hidden={isMobile && !selectedItem}>
+            {selectedItem ? (
+              <FollowUpDetail
+                key={`${activeWorkspace?.tenantId ?? ''}:${selectedItem.customerId}`}
+                item={selectedItem}
+                isMobileView={isMobile}
+                onBack={() => setSelectedCustomerId(null)}
+                timeZone={tenantTimeZone}
+                onNavigateToCustomer={onNavigateToCustomer}
+                onRecordManualFollowUp={handleRecordManualFollowUp}
+                onSnooze={handleSnooze}
+                onDismiss={handleDismiss}
+                canWrite={canWrite}
+                canUseAi={canUseAi}
+                onRequestRefresh={refreshQueue}
+              />
+            ) : (
+              <div
+                style={{
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-outline)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: 'var(--space-32)',
+                  textAlign: 'center',
+                  color: 'var(--color-text-muted)'
+                }}
+              >
+                Selecciona un cliente de la lista para ver su detalle de seguimiento.
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
