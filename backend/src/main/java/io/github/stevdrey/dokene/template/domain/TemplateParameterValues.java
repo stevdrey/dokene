@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class TemplateParameterValues {
+    /** Maximum characters (Unicode code points, so an emoji counts once) per parameter value. */
     public static final int MAX_LENGTH = 1024;
 
     private TemplateParameterValues() {
@@ -25,7 +26,7 @@ public final class TemplateParameterValues {
             throw new IllegalArgumentException("Parameter count does not match the template");
         }
         for (String value : values) {
-            if (value == null || value.isEmpty() || value.length() > MAX_LENGTH || value.contains("    ")
+            if (value == null || value.isEmpty() || value.codePointCount(0, value.length()) > MAX_LENGTH || value.contains("    ")
                     || value.codePoints().anyMatch(TemplateParameterValues::forbidden)) {
                 throw new IllegalArgumentException("Parameter value is not acceptable");
             }

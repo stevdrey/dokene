@@ -102,5 +102,12 @@ class TemplateMappingTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(TemplateParameterValues.validate(two, List.of("x".repeat(TemplateParameterValues.MAX_LENGTH), "y")))
                 .hasSize(2);
+        // Length counts characters, not UTF-16 units: 1024 emoji fit, 1025 do not.
+        String emoji = "\uD83C\uDF81";
+        assertThat(TemplateParameterValues.validate(two, List.of(emoji.repeat(TemplateParameterValues.MAX_LENGTH), "y")))
+                .hasSize(2);
+        assertThatThrownBy(() -> TemplateParameterValues.validate(two,
+                List.of(emoji.repeat(TemplateParameterValues.MAX_LENGTH + 1), "y")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }
