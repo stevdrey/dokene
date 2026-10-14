@@ -23,6 +23,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
+import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
+import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
+import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -67,6 +71,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     @Autowired TenantRepository tenants;
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
+    @Autowired WhatsAppIntegrationRepository repository;
     @MockitoSpyBean IntegrationAuditPort audit;
 
     /** Phone number ids are globally unique, so every test maps its own. */
@@ -157,6 +162,46 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         write(adminA, tenantA, null, json).andExpect(status().isOk());
         write(adminA, tenantA, null, json).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_VERSION"));
+    }
+
+    @Test
+    void aLostCreateRaceIsAStalePreconditionButAForeignPhoneMappingIsInvalidInput() {
+        Instant now = Instant.now();
+        String otherPhone = Long.toString(NEXT_ID.incrementAndGet());
+        contexts.runWithTenantId(tenantA.id(), () -> {
+            repository.insert(WhatsAppIntegration.create(tenantA.id(), phoneId, WABA_ID, null, true, "wa-token-ok", now));
+            assertThat(org.assertj.core.api.Assertions.catchThrowableOfType(IntegrationRefusedException.class,
+                    () -> repository.insert(WhatsAppIntegration.create(tenantA.id(), otherPhone, WABA_ID, null, true,
+                            "wa-token-ok", now))).code()).isEqualTo(MessagingErrorCode.STALE_VERSION);
+        });
+        contexts.runWithTenantId(tenantB.id(), () -> assertThat(
+                org.assertj.core.api.Assertions.catchThrowableOfType(IntegrationRefusedException.class,
+                        () -> repository.insert(WhatsAppIntegration.create(tenantB.id(), phoneId, WABA_ID, null, true,
+                                "wa-token-ok", now))).code()).isEqualTo(MessagingErrorCode.INVALID_INPUT));
+    }
+
+    @Test
+    void concurrentCreatesFromOneTenantYieldOneWinnerAndAStaleVersion() throws Exception {
+        var barrier = new java.util.concurrent.CyclicBarrier(2);
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+            for (int i = 0; i < 2; i++) {
+                String phone = i == 0 ? phoneId : Long.toString(NEXT_ID.incrementAndGet());
+                futures.add(pool.submit(() -> {
+                    barrier.await();
+                    var result = write(adminA, tenantA, null, body(phone, "wa-token-ok", true)).andReturn();
+                    if (result.getResponse().getStatus() == 409) {
+                        assertThat(result.getResponse().getContentAsString()).contains("STALE_VERSION");
+                    }
+                    return result.getResponse().getStatus();
+                }));
+            }
+            var statuses = new java.util.ArrayList<Integer>();
+            for (var future : futures) {
+                statuses.add(future.get());
+            }
+            assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+        }
     }
 
     @Test

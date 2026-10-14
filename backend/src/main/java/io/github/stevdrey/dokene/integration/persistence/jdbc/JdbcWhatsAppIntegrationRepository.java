@@ -15,6 +15,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRepository {
     private static final String PROVIDER = "META_WHATSAPP";
+    /** The tenant already has an integration: a lost create race, which is a stale precondition, not bad input. */
+    private static final String TENANT_PROVIDER_CONSTRAINT = "uq_tenant_messaging_integrations_tenant_provider";
 
     private final JdbcTemplate jdbc;
 
@@ -48,6 +50,10 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                     Timestamp.from(integration.createdAt()), Timestamp.from(integration.updatedAt()),
                     integration.version());
         } catch (DataIntegrityViolationException conflict) {
+            String cause = String.valueOf(conflict.getMostSpecificCause().getMessage());
+            if (cause.contains(TENANT_PROVIDER_CONSTRAINT)) {
+                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+            }
             // A mapping owned by another tenant is indistinguishable from any other invalid mapping.
             throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }
