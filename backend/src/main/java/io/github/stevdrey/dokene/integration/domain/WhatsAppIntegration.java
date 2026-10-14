@@ -3,6 +3,7 @@
 package io.github.stevdrey.dokene.integration.domain;
 
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TimestampPrecision;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -25,8 +26,9 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
             throw new IllegalArgumentException("Display phone number is invalid");
         }
         requireMatch(secretRef, SECRET_REF, "Secret reference is invalid");
-        Objects.requireNonNull(createdAt, "Created at is required");
-        Objects.requireNonNull(updatedAt, "Updated at is required");
+        // PostgreSQL stores microseconds; normalizing keeps in-memory values equal to what a read returns.
+        createdAt = TimestampPrecision.normalize(Objects.requireNonNull(createdAt, "Created at is required"));
+        updatedAt = TimestampPrecision.normalize(Objects.requireNonNull(updatedAt, "Updated at is required"));
         if (credentialRevision < 1 || version < 0) {
             throw new IllegalArgumentException("Revision is invalid");
         }
@@ -44,6 +46,12 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
         long revision = Objects.equals(this.secretRef, secretRef) ? credentialRevision : credentialRevision + 1;
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
                 secretRef, revision, createdAt, now, version);
+    }
+
+    /** The same record with the version the store reported after a committed write. */
+    public WhatsAppIntegration withVersion(long storedVersion) {
+        return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
+                secretRef, credentialRevision, createdAt, updatedAt, storedVersion);
     }
 
     private static void requireMatch(String value, Pattern pattern, String message) {

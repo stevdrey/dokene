@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.sql.Timestamp;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -60,17 +61,19 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
     }
 
     @Override
-    public boolean update(WhatsAppIntegration integration, long expectedVersion) {
+    public OptionalLong update(WhatsAppIntegration integration, long expectedVersion) {
         try {
-            return jdbc.update("""
+            return jdbc.queryForList("""
                     UPDATE dokene.tenant_messaging_integrations
                     SET phone_number_id = ?, business_account_id = ?, display_phone_number = ?, enabled = ?,
                         secret_ref = ?, credential_revision = ?, updated_at = ?, version = version + 1
                     WHERE tenant_id = ? AND id = ? AND version = ?
-                    """, integration.phoneNumberId(), integration.businessAccountId(),
+                    RETURNING version
+                    """, Long.class, integration.phoneNumberId(), integration.businessAccountId(),
                     integration.displayPhoneNumber(), integration.enabled(), integration.secretRef(),
                     integration.credentialRevision(), Timestamp.from(integration.updatedAt()),
-                    integration.tenantId().value(), integration.id(), expectedVersion) == 1;
+                    integration.tenantId().value(), integration.id(), expectedVersion)
+                    .stream().mapToLong(Long::longValue).findFirst();
         } catch (DataIntegrityViolationException conflict) {
             throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }

@@ -3,7 +3,7 @@ package io.github.stevdrey.dokene.tenant.domain;
 import java.time.DateTimeException;
 import java.time.Instant;
 
-final class TimestampPrecision {
+public final class TimestampPrecision {
 
     private static final long NANOSECONDS_PER_MICROSECOND = 1_000L;
     private static final long HALF_MICROSECOND_IN_NANOSECONDS = NANOSECONDS_PER_MICROSECOND / 2;
@@ -11,7 +11,7 @@ final class TimestampPrecision {
     private TimestampPrecision() {
     }
 
-    static Instant normalize(Instant timestamp) {
+    public static Instant normalize(Instant timestamp) {
         long roundedNanoseconds = ((timestamp.getNano() + HALF_MICROSECOND_IN_NANOSECONDS)
                 / NANOSECONDS_PER_MICROSECOND) * NANOSECONDS_PER_MICROSECOND;
         try {

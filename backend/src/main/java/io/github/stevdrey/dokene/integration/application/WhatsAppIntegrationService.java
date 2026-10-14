@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,23 +24,30 @@ public class WhatsAppIntegrationService {
     private final IntegrationAuditPort audit;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
+    private final IntegrationReadiness readiness;
     private final Clock clock;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
-            TenantAuthorizationService authorization, TenantContextProvider contexts, Clock clock) {
+            TenantAuthorizationService authorization, TenantContextProvider contexts, IntegrationReadiness readiness,
+            Clock clock) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
+        this.readiness = Objects.requireNonNull(readiness, "Readiness is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
     }
 
+    /** The stored configuration plus the runtime state reported with it. */
+    public record IntegrationView(WhatsAppIntegration integration, boolean outboundEnabled, boolean webhookVerified) {
+    }
+
     @Transactional(readOnly = true)
-    public WhatsAppIntegration get() {
+    public IntegrationView get() {
         authorization.requirePermission(TenantPermission.INTEGRATION_READ);
         TenantId tenantId = contexts.requireCurrent().tenantId();
-        return repository.findByTenant(tenantId)
-                .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
+        return view(repository.findByTenant(tenantId)
+                .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND)));
     }
 
     /** The caller's explicit precondition: create only when absent, or replace exactly this version. */
@@ -56,42 +64,47 @@ public class WhatsAppIntegrationService {
 
     /** A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. */
     @Transactional
-    public WhatsAppIntegration upsert(Precondition precondition, String phoneNumberId, String businessAccountId,
+    public IntegrationView upsert(Precondition precondition, String phoneNumberId, String businessAccountId,
             String displayPhoneNumber, boolean enabled, String secretRef) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
         TenantId tenantId = contexts.requireCurrent().tenantId();
         Optional<WhatsAppIntegration> existing = repository.findByTenant(tenantId);
         WhatsAppIntegration saved;
-        try {
-            if (existing.isEmpty()) {
-                if (!(precondition instanceof Create)) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-                }
-                WhatsAppIntegration created = WhatsAppIntegration.create(tenantId, phoneNumberId, businessAccountId,
-                        displayPhoneNumber, enabled, secretRef, clock.instant());
-                repository.insert(created);
-                saved = created;
-            } else {
-                WhatsAppIntegration current = existing.get();
-                if (!(precondition instanceof Version(long expectedVersion))) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-                }
-                if (current.version() != expectedVersion) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-                }
-                WhatsAppIntegration next = current.update(phoneNumberId, businessAccountId, displayPhoneNumber,
-                        enabled, secretRef, clock.instant());
-                if (!repository.update(next, expectedVersion)) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-                }
-                saved = new WhatsAppIntegration(next.id(), next.tenantId(), next.phoneNumberId(),
-                        next.businessAccountId(), next.displayPhoneNumber(), next.enabled(), next.secretRef(),
-                        next.credentialRevision(), next.createdAt(), next.updatedAt(), expectedVersion + 1);
+        if (existing.isEmpty()) {
+            if (!(precondition instanceof Create)) {
+                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
             }
+            WhatsAppIntegration created = validated(() -> WhatsAppIntegration.create(tenantId, phoneNumberId,
+                    businessAccountId, displayPhoneNumber, enabled, secretRef, clock.instant()));
+            repository.insert(created);
+            saved = created;
+        } else {
+            WhatsAppIntegration current = existing.get();
+            if (!(precondition instanceof Version(long expectedVersion))
+                    || current.version() != expectedVersion) {
+                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+            }
+            WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
+                    displayPhoneNumber, enabled, secretRef, clock.instant()));
+            long storedVersion = repository.update(next, expectedVersion).orElseThrow(
+                    () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
+            saved = next.withVersion(storedVersion);
+        }
+        audit.updated(saved.id(), saved.enabled());
+        return view(saved);
+    }
+
+    /** Only domain validation maps to INVALID_INPUT; other failures stay server errors. */
+    private static WhatsAppIntegration validated(Supplier<WhatsAppIntegration> build) {
+        try {
+            return build.get();
         } catch (IllegalArgumentException invalid) {
             throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }
-        audit.updated(saved.id(), saved.enabled());
-        return saved;
+    }
+
+    private IntegrationView view(WhatsAppIntegration integration) {
+        return new IntegrationView(integration, readiness.outboundEnabled(integration.tenantId()),
+                readiness.webhookVerified(integration.tenantId()));
     }
 }

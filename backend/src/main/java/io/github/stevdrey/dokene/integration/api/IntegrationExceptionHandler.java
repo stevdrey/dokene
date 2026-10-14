@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.integration.api;
 
+import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
@@ -28,7 +29,7 @@ public class IntegrationExceptionHandler {
     }
 
     // The closed contract has no 415/406: an unusable media type is just invalid input.
-    @ExceptionHandler({IllegalArgumentException.class, HttpMessageNotReadableException.class,
+    @ExceptionHandler({InvalidRequestException.class, HttpMessageNotReadableException.class,
             HttpMediaTypeNotSupportedException.class, HttpMediaTypeNotAcceptableException.class})
     ResponseEntity<MessagingProblem> invalid() {
         return problem(MessagingErrorCode.INVALID_INPUT);

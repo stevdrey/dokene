@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
+import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
@@ -219,6 +220,19 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
+    void rejectsWronglyTypedScalarsAndNonObjectBodies() throws Exception {
+        for (String json : List.of("null", "[]", "{}",
+                "{\"phoneNumberId\":" + phoneId + ",\"businessAccountId\":\"" + WABA_ID
+                        + "\",\"enabled\":true,\"secretRef\":\"wa-token-ok\"}",
+                "{\"phoneNumberId\":\"" + phoneId + "\",\"businessAccountId\":\"" + WABA_ID
+                        + "\",\"enabled\":\"true\",\"secretRef\":\"wa-token-ok\"}")) {
+            write(adminA, tenantA, null, json)
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        read(adminA, tenantA).andExpect(status().isNotFound());
+    }
+
+    @Test
     void rejectsRawCredentialsAndMalformedFields() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "../etc/passwd", true)).andExpect(status().isBadRequest());
         write(adminA, tenantA, null, body("12", "wa-token-ok", true)).andExpect(status().isBadRequest());
@@ -279,17 +293,15 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
-    void auditFailureRollsBackTheConfigurationChange() throws Exception {
-        doThrow(new IllegalStateException("audit down")).when(audit).updated(any(), anyBoolean());
-        try {
-            write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true));
-        } catch (Exception expected) {
-            // The request fails; what matters is that nothing was persisted.
-        }
+    void auditFailureRollsBackTheConfigurationChangeAndAnswersServiceUnavailable() throws Exception {
+        doThrow(new AuditPersistenceException()).when(audit).updated(any(), anyBoolean());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
         try (Connection migration = migrationConnection()) {
             assertThat(queryInt(migration, "SELECT count(*) FROM dokene.tenant_messaging_integrations "
                     + "WHERE tenant_id = ?", tenantA.id().value())).isZero();
         }
+        assertThat(auditCount(tenantA)).isZero();
     }
 
     private ResultActions read(IdentityId who, Tenant tenant) throws Exception {

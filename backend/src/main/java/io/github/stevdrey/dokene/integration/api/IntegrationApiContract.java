@@ -2,53 +2,70 @@
 // ABOUTME: Mirrored by frontend/src/features/integrations/types and pinned by contracts/messaging/v1/integration.json.
 package io.github.stevdrey.dokene.integration.api;
 
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.cfg.CoercionAction;
+import tools.jackson.databind.cfg.CoercionInputShape;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.type.LogicalType;
 
 /**
  * Transport shapes only; format and ownership rules stay in the domain and service. Responses never carry secret
  * values: {@code secretRef} is a bare key, not a credential.
  */
 public final class IntegrationApiContract {
+    /**
+     * The one reader for request bodies, used by the controller and by the fixture tests: unknown members (for
+     * example a raw token) and wrongly typed scalars are rejected instead of ignored or coerced.
+     */
+    private static final JsonMapper STRICT_READER = JsonMapper.builder()
+            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+            // ALLOW_COERCION_OF_SCALARS leaves number/boolean to String coercion on: refuse it explicitly.
+            .withCoercionConfig(LogicalType.Textual, config -> config
+                    .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                    .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                    .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
+            .build();
+
     private IntegrationApiContract() {
+    }
+
+    public static JsonMapper strictReader() {
+        return STRICT_READER;
+    }
+
+    /** Binds a request body, mapping every malformed shape to {@link InvalidRequestException}. */
+    public static IntegrationRequest read(JsonNode body) {
+        try {
+            IntegrationRequest request = body == null ? null : STRICT_READER.treeToValue(body, IntegrationRequest.class);
+            if (request == null) {
+                throw new InvalidRequestException();
+            }
+            return request;
+        } catch (JacksonException malformed) {
+            throw new InvalidRequestException();
+        }
+    }
+
+    /** A request that is not a valid integration body or carries an invalid precondition header. */
+    public static final class InvalidRequestException extends RuntimeException {
+        public InvalidRequestException() {
+            super("Request is invalid");
+        }
     }
 
     /** {@code PUT /api/integrations/whatsapp}. Required members are enforced at construction. */
     public record IntegrationRequest(String phoneNumberId, String businessAccountId, String displayPhoneNumber,
             Boolean enabled, String secretRef) {
-        private static final Set<String> MEMBERS = Set.of("phoneNumberId", "businessAccountId", "displayPhoneNumber",
-                "enabled", "secretRef");
-
         public IntegrationRequest {
             Objects.requireNonNull(phoneNumberId, "phoneNumberId is required");
             Objects.requireNonNull(businessAccountId, "businessAccountId is required");
             Objects.requireNonNull(enabled, "enabled is required");
             Objects.requireNonNull(secretRef, "secretRef is required");
-        }
-
-        /**
-         * The runtime reader ignores unknown members, so the controller binds a map and this rejects unknown members
-         * (for example a raw token) and wrongly typed values instead.
-         */
-        static IntegrationRequest from(Map<String, Object> body) {
-            if (body == null || !MEMBERS.containsAll(body.keySet()) || !(body.get("enabled") instanceof Boolean)) {
-                throw new IllegalArgumentException("Request is invalid");
-            }
-            try {
-                return new IntegrationRequest(text(body, "phoneNumberId"), text(body, "businessAccountId"),
-                        text(body, "displayPhoneNumber"), (Boolean) body.get("enabled"), text(body, "secretRef"));
-            } catch (NullPointerException missing) {
-                throw new IllegalArgumentException("Request is invalid");
-            }
-        }
-
-        private static String text(Map<String, Object> body, String member) {
-            Object value = body.get(member);
-            if (value != null && !(value instanceof String)) {
-                throw new IllegalArgumentException("Request is invalid");
-            }
-            return (String) value;
         }
     }
 

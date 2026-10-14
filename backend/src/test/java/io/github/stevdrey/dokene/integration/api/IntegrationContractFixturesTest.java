@@ -20,11 +20,9 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.exc.UnrecognizedPropertyException;
-import tools.jackson.databind.json.JsonMapper;
 
 class IntegrationContractFixturesTest {
     private static final Map<String, Class<? extends Throwable>> INVALID_REASONS = Map.of(
@@ -32,9 +30,8 @@ class IntegrationContractFixturesTest {
             "missingSecretRef", NullPointerException.class,
             "rawCredentialSmuggled", UnrecognizedPropertyException.class);
 
-    private final ObjectMapper mapper = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .build();
+    /** The production reader, so the fixtures prove what the endpoint really accepts. */
+    private final ObjectMapper mapper = IntegrationApiContract.strictReader();
     private final JsonNode fixture = load();
 
     @TestFactory
@@ -70,6 +67,21 @@ class IntegrationContractFixturesTest {
         return named(fixture.get("response").get("valid")).entrySet().stream().map(entry -> dynamicTest(
                 "response.valid." + entry.getKey(), () -> assertThat(written(entry.getValue(),
                         IntegrationResponse.class)).isEqualTo(entry.getValue())));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> theProductionReaderRejectsWrongTypesAndShapes() {
+        Map<String, String> bodies = Map.of(
+                "stringBoolean", "{\"phoneNumberId\":\"100000000000001\",\"businessAccountId\":\"200000000000001\","
+                        + "\"enabled\":\"true\",\"secretRef\":\"synthetic-wa-token\"}",
+                "numericPhoneNumberId", "{\"phoneNumberId\":100000000000001,\"businessAccountId\":\"200000000000001\","
+                        + "\"enabled\":true,\"secretRef\":\"synthetic-wa-token\"}",
+                "jsonNull", "null",
+                "jsonArray", "[]",
+                "emptyObject", "{}");
+        return bodies.entrySet().stream().map(entry -> dynamicTest(entry.getKey(), () -> assertThat(
+                catchThrowable(() -> IntegrationApiContract.read(mapper.readTree(entry.getValue()))))
+                .isInstanceOf(IntegrationApiContract.InvalidRequestException.class)));
     }
 
     @Test
