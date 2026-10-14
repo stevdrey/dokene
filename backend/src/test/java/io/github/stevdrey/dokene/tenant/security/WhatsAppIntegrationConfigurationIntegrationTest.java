@@ -1,8 +1,7 @@
-// ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, duplicate mapping, secret
-// ABOUTME: resolution, stale writes, credential rotation and audit rollback. Uses fake secrets only (issue 134).
+// ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, duplicate mapping, stale
+// ABOUTME: writes, credential rotation and audit rollback. Secrets are only referenced, never resolved (issue 134).
 package io.github.stevdrey.dokene.tenant.security;
 
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.executeUpdate;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryInt;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext;
@@ -24,8 +23,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
-import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
-import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -36,15 +33,11 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -61,22 +54,6 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong(
             100_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "200000000000001";
-
-    @TestConfiguration
-    static class FakeSecrets {
-        /** Fake provider: tenant-scoped keys ending in -ok resolve; everything else is unknown (fail closed). */
-        @Bean
-        @Primary
-        IntegrationSecretResolver fakeResolver() {
-            Set<String> known = Set.of("wa-token-ok", "wa-token-two-ok");
-            return (scope, reference) -> {
-                if (!(scope instanceof IntegrationSecretResolver.Tenant) || !known.contains(reference.value())) {
-                    throw new IllegalStateException("unresolved");
-                }
-                return new ResolvedSecret("fake-secret".toCharArray());
-            };
-        }
-    }
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws SQLException {
@@ -173,9 +150,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
-    void failsClosedOnUnknownSecretsRawCredentialsAndMalformedFields() throws Exception {
-        write(adminA, tenantA, null, body(phoneId, "unknown-ref", true))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+    void rejectsRawCredentialsAndMalformedFields() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "../etc/passwd", true)).andExpect(status().isBadRequest());
         write(adminA, tenantA, null, body("12", "wa-token-ok", true)).andExpect(status().isBadRequest());
         write(adminA, tenantA, null, "{\"phoneNumberId\":\"" + phoneId + "\",\"businessAccountId\":\"" + WABA_ID
@@ -217,10 +192,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-two-ok", false)).andExpect(status().isOk());
         assertThat(credentialRevision(tenantA)).isEqualTo(2);
 
-        // Re-enabling needs a resolvable credential even when the reference did not change.
-        executeSql("UPDATE dokene.tenant_messaging_integrations SET secret_ref = 'gone-ref' WHERE tenant_id = ?",
-                tenantA.id().value());
-        write(adminA, tenantA, "\"2\"", body(phoneId, "gone-ref", true)).andExpect(status().isBadRequest());
+        // Only the reference is stored; resolution is the adapter's job at send time, so nothing resolves here.
     }
 
     @Test
@@ -288,12 +260,6 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         try (Connection migration = migrationConnection()) {
             return queryInt(migration, "SELECT credential_revision FROM dokene.tenant_messaging_integrations "
                     + "WHERE tenant_id = ?", tenant.id().value());
-        }
-    }
-
-    private void executeSql(String sql, Object... parameters) throws SQLException {
-        try (Connection migration = migrationConnection()) {
-            executeUpdate(migration, sql, parameters);
         }
     }
 

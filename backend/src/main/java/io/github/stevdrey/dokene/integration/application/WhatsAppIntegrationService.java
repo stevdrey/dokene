@@ -9,29 +9,26 @@ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.util.Objects;
 import java.util.Optional;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Tenant and actor come from the current context, never from the request. Credentials are only referenced: the secret
- * is resolved to prove the reference is usable and is closed immediately; no network call is made.
+ * Tenant and actor come from the current context, never from the request. Credentials are only referenced: the
+ * reference's format is validated here, but the secret is resolved fail-closed by the provider adapter at send time
+ * (ADR 0023 §3.3, ADR 0024 §3), never when configuration is written. No network call is made.
  */
 @Service
 public class WhatsAppIntegrationService {
     private final WhatsAppIntegrationRepository repository;
     private final IntegrationAuditPort audit;
-    private final ObjectProvider<IntegrationSecretResolver> secrets;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final Clock clock;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
-            ObjectProvider<IntegrationSecretResolver> secrets, TenantAuthorizationService authorization,
-            TenantContextProvider contexts, Clock clock) {
+            TenantAuthorizationService authorization, TenantContextProvider contexts, Clock clock) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
-        this.secrets = Objects.requireNonNull(secrets, "Secret resolver is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
@@ -63,7 +60,6 @@ public class WhatsAppIntegrationService {
                 }
                 WhatsAppIntegration created = WhatsAppIntegration.create(tenantId, phoneNumberId, businessAccountId,
                         displayPhoneNumber, enabled, secretRef, clock.instant());
-                requireUsableSecret(tenantId, secretRef);
                 repository.insert(created);
                 saved = created;
             } else {
@@ -76,9 +72,6 @@ public class WhatsAppIntegrationService {
                 }
                 WhatsAppIntegration next = current.update(phoneNumberId, businessAccountId, displayPhoneNumber,
                         enabled, secretRef, clock.instant());
-                if (!current.secretRef().equals(next.secretRef()) || (enabled && !current.enabled())) {
-                    requireUsableSecret(tenantId, next.secretRef());
-                }
                 if (!repository.update(next, expectedVersion)) {
                     throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
                 }
@@ -91,19 +84,5 @@ public class WhatsAppIntegrationService {
         }
         audit.updated(saved.id(), saved.enabled());
         return saved;
-    }
-
-    /** Unknown, missing, wrong-scope or unconfigured resolution all fail closed with the same refusal. */
-    private void requireUsableSecret(TenantId tenantId, String secretRef) {
-        IntegrationSecretResolver resolver = secrets.getIfAvailable();
-        if (resolver == null) {
-            throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
-        }
-        try (var ignored = resolver.resolve(new IntegrationSecretResolver.Tenant(tenantId),
-                new IntegrationSecretResolver.SecretReference(secretRef))) {
-            // Resolution success is the only evidence needed; the material is never read here.
-        } catch (RuntimeException unresolved) {
-            throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
-        }
     }
 }
