@@ -37,6 +37,19 @@ describe('PurchaseSection', () => {
     });
   });
 
+  it('wraps an unbroken purchase description and keeps the actions available', async () => {
+    const description = 'X'.repeat(200);
+    vi.spyOn(customerApi, 'listPurchases').mockResolvedValue({ purchases: [{ ...mockPurchases[0], description }], nextCursor: null });
+    render(<PurchaseSection customerId="cust-1" isArchived={false} canWrite />);
+    const text = await screen.findByText(description);
+    expect(text.textContent).toBe(description);
+    expect(getComputedStyle(text).overflowWrap).toBe('anywhere');
+    expect(getComputedStyle(text.closest('.customer-purchase__content')!).minWidth).toBe('0px');
+    expect(getComputedStyle(text.closest('.customer-purchase__row')!).flexWrap).toBe('wrap');
+    expect(screen.getByRole('button', { name: new RegExp('Corregir compra: ' + description) })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: new RegExp('Anular compra: ' + description) })).toBeInTheDocument();
+  });
+
   it('renders purchase history with valid and void status badges', async () => {
     render(<PurchaseSection customerId="cust-1" isArchived={false} />);
 

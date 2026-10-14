@@ -1,0 +1,2188 @@
+{
+  "browser": "Chrome/155.0.8059.79",
+  "fixture": {
+    "name": 80,
+    "notes": 200,
+    "description": 200
+  },
+  "measurements": [
+    {
+      "view": "detail",
+      "viewport": 320,
+      "clientWidth": 305,
+      "scrollWidth": 305,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 197,
+          "scrollWidth": 197,
+          "clientWidth": 197,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 197,
+          "scrollWidth": 197,
+          "clientWidth": 197,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 223,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 107.5,
+          "height": 50,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 107.5,
+          "height": 50,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 320,
+      "clientWidth": 305,
+      "scrollWidth": 305,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 191,
+          "scrollWidth": 191,
+          "clientWidth": 191,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 141,
+          "scrollWidth": 141,
+          "clientWidth": 141,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 141,
+          "scrollWidth": 141,
+          "clientWidth": 141,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 70.65625,
+          "height": 74,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 223,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 390,
+      "clientWidth": 375,
+      "scrollWidth": 375,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 186.578125,
+          "scrollWidth": 187,
+          "clientWidth": 187,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 198.796875,
+          "scrollWidth": 199,
+          "clientWidth": 199,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 293,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 142.5,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 142.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 390,
+      "clientWidth": 375,
+      "scrollWidth": 375,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 261,
+          "scrollWidth": 261,
+          "clientWidth": 261,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 211,
+          "scrollWidth": 211,
+          "clientWidth": 211,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 159,
+          "scrollWidth": 159,
+          "clientWidth": 159,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 86.53125,
+          "height": 60,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 293,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 768,
+      "clientWidth": 753,
+      "scrollWidth": 753,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 316.578125,
+          "scrollWidth": 317,
+          "clientWidth": 317,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 328.796875,
+          "scrollWidth": 329,
+          "clientWidth": 329,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 423,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 207.5,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 207.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 768,
+      "clientWidth": 753,
+      "scrollWidth": 753,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 171.5,
+          "scrollWidth": 172,
+          "clientWidth": 172,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 193,
+          "scrollWidth": 193,
+          "clientWidth": 193,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 161.46875,
+          "scrollWidth": 161,
+          "clientWidth": 161,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 116,
+          "height": 46,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 423,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 820,
+      "clientWidth": 805,
+      "scrollWidth": 805,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 368.578125,
+          "scrollWidth": 369,
+          "clientWidth": 369,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 380.796875,
+          "scrollWidth": 381,
+          "clientWidth": 381,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 475,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 233.5,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 233.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 820,
+      "clientWidth": 805,
+      "scrollWidth": 805,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 197.5,
+          "scrollWidth": 198,
+          "clientWidth": 198,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 245,
+          "scrollWidth": 245,
+          "clientWidth": 245,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 161.46875,
+          "scrollWidth": 161,
+          "clientWidth": 161,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 127.796875,
+          "height": 46,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 475,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 1440,
+      "clientWidth": 1425,
+      "scrollWidth": 1425,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 603.90625,
+          "scrollWidth": 604,
+          "clientWidth": 604,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 497.484375,
+          "scrollWidth": 497,
+          "clientWidth": 497,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 509.703125,
+          "scrollWidth": 510,
+          "clientWidth": 510,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Ver clientearrow_forward",
+          "width": 106.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 207.828125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 115.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 116.6875,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 1440,
+      "clientWidth": 1425,
+      "scrollWidth": 1425,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 818.703125,
+          "scrollWidth": 819,
+          "clientWidth": 819,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 818.703125,
+          "scrollWidth": 819,
+          "clientWidth": 819,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 215.25,
+          "scrollWidth": 215,
+          "clientWidth": 215,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 510.5,
+          "scrollWidth": 511,
+          "clientWidth": 511,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 280.5,
+          "scrollWidth": 281,
+          "clientWidth": 281,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 161.46875,
+          "scrollWidth": 161,
+          "clientWidth": 161,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 135.84375,
+          "height": 46,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 510.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "fresh",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 820,
+      "clientWidth": 805,
+      "scrollWidth": 805,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 368.578125,
+          "scrollWidth": 369,
+          "clientWidth": 369,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 380.796875,
+          "scrollWidth": 381,
+          "clientWidth": 381,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 475,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 233.5,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 233.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 768,
+      "clientWidth": 753,
+      "scrollWidth": 753,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 316.578125,
+          "scrollWidth": 317,
+          "clientWidth": 317,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 328.796875,
+          "scrollWidth": 329,
+          "clientWidth": 329,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 423,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 207.5,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 207.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 390,
+      "clientWidth": 375,
+      "scrollWidth": 375,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 186.578125,
+          "scrollWidth": 187,
+          "clientWidth": 187,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 198.796875,
+          "scrollWidth": 199,
+          "clientWidth": 199,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 293,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 142.5,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 142.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 320,
+      "clientWidth": 305,
+      "scrollWidth": 305,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 197,
+          "scrollWidth": 197,
+          "clientWidth": 197,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 197,
+          "scrollWidth": 197,
+          "clientWidth": 197,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "arrow_backVolver a Seguimientos",
+          "width": 173.125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver perfil completoarrow_forward",
+          "width": 158.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 223,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 107.5,
+          "height": 50,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 107.5,
+          "height": 50,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "detail",
+      "viewport": 1440,
+      "clientWidth": 1425,
+      "scrollWidth": 1425,
+      "texts": [
+        {
+          "class": "follow-up-detail__name",
+          "length": 80,
+          "width": 603.90625,
+          "scrollWidth": 604,
+          "clientWidth": 604,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 200,
+          "width": 497.484375,
+          "scrollWidth": 497,
+          "clientWidth": 497,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "follow-up-detail__purchase-description",
+          "length": 21,
+          "width": 509.703125,
+          "scrollWidth": 510,
+          "clientWidth": 510,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Ver clientearrow_forward",
+          "width": 106.046875,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Copiar número de teléfono",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Obtener recomendación",
+          "width": 184.203125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "edit_calendarRegistrar seguimiento",
+          "width": 207.828125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "schedulePosponer",
+          "width": 115.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "closeDescartar",
+          "width": 116.6875,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 820,
+      "clientWidth": 805,
+      "scrollWidth": 805,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 197.5,
+          "scrollWidth": 198,
+          "clientWidth": 198,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 475,
+          "scrollWidth": 475,
+          "clientWidth": 475,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 245,
+          "scrollWidth": 245,
+          "clientWidth": 245,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 161.46875,
+          "scrollWidth": 161,
+          "clientWidth": 161,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 127.796875,
+          "height": 46,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 475,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 768,
+      "clientWidth": 753,
+      "scrollWidth": 753,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 171.5,
+          "scrollWidth": 172,
+          "clientWidth": 172,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 423,
+          "scrollWidth": 423,
+          "clientWidth": 423,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 193,
+          "scrollWidth": 193,
+          "clientWidth": 193,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 161.46875,
+          "scrollWidth": 161,
+          "clientWidth": 161,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 116,
+          "height": 46,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 423,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 390,
+      "clientWidth": 375,
+      "scrollWidth": 375,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 261,
+          "scrollWidth": 261,
+          "clientWidth": 261,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 293,
+          "scrollWidth": 293,
+          "clientWidth": 293,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 211,
+          "scrollWidth": 211,
+          "clientWidth": 211,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 159,
+          "scrollWidth": 159,
+          "clientWidth": 159,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 86.53125,
+          "height": 60,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 293,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 320,
+      "clientWidth": 305,
+      "scrollWidth": 305,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 191,
+          "scrollWidth": 191,
+          "clientWidth": 191,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 223,
+          "scrollWidth": 223,
+          "clientWidth": 223,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 141,
+          "scrollWidth": 141,
+          "clientWidth": 141,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 141,
+          "scrollWidth": 141,
+          "clientWidth": 141,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 70.65625,
+          "height": 74,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 223,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    },
+    {
+      "view": "profile",
+      "viewport": 1440,
+      "clientWidth": 1425,
+      "scrollWidth": 1425,
+      "texts": [
+        {
+          "class": "customer-profile__name",
+          "length": 80,
+          "width": 818.703125,
+          "scrollWidth": 819,
+          "clientWidth": 819,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__notes",
+          "length": 200,
+          "width": 818.703125,
+          "scrollWidth": 819,
+          "clientWidth": 819,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__purchase-description",
+          "length": 200,
+          "width": 215.25,
+          "scrollWidth": 215,
+          "clientWidth": 215,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-profile__business-status",
+          "length": 126,
+          "width": 510.5,
+          "scrollWidth": 511,
+          "clientWidth": 511,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 200,
+          "width": 280.5,
+          "scrollWidth": 281,
+          "clientWidth": 281,
+          "insideCard": true,
+          "wrap": "anywhere"
+        },
+        {
+          "class": "customer-purchase__description",
+          "length": 21,
+          "width": 161.46875,
+          "scrollWidth": 161,
+          "clientWidth": 161,
+          "insideCard": true,
+          "wrap": "anywhere"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Volver a Clientes",
+          "width": 149.0625,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Editar cliente",
+          "width": 140.9375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar cliente",
+          "width": 111.359375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Registrar compra",
+          "width": 167.375,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Corregir compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Anular compra: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Ver historial de auditoría: Compra normal anulada (17 jul 2026)",
+          "width": 44,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Marcar No contactar",
+          "width": 158.703125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Gestionar consentimiento para +56984521190",
+          "width": 186.078125,
+          "height": 44,
+          "insideViewport": true
+        },
+        {
+          "label": "Historial de políticas",
+          "width": 135.84375,
+          "height": 46,
+          "insideViewport": true
+        },
+        {
+          "label": "Archivar ficha de cliente",
+          "width": 510.5,
+          "height": 44,
+          "insideViewport": true
+        }
+      ],
+      "phase": "resize",
+      "passed": true
+    }
+  ]
+}
