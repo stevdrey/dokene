@@ -8,9 +8,9 @@ import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationServ
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.IntegrationView;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.Precondition;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.Version;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
-import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,7 +25,6 @@ import tools.jackson.databind.JsonNode;
 @RestController
 @RequestMapping("/api/integrations/whatsapp")
 public class WhatsAppIntegrationController {
-    private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,17})\"$");
 
     private final WhatsAppIntegrationService integrations;
 
@@ -95,9 +94,6 @@ public class WhatsAppIntegrationController {
             }
             return new Create();
         }
-        if (!STRONG_NUMERIC_ETAG.matcher(ifMatch).matches()) {
-            throw new InvalidRequestException();
-        }
-        return new Version(Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1)));
+        return new Version(StrictRequests.strongNumericVersion(ifMatch).orElseThrow(InvalidRequestException::new));
     }
 }
