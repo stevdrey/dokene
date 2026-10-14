@@ -30,6 +30,7 @@ import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
 import java.util.EnumSet;
 import java.util.List;
@@ -92,11 +93,19 @@ public class MessageController {
                 page.items().stream().map(MessageController::toListItem).toList(), page.nextCursor()));
     }
 
+    /**
+     * The ETag is the message version, the If-Match token for the next command, but {@code contactRemoved} can change
+     * without it. Headers are set on the servlet response rather than a {@code ResponseEntity}, because Spring answers
+     * a matching {@code If-None-Match} on an ETag-bearing {@code ResponseEntity} with {@code 304} even under
+     * {@code no-store}, which would hide the live flag. As for the integration endpoint, never {@code 304}.
+     */
     @RequiredPermission(TenantPermission.MESSAGE_READ)
     @GetMapping("/messages/{messageId}")
-    public ResponseEntity<MessageResponse> get(@PathVariable UUID messageId) {
+    public MessageResponse get(@PathVariable UUID messageId, HttpServletResponse response) {
         MessageDetail detail = queries.detail(messageId);
-        return noStore(ResponseEntity.ok()).eTag(etag(detail.message().version())).body(toResponse(detail));
+        response.setHeader(HttpHeaders.ETAG, etag(detail.message().version()));
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        return toResponse(detail);
     }
 
     @RequiredPermission(TenantPermission.MESSAGE_READ)
@@ -157,7 +166,9 @@ public class MessageController {
 
     /**
      * {@code contactRemoved} is derived live from the customer's contacts, so a stored representation could go stale
-     * without its version changing: never cache, never answer {@code 304}.
+     * without its version changing: never cache, never answer {@code 304}. Spring's automatic {@code If-None-Match}
+     * handling only applies to a {@code GET} or {@code HEAD} returning an ETag-bearing {@code ResponseEntity}, so the
+     * {@code POST} command responses here are safe and the detail {@code GET} sets its headers directly.
      */
     private static ResponseEntity.BodyBuilder noStore(ResponseEntity.BodyBuilder builder) {
         return builder.header(HttpHeaders.CACHE_CONTROL, "no-store");

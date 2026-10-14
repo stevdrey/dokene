@@ -429,6 +429,29 @@ class MessageApiIntegrationTest {
     }
 
     @Test
+    void aConditionalDetailReadNeverAnswers304BecauseContactRemovedIsLive() throws Exception {
+        String messageId = submittedMessageId();
+        mvc.perform(get("/api/messages/" + messageId).with(user(ownerA)).header("X-Tenant-Id", tenant(tenantA)))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.contactRemoved").value(false));
+
+        // Replacing the phone deletes the snapshotted contact row without touching the message version.
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        String phone = current.phones().getFirst().e164();
+        int suffix = Integer.parseInt(phone.substring(phone.length() - 4));
+        inContext(ownerA, () -> customers.update(customer.id(), current.version(), current.displayName(),
+                current.notes(), List.of(new PhoneInput("8888" + String.format("%04d", (suffix + 3) % 10000), "CR",
+                        true))));
+
+        mvc.perform(get("/api/messages/" + messageId).with(user(ownerA)).header("X-Tenant-Id", tenant(tenantA))
+                        .header("If-None-Match", "\"1\""))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.contactRemoved").value(true));
+    }
+
+    @Test
     void anAuditFailureRollsTheApprovalBack() throws Exception {
         String messageId = submittedMessageId();
         doThrow(new AuditPersistenceException()).when(audit).approved(any());
