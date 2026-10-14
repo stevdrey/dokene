@@ -93,7 +93,6 @@ describe('FollowUpWorkbench AI assistance', () => {
   }
 
   describe('responsive state preservation (Issue #193)', () => {
-    const originalWidth = window.innerWidth;
     const draftData: DraftResponse = {
         status: 'AVAILABLE',
         customerId: 'cust-1',
@@ -123,9 +122,9 @@ describe('FollowUpWorkbench AI assistance', () => {
       });
     }
 
+    // jsdom's default width; the shared matchMedia emulation in setupTests follows innerWidth.
     afterEach(() => {
-      cleanup();
-      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     });
 
     async function generateEditedDraft(width: number) {
@@ -183,6 +182,39 @@ describe('FollowUpWorkbench AI assistance', () => {
       else expect(await screen.findByText('Suele repetir su compra cada dos meses.')).toBeInTheDocument();
     });
 
+    it('selects the first customer when a mobile list without selection widens to desktop', async () => {
+      resize(768);
+      const { container } = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findByRole('button', { name: /Valentina Morales/ });
+      expect(screen.queryByRole('button', { name: 'Obtener recomendación' })).not.toBeInTheDocument();
+      const queueCalls = vi.mocked(followUpApi.getFollowUpQueue).mock.calls.length;
+      resize(1440);
+      expect(await screen.findByRole('button', { name: 'Obtener recomendación' })).toBeInTheDocument();
+      expect(container.querySelector('.follow-up-queue-column')).toHaveProperty('hidden', false);
+      expect(screen.getByRole('button', { name: /Valentina Morales/ })).toHaveAttribute('aria-pressed', 'true');
+      expect(vi.mocked(followUpApi.getFollowUpQueue).mock.calls.length).toBe(queueCalls);
+    });
+
+    it('moves focus into the mobile detail and back to the card', async () => {
+      resize(768);
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      const card = await screen.findByRole('button', { name: /Valentina Morales/ });
+      card.focus();
+      fireEvent.keyDown(card, { key: 'Enter' });
+      const region = await screen.findByRole('region', { name: 'Detalle de Valentina Morales' });
+      expect(region).toHaveFocus();
+      fireEvent.click(screen.getByRole('button', { name: /Volver a Seguimientos/ }));
+      expect(screen.getByRole('button', { name: /Valentina Morales/ })).toHaveFocus();
+    });
+
+    it('moves focus into the detail when a focused desktop queue is hidden by a resize', async () => {
+      resize(1440);
+      await renderWorkbench();
+      screen.getByRole('button', { name: /Valentina Morales/ }).focus();
+      resize(768);
+      expect(screen.getByRole('region', { name: 'Detalle de Valentina Morales' })).toHaveFocus();
+    });
+
     it('discards local state when returning to the mobile list', async () => {
       await generateEditedDraft(768);
       fireEvent.click(screen.getByRole('button', { name: /Volver a Seguimientos/ }));
@@ -193,9 +225,13 @@ describe('FollowUpWorkbench AI assistance', () => {
 
     it('discards an edited draft on workspace change', async () => {
       const { rerender } = await generateEditedDraft(1440);
+      const queueCalls = vi.mocked(followUpApi.getFollowUpQueue).mock.calls.length;
       setTenant('tenant-B');
       rerender(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
-      await screen.findByRole('button', { name: 'Obtener recomendación' });
+      // Assert on the tree rendered after the tenant-B queue reload settles, not the re-keyed first render.
+      await waitFor(() => expect(followUpApi.getFollowUpQueue).toHaveBeenCalledTimes(queueCalls + 1));
+      await waitFor(() => expect(screen.queryByText('Cargando seguimientos...')).not.toBeInTheDocument());
+      expect(await screen.findByRole('button', { name: 'Obtener recomendación' })).toBeInTheDocument();
       expect(screen.queryByLabelText('Borrador del mensaje (editable)')).not.toBeInTheDocument();
     });
 

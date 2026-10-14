@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { useTenant } from '@/features/tenants/TenantContext';
 import { QueueItemResponse, FollowUpStatus } from '@/features/followups/types';
 import { followUpApi } from '@/features/followups/api/followUpApi';
@@ -16,6 +16,9 @@ interface FollowUpWorkbenchProps {
 
 // Safety cap for the extra pages followed to find a selected customer that is still due.
 const MAX_SELECTED_SEARCH_PAGES = 20;
+
+// Below 1024px the workbench stacks the queue and the detail.
+const MOBILE_LAYOUT_QUERY = '(max-width: 1023.98px)';
 
 // The due queue only holds DUE/OVERDUE customers (only OVERDUE under the "Vencidos" filter), so one
 // eligibility lookup tells whether a missing selected customer can still be on a later page.
@@ -66,21 +69,20 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const policyGenerationRef = useRef(0);
   const policyAbortControllerRef = useRef<AbortController | null>(null);
 
-  // Detect mobile width (< 1024px) for responsive split vs stacked view
+  // Detect mobile width (< 1024px) for responsive split vs stacked view; notified only on crossings.
   const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(MOBILE_LAYOUT_QUERY).matches
+      : false
   );
 
-  // Queue callbacks read the current layout without making resize a fetch dependency.
-  const isMobileRef = useRef(isMobile);
-
   useEffect(() => {
-    const handleResize = () => {
-      isMobileRef.current = window.innerWidth < 1024;
-      setIsMobile(isMobileRef.current);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    if (typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const handleChange = () => setIsMobile(query.matches);
+    handleChange();
+    query.addEventListener('change', handleChange);
+    return () => query.removeEventListener('change', handleChange);
   }, []);
 
   // Fetch tenant policy time zone with generation and abort protection
@@ -219,9 +221,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         if (prevId && page.items?.some((it) => it.customerId === prevId)) {
           return prevId;
         }
-        if (!isMobileRef.current && page.items && page.items.length > 0) {
-          return page.items[0].customerId;
-        }
+        // Desktop auto-selection is owned by the filtered-selection sync effect.
         return null;
       });
       return 'applied';
@@ -409,8 +409,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     );
   }, [items, searchQuery, isSearchActive]);
 
-  // Synchronize card selection with filtered items on desktop
-  useEffect(() => {
+  // Synchronize card selection with filtered items on desktop. This is the only desktop
+  // auto-selection; a layout effect so a newly applied queue never paints without its detail.
+  useLayoutEffect(() => {
     if (isMobile) return;
     if (filteredItems.length > 0) {
       if (!selectedCustomerId || !filteredItems.some((i) => i.customerId === selectedCustomerId)) {
@@ -426,6 +427,45 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     if (!selectedCustomerId) return null;
     return filteredItems.find((i) => i.customerId === selectedCustomerId) || null;
   }, [filteredItems, selectedCustomerId]);
+
+  // Stable so the memoized cards do not re-render while hidden behind the mobile detail.
+  const handleSelectCard = useCallback((customerId: string) => {
+    // A notice about the previous customer must not follow the operator to another one.
+    setConflictNotice(null);
+    setSelectedCustomerId(customerId);
+  }, []);
+
+  // Mobile focus management: the queue is hidden while a detail is open, so focus follows the
+  // operator into the detail and returns to the customer's card when they go back to the list.
+  const queueColumnRef = useRef<HTMLDivElement>(null);
+  const detailRegionRef = useRef<HTMLDivElement>(null);
+  const returnFocusCustomerIdRef = useRef<string | null>(null);
+
+  const handleBackToList = useCallback(() => {
+    setSelectedCustomerId((prevId) => {
+      returnFocusCustomerIdRef.current = prevId;
+      return null;
+    });
+  }, []);
+
+  const selectedItemId = selectedItem?.customerId ?? null;
+  useEffect(() => {
+    if (!isMobile) return;
+    if (selectedItemId) {
+      const active = document.activeElement;
+      if (!active || active === document.body || queueColumnRef.current?.contains(active)) {
+        detailRegionRef.current?.focus();
+      }
+      return;
+    }
+    const returnId = returnFocusCustomerIdRef.current;
+    returnFocusCustomerIdRef.current = null;
+    if (returnId) {
+      queueColumnRef.current
+        ?.querySelector<HTMLElement>(`[data-customer-id="${CSS.escape(returnId)}"]`)
+        ?.focus();
+    }
+  }, [isMobile, selectedItemId]);
 
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
@@ -988,7 +1028,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         /* Desktop Split View or Mobile List Screen */
         <div className={`follow-up-queue-grid${isMobile ? ' follow-up-queue-grid--stacked' : ''}`}>
           {/* Left Column: Follow-up Queue Cards */}
-          <div className="follow-up-queue-column" hidden={isMobile && !!selectedItem}>
+          <div ref={queueColumnRef} className="follow-up-queue-column" hidden={isMobile && !!selectedItem}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
               <span
                 style={{
@@ -1012,11 +1052,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   key={item.customerId}
                   item={item}
                   isSelected={selectedCustomerId === item.customerId}
-                  onSelect={() => {
-                    // A notice about the previous customer must not follow the operator to another one.
-                    setConflictNotice(null);
-                    setSelectedCustomerId(item.customerId);
-                  }}
+                  onSelect={handleSelectCard}
                   timeZone={tenantTimeZone}
                 />
               ))}
@@ -1039,13 +1075,20 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           </div>
 
           {/* Keep the detail in one stable tree across responsive layout changes. */}
-          <div hidden={isMobile && !selectedItem}>
+          <div
+            ref={detailRegionRef}
+            className="follow-up-detail-region"
+            tabIndex={-1}
+            role="region"
+            aria-label={selectedItem ? `Detalle de ${selectedItem.displayName}` : 'Detalle de seguimiento'}
+            hidden={isMobile && !selectedItem}
+          >
             {selectedItem ? (
               <FollowUpDetail
                 key={`${activeWorkspace?.tenantId ?? ''}:${selectedItem.customerId}`}
                 item={selectedItem}
                 isMobileView={isMobile}
-                onBack={() => setSelectedCustomerId(null)}
+                onBack={handleBackToList}
                 timeZone={tenantTimeZone}
                 onNavigateToCustomer={onNavigateToCustomer}
                 onRecordManualFollowUp={handleRecordManualFollowUp}

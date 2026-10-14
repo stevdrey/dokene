@@ -6,11 +6,12 @@ import './FollowUpLayout.css';
 interface FollowUpCardProps {
   item: QueueItemResponse;
   isSelected: boolean;
-  onSelect: () => void;
+  onSelect: (customerId: string) => void;
   timeZone?: string;
 }
 
-export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, onSelect, timeZone }) => {
+// Memoized: the queue stays mounted (hidden) behind the mobile detail and must not re-render with it.
+export const FollowUpCard: React.FC<FollowUpCardProps> = React.memo(({ item, isSelected, onSelect, timeZone }) => {
   const isOverdue = item.status === 'OVERDUE';
   const todayStr = timeZone ? getCalendarDateInTimeZone(0, timeZone) : null;
   const isDueToday = item.status === 'DUE' || (!isOverdue && todayStr !== null && item.dueDate === todayStr);
@@ -78,7 +79,7 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onSelect();
+      onSelect(item.customerId);
     }
   };
 
@@ -89,7 +90,8 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
-      onClick={onSelect}
+      data-customer-id={item.customerId}
+      onClick={() => onSelect(item.customerId)}
       onKeyDown={handleKeyDown}
       style={{
         position: 'relative',
@@ -267,4 +269,6 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = ({ item, isSelected, on
       </div>
     </div>
   );
-};
+});
+
+FollowUpCard.displayName = 'FollowUpCard';
