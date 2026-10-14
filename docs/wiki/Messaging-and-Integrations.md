@@ -105,6 +105,8 @@ DORMANT_CUSTOMER
 
 Application code maps allowed semantic templates to tenant/provider template configuration.
 
+The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dispatch-policy.md)) stores one mapping per semantic intent and tenant: provider template name, language, ordered parameter names and an `enabled` flag, behind `GET /api/templates`, `PUT /api/templates/{templateIntent}` and `POST /api/templates/{templateIntent}/approval-refresh`. Approval is provider evidence, never operator input: the refresh asks (from #135 on; until then a fail-closed gateway reports nothing) Meta's Graph API with the tenant's own credential and records the status, check time, business account and mapping revision. A mapping is sendable only when it is enabled, `APPROVED` for its current revision and business account, and the evidence is younger than `dokene.template.approval-max-age` (24 hours by default). Editing a mapping drops the evidence and voids open approvals; a failed refresh drops it too. Phase 3 never sends free-form text: with no trusted customer-service-window evidence it sends only a verified template.
+
 The AI must not invent provider template IDs.
 
 ## Webhooks

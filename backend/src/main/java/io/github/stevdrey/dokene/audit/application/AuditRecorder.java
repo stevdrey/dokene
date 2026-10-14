@@ -74,4 +74,12 @@ public interface AuditRecorder {
     default void integrationUpdated(UUID integrationId, boolean enabled) {
         throw new UnsupportedOperationException("Integration audit is not configured");
     }
+
+    /**
+     * Requires an existing business transaction; failure must roll back the mapping change. Metadata carries the
+     * enabled flag only: never template names, parameters, statuses or provider text.
+     */
+    default void templateMappingUpdated(UUID mappingId, boolean enabled) {
+        throw new UnsupportedOperationException("Template audit is not configured");
+    }
 }
