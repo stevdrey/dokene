@@ -150,6 +150,66 @@ class MessagingContractFixturesTest {
                         .isInstanceOf(RuntimeException.class)));
     }
 
+    /**
+     * JSON round trips cannot see a retype that serializes the same ({@code UUID} to {@code String}, {@code Instant}
+     * to {@code String}), so the Java component types are pinned here; every record of the contract must be listed.
+     */
+    @Test
+    void recordComponentTypesArePinned() {
+        String contract = MessagingApiContract.class.getName() + "$";
+        String domain = "io.github.stevdrey.dokene.messaging.domain.";
+        String ai = "io.github.stevdrey.dokene.ai.domain.";
+        Map<Class<?>, List<String>> expected = new LinkedHashMap<>();
+        expected.put(SubmitMessageRequest.class, List.of("contactId: java.util.UUID",
+                "action: " + ai + "SemanticAction", "templateIntent: " + ai + "SemanticTemplateIntent",
+                "body: java.lang.String", "locale: java.lang.String", "origin: " + domain + "MessageOrigin"));
+        expected.put(ApprovalRequest.class, List.of("decision: " + domain + "ApprovalDecision",
+                "note: java.lang.String"));
+        expected.put(CancellationRequest.class, List.of("note: java.lang.String"));
+        expected.put(ResolutionRequest.class, List.of("outcome: " + contract + "ResolutionOutcome",
+                "note: java.lang.String"));
+        expected.put(MessageResponse.class, List.of("messageId: java.util.UUID", "customerId: java.util.UUID",
+                "contactId: java.util.UUID", "contactRemoved: boolean", "recipientPhone: java.lang.String",
+                "channel: " + domain + "MessageChannel", "status: " + domain + "MessageStatus",
+                "outcomeUnknown: boolean", "failureCategory: " + domain + "FailureCategory",
+                "action: " + ai + "SemanticAction", "templateIntent: " + ai + "SemanticTemplateIntent",
+                "locale: java.lang.String", "origin: " + domain + "MessageOrigin", "body: java.lang.String",
+                "sourcePolicyVersion: long", "approval: " + contract + "ApprovalSummary",
+                "attempts: java.util.List<" + contract + "AttemptSummary>", "providerMessageId: java.lang.String",
+                "sentAt: java.time.Instant", "deliveredAt: java.time.Instant", "readAt: java.time.Instant",
+                "createdByMembershipId: java.util.UUID", "createdAt: java.time.Instant",
+                "updatedAt: java.time.Instant", "version: long"));
+        expected.put(MessagingApiContract.ApprovalSummary.class, List.of(
+                "decision: " + domain + "ApprovalDecision", "decidedAt: java.time.Instant",
+                "decidedByMembershipId: java.util.UUID"));
+        expected.put(MessagingApiContract.AttemptSummary.class, List.of("attemptNumber: int",
+                "startedAt: java.time.Instant", "outcome: " + domain + "SendAttemptOutcome",
+                "failureCategory: " + domain + "FailureCategory"));
+        expected.put(MessagePageResponse.class, List.of("items: java.util.List<" + contract + "MessageListItem>",
+                "nextCursor: java.lang.String"));
+        expected.put(MessagingApiContract.MessageListItem.class, List.of("messageId: java.util.UUID",
+                "customerId: java.util.UUID", "contactRemoved: boolean", "status: " + domain + "MessageStatus",
+                "outcomeUnknown: boolean", "action: " + ai + "SemanticAction",
+                "templateIntent: " + ai + "SemanticTemplateIntent", "origin: " + domain + "MessageOrigin",
+                "createdAt: java.time.Instant", "updatedAt: java.time.Instant", "version: long"));
+        expected.put(MessageEventsResponse.class, List.of("messageId: java.util.UUID",
+                "events: java.util.List<" + contract + "MessageEventItem>"));
+        expected.put(MessagingApiContract.MessageEventItem.class, List.of("sequenceNumber: long",
+                "type: " + domain + "MessageEventType", "statusFrom: " + domain + "MessageStatus",
+                "statusTo: " + domain + "MessageStatus", "applied: boolean",
+                "actorKind: " + domain + "MessageActorKind", "failureCategory: " + domain + "FailureCategory",
+                "attemptNumber: java.lang.Integer", "occurredAt: java.time.Instant"));
+        expected.put(MessagingProblem.class, List.of("type: java.lang.String", "title: java.lang.String",
+                "status: int", "code: " + domain + "MessagingErrorCode"));
+
+        assertThat(Arrays.stream(MessagingApiContract.class.getDeclaredClasses()).filter(Class::isRecord).toList())
+                .containsExactlyInAnyOrderElementsOf(expected.keySet());
+        expected.forEach((type, components) -> assertThat(Arrays.stream(type.getRecordComponents())
+                .map(component -> component.getName() + ": " + component.getGenericType().getTypeName()).toList())
+                .as(type.getSimpleName())
+                .containsExactlyElementsOf(components));
+    }
+
     /** Requests may omit optional members; responses must emit every member, null included. */
     private void assertRoundTrip(JsonNode fixture, Class<?> type) {
         Object value = mapper.treeToValue(fixture, type);

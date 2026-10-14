@@ -217,7 +217,13 @@ const PROBLEM_TITLES: Record<number, string> = {
   503: 'Service Unavailable'
 };
 
-const PROBLEM_MEMBERS = ['type', 'title', 'status', 'code'];
+// Derived from MessagingProblem: adding, removing or making a member optional there is a tsc error here.
+const PROBLEM_MEMBERS = Object.keys({
+  type: true,
+  title: true,
+  status: true,
+  code: true
+} satisfies Record<keyof MessagingProblem, true>);
 
 /** Narrows an error body to a known problem; anything else (extra members, unknown code) is null. */
 export function parseMessagingProblem(body: unknown): MessagingProblem | null {

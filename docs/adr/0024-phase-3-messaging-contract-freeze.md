@@ -39,10 +39,11 @@ Each consumer has a contract test.
   - Every valid example deserializes into its record, using a mapper with `FAIL_ON_UNKNOWN_PROPERTIES`.
   - Re-serializing it gives the same JSON. Responses must emit every member, nulls included; requests may omit optional members.
   - Every `invalid` example is rejected.
+  - The Java type of every component of every contract record is pinned against an explicit schema, because a retype with the same JSON form (`UUID` or `Instant` to `String`) would pass a round trip.
   - For each request, the valid examples together name every record component. The round trip ignores omitted optional members, so without this check a new optional member would pass unnoticed.
   - `enums.json` equals the Java enums, and every `MessagingErrorCode` has exactly one problem with its fixed status.
 - **Frontend, `contractFixtures.test.ts`:**
-  - Every response and request interface has a `Shape<T>` table whose rule types are derived from the interface's member types (kind, enum values, nullability and optionality). `tsc` fails if a member is added, removed, retyped or changes nullability or optionality without its rule.
+  - Every response and request interface has a `Shape<T>` table whose rule types are derived from the interface's member types (kind, enum values, nullability and optionality). `tsc` fails if a member is added, removed, retyped or changes nullability or optionality without its rule. The members `parseMessagingProblem` accepts are derived from `MessagingProblem`, and the problem fixtures are also checked against `Shape<MessagingProblem>`.
   - Every fixture must match its table exactly: no extra member, no missing member, known enum values and a valid null.
   - Invalid requests and invalid problems must be refused.
 

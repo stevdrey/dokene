@@ -26,6 +26,7 @@ import {
   type MessageListItem,
   type MessagePageResponse,
   type MessageResponse,
+  type MessagingProblem,
   type ResolutionRequest,
   type SubmitMessageRequest
 } from '../types';
@@ -140,6 +141,12 @@ const eventShape: Shape<MessageEventItem> = {
 const eventsShape: Shape<MessageEventsResponse> = {
   messageId: uuid,
   events: { kind: 'array', item: { kind: 'object', shape: eventShape } }
+};
+const problemShape: Shape<MessagingProblem> = {
+  type: enumOf(['about:blank']),
+  title: text,
+  status: integer,
+  code: enumOf(MESSAGING_ERROR_CODES)
 };
 const requestShapes = {
   submit: {
@@ -257,6 +264,7 @@ describe('messaging v1 contract fixtures', () => {
   it('has one problem per error code and parses each one', () => {
     expect(Object.keys(problems.valid).sort()).toEqual([...MESSAGING_ERROR_CODES].sort());
     for (const [code, fixture] of Object.entries(problems.valid)) {
+      expect(violations(fixture, problemShape)).toEqual([]);
       expect(parseMessagingProblem(fixture)?.code).toBe(code);
     }
   });
