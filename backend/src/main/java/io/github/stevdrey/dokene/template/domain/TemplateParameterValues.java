@@ -11,6 +11,12 @@ public final class TemplateParameterValues {
     private TemplateParameterValues() {
     }
 
+    /** All ISO control characters (C0, DEL and C1) and the Unicode line and paragraph separators. */
+    private static boolean forbidden(int codePoint) {
+        return Character.isISOControl(codePoint) || Character.getType(codePoint) == Character.LINE_SEPARATOR
+                || Character.getType(codePoint) == Character.PARAGRAPH_SEPARATOR;
+    }
+
     /** Returns the values unchanged when they fit the schema; otherwise throws without quoting any value. */
     public static List<String> validate(TemplateMapping mapping, List<String> values) {
         Objects.requireNonNull(mapping, "Mapping is required");
@@ -20,7 +26,7 @@ public final class TemplateParameterValues {
         }
         for (String value : values) {
             if (value == null || value.isEmpty() || value.length() > MAX_LENGTH || value.contains("    ")
-                    || value.chars().anyMatch(c -> c < 0x20 || c == 0x7f)) {
+                    || value.codePoints().anyMatch(TemplateParameterValues::forbidden)) {
                 throw new IllegalArgumentException("Parameter value is not acceptable");
             }
         }

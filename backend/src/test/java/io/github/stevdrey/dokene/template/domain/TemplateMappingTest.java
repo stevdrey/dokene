@@ -90,11 +90,14 @@ class TemplateMappingTest {
         TemplateMapping two = mapping("t", "es", List.of("customer_name", "product"));
         assertThat(TemplateParameterValues.validate(two, List.of("Ana", "Café"))).containsExactly("Ana", "Café");
         for (List<String> invalid : List.of(List.of("Ana"), List.of("Ana", "Café", "extra"), List.of("Ana", ""),
-                List.of("Ana", "a\nb"), List.of("Ana", "a    b"),
+                List.of("Ana", "a\nb"), List.of("Ana", "a    b"), List.of("Ana", "a\tb"),
+                List.of("Ana", "a\u0085b"), List.of("Ana", "a\u009fb"), List.of("Ana", "a\u007fb"),
+                List.of("Ana", "a\u2028b"), List.of("Ana", "a\u2029b"),
                 List.of("Ana", "x".repeat(TemplateParameterValues.MAX_LENGTH + 1)))) {
             assertThatThrownBy(() -> TemplateParameterValues.validate(two, invalid))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+        assertThat(TemplateParameterValues.validate(two, List.of("Ñandú", "Café \uD83C\uDF81"))).hasSize(2);
         assertThatThrownBy(() -> TemplateParameterValues.validate(two, java.util.Arrays.asList("Ana", null)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(TemplateParameterValues.validate(two, List.of("x".repeat(TemplateParameterValues.MAX_LENGTH), "y")))

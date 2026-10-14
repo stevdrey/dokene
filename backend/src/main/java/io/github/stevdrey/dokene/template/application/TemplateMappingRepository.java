@@ -18,6 +18,10 @@ public interface TemplateMappingRepository {
     /** Replaces the editable fields and drops evidence; advances the version. Empty when the version moved. */
     OptionalLong updateMapping(TemplateMapping mapping, long expectedVersion);
 
-    /** Stores provider evidence without advancing the version. False when the version moved. */
-    boolean updateApproval(TemplateMapping mapping, long expectedVersion);
+    /**
+     * Stores provider evidence without advancing the version, as a compare-and-set on both the version and the
+     * evidence the caller read before asking the provider. False when either moved, so a slower, older answer can
+     * never overwrite a newer one.
+     */
+    boolean updateApproval(TemplateMapping mapping, long expectedVersion, TemplateMapping.ApprovalEvidence expected);
 }

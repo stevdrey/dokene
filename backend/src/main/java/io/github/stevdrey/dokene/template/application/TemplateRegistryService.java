@@ -137,7 +137,7 @@ public class TemplateRegistryService {
             case TemplateProviderGateway.Unavailable unavailable -> current.unverified(clock.instant());
         };
         TemplateMapping saved = writes.execute(status -> {
-            if (!repository.updateApproval(next, expectedVersion)) {
+            if (!repository.updateApproval(next, expectedVersion, current.approval())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
             }
             if (next.approval().status() != current.approval().status()) {

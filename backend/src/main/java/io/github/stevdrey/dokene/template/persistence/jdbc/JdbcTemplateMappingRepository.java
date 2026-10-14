@@ -104,17 +104,24 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
     }
 
     @Override
-    public boolean updateApproval(TemplateMapping mapping, long expectedVersion) {
+    public boolean updateApproval(TemplateMapping mapping, long expectedVersion, ApprovalEvidence expected) {
         ApprovalEvidence evidence = mapping.approval();
         return jdbc.update("""
                 UPDATE dokene.tenant_provider_templates
                 SET approval_status = ?, approval_checked_at = ?, approval_checked_business_account_id = ?,
                     approval_checked_version = ?, updated_at = ?
                 WHERE tenant_id = ? AND id = ? AND version = ?
-                """, evidence.status().name(),
-                evidence.checkedAt() == null ? null : Timestamp.from(evidence.checkedAt()),
-                evidence.checkedBusinessAccountId(), evidence.checkedVersion(),
-                Timestamp.from(mapping.updatedAt()), mapping.tenantId().value(), mapping.id(), expectedVersion) == 1;
+                    AND approval_status = ? AND approval_checked_at IS NOT DISTINCT FROM ?
+                    AND approval_checked_business_account_id IS NOT DISTINCT FROM ?
+                    AND approval_checked_version IS NOT DISTINCT FROM ?
+                """, evidence.status().name(), timestamp(evidence), evidence.checkedBusinessAccountId(),
+                evidence.checkedVersion(), Timestamp.from(mapping.updatedAt()), mapping.tenantId().value(),
+                mapping.id(), expectedVersion, expected.status().name(), timestamp(expected),
+                expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
+    }
+
+    private static Timestamp timestamp(ApprovalEvidence evidence) {
+        return evidence.checkedAt() == null ? null : Timestamp.from(evidence.checkedAt());
     }
 
     private static TemplateMapping map(ResultSet rs) throws SQLException {

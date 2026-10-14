@@ -79,6 +79,8 @@ class TemplateRegistryIntegrationTest {
         private final WhatsAppIntegrationRepository integrations;
         private final TenantContextProvider contexts;
         volatile Lookup next = new Unavailable();
+        /** Runs inside lookup, before it answers: lets a test land a newer refresh while this one is in flight. */
+        volatile Runnable duringLookup = () -> { };
 
         ScriptedGateway(WhatsAppIntegrationRepository integrations, TenantContextProvider contexts) {
             this.integrations = integrations;
@@ -93,7 +95,9 @@ class TemplateRegistryIntegrationTest {
 
         @Override
         public Lookup lookup(String providerTemplateName, String language) {
-            return next;
+            Lookup answer = next;
+            duringLookup.run();
+            return answer;
         }
     }
 
@@ -135,6 +139,7 @@ class TemplateRegistryIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         gateway.next = new TemplateProviderGateway.Unavailable();
+        gateway.duringLookup = () -> { };
         Instant now = Instant.now();
         tenantA = seedTenant(tenants, contexts, "Template A " + UUID.randomUUID(), now);
         tenantB = seedTenant(tenants, contexts, "Template B " + UUID.randomUUID(), now);
@@ -309,6 +314,37 @@ class TemplateRegistryIntegrationTest {
                 .value("UNVERIFIED"));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"7\"").andExpect(status().isConflict());
         refresh(adminA, tenantA, "RELATED_PRODUCT", "\"0\"").andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aSlowerOlderRefreshCannotOverwriteNewerEvidence() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        // While the first refresh waits on the provider, a second one lands and stores REJECTED.
+        gateway.duringLookup = () -> {
+            gateway.duringLookup = () -> { };
+            gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.REJECTED, WABA_ID);
+            try {
+                refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+            } catch (Exception failure) {
+                throw new IllegalStateException(failure);
+            }
+        };
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_VERSION"));
+
+        list(adminA, tenantA).andExpect(jsonPath("$.items[?(@.templateIntent=='REPEAT_PURCHASE')].approvalStatus")
+                .value("REJECTED"));
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+    }
+
+    @Test
+    void repeatedUnavailableRefreshesStayIdempotent() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        for (int i = 0; i < 2; i++) {
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
+        }
     }
 
     @Test
