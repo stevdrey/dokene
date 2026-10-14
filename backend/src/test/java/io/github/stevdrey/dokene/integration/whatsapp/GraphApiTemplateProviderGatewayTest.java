@@ -45,6 +45,8 @@ class GraphApiTemplateProviderGatewayTest {
     private volatile int status = 200;
     private volatile String body = "";
     private volatile long delayMillis;
+    private final java.util.Map<String, String> pages = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.List<String> requested = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean endless;
     private volatile long dripMillis;
     private final java.util.concurrent.atomic.AtomicLong bytesWritten = new java.util.concurrent.atomic.AtomicLong();
@@ -62,6 +64,12 @@ class GraphApiTemplateProviderGatewayTest {
         server.createContext("/", exchange -> {
             authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
             path.set(exchange.getRequestURI().toString());
+            requested.add(exchange.getRequestURI().toString());
+            String query = exchange.getRequestURI().getQuery();
+            if (!pages.isEmpty()) {
+                String after = query != null && query.contains("after=") ? query.substring(query.indexOf("after=") + 6) : "";
+                body = pages.getOrDefault(after, "{\"data\":[],\"paging\":{}}");
+            }
             try {
                 Thread.sleep(delayMillis);
             } catch (InterruptedException ignored) {
@@ -119,7 +127,7 @@ class GraphApiTemplateProviderGatewayTest {
     @Test
     void mapsProviderStatusesAndSendsTheTenantsCredentialAsABearerOnly() {
         body = list("repeat_purchase_v1", "es_MX", "APPROVED");
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX"))
+        assertThat(find())
                 .isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA));
         assertThat(authorization.get()).isEqualTo("Bearer EAAG-secret");
         assertThat(path.get()).startsWith("/v23.0/" + WABA + "/message_templates?")
@@ -129,7 +137,7 @@ class GraphApiTemplateProviderGatewayTest {
                 {"REJECTED", "REJECTED"}, {"PAUSED", "PAUSED"}, {"DISABLED", "DISABLED"}, {"DELETED", "DELETED"},
                 {"PENDING_DELETION", "DELETED"}, {"ARCHIVED", "DELETED"}}) {
             body = list("repeat_purchase_v1", "es_MX", pair[0]);
-            assertThat(gateway.lookup("repeat_purchase_v1", "es_MX"))
+            assertThat(find())
                     .isEqualTo(new Reported(TemplateApprovalStatus.valueOf(pair[1]), WABA));
         }
     }
@@ -137,11 +145,11 @@ class GraphApiTemplateProviderGatewayTest {
     @Test
     void aMissingTemplateOrOnlyNeighbouringOnesIsAbsent() {
         body = "{\"data\":[]}";
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isEqualTo(new Absent(WABA));
+        assertThat(find()).isEqualTo(new Absent(WABA));
         body = list("repeat_purchase_v1", "en_US", "APPROVED"); // same name, other language: no evidence
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isEqualTo(new Absent(WABA));
+        assertThat(find()).isEqualTo(new Absent(WABA));
         body = list("repeat_purchase_v2", "es_MX", "APPROVED");
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isEqualTo(new Absent(WABA));
+        assertThat(find()).isEqualTo(new Absent(WABA));
     }
 
     @Test
@@ -149,14 +157,14 @@ class GraphApiTemplateProviderGatewayTest {
         for (int code : new int[] {400, 401, 403, 404, 429, 500, 503}) {
             status = code;
             body = list("repeat_purchase_v1", "es_MX", "APPROVED");
-            assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+            assertThat(find()).isInstanceOf(Unavailable.class);
         }
         status = 200;
         for (String malformed : new String[] {"", "not json", "[]", "{}", "{\"data\":{}}",
                 list("repeat_purchase_v1", "es_MX", "LIMIT_EXCEEDED"), list("repeat_purchase_v1", "es_MX", "WEIRD"),
                 "{\"data\":[{\"name\":\"repeat_purchase_v1\",\"language\":\"es_MX\"}]}"}) {
             body = malformed;
-            assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+            assertThat(find()).isInstanceOf(Unavailable.class);
         }
     }
 
@@ -164,29 +172,30 @@ class GraphApiTemplateProviderGatewayTest {
     void timeoutsUnresolvableSecretsAndMissingResolverFailClosed() {
         body = list("repeat_purchase_v1", "es_MX", "APPROVED");
         delayMillis = 1500;
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
         delayMillis = 0;
 
         when(resolver.resolve(any(), any())).thenThrow(new IllegalStateException("EAAG-secret not found"));
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
 
         when(secrets.getIfAvailable()).thenReturn(null);
         authorization.set(null);
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
         assertThat(authorization.get()).isNull();
 
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.empty());
         assertThat(gateway.currentSender()).isEmpty();
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(gateway.lookup(TemplateProviderGateway.Sender.of(UUID.randomUUID(), WABA), "repeat_purchase_v1",
+                "es_MX")).isInstanceOf(Unavailable.class);
     }
 
     @Test
     void anOversizedOrEndlessBodyIsUnavailableAndIsNotReadInFull() {
         body = list("repeat_purchase_v1", "es_MX", "APPROVED") + " ".repeat(300_000);
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
 
         endless = true; // chunked body that never ends
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
         assertThat(bytesWritten.get()).isLessThan(8_000_000L);
     }
 
@@ -195,13 +204,13 @@ class GraphApiTemplateProviderGatewayTest {
         String exact = list("repeat_purchase_v1", "es_MX", "APPROVED");
         body = exact + " ".repeat(262_144 - exact.length());
         assertThat(body.length()).isEqualTo(262_144);
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX"))
+        assertThat(find())
                 .isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA));
 
         body = exact;
         dripMillis = 400; // headers arrive at once, then the body trickles past the 500 ms timeout
         long started = System.nanoTime();
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
     }
 
@@ -213,15 +222,87 @@ class GraphApiTemplateProviderGatewayTest {
         dripMillis = 4;
         assertThat(body.length() * dripMillis).isBetween(200L, 480L);
         long started = System.nanoTime();
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(900));
+    }
+
+    @Test
+    void followsCursorsOnTheSameBaseUrlAndFindsAMatchOnALaterPage() {
+        pages.put("", page(template("repeat_purchase_v10", "es_MX", "APPROVED"), "CUR2"));
+        pages.put("CUR2", page(template("repeat_purchase_v1", "es_MX", "PAUSED"), null));
+        assertThat(find()).isEqualTo(new Reported(TemplateApprovalStatus.PAUSED, WABA));
+        assertThat(requested).hasSize(2);
+        assertThat(requested.get(1)).startsWith("/v23.0/" + WABA + "/message_templates?").contains("after=CUR2");
+    }
+
+    @Test
+    void absenceIsConcludedOnlyWhenTheListEnds() {
+        pages.put("", page(template("repeat_purchase_v10", "es_MX", "APPROVED"), "CUR2"));
+        pages.put("CUR2", page(template("other", "es_MX", "APPROVED"), null));
+        assertThat(find()).isEqualTo(new Absent(WABA));
+
+        // More pages than the cap: the template might be further on, so no conclusion.
+        requested.clear();
+        pages.clear();
+        pages.put("", page("", "C1"));
+        for (int i = 1; i <= 8; i++) {
+            pages.put("C" + i, page("", "C" + (i + 1)));
+        }
+        assertThat(find()).isInstanceOf(Unavailable.class);
+        assertThat(requested.size()).isLessThanOrEqualTo(5);
+    }
+
+    @Test
+    void neverFollowsTheResponsesNextUrlAndRefusesUnsafeCursors() {
+        pages.put("", page("", "CUR2"));
+        find();
+        assertThat(requested).allMatch(uri -> uri.startsWith("/v23.0/" + WABA + "/message_templates?"));
+
+        requested.clear();
+        pages.clear();
+        pages.put("", page("", "bad cursor&inject=1"));
+        assertThat(find()).isInstanceOf(Unavailable.class);
+        assertThat(requested).hasSize(1);
+    }
+
+    @Test
+    void oneDeadlineAlsoCoversSeveralSlowPages() {
+        pages.put("", page(template("other", "es_MX", "APPROVED"), "CUR2"));
+        pages.put("CUR2", page(template("repeat_purchase_v1", "es_MX", "APPROVED"), null));
+        delayMillis = 300; // each page fits the 500 ms timeout, two together do not
+        assertThat(find()).isInstanceOf(Unavailable.class);
+    }
+
+    @Test
+    void aSenderThatDidNotComeFromThisGatewayIsNeverUsed() {
+        body = list("repeat_purchase_v1", "es_MX", "APPROVED");
+        assertThat(gateway.lookup(TemplateProviderGateway.Sender.of(UUID.randomUUID(), WABA), "repeat_purchase_v1",
+                "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(requested).isEmpty();
     }
 
     @Test
     void redirectsAreNotFollowed() {
         status = 302;
         body = "";
-        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(find()).isInstanceOf(Unavailable.class);
+    }
+
+    /** Looks up the stored integration's sender the way the service does, then asks the gateway. */
+    private TemplateProviderGateway.Lookup find() {
+        var sender = gateway.currentSender();
+        return gateway.lookup(sender.orElseGet(() -> TemplateProviderGateway.Sender.of(UUID.randomUUID(), WABA)),
+                "repeat_purchase_v1", "es_MX");
+    }
+
+    private static String page(String templates, String after) {
+        String paging = after == null ? "{}" : "{\"next\":\"https://evil.example/steal?x=1\",\"cursors\":{\"after\":\""
+                + after + "\"}}";
+        return "{\"data\":[" + templates + "],\"paging\":" + paging + "}";
+    }
+
+    private static String template(String name, String language, String status) {
+        return "{\"name\":\"" + name + "\",\"language\":\"" + language + "\",\"status\":\"" + status + "\"}";
     }
 
     private static String list(String name, String language, String status) {

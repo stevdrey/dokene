@@ -52,9 +52,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -67,48 +65,13 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest(properties = "dokene.ai.provider=fake")
+@Import(ScriptedTemplateProviderGateway.Configuration.class)
 class TemplateRegistryIntegrationTest {
     private static final AtomicLong NEXT_ID = new AtomicLong(
             300_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "400000000000001";
     private static final String TEMPLATE = "{\"providerTemplateName\":\"repeat_purchase_v1\",\"language\":\"es_MX\","
             + "\"parameterNames\":[\"customer_name\",\"product\"],\"enabled\":true}";
-
-    /** Stands in for Meta: the test chooses what the provider reports; the sender is the real stored integration. */
-    static final class ScriptedGateway implements TemplateProviderGateway {
-        private final WhatsAppIntegrationRepository integrations;
-        private final TenantContextProvider contexts;
-        volatile Lookup next = new Unavailable();
-        /** Runs inside lookup, before it answers: lets a test land a newer refresh while this one is in flight. */
-        volatile Runnable duringLookup = () -> { };
-
-        ScriptedGateway(WhatsAppIntegrationRepository integrations, TenantContextProvider contexts) {
-            this.integrations = integrations;
-            this.contexts = contexts;
-        }
-
-        @Override
-        public Optional<Sender> currentSender() {
-            return integrations.findByTenant(contexts.requireCurrent().tenantId())
-                    .map(i -> new Sender(i.id(), i.businessAccountId()));
-        }
-
-        @Override
-        public Lookup lookup(String providerTemplateName, String language) {
-            Lookup answer = next;
-            duringLookup.run();
-            return answer;
-        }
-    }
-
-    @TestConfiguration
-    static class GatewayConfiguration {
-        @Bean
-        @Primary
-        ScriptedGateway scriptedGateway(WhatsAppIntegrationRepository integrations, TenantContextProvider contexts) {
-            return new ScriptedGateway(integrations, contexts);
-        }
-    }
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws SQLException {
@@ -117,7 +80,7 @@ class TemplateRegistryIntegrationTest {
     }
 
     MockMvc mvc;
-    @Autowired ScriptedGateway gateway;
+    @Autowired ScriptedTemplateProviderGateway gateway;
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired AuditRequestFilter auditRequestFilter;
     @Autowired TenantRepository tenants;

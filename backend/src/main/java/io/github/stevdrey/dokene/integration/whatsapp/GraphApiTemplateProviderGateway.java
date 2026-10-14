@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import java.io.IOException;
@@ -19,12 +20,15 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -37,6 +41,10 @@ import tools.jackson.databind.json.JsonMapper;
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
     /** Hard cap on the bytes read from the provider; enforced while streaming, never after buffering. */
     private static final int MAX_BODY_BYTES = 262_144;
+    /** Most pages one lookup may read; a longer list is unavailable rather than assumed to lack the template. */
+    private static final int MAX_PAGES = 5;
+    /** Graph cursors are opaque base64-like tokens; anything else is not sent back. */
+    private static final Pattern CURSOR = Pattern.compile("^[A-Za-z0-9_=+/-]{1,512}$");
 
     private final WhatsAppIntegrationRepository integrations;
     private final ObjectProvider<IntegrationSecretResolver> secrets;
@@ -56,44 +64,93 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
                 .followRedirects(HttpClient.Redirect.NEVER).build();
     }
 
-    @Override
-    public Optional<Sender> currentSender() {
-        return integrations.findByTenant(contexts.requireCurrent().tenantId())
-                .map(i -> new Sender(i.id(), i.businessAccountId()));
+    /** The sender as this adapter returns it: the identity plus what is needed to call Meta, never exposed further. */
+    private record GraphSender(UUID integrationId, String businessAccountId, TenantId tenantId, String secretRef)
+            implements Sender {
     }
 
     @Override
-    public Lookup lookup(String providerTemplateName, String language) {
+    public Optional<Sender> currentSender() {
+        return integrations.findByTenant(contexts.requireCurrent().tenantId())
+                .map(i -> new GraphSender(i.id(), i.businessAccountId(), i.tenantId(), i.secretRef()));
+    }
+
+    @Override
+    public Lookup lookup(Sender sender, String providerTemplateName, String language) {
         try {
-            Optional<WhatsAppIntegration> found = integrations.findByTenant(contexts.requireCurrent().tenantId());
             IntegrationSecretResolver resolver = secrets.getIfAvailable();
-            if (found.isEmpty() || resolver == null) {
+            if (resolver == null || !(sender instanceof GraphSender graph)
+                    || !graph.tenantId().equals(contexts.requireCurrent().tenantId())) {
                 return new Unavailable();
             }
-            WhatsAppIntegration integration = found.get();
-            URI uri = URI.create(properties.baseUrl().toString().replaceAll("/+$", "") + "/"
-                    + integration.businessAccountId() + "/message_templates?name="
-                    + URLEncoder.encode(providerTemplateName, StandardCharsets.UTF_8) + "&language="
-                    + URLEncoder.encode(language, StandardCharsets.UTF_8));
-            try (ResolvedSecret secret = resolver.resolve(new Tenant(integration.tenantId()),
-                    new SecretReference(integration.secretRef()))) {
-                Reply reply = secret.withValue(token -> send(uri, token));
-                return interpret(reply, integration.businessAccountId(), providerTemplateName, language);
+            // One deadline covers every page, so the whole call never exceeds the configured timeout.
+            long deadline = System.nanoTime() + properties.timeout().toNanos();
+            try (ResolvedSecret secret = resolver.resolve(new Tenant(graph.tenantId()),
+                    new SecretReference(graph.secretRef()))) {
+                return secret.withValue(token -> search(graph, token, providerTemplateName, language, deadline));
             }
         } catch (RuntimeException failure) {
             return new Unavailable();
         }
     }
 
+    /**
+     * Looks for the exact name and language, following Graph cursors on the same base URL for at most
+     * {@code MAX_PAGES} pages. Absence is concluded only when the list really ended; running out of pages, time or a
+     * usable cursor with more pages pending is unavailable.
+     */
+    private Lookup search(GraphSender graph, char[] token, String name, String language, long deadline) {
+        String cursor = null;
+        for (int page = 0; page < MAX_PAGES; page++) {
+            Reply reply = fetchPage(pageUri(graph, name, language, cursor), token, deadline);
+            if (reply.status() != 200 || reply.body() == null) {
+                return new Unavailable();
+            }
+            JsonNode root;
+            try {
+                root = json.readTree(reply.body());
+            } catch (JacksonException malformed) {
+                return new Unavailable();
+            }
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                return new Unavailable();
+            }
+            for (JsonNode template : data) {
+                if (name.equals(template.path("name").asString(null))
+                        && language.equals(template.path("language").asString(null))) {
+                    return map(template.path("status").asString(null), graph.businessAccountId());
+                }
+            }
+            if (root.path("paging").path("next").isMissingNode() || root.path("paging").path("next").isNull()) {
+                return new Absent(graph.businessAccountId());
+            }
+            cursor = root.path("paging").path("cursors").path("after").asString(null);
+            if (cursor == null || !CURSOR.matcher(cursor).matches()) {
+                return new Unavailable();
+            }
+        }
+        return new Unavailable();
+    }
+
+    private URI pageUri(GraphSender graph, String name, String language, String cursor) {
+        String uri = properties.baseUrl().toString().replaceAll("/+$", "") + "/" + graph.businessAccountId()
+                + "/message_templates?name=" + URLEncoder.encode(name, StandardCharsets.UTF_8) + "&language="
+                + URLEncoder.encode(language, StandardCharsets.UTF_8);
+        return URI.create(cursor == null ? uri : uri + "&after=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+    }
+
     /** The status and, for a 200 within the size and time bounds, the body bytes. */
     private record Reply(int status, byte[] body) {
     }
 
-    private Reply send(URI uri, char[] token) {
-        // One deadline covers the headers and the body, so the whole call never exceeds the configured timeout.
-        long deadline = System.nanoTime() + properties.timeout().toNanos();
+    private Reply fetchPage(URI uri, char[] token, long deadline) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            return new Reply(0, null);
+        }
         try {
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(properties.timeout())
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
                     .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
                     .GET().build();
             HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
@@ -137,28 +194,6 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
             return read.get(remaining, TimeUnit.NANOSECONDS);
         } catch (TimeoutException | ExecutionException failure) {
             return null;
-        }
-    }
-
-    /** Only a well-formed 200 with an exact name and language match is evidence; everything else is not. */
-    private Lookup interpret(Reply reply, String businessAccountId, String name, String language) {
-        if (reply.status() != 200 || reply.body() == null) {
-            return new Unavailable();
-        }
-        try {
-            JsonNode data = json.readTree(new String(reply.body(), StandardCharsets.UTF_8)).path("data");
-            if (!data.isArray()) {
-                return new Unavailable();
-            }
-            for (JsonNode template : data) {
-                if (name.equals(template.path("name").asString(null))
-                        && language.equals(template.path("language").asString(null))) {
-                    return map(template.path("status").asString(null), businessAccountId);
-                }
-            }
-            return new Absent(businessAccountId);
-        } catch (JacksonException malformed) {
-            return new Unavailable();
         }
     }
 

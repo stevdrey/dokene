@@ -28,7 +28,7 @@ This spec turns the message lifecycle fixed by ADR 0023 into concrete tables, Ja
 - **AC-9**: `FollowUpTouchRecorder.recordOutboundMessage` sets `last_outbound_message_date` to the tenant local date of the sent instant, clears `snoozed_until` and `explicit_next_date`, advances the policy `version`, writes no audit row of its own, and the evaluator treats the latest of the four anchors as the cadence anchor with timing source `LAST_OUTBOUND_MESSAGE`, so a customer sent a message today is no longer `DUE`.
 - **AC-10**: Event rows for a message have contiguous `sequence_number` values starting at 1 and equal to the message `version` after the row was written, the right `actor_kind` per transition, and neither events, audit metadata nor log output ever contain `body`, `recipient_phone`, a note or `provider_message_id`.
 - **AC-11**: An ArchUnit test fails the build when `followup`, `customer`, `purchase`, `ai`, `tenant`, `audit.domain` or `audit.persistence` depends on `messaging`, when `messaging` depends on `integration`, or when `messaging.domain` depends on Spring, JDBC or any other module except `ai.domain`. `audit.application` may depend on `messaging.application` for the durable adapter, as it already does for customer, purchase and AI.
-- **AC-12**: With no `dokene.messaging.template-gate.stub.enabled-intents` configured, every `templateIntent` is `NOT_MAPPED` and submit is refused with `TEMPLATE_NOT_MAPPED`; listing an intent in that property makes it `MAPPED`.
+- **AC-12**: Submit is refused with `TEMPLATE_NOT_MAPPED` unless the tenant has an enabled template mapping for the `templateIntent` whose provider approval was verified for its current revision and is fresh (ADR 0025). With no mapping every intent is `NOT_MAPPED`. *(Originally satisfied by a property-driven stub, `dokene.messaging.template-gate.stub.enabled-intents`; that stub and property were removed under issue #135.)*
 - **AC-13**: `outbound_messages` has no foreign key to `customer_phone_contacts`. With a message in any state for a customer, editing that customer to replace the messaged phone with a different E.164 number succeeds and deletes the old contact row. A message still `PENDING_APPROVAL` for a removed contact is refused at approve with `CONTACT_NOT_OWNED` by T2 guard step 4 (the customer is active with no do not contact flag, so no earlier guard fires), writes no event or audit row, and keeps its `contact_id` and `recipient_phone` unchanged. An `APPROVED` message for a removed contact stays `APPROVED` until it is cancelled (T5) or the send guards refuse it. Submit still proves that the contact belongs to the customer under the customer lock (`NOT_FOUND`).
 - **AC-14**: The instant a delivery report contributes to `sent_at`, `delivered_at`, `read_at` and to `FollowUpTouchRecorder` is the report's `occurredAt` bounded to the window `[message.createdAt, now]`, where `now` is the clock instant the caller passes in. A future report time becomes `now`; a report time earlier than the message's creation becomes `createdAt`; a value inside the window is kept as given. `FollowUpTouchRecorder.recordOutboundMessage` never moves `last_outbound_message_date` to an earlier date than the one already stored. The integration test fixes the `Clock` bean at a mid day instant in the tenant zone so the asserted dates cannot flip at midnight.
 
@@ -204,7 +204,7 @@ T13 to `DELIVERED` or `READ` also sets `sent_at` to the report time when it is n
 - Personal data: `recipient_phone` and `body` are tenant business data in `outbound_messages` only. They are not regulated data beyond the existing customer PII stance, and the same logging rules apply.
 
 **Configuration required**:
-- `dokene.messaging.template-gate.stub.enabled-intents`: comma separated `SemanticTemplateIntent` names the stub reports as `MAPPED`; empty by default so submit fails closed. Removed by feature 6.
+- ~~`dokene.messaging.template-gate.stub.enabled-intents`~~: removed under issue #135. The submit gate is now `ResolverBackedTemplateMappingGate`, which asks the tenant template registry (`dokene.template.approval-max-age` bounds how long provider approval stays valid).
 
 **Critical test scenarios**:
 - Happy path: submit, approve, then the test driver runs T6 to T8 with `Accepted`, then a `DELIVERED` report through the sink against Postgres; six tables populated, events 1 to 6 contiguous and equal to the version, audit rows for each applied transition, customer leaves the due queue after the touch recorder runs, verifies **AC-1**, **AC-6**, **AC-7**, **AC-9**, **AC-10**.
@@ -251,7 +251,7 @@ Tracer Bullet: task 3 is the thin thread (one submit through migration, domain, 
 - Nine tasks is a large slice; task 3 alone touches four modules.
 
 **Neutral**:
-- The stub template gate is temporary scaffolding with a property that disappears in feature 6; the dev stack seed must set it for local use until then.
+- The stub template gate was temporary scaffolding; it and its property were replaced by the registry-backed gate under issue #135, so local and QA stacks need a seeded template mapping with refreshed approval instead of a setting.
 - The `MessagingErrorCode` enum carries codes this slice never raises, so feature 2 and 3 add no new values.
 - ArchUnit becomes a test dependency to keep current.
 
@@ -262,7 +262,7 @@ Tracer Bullet: task 3 is the thin thread (one submit through migration, domain, 
 - [ ] Decide in feature 3's spec whether `CONTACT_FREQUENCY_EXCEEDED` uses `sent_at` or the follow up anchor date as its comparison point; the `(tenant_id, customer_id, sent_at)` index supports either.
 - [ ] Feature 8's spec must name the deduplication key the sink relies on (`(provider, providerEventId)` in `provider_webhook_events`) since the sink itself has no event id.
 - [ ] No confirmed ArchUnit Agent Skill exists in the registry; the one lead is a third party aggregator entry (`kenyasaitoh/ai_driven_dev_202601`, in Japanese) that was not opened. Write the ArchUnit test from the library documentation. Revisit if a maintained skill appears.
-- [ ] Add the `dokene.messaging.template-gate.stub.enabled-intents` setting to the QA seed and `compose` environment so the local stack can submit messages until feature 6 lands.
+- [x] ~~Add the stub setting to the QA seed and `compose` environment~~: no longer applicable. The stub was removed under issue #135; seed a template mapping and refresh its approval instead.
 - [ ] Soft retire phone contacts (a retired marker instead of a delete) as a customer module feature of its own, so message history can always resolve the contact it was sent to. Not needed for Phase 3; enroll it when the customer module is next touched.
 - [ ] Feature 2's spec must carry the derived `contactRemoved` flag on message list and detail (no live `customer_phone_contacts` row for the message's `(tenant_id, customer_id, contact_id)`), and map `CONTACT_NOT_OWNED` in the error body.
 - [ ] Feature 3's spec must run the T6 contact ownership and consent guards in the same transaction and under the same customer lock as the T7 attempt insert, refusing a removed contact with `CONTACT_NOT_OWNED`.
