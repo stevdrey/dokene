@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -39,7 +40,11 @@ public class OutboundMessageQueryService {
         this.contexts = Objects.requireNonNull(contexts);
     }
 
-    /** Everything the detail representation shows, read in one transaction so it is one consistent version. */
+    /**
+     * Everything the detail representation shows. The message, its approval and its attempts are separate statements,
+     * so the read runs under one REPEATABLE READ snapshot: a transition committing between them cannot pair an older
+     * message version with a newer child row.
+     */
     public record MessageDetail(OutboundMessage message, boolean contactRemoved, Optional<MessageApproval> approval,
             List<SendAttempt> attempts) {
         public MessageDetail {
@@ -55,7 +60,7 @@ public class OutboundMessageQueryService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public MessageDetail detail(UUID messageId) {
         UUID tenantId = authorizedTenant();
         ListedMessage listed = messages.findListedById(tenantId, Objects.requireNonNull(messageId))

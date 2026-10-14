@@ -7,6 +7,8 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -31,6 +33,9 @@ import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.messaging.application.ApprovalBindingAssembler;
+import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
+import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
+import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryService;
 import io.github.stevdrey.dokene.messaging.application.MessageAuditPort;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
@@ -54,6 +59,9 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,7 +106,9 @@ class MessageApiIntegrationTest {
     @Autowired ContactPolicyRepository contactPolicies;
     @Autowired PurchaseService purchases;
     @Autowired FollowUpService followUps;
-    @Autowired OutboundMessageRepository messages;
+    @MockitoSpyBean OutboundMessageRepository messages;
+    @Autowired OutboundMessageCommandService commands;
+    @Autowired OutboundMessageQueryService queries;
     @Autowired ApprovalBindingAssembler bindings;
     @Autowired StubTemplateResolver templates;
     @Autowired StubSafetyControl safety;
@@ -405,6 +415,34 @@ class MessageApiIntegrationTest {
         assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.PENDING_APPROVAL);
         assertThat(inContext(ownerA, () -> messages.findApprovalByMessage(tenantA.id().value(),
                 UUID.fromString(messageId)))).isEmpty();
+    }
+
+    @Test
+    void aDetailReadIsOneSnapshotEvenWhenAnApprovalCommitsBetweenItsStatements() throws Exception {
+        UUID messageId = UUID.fromString(submittedMessageId());
+        AtomicBoolean approvedMidRead = new AtomicBoolean();
+        // After the message row is read and before its approval is, another transaction approves and commits.
+        doAnswer(invocation -> {
+            if (approvedMidRead.compareAndSet(false, true)) {
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        inContext(ownerA, () -> commands.approve(new ApprovalCommand(messageId, null, "1",
+                                "mid-" + UUID.randomUUID())));
+                    } catch (Exception exception) {
+                        throw new IllegalStateException(exception);
+                    }
+                }).get(30, TimeUnit.SECONDS);
+            }
+            return invocation.callRealMethod();
+        }).when(messages).findApprovalByMessage(any(), eq(messageId));
+
+        var detail = inContext(ownerA, () -> queries.detail(messageId));
+
+        assertThat(approvedMidRead).isTrue();
+        assertThat(detail.message().status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        assertThat(detail.message().version()).isEqualTo(1);
+        assertThat(detail.approval()).as("no approval from a later version").isEmpty();
+        assertThat(inContext(ownerA, () -> queries.detail(messageId)).approval()).isPresent();
     }
 
     @Test
