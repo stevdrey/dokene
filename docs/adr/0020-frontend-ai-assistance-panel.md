@@ -23,6 +23,7 @@ Recommendation and draft are separate calls on the backend (separate permission,
 
 ### 2. Advisory and local only
 
+- Resizing or rotating across the 1024px breakpoint preserves the same detail component and its in-memory recommendation, draft, operator edits and in-flight requests. Layout changes do not reload the queue. Mobile hides the queue while the detail is selected; returning to the list unmounts the detail and discards its state. On mobile, focus moves to the detail when it opens and returns to the customer's card when the operator goes back to the list.
 - Results live in component state (`useFollowUpAssistant`). Nothing is persisted: no `localStorage`/`sessionStorage`, no cache shared across customers or tenants, no backend write.
 - The draft is a local `<textarea>` limited to 1000 Unicode code points, mirroring the backend bound. The limit is applied and displayed by code point (not UTF-16 units) and the UTF-16 based `maxLength` attribute is not used, so ~1000 emoji are accepted and a surrogate pair is never split. Editing it performs no network call.
 - **No approval or send path exists in Phase 2**: no "Aprobar", "Enviar", "Programar" or "Enviado" control or wording. The panel states that nothing was sent and that sending is manual. "Copiar borrador" copies the edited text to the clipboard and has no business effect.

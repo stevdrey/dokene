@@ -95,3 +95,13 @@
 .follow-up-detail__purchase-status {
   flex-shrink: 0;
 }
+
+/* The queue uses display: flex, which otherwise overrides the native hidden rule. */
+.follow-up-queue-column[hidden] {
+  display: none;
+}
+
+/* The detail region receives programmatic focus on mobile; only keyboard users need the ring. */
+.follow-up-detail-region:focus:not(:focus-visible) {
+  outline: none;
+}
