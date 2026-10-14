@@ -149,8 +149,27 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                 .andExpect(jsonPath("$.enabled").value(false));
         write(adminA, tenantA, "\"0\"", body(phoneId, "wa-token-ok", true))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
-        write(adminA, tenantA, "garbage", body(phoneId, "wa-token-ok", true)).andExpect(status().isBadRequest());
+        // Only exactly one strong canonical numeric ETag is accepted (ADR 0023 §4.1).
+        for (String malformed : List.of("garbage", "0", "00", "+0", "\"00\"", "\"+0\"", "W/\"1\"", "\"1\",\"2\"",
+                "*", "", "\"\"")) {
+            write(adminA, tenantA, malformed, body(phoneId, "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
         assertThat(auditCount(tenantA)).isEqualTo(2);
+    }
+
+    @Test
+    void unsupportedMediaTypesUseTheClosedProblemShape() throws Exception {
+        for (MediaType type : List.of(MediaType.TEXT_PLAIN, MediaType.APPLICATION_OCTET_STREAM)) {
+            mvc.perform(put("/api/integrations/whatsapp").with(user(adminA)).with(csrf())
+                            .header("X-Tenant-Id", tenantA.id().value()).contentType(type).content("x"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        mvc.perform(put("/api/integrations/whatsapp").with(user(operatorA)).with(csrf())
+                        .header("X-Tenant-Id", tenantA.id().value()).contentType(MediaType.TEXT_PLAIN).content("x"))
+                .andExpect(status().isForbidden());
     }
 
     @Test

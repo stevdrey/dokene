@@ -9,6 +9,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -25,7 +27,9 @@ public class IntegrationExceptionHandler {
         return problem(MessagingErrorCode.FORBIDDEN);
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, HttpMessageNotReadableException.class})
+    // The closed contract has no 415/406: an unusable media type is just invalid input.
+    @ExceptionHandler({IllegalArgumentException.class, HttpMessageNotReadableException.class,
+            HttpMediaTypeNotSupportedException.class, HttpMediaTypeNotAcceptableException.class})
     ResponseEntity<MessagingProblem> invalid() {
         return problem(MessagingErrorCode.INVALID_INPUT);
     }

@@ -1,11 +1,13 @@
 package io.github.stevdrey.dokene.integration.api;
 
+import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationRequest;
+import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationResponse;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.util.Map;
-import java.util.Set;
+import java.util.regex.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -18,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/integrations/whatsapp")
 public class WhatsAppIntegrationController {
+    private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,17})\"$");
+
     private final WhatsAppIntegrationService integrations;
 
     public WhatsAppIntegrationController(WhatsAppIntegrationService integrations) {
@@ -48,48 +52,14 @@ public class WhatsAppIntegrationController {
                 integration.displayPhoneNumber(), integration.secretRef(), integration.version()));
     }
 
+    /** Exactly one strong, canonical numeric ETag such as {@code "0"} (ADR 0023 §4.1); anything else is a 400. */
     private static Long parseVersion(String value) {
-        if (value == null || value.isBlank()) {
+        if (value == null) {
             return null;
         }
-        String unquoted = value.strip();
-        if (unquoted.length() >= 2 && unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
-            unquoted = unquoted.substring(1, unquoted.length() - 1);
-        }
-        try {
-            long version = Long.parseLong(unquoted);
-            if (version < 0) {
-                throw new IllegalArgumentException("If-Match is invalid");
-            }
-            return version;
-        } catch (NumberFormatException invalid) {
+        if (!STRONG_NUMERIC_ETAG.matcher(value).matches()) {
             throw new IllegalArgumentException("If-Match is invalid");
         }
+        return Long.parseLong(value.substring(1, value.length() - 1));
     }
-
-    public record IntegrationRequest(String phoneNumberId, String businessAccountId, String displayPhoneNumber,
-            Boolean enabled, String secretRef) {
-        private static final Set<String> MEMBERS = Set.of("phoneNumberId", "businessAccountId", "displayPhoneNumber",
-                "enabled", "secretRef");
-
-        /** Unknown members (for example a raw token) and wrongly typed values are rejected, never ignored. */
-        static IntegrationRequest from(Map<String, Object> body) {
-            if (body == null || !MEMBERS.containsAll(body.keySet()) || !(body.get("enabled") instanceof Boolean)) {
-                throw new IllegalArgumentException("Request is invalid");
-            }
-            return new IntegrationRequest(text(body, "phoneNumberId"), text(body, "businessAccountId"),
-                    text(body, "displayPhoneNumber"), (Boolean) body.get("enabled"), text(body, "secretRef"));
-        }
-
-        private static String text(Map<String, Object> body, String member) {
-            Object value = body.get(member);
-            if (value != null && !(value instanceof String)) {
-                throw new IllegalArgumentException("Request is invalid");
-            }
-            return (String) value;
-        }
-    }
-
-    public record IntegrationResponse(boolean enabled, String phoneNumberId, String businessAccountId,
-            String displayPhoneNumber, String secretRef, long version) { }
 }
