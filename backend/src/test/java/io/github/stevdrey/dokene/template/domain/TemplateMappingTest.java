@@ -90,13 +90,18 @@ class TemplateMappingTest {
         TemplateMapping two = mapping("t", "es", List.of("customer_name", "product"));
         assertThat(TemplateParameterValues.validate(two, List.of("Ana", "Café"))).containsExactly("Ana", "Café");
         for (List<String> invalid : List.of(List.of("Ana"), List.of("Ana", "Café", "extra"), List.of("Ana", ""),
-                List.of("Ana", "a\nb"), List.of("Ana", "a    b"), List.of("Ana", "a\tb"),
+                List.of("Ana", "a\nb"), List.of("Ana", "a     b"),
+                List.of("Ana", "a\u202Eb"), List.of("Ana", "a\u200Bb"), List.of("Ana", "a\u200Eb"),
+                List.of("Ana", "a\u2066b"), List.of("Ana", "\uFEFFAna"), List.of("Ana", "a\u2060b"), List.of("Ana", "a\tb"),
                 List.of("Ana", "a\u0085b"), List.of("Ana", "a\u009fb"), List.of("Ana", "a\u007fb"),
                 List.of("Ana", "a\u2028b"), List.of("Ana", "a\u2029b"),
                 List.of("Ana", "x".repeat(TemplateParameterValues.MAX_LENGTH + 1)))) {
             assertThatThrownBy(() -> TemplateParameterValues.validate(two, invalid))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+        // Four spaces are allowed (Meta refuses more than four); ZWJ emoji sequences and ZWNJ stay valid.
+        assertThat(TemplateParameterValues.validate(two, List.of("a    b", "\uD83D\uDC68\u200D\uD83D\uDC69")))
+                .hasSize(2);
         assertThat(TemplateParameterValues.validate(two, List.of("Ñandú", "Café \uD83C\uDF81"))).hasSize(2);
         assertThatThrownBy(() -> TemplateParameterValues.validate(two, java.util.Arrays.asList("Ana", null)))
                 .isInstanceOf(IllegalArgumentException.class);

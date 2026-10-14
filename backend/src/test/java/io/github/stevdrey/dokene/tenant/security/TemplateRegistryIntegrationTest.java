@@ -340,6 +340,30 @@ class TemplateRegistryIntegrationTest {
     }
 
     @Test
+    void evidenceForAnotherBusinessAccountIsNeverStored() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, "999999999999999");
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));
+        gateway.next = new TemplateProviderGateway.Absent("999999999999999");
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
+        list(adminA, tenantA).andExpect(jsonPath("$.items[?(@.templateIntent=='REPEAT_PURCHASE')].approvalStatus")
+                .value("UNVERIFIED"));
+    }
+
+    @Test
+    void anUnchangedUnavailableRefreshWritesNothing() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        String before = updatedAt(tenantA);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
+        assertThat(updatedAt(tenantA)).isEqualTo(before);
+        assertThat(auditCount(tenantA)).isEqualTo(1);
+    }
+
+    @Test
     void repeatedUnavailableRefreshesStayIdempotent() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         for (int i = 0; i < 2; i++) {
@@ -492,6 +516,18 @@ class TemplateRegistryIntegrationTest {
         try (Connection migration = migrationConnection()) {
             return queryInt(migration, "SELECT version FROM dokene.tenant_messaging_integrations "
                     + "WHERE tenant_id = ?", tenant.id().value());
+        }
+    }
+
+    private String updatedAt(Tenant tenant) throws SQLException {
+        try (Connection migration = migrationConnection();
+                var statement = migration.prepareStatement(
+                        "SELECT updated_at::text FROM dokene.tenant_provider_templates WHERE tenant_id = ?")) {
+            statement.setObject(1, tenant.id().value());
+            try (var rs = statement.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
         }
     }
 

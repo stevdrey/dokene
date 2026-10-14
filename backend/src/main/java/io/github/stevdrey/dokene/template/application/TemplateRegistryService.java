@@ -129,6 +129,10 @@ public class TemplateRegistryService {
         TemplateProviderGateway.Sender sender = gateway.currentSender()
                 .orElseThrow(() -> new TemplateRefusedException(TemplateErrorCode.INTEGRATION_DISABLED));
         TemplateProviderGateway.Lookup lookup = gateway.lookup(current.providerTemplateName(), current.language());
+        // Evidence is only kept for the account that was asked; an answer about any other account is not evidence.
+        if (!answeredFor(lookup, sender)) {
+            lookup = new TemplateProviderGateway.Unavailable();
+        }
         TemplateMapping next = switch (lookup) {
             case TemplateProviderGateway.Reported reported ->
                     current.verified(reported.status(), reported.businessAccountId(), clock.instant());
@@ -136,7 +140,7 @@ public class TemplateRegistryService {
                     current.verified(TemplateApprovalStatus.NOT_FOUND, absent.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Unavailable unavailable -> current.unverified(clock.instant());
         };
-        TemplateMapping saved = writes.execute(status -> {
+        TemplateMapping saved = next.approval().equals(current.approval()) ? current : writes.execute(status -> {
             if (!repository.updateApproval(next, expectedVersion, current.approval())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
             }
@@ -149,6 +153,15 @@ public class TemplateRegistryService {
             throw new TemplateRefusedException(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         }
         return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender)));
+    }
+
+    private static boolean answeredFor(TemplateProviderGateway.Lookup lookup, TemplateProviderGateway.Sender sender) {
+        return switch (lookup) {
+            case TemplateProviderGateway.Reported reported ->
+                    reported.businessAccountId().equals(sender.businessAccountId());
+            case TemplateProviderGateway.Absent absent -> absent.businessAccountId().equals(sender.businessAccountId());
+            case TemplateProviderGateway.Unavailable unavailable -> true;
+        };
     }
 
     private boolean sendable(TemplateMapping mapping, Optional<TemplateProviderGateway.Sender> sender) {
