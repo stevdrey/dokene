@@ -104,6 +104,33 @@ describe('FollowUpWorkbench', () => {
     });
   });
 
+  it.each([320, 390, 1440])('preserves unbroken detail text with shrinkable purchase rows at %i px', async (width) => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
+    const name = 'N'.repeat(80);
+    const description = 'X'.repeat(200);
+    vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({ items: [{ ...mockItems[0], displayName: name }], nextCursor: null });
+    vi.spyOn(customerApi, 'listPurchases').mockResolvedValue({
+      purchases: [{ id: 'p-long', customerId: 'cust-1', description, purchasedAt: '2026-07-17T10:00:00Z', status: 'VALID', version: 1, createdAt: '2026-07-17T10:00:00Z', updatedAt: '2026-07-17T10:00:00Z', voidedAt: null }],
+      nextCursor: null
+    });
+    try {
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      if (width < 860) fireEvent.click(await screen.findByRole('heading', { level: 3, name }));
+      const heading = await screen.findByRole('heading', { level: 2, name });
+      const text = await screen.findByText(description);
+      expect(heading).toHaveTextContent(name);
+      expect(text.textContent).toBe(description);
+      expect(getComputedStyle(text).overflowWrap).toBe('anywhere');
+      expect(getComputedStyle(text.parentElement!).minWidth).toBe('0px');
+      expect(getComputedStyle(text.closest('.follow-up-detail__purchase-row')!).flexWrap).toBe('wrap');
+      expect(getComputedStyle(screen.getByText('Registrada')).flexShrink).toBe('0');
+      expect(screen.getByRole('button', { name: 'Registrar seguimiento' })).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
+    }
+  });
+
   it('renders workbench title, stats counters, and queue items', async () => {
     render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
 

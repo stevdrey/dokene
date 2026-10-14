@@ -66,3 +66,32 @@
   gap: var(--space-8);
   max-width: 100%;
 }
+
+/* Customer data must wrap without increasing the detail pane's intrinsic width. */
+.follow-up-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.follow-up-detail__wrapping-row,
+.follow-up-detail__purchase-row {
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.follow-up-detail__wrapping-row > *,
+.follow-up-detail__purchase-content {
+  min-width: 0;
+}
+
+.follow-up-detail__purchase-content {
+  flex: 1 1 10rem;
+}
+
+.follow-up-detail__purchase-description {
+  overflow-wrap: anywhere;
+}
+
+.follow-up-detail__purchase-status {
+  flex-shrink: 0;
+}

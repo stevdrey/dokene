@@ -84,6 +84,27 @@ describe('CustomerProfile', () => {
     });
   });
 
+  it('preserves full unbroken customer data and permits the profile cards to shrink', async () => {
+    const name = 'N'.repeat(80);
+    const notes = 'Y'.repeat(200);
+    const description = 'X'.repeat(200);
+    vi.spyOn(customerApi, 'getCustomer').mockResolvedValue({ customer: { ...mockCustomer, displayName: name, notes }, version: 2 });
+    vi.spyOn(customerApi, 'getLastPurchase').mockResolvedValue({ ...mockLastPurchase, description });
+    const { container } = render(<CustomerProfile customerId="cust-abc-123" onBack={vi.fn()} />);
+    const heading = await screen.findByRole('heading', { level: 1, name });
+    expect(heading.textContent).toBe(name);
+    expect(screen.getByText(notes).textContent).toBe(notes);
+    expect(screen.getByText(description).textContent).toBe(description);
+    for (const selector of ['.customer-profile__name', '.customer-profile__notes', '.customer-profile__purchase-description', '.customer-profile__business-status']) {
+      expect(getComputedStyle(container.querySelector(selector)!).overflowWrap).toBe('anywhere');
+    }
+    expect(getComputedStyle(container.querySelector('.customer-profile__identity')!).minWidth).toBe('0px');
+    expect(getComputedStyle(container.querySelector('.customer-profile__grid > div')!).minWidth).toBe('0px');
+    const summaryGrid = screen.getByText('Última compra registrada').parentElement!.parentElement!;
+    expect(summaryGrid.style.gridTemplateColumns).toBe('repeat(auto-fit, minmax(min(200px, 100%), 1fr))');
+    expect(screen.getByRole('button', { name: 'Editar cliente' })).toBeInTheDocument();
+  });
+
   it('renders customer header with name, badges, and back navigation', async () => {
     const onBack = vi.fn();
     render(<CustomerProfile customerId="cust-abc-123" onBack={onBack} />);

@@ -152,6 +152,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
 
   return (
     <div
+      className="follow-up-detail"
       style={{
         backgroundColor: 'var(--color-surface)',
         border: '1px solid var(--color-outline)',
@@ -165,7 +166,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
     >
       {/* Mobile Back Bar */}
       {isMobileView && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '-8px' }}>
+        <div className="follow-up-detail__wrapping-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '-8px' }}>
           <button
             type="button"
             onClick={onBack}
@@ -432,7 +433,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
 
       {/* Recent Purchases Section */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="follow-up-detail__wrapping-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px', color: 'var(--color-text-muted)' }}>
               receipt_long
@@ -495,6 +496,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
             {purchases.map((p, idx) => (
               <div
                 key={p.id}
+                className="follow-up-detail__purchase-row"
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -504,8 +506,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
                   fontSize: 'var(--font-size-secondary)'
                 }}
               >
-                <div>
-                  <span style={{ fontWeight: 500, color: 'var(--color-text-main)', display: 'block' }}>
+                <div className="follow-up-detail__purchase-content">
+                  <span className="follow-up-detail__purchase-description" style={{ fontWeight: 500, color: 'var(--color-text-main)', display: 'block' }}>
                     {p.description}
                   </span>
                   <span style={{ fontSize: 'var(--font-size-meta)', color: 'var(--color-text-muted)' }}>
@@ -513,6 +515,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
                   </span>
                 </div>
                 <span
+                  className="follow-up-detail__purchase-status"
                   style={{
                     fontSize: 'var(--font-size-meta)',
                     padding: '2px 6px',
@@ -608,6 +611,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
 
       {/* Action Buttons Row */}
       <div
+        className="follow-up-detail__wrapping-row"
         style={{
           display: 'flex',
           flexDirection: isMobileView ? 'column' : 'row',
