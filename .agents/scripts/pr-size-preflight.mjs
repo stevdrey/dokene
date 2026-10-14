@@ -18,7 +18,7 @@ function git(cwd, ...args) {
   });
   if (result.error || result.status !== 0) {
     const detail = result.stderr?.toString('utf8').trim() || result.error?.message || 'Unknown Git error';
-    throw new Error(\`git \${args[0]} failed: \${detail}\`);
+    throw new Error(`git ${args[0]} failed: ${detail}`);
   }
   return result.stdout;
 }
@@ -30,7 +30,7 @@ function pathsFromNullSeparated(buffer) {
 function changedFiles(cwd, baseRef) {
   const root = git(cwd, 'rev-parse', '--show-toplevel').toString('utf8').trim();
   const base = git(root, 'merge-base', baseRef, 'HEAD').toString('utf8').trim();
-  if (!base) throw new Error(\`No merge base found for \${baseRef}\`);
+  if (!base) throw new Error(`No merge base found for ${baseRef}`);
 
   // Comparing a commit to the worktree includes committed, staged, and unstaged changes.
   const tracked = git(root, 'diff', '--name-only', '-z', base, '--');
@@ -77,21 +77,21 @@ async function main() {
 
   const baseRef = baseReference(args);
   const count = changedFiles(cwd, baseRef);
-  const result = \`PR preflight: \${count}/\${MAX_FILES} changed files relative to \${baseRef}.\`;
+  const result = `PR preflight: ${count}/${MAX_FILES} changed files relative to ${baseRef}.`;
 
   if (count > MAX_FILES) {
-    console.error(\`BLOCKED: \${result} Split this work into smaller, independently reviewable PRs before publishing. Preserve required tests and security controls.\`);
+    console.error(`BLOCKED: ${result} Split this work into smaller, independently reviewable PRs before publishing. Preserve required tests and security controls.`);
     process.exitCode = 2;
   } else if (count > WARNING_FILES) {
-    console.error(\`WARNING: \${result} Review scope before adding more changes.\`);
+    console.error(`WARNING: ${result} Review scope before adding more changes.`);
   } else if (!fromHook) {
-    console.log(\`PASS: \${result}\`);
+    console.log(`PASS: ${result}`);
   }
 }
 
 try {
   await main();
 } catch (error) {
-  console.error(\`BLOCKED: PR preflight could not verify the change scope: \${error.message}. Refresh the base reference with 'git fetch origin main' and retry.\`);
+  console.error(`BLOCKED: PR preflight could not verify the change scope: ${error.message}. Refresh the base reference with 'git fetch origin main' and retry.`);
   process.exitCode = 2;
 }
