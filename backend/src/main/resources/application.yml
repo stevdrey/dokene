@@ -44,12 +44,6 @@ dokene:
       initial-backoff: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:250ms}
       max-backoff: ${DOKENE_AI_RETRY_MAX_BACKOFF:2s}
       min-attempt-budget: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:1s}
-  messaging:
-    template-gate:
-      stub:
-        # Comma separated SemanticTemplateIntent names the stand in gate reports as MAPPED; empty fails closed.
-        # Removed when feature 6 lands.
-        enabled-intents: ${DOKENE_MESSAGING_TEMPLATE_GATE_STUB_ENABLED_INTENTS:}
   template:
     # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
     approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}

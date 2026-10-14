@@ -83,7 +83,7 @@ Dokene's policy:
 
 ## Consequences
 
-- Delivery is split to respect the 40-file PR limit. [#215](https://github.com/stevdrey/dokene/issues/215) adds the registry, resolver, API and a `FailClosedTemplateProviderGateway` (the sender is read, no provider evidence is ever reported, so nothing is sendable). [#135](https://github.com/stevdrey/dokene/issues/135) replaces it with `GraphApiTemplateProviderGateway`, which implements the provider lookup described in §2, and swaps the submit-time stub for `ResolverBackedTemplateMappingGate`. Until #135 merges, §2's Graph API lookup is the target design, not shipped behavior.
+- Delivery was split to respect the 40-file PR limit. [#215](https://github.com/stevdrey/dokene/issues/215) added the registry, resolver and API with a fail-closed provider gateway; [#135](https://github.com/stevdrey/dokene/issues/135) adds `GraphApiTemplateProviderGateway` (the provider lookup of §2) and replaces the submit-time stub with `ResolverBackedTemplateMappingGate`.
 - `GraphApiTemplateProviderGateway` is the only code that calls Meta for templates. Until a production `IntegrationSecretResolver` exists, every refresh is unavailable and no template becomes sendable, so sending stays disabled even if the other pieces are in place. That is the intended fail-closed default.
 - Templates created in Meta's WhatsApp Manager stay the source of truth for content and approval. Dokene stores a pointer and the last evidence only; it does not submit templates for approval.
 - #136 (submit and approval) and #142 (dispatch) consume `TemplateMappingResolver` and `TemplateParameterValues`. They map the message locale to the template language, because Meta's language codes (`es_MX`) differ from the BCP 47 locale in the message contract (`es-419`).
