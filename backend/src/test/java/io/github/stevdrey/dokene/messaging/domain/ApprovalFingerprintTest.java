@@ -64,6 +64,7 @@ class ApprovalFingerprintTest {
                 Map.entry("parameter value order", b -> withValues(b, List.of("Café 1 kg", "Ana"))),
                 Map.entry("integration", b -> withSender(b, new SenderRevision(UUID.randomUUID(), "100000000000001", "200000000000001", 1))),
                 Map.entry("sender number", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000002", "200000000000001", 1))),
+                // Credential rotation in place (POST /api/integrations/whatsapp/credential-rotations) only bumps this revision.
                 Map.entry("credential rotation", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000001", "200000000000001", 2))),
                 Map.entry("business account", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000001", "200000000000002", 1))));
 

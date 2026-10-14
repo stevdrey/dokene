@@ -11,8 +11,9 @@ import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationServ
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.util.regex.Pattern;
-import org.springframework.http.ResponseEntity;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -34,29 +35,49 @@ public class WhatsAppIntegrationController {
 
     @RequiredPermission(TenantPermission.INTEGRATION_READ)
     @GetMapping
-    public ResponseEntity<IntegrationResponse> get() {
-        return respond(integrations.get());
+    public IntegrationResponse get(HttpServletResponse response) {
+        return respond(integrations.get(), response);
     }
 
     @RequiredPermission(TenantPermission.INTEGRATION_MANAGE)
     @PutMapping
-    public ResponseEntity<IntegrationResponse> put(
+    public IntegrationResponse put(
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch,
-            @RequestBody JsonNode body) {
+            @RequestBody JsonNode body, HttpServletResponse response) {
         IntegrationRequest request = IntegrationApiContract.read(body);
         IntegrationView saved = integrations.upsert(precondition(ifMatch, ifNoneMatch), request.phoneNumberId(),
                 request.businessAccountId(), request.displayPhoneNumber(), request.enabled(),
                 request.secretRef());
-        return respond(saved);
+        return respond(saved, response);
     }
 
-    private ResponseEntity<IntegrationResponse> respond(IntegrationView view) {
+    /** Bumps the credential revision after the secret was replaced in the store behind the same reference. */
+    @RequiredPermission(TenantPermission.INTEGRATION_MANAGE)
+    @PostMapping("/credential-rotations")
+    public IntegrationResponse rotateCredential(
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch,
+            HttpServletResponse response) {
+        if (ifNoneMatch != null || !(precondition(ifMatch, null) instanceof Version(long expectedVersion))) {
+            throw new InvalidRequestException();
+        }
+        return respond(integrations.rotateCredential(expectedVersion), response);
+    }
+
+    /**
+     * The ETag is the configuration concurrency token: the stored row's version. {@code outboundEnabled} and
+     * {@code webhookVerified} are live runtime state that can change without it, so the response is never cacheable
+     * and the handlers return the body directly (not a {@code ResponseEntity}) with headers set on the servlet
+     * response, which keeps Spring from answering a matching {@code If-None-Match} GET with a {@code 304}.
+     */
+    private IntegrationResponse respond(IntegrationView view, HttpServletResponse response) {
         var integration = view.integration();
-        return ResponseEntity.ok().eTag("\"" + integration.version() + "\"").body(new IntegrationResponse(
-                integration.enabled(), view.outboundEnabled(), integration.phoneNumberId(),
+        response.setHeader("ETag", "\"" + integration.version() + "\"");
+        response.setHeader("Cache-Control", "no-store");
+        return new IntegrationResponse(integration.enabled(), view.outboundEnabled(), integration.phoneNumberId(),
                 integration.businessAccountId(), integration.displayPhoneNumber(), integration.secretRef(),
-                view.webhookVerified(), integration.version()));
+                view.webhookVerified(), integration.version());
     }
 
     /**

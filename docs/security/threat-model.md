@@ -23,6 +23,7 @@
 - Sensitive data leakage through logs or observability
 - Cross-tenant information channel through metric labels or diagnostic endpoints (mitigated by a closed tag allow-list and no exposed actuator endpoints; ADR 0019)
 - Retry storms and duplicate AI cost during provider throttling or outages (mitigated by bounded, deadline-limited retry; ADR 0019)
+- Preemptive phone-number-id registration through the WhatsApp integration API: any `INTEGRATION_MANAGE` user can map any well-formed Meta id, which blocks the legitimate tenant and could misroute webhooks. Mitigation: mappings are unverified (`webhookVerified=false`), the webhook (#139) must not trust unverified mappings and the send path must fail closed; a squatted id is released out of band until verification-based reclaim exists (ADR 0024 addendum).
 - Phone-number-id availability probe through the WhatsApp integration API (accepted residual risk): `(provider, phone_number_id)` is globally unique because webhooks resolve the tenant from it, so a tenant admin with `INTEGRATION_MANAGE` can learn that a candidate Meta id is unavailable. The refusal is the same `400 INVALID_INPUT` as any invalid mapping and never names or reads another tenant's record. Follow-up: rate-limit rejected mappings per tenant (see the rate limiting requirement below).
 
 ## Trust boundaries

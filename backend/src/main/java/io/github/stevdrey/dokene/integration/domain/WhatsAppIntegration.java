@@ -48,6 +48,15 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
                 secretRef, revision, createdAt, now, version);
     }
 
+    /**
+     * Records that the credential behind the unchanged secret reference was replaced in the secret store. Bumps the
+     * credential revision, which is part of the approval sender identity, so open approvals fail at send time.
+     */
+    public WhatsAppIntegration rotateCredential(Instant now) {
+        return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
+                secretRef, credentialRevision + 1, createdAt, now, version);
+    }
+
     /** The same record with the version the store reported after a committed write. */
     public WhatsAppIntegration withVersion(long storedVersion) {
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,

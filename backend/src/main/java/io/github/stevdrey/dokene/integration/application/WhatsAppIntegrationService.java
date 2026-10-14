@@ -94,6 +94,27 @@ public class WhatsAppIntegrationService {
         return view(saved);
     }
 
+    /**
+     * Controlled rotation (ADR 0024 addendum): the operator replaced the secret in the store behind the same
+     * reference and calls this to bump the credential revision. Never touches {@code enabled}.
+     */
+    @Transactional
+    public IntegrationView rotateCredential(long expectedVersion) {
+        authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
+        TenantId tenantId = contexts.requireCurrent().tenantId();
+        WhatsAppIntegration current = repository.findByTenant(tenantId)
+                .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
+        if (current.version() != expectedVersion) {
+            throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+        }
+        WhatsAppIntegration next = current.rotateCredential(clock.instant());
+        long storedVersion = repository.update(next, expectedVersion).orElseThrow(
+                () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
+        WhatsAppIntegration saved = next.withVersion(storedVersion);
+        audit.updated(saved.id(), saved.enabled());
+        return view(saved);
+    }
+
     /** Only domain validation maps to INVALID_INPUT; other failures stay server errors. */
     private static WhatsAppIntegration validated(Supplier<WhatsAppIntegration> build) {
         try {

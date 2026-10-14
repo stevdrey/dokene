@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryInt;
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryUuids;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
@@ -15,6 +16,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -24,6 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
+import io.github.stevdrey.dokene.integration.application.IntegrationReadiness;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
@@ -43,6 +46,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -60,6 +66,30 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
             100_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "200000000000001";
 
+    /** Runtime readiness that tests can flip without touching the stored integration version. */
+    static final class MutableReadiness implements IntegrationReadiness {
+        volatile boolean outboundEnabled;
+
+        @Override
+        public boolean outboundEnabled(io.github.stevdrey.dokene.tenant.domain.TenantId tenantId) {
+            return outboundEnabled;
+        }
+
+        @Override
+        public boolean webhookVerified(io.github.stevdrey.dokene.tenant.domain.TenantId tenantId) {
+            return false;
+        }
+    }
+
+    @TestConfiguration
+    static class ReadinessConfiguration {
+        @Bean
+        @Primary
+        MutableReadiness mutableReadiness() {
+            return new MutableReadiness();
+        }
+    }
+
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws SQLException {
         TenantSecurityIntegrationFixture.configure(registry);
@@ -67,6 +97,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     MockMvc mvc;
+    @Autowired MutableReadiness readiness;
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired AuditRequestFilter auditRequestFilter;
     @Autowired TenantRepository tenants;
@@ -88,6 +119,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
+        readiness.outboundEnabled = false;
         phoneId = Long.toString(NEXT_ID.incrementAndGet());
         Instant now = Instant.now();
         tenantA = seedTenant(tenants, contexts, "Integration A " + UUID.randomUUID(), now);
@@ -206,6 +238,69 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
+    void rotatingTheCredentialInPlaceBumpsTheRevisionWithoutChangingTheReference() throws Exception {
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        assertThat(credentialRevision(tenantA)).isEqualTo(1);
+
+        rotate(adminA, tenantA, "\"0\"").andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.secretRef").value("wa-token-ok"))
+                .andExpect(jsonPath("$.enabled").value(true));
+        assertThat(credentialRevision(tenantA)).isEqualTo(2);
+        assertThat(auditCount(tenantA)).isEqualTo(2);
+
+        // Toggling enabled is not a rotation.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        assertThat(credentialRevision(tenantA)).isEqualTo(2);
+
+        rotate(adminA, tenantA, "\"1\"").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        for (String invalid : List.of("1", "W/\"2\"", "")) {
+            rotate(adminA, tenantA, invalid).andExpect(status().isBadRequest());
+        }
+        mvc.perform(post("/api/integrations/whatsapp/credential-rotations").with(user(adminA)).with(csrf())
+                .header("X-Tenant-Id", tenantA.id().value())).andExpect(status().isBadRequest());
+        rotate(operatorA, tenantA, "\"2\"").andExpect(status().isForbidden());
+        rotate(viewerA, tenantA, "\"2\"").andExpect(status().isForbidden());
+        rotate(adminB, tenantB, "\"0\"").andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theEtagIsTheConfigurationTokenAndRuntimeReadinessIsNeverServedFromACache() throws Exception {
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        read(adminA, tenantA).andExpect(status().isOk()).andExpect(header().string("ETag", "\"0\""))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.outboundEnabled").value(false));
+
+        readiness.outboundEnabled = true; // runtime state changes; the stored version does not
+        mvc.perform(get("/api/integrations/whatsapp").with(user(adminA)).header("X-Tenant-Id", tenantA.id().value())
+                        .header("If-None-Match", "\"0\""))
+                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"0\""))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.outboundEnabled").value(true));
+    }
+
+    @Test
+    void unverifiedMappingMustNotBeTrustedForRouting() throws Exception {
+        // Tenant B pre-registers the number of tenant A (who owns it at Meta) before A configures it.
+        write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        read(adminB, tenantB).andExpect(jsonPath("$.webhookVerified").value(false));
+
+        // A is refused generically and learns nothing about B.
+        String refused = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(refused).doesNotContain(tenantB.id().value().toString());
+
+        // Resolving a tenant from the stored mapping alone would route A's Meta events to B. Nothing stored here is
+        // verified, so the webhook (#139) must not resolve tenants from it until ownership is proven, and the send
+        // path (#142/#144) must fail closed on webhookVerified=false.
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryUuids(migration, "SELECT tenant_id FROM dokene.tenant_messaging_integrations "
+                    + "WHERE phone_number_id = ?", phoneId)).containsExactly(tenantB.id().value());
+        }
+        read(adminB, tenantB).andExpect(jsonPath("$.webhookVerified").value(false));
+    }
+
+    @Test
     void unsupportedMediaTypesUseTheClosedProblemShape() throws Exception {
         for (MediaType type : List.of(MediaType.TEXT_PLAIN, MediaType.APPLICATION_OCTET_STREAM)) {
             mvc.perform(put("/api/integrations/whatsapp").with(user(adminA)).with(csrf())
@@ -318,6 +413,11 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
             request.header("If-None-Match", "*"); // creation precondition
         }
         return mvc.perform(request);
+    }
+
+    private ResultActions rotate(IdentityId who, Tenant tenant, String ifMatch) throws Exception {
+        return mvc.perform(post("/api/integrations/whatsapp/credential-rotations").with(user(who)).with(csrf())
+                .header("X-Tenant-Id", tenant.id().value()).header("If-Match", ifMatch));
     }
 
     private static String body(String phoneNumberId, String secretRef, boolean enabled) {
