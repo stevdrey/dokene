@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -87,16 +89,17 @@ class RequiredPermissionInterceptorTest {
     }
 
     @Test
-    void anyOfDeniesAndAuditsWithTheLastPermissionWhenNoneIsHeld() throws Exception {
+    void anyOfDeniesAndAuditsEveryListedPermissionWhenNoneIsHeld() throws Exception {
         when(authorization.evaluate(TenantPermission.MESSAGE_DRAFT)).thenReturn(new AuthorizationDecision(false, "no"));
         when(authorization.evaluate(TenantPermission.MESSAGE_APPROVE)).thenReturn(new AuthorizationDecision(false, "no"));
-        doThrow(new TenantAccessDeniedException("Forbidden"))
-                .when(authorization).requirePermission(TenantPermission.MESSAGE_APPROVE);
 
         assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("either")))
                 .isInstanceOf(TenantAccessDeniedException.class);
 
-        verify(authorization).requirePermission(TenantPermission.MESSAGE_APPROVE);
+        // hasPermission audits a denial; the caller lacked both, so both are recorded, not an arbitrary one.
+        verify(authorization).hasPermission(TenantPermission.MESSAGE_DRAFT);
+        verify(authorization).hasPermission(TenantPermission.MESSAGE_APPROVE);
+        verify(authorization, never()).requirePermission(any());
     }
 
     @Test

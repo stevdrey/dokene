@@ -33,6 +33,14 @@ public record MessageApproval(UUID id, UUID tenantId, UUID messageId, ApprovalDe
         }
     }
 
+    /** Redacted: the note and the fingerprint must never reach a log line or an exception message. */
+    @Override
+    public String toString() {
+        return "MessageApproval[id=" + id + ", messageId=" + messageId + ", decision=" + decision
+                + ", hasNote=" + (note != null) + ", fingerprint=" + (fingerprint.isPresent() ? "[redacted]" : "none")
+                + ", decidedAt=" + decidedAt + "]";
+    }
+
     /** A new approval always binds the fingerprint computed under the customer lock. */
     public static MessageApproval approve(UUID id, UUID tenantId, UUID messageId, String note,
             ApprovalFingerprint fingerprint, Instant decidedAt, UUID decidedByMembershipId, UUID decidedByActorId) {

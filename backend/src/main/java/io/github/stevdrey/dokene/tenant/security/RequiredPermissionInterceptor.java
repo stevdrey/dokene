@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
+import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,8 +34,11 @@ public class RequiredPermissionInterceptor implements HandlerInterceptor {
                     admitted = admitted || authorization.evaluate(permission).isAllowed();
                 }
                 if (!admitted) {
-                    // requirePermission denies and audits; the last listed permission names the denial.
-                    authorization.requirePermission(permissions[permissions.length - 1]);
+                    // The caller holds none of them, so each listed permission was denied: audit every one, then deny.
+                    for (TenantPermission permission : permissions) {
+                        authorization.hasPermission(permission);
+                    }
+                    throw new TenantAccessDeniedException("None of the required permissions is granted");
                 }
             } else if (required != null) {
                 for (TenantPermission permission : required.value()) {

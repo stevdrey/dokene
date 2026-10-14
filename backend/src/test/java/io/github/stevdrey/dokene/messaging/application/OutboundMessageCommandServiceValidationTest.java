@@ -35,14 +35,13 @@ class OutboundMessageCommandServiceValidationTest {
     private final ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
     private final FollowUpService followUps = mock(FollowUpService.class);
     private final DraftGroundingAssembler grounding = mock(DraftGroundingAssembler.class);
-    private final TemplateMappingGate templates = mock(TemplateMappingGate.class);
     private final ApprovalBindingAssembler bindings = mock(ApprovalBindingAssembler.class);
     private final OutboundSafetyControl safety = mock(OutboundSafetyControl.class);
     private final TenantAuthorizationService authorization = mock(TenantAuthorizationService.class);
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
     private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
-            customers, contactPolicies, followUps, grounding, templates, bindings, safety, authorization, contexts, audit,
+            customers, contactPolicies, followUps, grounding, bindings, safety, authorization, contexts, audit,
             Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
 
     @Test
@@ -124,7 +123,8 @@ class OutboundMessageCommandServiceValidationTest {
     private void assertRefused(Callable<?> call, MessagingErrorCode code) {
         assertThatThrownBy(call::call).isInstanceOf(MessagingRefusedException.class)
                 .extracting(e -> ((MessagingRefusedException) e).code()).isEqualTo(code);
-        verifyNoInteractions(messages, idempotency, customers, contactPolicies, followUps, grounding, templates, audit);
+        verifyNoInteractions(messages, idempotency, customers, contactPolicies, followUps, grounding, bindings, safety,
+                audit);
     }
 
     private static SubmitMessageCommand submit(String body, String locale, String action, String intent, String ifMatch,

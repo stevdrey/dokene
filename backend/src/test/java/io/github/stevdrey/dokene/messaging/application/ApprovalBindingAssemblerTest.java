@@ -17,6 +17,7 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
+import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageOrigin;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
@@ -123,6 +124,30 @@ class ApprovalBindingAssemblerTest {
                 sender.businessAccountId(), 2);
         assertThat(approved.covers(assembler.bind(message, customer, rotated))).as("credential rotated").isFalse();
         assertThat(approved.covers(assembler.bind(message, customer, sender))).isTrue();
+    }
+
+    @Test
+    void submitAppliesTheSameRenderChecksSoAnUnapprovableMessageIsNeverStored() {
+        assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "es-419", BODY, customer);
+
+        assertRefused(() -> assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "es-419",
+                "Hola,\nseguimos atentos.", customer), MessagingErrorCode.BODY_REJECTED);
+        mapping("es", List.of("message_body", "discount_code"), 3);
+        assertRefused(() -> assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "es-419", BODY,
+                customer), MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+        mapping("pt_BR", List.of("message_body"), 3);
+        assertRefused(() -> assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "es-419", BODY,
+                customer), MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+    }
+
+    @Test
+    void approvalRecordsNeverPrintTheirFingerprintOrNote() {
+        ApprovalFingerprint fingerprint = ApprovalFingerprint.of(assembler.bind(message(BODY), customer, sender));
+        MessageApproval approval = MessageApproval.approve(UUID.randomUUID(), tenantId.value(), UUID.randomUUID(),
+                "nota privada", fingerprint, NOW, UUID.randomUUID(), UUID.randomUUID());
+
+        assertThat(fingerprint.toString()).doesNotContain(fingerprint.value());
+        assertThat(approval.toString()).doesNotContain(fingerprint.value()).doesNotContain("nota privada");
     }
 
     @Test

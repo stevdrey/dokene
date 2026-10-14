@@ -1,5 +1,5 @@
-// ABOUTME: Drives the real registry-backed submit gate end to end: mapping, scripted provider evidence, expiry, edits and
-// ABOUTME: tenant isolation decide MAPPED or NOT_MAPPED. Only the provider is scripted (issue 135).
+// ABOUTME: Drives the real registry-backed template resolver end to end: mapping, scripted provider evidence,
+// ABOUTME: expiry, edits and tenant isolation decide whether it resolves. Only the provider is scripted (issue 135).
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
@@ -11,8 +11,6 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
-import io.github.stevdrey.dokene.messaging.application.TemplateMappingGate;
-import io.github.stevdrey.dokene.messaging.application.TemplateMappingStatus;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -22,6 +20,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService;
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Create;
@@ -54,7 +53,7 @@ class RegistryBackedTemplateGateIntegrationTest {
         TenantSecurityIntegrationFixture.configure(registry);
     }
 
-    @Autowired TemplateMappingGate gate;
+    @Autowired TemplateMappingResolver resolver;
     @Autowired TemplateRegistryService registry;
     @Autowired ScriptedTemplateProviderGateway provider;
     @Autowired WhatsAppIntegrationRepository integrations;
@@ -82,52 +81,53 @@ class RegistryBackedTemplateGateIntegrationTest {
 
     @Test
     void anUnmappedOrUnverifiedIntentIsNotMapped() {
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
+        assertThat(check(adminA)).isFalse();
         put(adminA, new Create(), "repeat_purchase_v1");
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
+        assertThat(check(adminA)).isFalse();
     }
 
     @Test
     void onlyFreshProviderApprovalForTheCurrentRevisionIsMapped() throws Exception {
         put(adminA, new Create(), "repeat_purchase_v1");
         approve(adminA, 0);
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.MAPPED);
+        assertThat(check(adminA)).isTrue();
 
         for (TemplateApprovalStatus state : List.of(TemplateApprovalStatus.REJECTED, TemplateApprovalStatus.PAUSED)) {
             provider.next = new TemplateProviderGateway.Reported(state, WABA_ID);
             call(adminA, () -> registry.refreshApproval(INTENT, 0));
-            assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
+            assertThat(check(adminA)).isFalse();
         }
 
         approve(adminA, 0);
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.MAPPED);
+        assertThat(check(adminA)).isTrue();
         execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = now() - interval '2 days' "
                 + "WHERE tenant_id = ?", tenantA.id().value());
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
+        assertThat(check(adminA)).isFalse();
     }
 
     @Test
     void editingAnApprovedMappingMakesItNotMappedUntilVerifiedAgain() {
         put(adminA, new Create(), "repeat_purchase_v1");
         approve(adminA, 0);
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.MAPPED);
+        assertThat(check(adminA)).isTrue();
 
         put(adminA, new Version(0), "repeat_purchase_v2");
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
+        assertThat(check(adminA)).isFalse();
         approve(adminA, 1);
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.MAPPED);
+        assertThat(check(adminA)).isTrue();
     }
 
     @Test
     void anotherTenantIsNeverMappedByThisTenantsApproval() {
         put(adminA, new Create(), "repeat_purchase_v1");
         approve(adminA, 0);
-        assertThat(check(adminA)).isEqualTo(TemplateMappingStatus.MAPPED);
-        assertThat(check(adminB)).isEqualTo(TemplateMappingStatus.NOT_MAPPED);
+        assertThat(check(adminA)).isTrue();
+        assertThat(check(adminB)).isFalse();
     }
 
-    private TemplateMappingStatus check(TenantContext context) {
-        return call(context, () -> gate.check(INTENT));
+    /** Sendable means the resolver answers Resolved; submit, approval and send all ask it the same way. */
+    private boolean check(TenantContext context) {
+        return call(context, () -> resolver.resolve(INTENT) instanceof TemplateMappingResolver.Resolved);
     }
 
     private void put(TenantContext context, TemplateRegistryService.Precondition precondition, String name) {

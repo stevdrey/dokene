@@ -2,8 +2,6 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl;
-import io.github.stevdrey.dokene.messaging.application.TemplateMappingGate;
-import io.github.stevdrey.dokene.messaging.application.TemplateMappingStatus;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
@@ -17,20 +15,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * Replaces the registry-backed gate, the template resolver and the integration sender for messaging tests that
+ * Replaces the registry-backed template resolver and the integration sender for messaging tests that
  * exercise submit and approval without seeding a verified template or an integration. Only GENERAL_FOLLOW_UP is
  * mapped. Tests that change the mapping or the sender call {@link #reset()} first, because the Spring context (and
  * so these beans) is shared between test classes.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class MappedGeneralFollowUpGateConfiguration {
-    @Bean
-    @Primary
-    TemplateMappingGate mappedGeneralFollowUpGate() {
-        return intent -> intent == SemanticTemplateIntent.GENERAL_FOLLOW_UP ? TemplateMappingStatus.MAPPED
-                : TemplateMappingStatus.NOT_MAPPED;
-    }
-
     @Bean
     @Primary
     StubTemplateResolver stubTemplateResolver() {

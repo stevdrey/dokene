@@ -3,13 +3,11 @@
 package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository.ListedMessage;
-import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
-import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -40,26 +38,16 @@ public class OutboundMessageQueryService {
         this.contexts = Objects.requireNonNull(contexts);
     }
 
-    /**
-     * Everything the detail representation shows. The message, its approval and its attempts are separate statements,
-     * so the read runs under one REPEATABLE READ snapshot: a transition committing between them cannot pair an older
-     * message version with a newer child row.
-     */
-    public record MessageDetail(OutboundMessage message, boolean contactRemoved, Optional<MessageApproval> approval,
-            List<SendAttempt> attempts) {
-        public MessageDetail {
-            Objects.requireNonNull(message, "Message is required");
-            Objects.requireNonNull(approval, "Approval option is required");
-            attempts = List.copyOf(Objects.requireNonNull(attempts, "Attempts are required"));
-        }
-    }
-
     public record MessagePage(List<ListedMessage> items, String nextCursor) {
         public MessagePage {
             items = List.copyOf(Objects.requireNonNull(items, "Items are required"));
         }
     }
 
+    /**
+     * The message, its approval and its attempts are separate statements, so the read runs under one REPEATABLE READ
+     * snapshot: a transition committing between them cannot pair an older message version with a newer child row.
+     */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public MessageDetail detail(UUID messageId) {
         UUID tenantId = authorizedTenant();

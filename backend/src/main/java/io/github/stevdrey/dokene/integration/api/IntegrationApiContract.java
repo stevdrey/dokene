@@ -2,53 +2,27 @@
 // ABOUTME: Mirrored by frontend/src/features/integrations/types and pinned by contracts/messaging/v1/integration.json.
 package io.github.stevdrey.dokene.integration.api;
 
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import java.util.Objects;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.MapperFeature;
-import tools.jackson.databind.cfg.CoercionAction;
-import tools.jackson.databind.cfg.CoercionInputShape;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.type.LogicalType;
 
 /**
  * Transport shapes only; format and ownership rules stay in the domain and service. Responses never carry secret
  * values: {@code secretRef} is a bare key, not a credential.
  */
 public final class IntegrationApiContract {
-    /**
-     * The one reader for request bodies, used by the controller and by the fixture tests: unknown members (for
-     * example a raw token) and wrongly typed scalars are rejected instead of ignored or coerced.
-     */
-    private static final JsonMapper STRICT_READER = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
-            // ALLOW_COERCION_OF_SCALARS leaves number/boolean to String coercion on: refuse it explicitly.
-            .withCoercionConfig(LogicalType.Textual, config -> config
-                    .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
-            .build();
-
     private IntegrationApiContract() {
     }
 
+    /** The shared strict reader (unknown members such as a raw token are refused), also used by the fixture tests. */
     public static JsonMapper strictReader() {
-        return STRICT_READER;
+        return StrictRequests.reader();
     }
 
     /** Binds a request body, mapping every malformed shape to {@link InvalidRequestException}. */
     public static IntegrationRequest read(JsonNode body) {
-        try {
-            IntegrationRequest request = body == null ? null : STRICT_READER.treeToValue(body, IntegrationRequest.class);
-            if (request == null) {
-                throw new InvalidRequestException();
-            }
-            return request;
-        } catch (JacksonException malformed) {
-            throw new InvalidRequestException();
-        }
+        return StrictRequests.read(body, IntegrationRequest.class).orElseThrow(InvalidRequestException::new);
     }
 
     /** A request that is not a valid integration body or carries an invalid precondition header. */

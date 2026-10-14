@@ -1,8 +1,9 @@
 // ABOUTME: Builds the approval fingerprint binding from authoritative state: resolved template, rendered parameters,
-// ABOUTME: consent revision and sender identity (ADR 0024 §2). Approval (T2) uses it now; send step 5b reuses it.
+// ABOUTME: consent revision and sender identity (ADR 0024 §2). Submit checks renderability; approval and send bind.
 package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
+import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
@@ -62,12 +63,27 @@ public class ApprovalBindingAssembler {
             return Optional.empty();
         }
 
-        String render(OutboundMessage message, Customer customer) {
+        String render(String body, Customer customer) {
             return switch (this) {
                 case CUSTOMER_NAME -> customer.displayName();
-                case MESSAGE_BODY -> message.body();
+                case MESSAGE_BODY -> body;
             };
         }
+    }
+
+    /** A sendable mapping and the exact values its parameters would receive. */
+    private record Rendered(ResolvedTemplateMapping mapping, List<String> values) {
+    }
+
+    /**
+     * Submit (T1): the same template, language and value checks approval applies, so a message that could never be
+     * approved is refused before it takes the customer's one open-message slot. Refuses with the codes of
+     * {@link #bind}, except consent, which submit checks itself.
+     */
+    public void requireRenderable(SemanticTemplateIntent intent, String locale, String body, Customer customer) {
+        render(Objects.requireNonNull(intent, "Template intent is required"),
+                Objects.requireNonNull(locale, "Locale is required"), Objects.requireNonNull(body, "Body is required"),
+                Objects.requireNonNull(customer, "Customer is required"));
     }
 
     /**
@@ -85,14 +101,8 @@ public class ApprovalBindingAssembler {
                 || !customer.tenantId().value().equals(message.tenantId())) {
             throw new IllegalArgumentException("Customer does not own the message");
         }
-        if (!(templates.resolve(message.templateIntent()) instanceof TemplateMappingResolver.Resolved(
-                ResolvedTemplateMapping mapping))) {
-            throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
-        }
-        if (!sameLanguage(mapping.language(), message.locale())) {
-            throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
-        }
-        List<String> values = render(mapping, message, customer);
+        Rendered rendered = render(message.templateIntent(), message.locale(), message.body(), customer);
+        ResolvedTemplateMapping mapping = rendered.mapping();
         long consentRevision = contactPolicies.whatsAppConsentRevision(customer, message.contactId())
                 .orElseThrow(() -> refuse(MessagingErrorCode.NO_CONTACT_CONSENT));
         return new ApprovalFingerprint.Binding(message.tenantId(), message.id(), message.customerId(),
@@ -100,18 +110,26 @@ public class ApprovalBindingAssembler {
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(),
                 consentRevision, new ApprovalFingerprint.TemplateRevision(mapping.version(),
                         mapping.providerTemplateName(), mapping.language(), mapping.parameterNames()),
-                values, sender);
+                rendered.values(), sender);
     }
 
-    private List<String> render(ResolvedTemplateMapping mapping, OutboundMessage message, Customer customer) {
+    /** The one place a mapping is resolved and rendered, for submit, approval and send alike. */
+    private Rendered render(SemanticTemplateIntent intent, String locale, String body, Customer customer) {
+        if (!(templates.resolve(intent) instanceof TemplateMappingResolver.Resolved(
+                ResolvedTemplateMapping mapping))) {
+            throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+        }
+        if (!sameLanguage(mapping.language(), locale)) {
+            throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+        }
         var values = new ArrayList<String>(mapping.parameterNames().size());
         for (String name : mapping.parameterNames()) {
             TemplateParameter parameter = TemplateParameter.named(name)
                     .orElseThrow(() -> refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED));
-            values.add(parameter.render(message, customer));
+            values.add(parameter.render(body, customer));
         }
         try {
-            return TemplateParameterValues.validate(mapping.parameterNames(), values);
+            return new Rendered(mapping, TemplateParameterValues.validate(mapping.parameterNames(), values));
         } catch (IllegalArgumentException rejected) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }

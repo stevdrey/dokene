@@ -68,7 +68,6 @@ public class OutboundMessageCommandService {
     private final ContactPolicyRepository contactPolicies;
     private final FollowUpService followUps;
     private final DraftGroundingAssembler grounding;
-    private final TemplateMappingGate templates;
     private final ApprovalBindingAssembler bindings;
     private final OutboundSafetyControl safety;
     private final TenantAuthorizationService authorization;
@@ -78,7 +77,7 @@ public class OutboundMessageCommandService {
 
     public OutboundMessageCommandService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, ContactPolicyRepository contactPolicies, FollowUpService followUps,
-            DraftGroundingAssembler grounding, TemplateMappingGate templates, ApprovalBindingAssembler bindings,
+            DraftGroundingAssembler grounding, ApprovalBindingAssembler bindings,
             OutboundSafetyControl safety, TenantAuthorizationService authorization, TenantContextProvider contexts,
             MessageAuditPort audit, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
@@ -87,7 +86,6 @@ public class OutboundMessageCommandService {
         this.contactPolicies = Objects.requireNonNull(contactPolicies);
         this.followUps = Objects.requireNonNull(followUps);
         this.grounding = Objects.requireNonNull(grounding);
-        this.templates = Objects.requireNonNull(templates);
         this.bindings = Objects.requireNonNull(bindings);
         this.safety = Objects.requireNonNull(safety);
         this.authorization = Objects.requireNonNull(authorization);
@@ -119,6 +117,8 @@ public class OutboundMessageCommandService {
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         runSharedGuards(customer, contact.id(), input.action(), input.templateIntent(), input.body(),
                 input.locale(), Optional.of(input.ifMatch()));
+        // The same template, language and parameter checks approval binds, so an unapprovable message is never stored.
+        bindings.requireRenderable(input.templateIntent(), input.locale(), input.body(), customer);
         if (messages.findOpenByCustomer(tenantId, customer.id().value(), Optional.empty()).isPresent()) {
             throw refuse(MessagingErrorCode.MESSAGE_ALREADY_OPEN);
         }
@@ -134,7 +134,7 @@ public class OutboundMessageCommandService {
                 MessageOperation.SUBMIT, input.idempotencyKey(), fingerprint, stored.id(), null, now));
         audit.submitted(transition.event());
         log.info("Message submitted; messageId={}, tenantId={}, status={}", stored.id(), tenantId, stored.status());
-        return new CommandResult(stored, Optional.empty(), true);
+        return result(tenantId, stored.id(), Optional.empty(), true);
     }
 
     /** T2. */
@@ -188,7 +188,7 @@ public class OutboundMessageCommandService {
         audit.cancelled(transition.event());
         log.info("Message cancelled; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(), tenantId,
                 message.status(), stored.status());
-        return new CommandResult(stored, Optional.of(cancellation), true);
+        return result(tenantId, stored.id(), Optional.of(cancellation), true);
     }
 
     private CommandResult decide(ApprovalCommand command, ApprovalDecision decision) {
@@ -249,12 +249,13 @@ public class OutboundMessageCommandService {
         }
         log.info("Message decided; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(), tenantId,
                 message.status(), stored.status());
-        return new CommandResult(stored, Optional.of(approval), true);
+        return result(tenantId, stored.id(), Optional.of(approval), true);
     }
 
     /**
-     * T1 guard steps 3 to 9 (customer, contact policy, eligibility, policy version when given, body, template),
-     * shared with T2 which skips the policy version check.
+     * T1 guard steps 3 to 8 (customer, contact policy, eligibility, policy version when given, body), shared with T2
+     * which skips the policy version check. The template step is the binding's: submit checks it with
+     * {@link ApprovalBindingAssembler#requireRenderable} and approval while binding.
      */
     private void runSharedGuards(Customer customer, UUID contactId, SemanticAction action,
             SemanticTemplateIntent intent, String body, String locale, Optional<Long> policyVersionIfMatch) {
@@ -290,9 +291,6 @@ public class OutboundMessageCommandService {
         if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding()).isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
-        if (templates.check(intent) != TemplateMappingStatus.MAPPED) {
-            throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
-        }
     }
 
     private Customer lockCustomer(TenantContext context, UUID customerId, TenantPermission permission) {
@@ -327,7 +325,8 @@ public class OutboundMessageCommandService {
                 || (targetMessageId != null && !record.messageId().equals(targetMessageId))) {
             throw refuse(MessagingErrorCode.IDEMPOTENCY_KEY_REUSED);
         }
-        OutboundMessage message = messages.findById(record.tenantId(), record.messageId())
+        // Lock the message so the detail below is read from one state: every transition holds this row lock.
+        messages.findByIdForUpdate(record.tenantId(), record.messageId())
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         Optional<Object> child = switch (record.operation()) {
             case SUBMIT -> Optional.empty();
@@ -336,7 +335,19 @@ public class OutboundMessageCommandService {
                     .map(Object.class::cast);
             case SEND, RESOLUTION -> Optional.empty();
         };
-        return new CommandResult(message, child, false);
+        return result(record.tenantId(), record.messageId(), child, false);
+    }
+
+    /**
+     * The response detail, read inside the command's transaction while this transaction holds the message row lock,
+     * so it cannot mix versions and needs no second authorization after commit.
+     */
+    private CommandResult result(UUID tenantId, UUID messageId, Optional<Object> record, boolean created) {
+        var listed = messages.findListedById(tenantId, messageId)
+                .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
+        return new CommandResult(new MessageDetail(listed.message(), listed.contactRemoved(),
+                messages.findApprovalByMessage(tenantId, messageId), messages.findAttempts(tenantId, messageId)),
+                record, created);
     }
 
     private record SubmitInput(SemanticAction action, SemanticTemplateIntent templateIntent, String body,

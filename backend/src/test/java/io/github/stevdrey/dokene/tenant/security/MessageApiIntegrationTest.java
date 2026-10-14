@@ -351,6 +351,20 @@ class MessageApiIntegrationTest {
     }
 
     @Test
+    void submitRefusesAMessageThatCouldNeverBeApproved() throws Exception {
+        submit(ownerA, "u-" + UUID.randomUUID(), etag(policyVersion), submitJson("Hola Ana,\\nseguimos atentos."))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
+        templates.parameterNames = List.of("customer_name", "coupon_code");
+        submit(ownerA, "u-" + UUID.randomUUID(), etag(policyVersion), submitJson(BODY))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TEMPLATE_NOT_MAPPED"));
+        templates.parameterNames = List.of("customer_name", "message_body");
+        templates.language = "pt_BR";
+        submit(ownerA, "u-" + UUID.randomUUID(), etag(policyVersion), submitJson(BODY))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TEMPLATE_NOT_MAPPED"));
+        assertThat(messageCount()).as("no message holds the customer's open slot").isZero();
+    }
+
+    @Test
     void approvalRevalidatesConsentTemplateAndSenderFromAuthoritativeState() throws Exception {
         String messageId = submittedMessageId();
         setConsent(ConsentStatus.REVOKED);
@@ -401,9 +415,17 @@ class MessageApiIntegrationTest {
                 submitJson(BODY + " Saludos.")).andExpect(status().isCreated())).get("messageId").asString();
         assertThat(messageStatus(second)).isEqualTo(MessageStatus.PENDING_APPROVAL);
 
-        mvc.perform(get("/api/messages").param("limit", "1").with(user(ownerA)).header("X-Tenant-Id", tenant(tenantA)))
+        // Keyset paging: newest first, and following the cursor yields the older message exactly once.
+        JsonNode page = body(mvc.perform(get("/api/messages").param("limit", "1").with(user(ownerA))
+                        .header("X-Tenant-Id", tenant(tenantA)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].messageId").value(second))
-                .andExpect(jsonPath("$.nextCursor").isNotEmpty());
+                .andExpect(jsonPath("$.nextCursor").isNotEmpty()));
+        JsonNode next = body(mvc.perform(get("/api/messages").param("limit", "1")
+                        .param("cursor", page.get("nextCursor").asString()).with(user(ownerA))
+                        .header("X-Tenant-Id", tenant(tenantA)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1)));
+        assertThat(next.get("items").get(0).get("messageId").asString()).isEqualTo(first);
+        assertThat(next.get("nextCursor").isNull()).isTrue();
     }
 
     @Test

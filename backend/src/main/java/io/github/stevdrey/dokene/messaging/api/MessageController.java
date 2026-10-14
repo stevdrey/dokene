@@ -17,7 +17,7 @@ import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.CommandResult;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryService;
-import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryService.MessageDetail;
+import io.github.stevdrey.dokene.messaging.application.MessageDetail;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository.ListedMessage;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
@@ -27,6 +27,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.net.URI;
@@ -35,7 +36,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,14 +47,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.MapperFeature;
-import tools.jackson.databind.cfg.CoercionAction;
-import tools.jackson.databind.cfg.CoercionInputShape;
-import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.type.LogicalType;
 
 /**
  * There is no edit route: a submitted body, recipient and template intent are immutable (ADR 0023 §2), so changing
@@ -64,26 +57,6 @@ import tools.jackson.databind.type.LogicalType;
 @RestController
 @RequestMapping("/api")
 public class MessageController {
-    /** Exactly one strong canonical numeric ETag; weak or list forms are invalid input (ADR 0023 §4.1). */
-    private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,17})\"$");
-
-    /**
-     * At least as strict as the contract test (ADR 0024 §1): unknown members, unknown enum values, missing required
-     * members and scalar coercions (a number for a text or enum member) are all {@code 400 INVALID_INPUT}.
-     */
-    private static final JsonMapper STRICT_READER = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-            .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
-            .withCoercionConfig(LogicalType.Textual, config -> config
-                    .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
-            .withCoercionConfig(LogicalType.Enum, config -> config
-                    .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail))
-            .build();
-
     private final OutboundMessageCommandService commands;
     private final OutboundMessageQueryService queries;
 
@@ -169,10 +142,11 @@ public class MessageController {
 
     /**
      * {@code 201} for a new record, {@code 200} for a replay; either way the body is the message's current
-     * representation and the ETag is the version to send next (ADR 0023 §4.2).
+     * representation and the ETag is the version to send next (ADR 0023 §4.2). The detail was read inside the
+     * command's transaction, so a committed command is never reported as failed by a second read.
      */
     private ResponseEntity<MessageResponse> respond(CommandResult result, boolean location) {
-        MessageDetail detail = queries.detail(result.message().id());
+        MessageDetail detail = result.detail();
         ResponseEntity.BodyBuilder builder = result.created() ? ResponseEntity.status(HttpStatus.CREATED)
                 : ResponseEntity.ok();
         if (result.created() && location) {
@@ -198,22 +172,15 @@ public class MessageController {
         if (ifMatch == null) {
             return null;
         }
-        if (!STRONG_NUMERIC_ETAG.matcher(ifMatch).matches()) {
-            throw invalid();
-        }
-        return ifMatch.substring(1, ifMatch.length() - 1);
+        return Long.toString(StrictRequests.strongNumericVersion(ifMatch).orElseThrow(MessageController::invalid));
     }
 
+    /**
+     * At least as strict as the contract test (ADR 0024 §1): unknown members, unknown enum values, missing required
+     * members and scalar coercions are all {@code 400 INVALID_INPUT}.
+     */
     private static <T> T read(JsonNode body, Class<T> type) {
-        try {
-            T request = body == null ? null : STRICT_READER.treeToValue(body, type);
-            if (request == null) {
-                throw invalid();
-            }
-            return request;
-        } catch (JacksonException malformed) {
-            throw invalid();
-        }
+        return StrictRequests.read(body, type).orElseThrow(MessageController::invalid);
     }
 
     private static Set<MessageStatus> statuses(List<String> raw) {
