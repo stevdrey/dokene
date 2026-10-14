@@ -45,6 +45,9 @@ class GraphApiTemplateProviderGatewayTest {
     private volatile int status = 200;
     private volatile String body = "";
     private volatile long delayMillis;
+    private volatile boolean endless;
+    private volatile long dripMillis;
+    private final java.util.concurrent.atomic.AtomicLong bytesWritten = new java.util.concurrent.atomic.AtomicLong();
     private final TenantId tenantId = new TenantId(UUID.randomUUID());
     private final WhatsAppIntegrationRepository integrations = mock(WhatsAppIntegrationRepository.class);
     private final IntegrationSecretResolver resolver = mock(IntegrationSecretResolver.class);
@@ -65,9 +68,34 @@ class GraphApiTemplateProviderGatewayTest {
                 Thread.currentThread().interrupt();
             }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(status, bytes.length);
-            exchange.getResponseBody().write(bytes);
-            exchange.close();
+            try {
+                if (endless) {
+                    exchange.sendResponseHeaders(status, 0); // chunked
+                    byte[] chunk = new byte[8192];
+                    java.util.Arrays.fill(chunk, (byte) ' ');
+                    while (true) {
+                        exchange.getResponseBody().write(chunk);
+                        bytesWritten.addAndGet(chunk.length);
+                        if (bytesWritten.get() > 64_000_000L) {
+                            break;
+                        }
+                    }
+                } else if (dripMillis > 0) {
+                    exchange.sendResponseHeaders(status, 0);
+                    for (byte b : bytes) {
+                        exchange.getResponseBody().write(b);
+                        exchange.getResponseBody().flush();
+                        Thread.sleep(dripMillis);
+                    }
+                } else {
+                    exchange.sendResponseHeaders(status, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                }
+            } catch (java.io.IOException | InterruptedException clientGone) {
+                // The gateway closed the exchange: exactly what the bound is for.
+            } finally {
+                exchange.close();
+            }
         });
         server.start();
         var integration = WhatsAppIntegration.create(tenantId, "100000000000001", WABA, null, true, "wa-token",
@@ -84,6 +112,7 @@ class GraphApiTemplateProviderGatewayTest {
 
     @AfterEach
     void stop() {
+        endless = false;
         server.stop(0);
     }
 
@@ -149,6 +178,31 @@ class GraphApiTemplateProviderGatewayTest {
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.empty());
         assertThat(gateway.currentSender()).isEmpty();
         assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+    }
+
+    @Test
+    void anOversizedOrEndlessBodyIsUnavailableAndIsNotReadInFull() {
+        body = list("repeat_purchase_v1", "es_MX", "APPROVED") + " ".repeat(300_000);
+        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+
+        endless = true; // chunked body that never ends
+        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(bytesWritten.get()).isLessThan(8_000_000L);
+    }
+
+    @Test
+    void aBodyJustUnderTheCapStillMapsAndASlowDripIsUnavailable() {
+        String exact = list("repeat_purchase_v1", "es_MX", "APPROVED");
+        body = exact + " ".repeat(262_144 - exact.length());
+        assertThat(body.length()).isEqualTo(262_144);
+        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX"))
+                .isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA));
+
+        body = exact;
+        dripMillis = 400; // headers arrive at once, then the body trickles past the 500 ms timeout
+        long started = System.nanoTime();
+        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
     }
 
     @Test

@@ -33,6 +33,7 @@ Approval is evidence, not configuration:
 - Only `POST /api/templates/{templateIntent}/approval-refresh` (`TEMPLATE_WRITE`, strong `If-Match`) records it. That call asks the provider through `TemplateProviderGateway`, implemented in `integration.whatsapp` by `GraphApiTemplateProviderGateway`.
 - The gateway reads `GET {graph}/{businessAccountId}/message_templates?name=…&language=…` with the tenant's own credential, resolved through `IntegrationSecretResolver` at call time. The credential is held only for that call and goes only into the `Authorization` header.
 - Only a `200` whose `data` contains the exact name and language is evidence. Meta's `APPROVED` is the only status that can make a mapping sendable. `PENDING` and `IN_APPEAL` store `PENDING`. `REJECTED`, `PAUSED` and `DISABLED` store their own state. `DELETED`, `PENDING_DELETION` and `ARCHIVED` store `DELETED`. A response without the template stores `NOT_FOUND`.
+- The endpoint must be HTTPS (plain HTTP only for loopback test servers), and the response is read with a hard 256 KiB and timeout bound while streaming, never after buffering.
 - Anything else is *unavailable*: other status codes, redirects (not followed), timeouts, unreadable bodies, `LIMIT_EXCEEDED` or an unknown status, no secret resolver bean, an unresolvable secret. No provider text is kept or returned.
 - An unavailable answer drops earlier evidence (status `UNVERIFIED`) and the call answers `503 PROVIDER_UNAVAILABLE`, so a failure can never leave an old `APPROVED` standing.
 

@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -20,6 +21,10 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -30,7 +35,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 @EnableConfigurationProperties(GraphApiProperties.class)
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
-    private static final int MAX_BODY_CHARS = 262_144;
+    /** Hard cap on the bytes read from the provider; enforced while streaming, never after buffering. */
+    private static final int MAX_BODY_BYTES = 262_144;
 
     private final WhatsAppIntegrationRepository integrations;
     private final ObjectProvider<IntegrationSecretResolver> secrets;
@@ -71,20 +77,34 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
                     + URLEncoder.encode(language, StandardCharsets.UTF_8));
             try (ResolvedSecret secret = resolver.resolve(new Tenant(integration.tenantId()),
                     new SecretReference(integration.secretRef()))) {
-                HttpResponse<String> response = secret.withValue(token -> send(uri, token));
-                return interpret(response, integration.businessAccountId(), providerTemplateName, language);
+                Reply reply = secret.withValue(token -> send(uri, token));
+                return interpret(reply, integration.businessAccountId(), providerTemplateName, language);
             }
         } catch (RuntimeException failure) {
             return new Unavailable();
         }
     }
 
-    private HttpResponse<String> send(URI uri, char[] token) {
+    /** The status and, for a 200 within the size and time bounds, the body bytes. */
+    private record Reply(int status, byte[] body) {
+    }
+
+    private Reply send(URI uri, char[] token) {
         try {
             HttpRequest request = HttpRequest.newBuilder(uri).timeout(properties.timeout())
                     .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
                     .GET().build();
-            return http.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            InputStream stream = response.body();
+            try {
+                long declared = response.headers().firstValueAsLong("Content-Length").orElse(0);
+                if (response.statusCode() != 200 || declared > MAX_BODY_BYTES) {
+                    return new Reply(response.statusCode(), null);
+                }
+                return new Reply(200, readBounded(stream));
+            } finally {
+                stream.close(); // also cancels the exchange when the body was not fully read
+            }
         } catch (IOException failure) {
             throw new IllegalStateException("Provider request failed");
         } catch (InterruptedException interrupted) {
@@ -93,13 +113,34 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
         }
     }
 
+    /**
+     * Reads at most {@code MAX_BODY_BYTES} within the configured timeout, so neither a huge or endless body nor a
+     * slow drip can exhaust the heap or hold the caller. Returns null when either bound is exceeded.
+     */
+    private byte[] readBounded(InputStream stream) throws InterruptedException {
+        CompletableFuture<byte[]> read = new CompletableFuture<>();
+        Thread.ofVirtual().start(() -> {
+            try {
+                byte[] bytes = stream.readNBytes(MAX_BODY_BYTES + 1);
+                read.complete(bytes.length > MAX_BODY_BYTES ? null : bytes);
+            } catch (IOException | RuntimeException failure) {
+                read.completeExceptionally(failure);
+            }
+        });
+        try {
+            return read.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException | ExecutionException failure) {
+            return null;
+        }
+    }
+
     /** Only a well-formed 200 with an exact name and language match is evidence; everything else is not. */
-    private Lookup interpret(HttpResponse<String> response, String businessAccountId, String name, String language) {
-        if (response.statusCode() != 200 || response.body() == null || response.body().length() > MAX_BODY_CHARS) {
+    private Lookup interpret(Reply reply, String businessAccountId, String name, String language) {
+        if (reply.status() != 200 || reply.body() == null) {
             return new Unavailable();
         }
         try {
-            JsonNode data = json.readTree(response.body()).path("data");
+            JsonNode data = json.readTree(new String(reply.body(), StandardCharsets.UTF_8)).path("data");
             if (!data.isArray()) {
                 return new Unavailable();
             }

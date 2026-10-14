@@ -13,11 +13,22 @@ public record GraphApiProperties(URI baseUrl, Duration timeout) {
     public GraphApiProperties {
         baseUrl = baseUrl == null ? DEFAULT_BASE_URL : baseUrl;
         timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
-        if (baseUrl.getHost() == null || !("https".equals(baseUrl.getScheme()) || "http".equals(baseUrl.getScheme()))) {
-            throw new IllegalArgumentException("Graph API base URL must be an http(s) URL");
+        // Every tenant bearer token travels to this endpoint: HTTPS only, plain HTTP just for loopback test servers.
+        String host = baseUrl.getHost();
+        boolean https = "https".equals(baseUrl.getScheme());
+        boolean loopbackHttp = "http".equals(baseUrl.getScheme()) && host != null && isLoopback(host);
+        if (!(https || loopbackHttp) || host == null || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null
+                || baseUrl.getFragment() != null) {
+            throw new IllegalArgumentException(
+                    "Graph API base URL must be https (http only for loopback) without credentials, query or fragment");
         }
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Graph API timeout must be positive");
         }
+    }
+
+    private static boolean isLoopback(String host) {
+        return host.equals("localhost") || host.endsWith(".localhost") || host.equals("127.0.0.1")
+                || host.equals("[::1]");
     }
 }
