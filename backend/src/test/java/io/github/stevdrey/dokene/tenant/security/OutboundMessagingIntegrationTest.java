@@ -80,6 +80,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -87,8 +88,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-@SpringBootTest(properties = {"dokene.ai.provider=fake",
-        "dokene.messaging.template-gate.stub.enabled-intents=GENERAL_FOLLOW_UP"})
+@SpringBootTest(properties = "dokene.ai.provider=fake")
+@Import(MappedGeneralFollowUpGateConfiguration.class)
 class OutboundMessagingIntegrationTest {
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra. Quedamos atentos.";
     private static final String NOTE = "nota privada del operador";
