@@ -25,7 +25,7 @@ The provider abstraction should expose application-level semantics, not leak arb
 - HTTP records in `messaging.api.MessagingApiContract`, mirrored by `frontend/src/features/messages/types`;
 - synthetic fixtures in `backend/src/test/resources/contracts/messaging/v1/`, checked by `MessagingContractFixturesTest` (backend) and `contractFixtures.test.ts` (frontend), so an incompatible change fails both workflows;
 - ports with fail-closed rules: `OutboundSafetyControl` (kill switches, integration enabled, sender identity), `TemplateMappingResolver`, `IntegrationSecretResolver` (secrets never leave `integration`) and `VerifiedWebhookEvent`;
-- the approval fingerprint (`approval/v1`): an approval binds recipient, content, template mapping revision, exact parameter values, sending identity and consent revision; if any of them changes before send, the send is refused with `APPROVAL_INVALIDATED` and the operator cancels and resubmits.
+- the approval fingerprint (`approval/v2`): an approval binds recipient, content, template mapping revision, exact parameter values, sending identity and consent revision; if any of them changes before send, the send is refused with `APPROVAL_INVALIDATED` and the operator cancels and resubmits.
 
 ## Message lifecycle
 
@@ -136,6 +136,22 @@ An integration record may contain non-secret metadata such as:
 - creation/update timestamps.
 
 Reusable credentials should live in a secret store or secret-management abstraction, not in ordinary plaintext application columns.
+
+### WhatsApp integration API (V20, issue 134)
+
+`tenant_messaging_integrations` holds one `META_WHATSAPP` record per tenant under forced row level security (runtime grants `SELECT, INSERT, UPDATE`). The Meta `phone_number_id` and `business_account_id` are numeric identifiers and are stored apart from the optional human `display_phone_number` (E.164). `(provider, phone_number_id)` is globally unique, because webhooks resolve the tenant from it.
+
+| Route | Permission | Behaviour |
+| --- | --- | --- |
+| `GET /api/integrations/whatsapp` | `INTEGRATION_READ` (all roles) | Returns `enabled`, the identifiers, `displayPhoneNumber`, `secretRef` and `version` with a strong `ETag`; `404 NOT_FOUND` when none exists. |
+| `PUT /api/integrations/whatsapp` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Creates the record (no `If-Match`) or replaces it (`If-Match` required, else `400`; stale `409 STALE_VERSION`). |
+
+- Tenant and actor come from the verified context, never the body. Unknown or wrongly typed members, including any raw token, are rejected with `400 INVALID_INPUT`.
+- The body carries a `secretRef`, a bare key resolved by `IntegrationSecretResolver` in the tenant scope. It is resolved and closed when it changes or when the integration is enabled, so an unknown, missing or wrong-scope reference fails closed. Secret values are never stored, returned, logged or audited, and nothing contacts Meta to validate them.
+- A phone number id already mapped by another tenant is refused with the same `400 INVALID_INPUT` as any malformed id, so the API does not reveal whether another tenant has an integration.
+- Changing `secretRef` (rotation) bumps `credential_revision`, which is part of the approval sender identity: open approvals then fail the send with `APPROVAL_INVALIDATED`. Enabling or disabling does not void approvals; the enabled flag is read live at send time.
+- Each write appends `INTEGRATION_UPDATED` in the same transaction with the `enabled` flag only. If the audit append fails, the change rolls back.
+- The `OutboundSafetyControl` implementation that combines this record with the kill switches belongs to the kill switch work (#144).
 
 ## Meta identifiers
 

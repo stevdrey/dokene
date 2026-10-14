@@ -76,7 +76,7 @@ Template and integration endpoints (ADR 0023 §3.2 and §3.3) add their records 
 
 ### 2. Approval fingerprint
 
-`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
+`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`, `approval/v2` since the addendum below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
 
 The fields, in this order:
 
@@ -167,3 +167,7 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 - An approval vouches for a specific recipient, content, template revision and sending identity. A change to any of them after approval needs a fresh human approval.
 - [#136](https://github.com/stevdrey/dokene/issues/136) adds the fingerprint column to the approval record and the step 5b check, and [#134](https://github.com/stevdrey/dokene/issues/134) provides the sender identity through `OutboundSafetyControl`.
 - No endpoint, controller, migration or provider call is enabled by this decision.
+
+## Addendum (issue 134): credential revision in the sender identity
+
+`SenderRevision` gains `credentialRevision`, the count of secret reference changes for the integration (starts at 1; the reference itself is never hashed). Because the canonical encoding changes, the scheme label moves from `approval/v1` to `approval/v2`, as the label rule requires. Nothing had persisted a v1 fingerprint yet. Rotating the credential therefore voids open approvals, while toggling `enabled` still does not.
