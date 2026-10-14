@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Builds on [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) §3.2 and [ADR 0024](0024-phase-3-messaging-contract-freeze.md) §3. It refines one detail of ADR 0023 §3.2 (the precondition of `PUT /api/templates/{templateIntent}`, see §3) and does not change module ownership, the permission matrix or the state machine. Issue: [#135](https://github.com/stevdrey/dokene/issues/135), part of epic [#130](https://github.com/stevdrey/dokene/issues/130).
+Accepted. Builds on [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) §3.2 and [ADR 0024](0024-phase-3-messaging-contract-freeze.md) §3. It refines one detail of ADR 0023 §3.2 (the precondition of `PUT /api/templates/{templateIntent}`, see §3) and does not change module ownership, the permission matrix or the state machine. Issues: [#215](https://github.com/stevdrey/dokene/issues/215) (registry foundation) and [#135](https://github.com/stevdrey/dokene/issues/135) (provider verification), part of epic [#130](https://github.com/stevdrey/dokene/issues/130).
 
 ## Context
 
@@ -83,7 +83,7 @@ Dokene's policy:
 
 ## Consequences
 
-- Delivery is split to respect the 40-file PR limit. The first PR adds the registry, resolver, API and a `FailClosedTemplateProviderGateway` (the sender is read, no provider evidence is ever reported, so nothing is sendable). The second replaces it with `GraphApiTemplateProviderGateway` and swaps the submit-time stub for `ResolverBackedTemplateMappingGate`.
+- Delivery is split to respect the 40-file PR limit. [#215](https://github.com/stevdrey/dokene/issues/215) adds the registry, resolver, API and a `FailClosedTemplateProviderGateway` (the sender is read, no provider evidence is ever reported, so nothing is sendable). [#135](https://github.com/stevdrey/dokene/issues/135) replaces it with `GraphApiTemplateProviderGateway`, which implements the provider lookup described in §2, and swaps the submit-time stub for `ResolverBackedTemplateMappingGate`. Until #135 merges, §2's Graph API lookup is the target design, not shipped behavior.
 - `GraphApiTemplateProviderGateway` is the only code that calls Meta for templates. Until a production `IntegrationSecretResolver` exists, every refresh is unavailable and no template becomes sendable, so sending stays disabled even if the other pieces are in place. That is the intended fail-closed default.
 - Templates created in Meta's WhatsApp Manager stay the source of truth for content and approval. Dokene stores a pointer and the last evidence only; it does not submit templates for approval.
 - #136 (submit and approval) and #142 (dispatch) consume `TemplateMappingResolver` and `TemplateParameterValues`. They map the message locale to the template language, because Meta's language codes (`es_MX`) differ from the BCP 47 locale in the message contract (`es-419`).
