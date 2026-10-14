@@ -50,6 +50,9 @@ dokene:
         # Comma separated SemanticTemplateIntent names the stand in gate reports as MAPPED; empty fails closed.
         # Removed when feature 6 lands.
         enabled-intents: ${DOKENE_MESSAGING_TEMPLATE_GATE_STUB_ENABLED_INTENTS:}
+  template:
+    # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
+    approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}

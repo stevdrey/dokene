@@ -1,10 +1,18 @@
 import enumsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/enums.json?raw';
 import integrationJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/integration.json?raw';
+import templatesJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/templates.json?raw';
 import messagesJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/messages.json?raw';
 import problemsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/problems.json?raw';
 import requestsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/requests.json?raw';
 import { describe, expect, it } from 'vitest';
-import type { IntegrationRequest, IntegrationResponse } from '../../integrations/types';
+import {
+  TEMPLATE_APPROVAL_STATUSES,
+  type IntegrationRequest,
+  type IntegrationResponse,
+  type TemplateListResponse,
+  type TemplateRequest,
+  type TemplateResponse
+} from '../../integrations/types';
 import { SEMANTIC_ACTIONS, SEMANTIC_TEMPLATE_INTENTS } from '../../followups/types';
 import {
   APPROVAL_DECISIONS,
@@ -167,6 +175,27 @@ const integrationResponseShape: Shape<IntegrationResponse> = {
   webhookVerified: bool,
   version: integer
 };
+const templateRequestShape: Shape<TemplateRequest> = {
+  providerTemplateName: text,
+  language: text,
+  parameterNames: { kind: 'array', item: text },
+  enabled: bool
+};
+const templateResponseShape: Shape<TemplateResponse> = {
+  templateIntent: enumOf(SEMANTIC_TEMPLATE_INTENTS),
+  mapped: bool,
+  enabled: bool,
+  providerTemplateName: { kind: 'string', nullable: true },
+  language: { kind: 'string', nullable: true },
+  parameterNames: { kind: 'array', item: text },
+  approvalStatus: enumOf(TEMPLATE_APPROVAL_STATUSES),
+  approvalCheckedAt: nullableInstant,
+  sendable: bool,
+  version: { kind: 'integer', nullable: true }
+};
+const templateListShape: Shape<TemplateListResponse> = {
+  items: { kind: 'array', item: { kind: 'object', shape: templateResponseShape } }
+};
 const requestShapes = {
   submit: {
     contactId: uuid,
@@ -232,6 +261,11 @@ const requests = JSON.parse(requestsJson) as Record<keyof typeof requestShapes, 
 const integration = JSON.parse(integrationJson) as {
   request: { valid: Named; invalid: Named };
   response: { valid: Named };
+};
+const templates = JSON.parse(templatesJson) as {
+  request: { valid: Named; invalid: Named };
+  response: { valid: Named };
+  list: { valid: Named };
 };
 const problems = JSON.parse(problemsJson) as { valid: Named; invalid: Named };
 
@@ -307,6 +341,37 @@ describe('messaging v1 contract fixtures', () => {
 
     it.each(Object.entries(integration.response.valid))('response %s matches IntegrationResponse', (_name, fixture) => {
       expect(violations(fixture, integrationResponseShape)).toEqual([]);
+    });
+  });
+
+  describe('templates', () => {
+    it.each(Object.entries(templates.request.valid))('accepts request %s', (_name, fixture) => {
+      expect(violations(fixture, templateRequestShape)).toEqual([]);
+    });
+
+    it.each(Object.entries(templates.request.invalid))('rejects request %s', (_name, fixture) => {
+      expect(violations(fixture, templateRequestShape)).not.toEqual([]);
+    });
+
+    it.each(Object.entries(templates.response.valid))('response %s matches TemplateResponse', (_name, fixture) => {
+      expect(violations(fixture, templateResponseShape)).toEqual([]);
+    });
+
+    it.each(Object.entries(templates.list.valid))('list %s matches TemplateListResponse', (_name, fixture) => {
+      expect(violations(fixture, templateListShape)).toEqual([]);
+    });
+
+    it('lists the same approval statuses the backend enum defines', () => {
+      expect(TEMPLATE_APPROVAL_STATUSES).toEqual([
+        'UNVERIFIED',
+        'APPROVED',
+        'PENDING',
+        'REJECTED',
+        'PAUSED',
+        'DISABLED',
+        'DELETED',
+        'NOT_FOUND'
+      ]);
     });
   });
 });

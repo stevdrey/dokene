@@ -4,7 +4,7 @@ Frozen, synthetic examples of the Phase 3 messaging HTTP contract ([ADR 0023](..
 
 Two consumers read these files, and both fail on any incompatible change:
 
-- backend: `MessagingContractFixturesTest` (and `IntegrationContractFixturesTest` for `integration.json`) deserializes every valid example into `messaging.api.MessagingApiContract` records, re-serializes it to the same JSON tree, rejects every `invalid` example and compares `enums.json` with the Java enums;
+- backend: `MessagingContractFixturesTest` (and `IntegrationContractFixturesTest` / `TemplateContractFixturesTest` for `integration.json` / `templates.json`) deserializes every valid example into `messaging.api.MessagingApiContract` records, re-serializes it to the same JSON tree, rejects every `invalid` example and compares `enums.json` with the Java enums;
 - frontend: `src/features/messages/__tests__/contractFixtures.test.ts` checks every example against the TypeScript contract in `src/features/messages/types`.
 
 | File | Content |
@@ -13,6 +13,7 @@ Two consumers read these files, and both fail on any incompatible change:
 | `messages.json` | Message detail responses for each lifecycle state (pending approval, approval, rejection, cancellation, queueing, provider acceptance, delivery, read, permanent and transient failure, unknown outcome, webhook failure, manual resolution), list pages and event histories. |
 | `requests.json` | Valid and invalid command bodies for submit, approval, cancellation and resolution. |
 | `integration.json` | The `/api/integrations/whatsapp` request (valid and invalid bodies) and response (ADR 0023 §3.3, issue 134), read by `IntegrationContractFixturesTest` and the same frontend test. |
+| `templates.json` | The `/api/templates` request (valid and invalid bodies), per-intent response and list (ADR 0023 §3.2, ADR 0025, issue 135), read by `TemplateContractFixturesTest` and the same frontend test. |
 | `problems.json` | One `application/problem+json` body per `MessagingErrorCode`, plus invalid problem bodies. |
 
 Rules:
