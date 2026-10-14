@@ -66,4 +66,12 @@ public interface AuditRecorder {
             AuditMetadata.MessageTransition metadata) {
         throw new UnsupportedOperationException("Message audit is not configured");
     }
+
+    /**
+     * Requires an existing business transaction; failure must roll back the integration change. Metadata carries the
+     * enabled flag only: never identifiers, phone numbers or secret references.
+     */
+    default void integrationUpdated(UUID integrationId, boolean enabled) {
+        throw new UnsupportedOperationException("Integration audit is not configured");
+    }
 }

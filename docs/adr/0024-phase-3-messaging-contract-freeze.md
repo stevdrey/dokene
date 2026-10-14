@@ -76,7 +76,7 @@ Template and integration endpoints (ADR 0023 §3.2 and §3.3) add their records 
 
 ### 2. Approval fingerprint
 
-`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
+`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`, `approval/v2` since the addendum below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
 
 The fields, in this order:
 
@@ -167,3 +167,20 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 - An approval vouches for a specific recipient, content, template revision and sending identity. A change to any of them after approval needs a fresh human approval.
 - [#136](https://github.com/stevdrey/dokene/issues/136) adds the fingerprint column to the approval record and the step 5b check, and [#134](https://github.com/stevdrey/dokene/issues/134) provides the sender identity through `OutboundSafetyControl`.
 - No endpoint, controller, migration or provider call is enabled by this decision.
+
+## Addendum (issue 134): credential revision in the sender identity
+
+`SenderRevision` gains `credentialRevision`, the count of secret reference changes for the integration (starts at 1; the reference itself is never hashed). Because the canonical encoding changes, the scheme label moves from `approval/v1` to `approval/v2`, as the label rule requires. Nothing had persisted a v1 fingerprint yet. Rotating the credential therefore voids open approvals, while toggling `enabled` still does not.
+
+## Addendum (issue 134): integration endpoint preconditions and filter-level rejections
+
+- `PUT /api/integrations/whatsapp` states exactly one precondition (ADR 0023 §4.1): `If-None-Match: *` to create, which fails with `409 STALE_VERSION` if the tenant already has an integration, or `If-Match: "<version>"` to replace. A missing, doubled or malformed precondition is `400 INVALID_INPUT`, so nothing is created or replaced unconditionally.
+- `outboundEnabled` and `webhookVerified` are part of the response from the start. They are fixed to `false` until the tenant kill switch (#144) and webhook verification (#139) own and persist that state.
+- Tenant-selection failures raised by `TenantContextRequestFilter` (missing, duplicate or malformed `X-Tenant-Id`, no membership) keep the framework's empty-body `400`/`403` before any controller advice runs, because ADR 0023 keeps those semantics unchanged and the filter is shared by every tenant-scoped endpoint. A shared problem+json responder for those rejections is follow-up work, also needed by the messages endpoints.
+
+## Addendum (issue 134 follow-up review): mapping ownership, credential rotation and ETag scope
+
+- **Mapping ownership gate.** Every `(provider, phone_number_id)` mapping stored by `PUT /api/integrations/whatsapp` is **unverified**: an `INTEGRATION_MANAGE` user can name any well-formed id and the API never proves they own it at Meta. `webhookVerified` is therefore `false` for every mapping until persisted verification exists. Acceptance gates: the webhook work (#139) must resolve a tenant only from a verified mapping, must add the proof of ownership (done by the adapter, for example a Graph API read of the number with the tenant's credential, never by this API) and must not route events from `tenant_messaging_integrations` before that; the send path (#142, #144) must treat `webhookVerified=false` as `INTEGRATION_DISABLED` (fail closed). Until verification exists, a squatted id is released out of band by a platform operator (migration role) without showing the legitimate tenant any other tenant's metadata; verification-based reclaim replaces that process in #139.
+- **Credential rotation.** `credential_revision` is part of the approval sender identity. It increments when `secretRef` changes and through `POST /api/integrations/whatsapp/credential-rotations` (`INTEGRATION_MANAGE`, strong `If-Match`, no body). To rotate a secret in place: replace it in the secret store, then call that operation; the adapter resolves the new value at send time and approvals bound to the previous revision fail with `APPROVAL_INVALIDATED`. Toggling `enabled` is not a rotation and does not void approvals.
+- **ETag scope.** The strong ETag of `GET`/`PUT` is the configuration concurrency token: the stored row's `version`. `outboundEnabled` and `webhookVerified` are live runtime state that can change without it, so these responses carry `Cache-Control: no-store` and are never answered with `304`.
+

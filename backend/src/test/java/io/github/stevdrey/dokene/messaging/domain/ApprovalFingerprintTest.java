@@ -1,4 +1,4 @@
-// ABOUTME: Pins the approval/v1 fingerprint encoding and proves which changes void an approval (ADR 0024 §2).
+// ABOUTME: Pins the approval/v2 fingerprint encoding and proves which changes void an approval (ADR 0024 §2).
 // ABOUTME: Every bound field changes the value; the golden value fails if the canonical encoding drifts.
 package io.github.stevdrey.dokene.messaging.domain;
 
@@ -29,12 +29,12 @@ class ApprovalFingerprintTest {
             MessageChannel.WHATSAPP, SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
             "es-419", "Hola Ana", 7, CONSENT,
             new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("customer_name", "product_name")),
-            List.of("Ana", "Café 1 kg"), new SenderRevision(INTEGRATION, "100000000000001", "200000000000001"));
+            List.of("Ana", "Café 1 kg"), new SenderRevision(INTEGRATION, "100000000000001", "200000000000001", 1));
 
     @Test
     /** Independently reproducible: SHA-256 of each field as a 4 byte big endian length plus UTF-8 bytes. */
     void encodingIsStable() {
-        assertThat(ApprovalFingerprint.of(BASE).value()).isEqualTo("b2ade4514b7480f1378d919f6d7436f3f3d3b61baba1e83e322514550cf78093");
+        assertThat(ApprovalFingerprint.of(BASE).value()).isEqualTo("7e5b110ab00c99b0447d5ccf8b7ba4d4da72f7cfed76d0d2cae2b52c7f4c95c8");
     }
 
     @Test
@@ -62,9 +62,11 @@ class ApprovalFingerprintTest {
                 Map.entry("parameter order", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", List.of("product_name", "customer_name")))),
                 Map.entry("parameter value", b -> withValues(b, List.of("Ana", "Café 2 kg"))),
                 Map.entry("parameter value order", b -> withValues(b, List.of("Café 1 kg", "Ana"))),
-                Map.entry("integration", b -> withSender(b, new SenderRevision(UUID.randomUUID(), "100000000000001", "200000000000001"))),
-                Map.entry("sender number", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000002", "200000000000001"))),
-                Map.entry("business account", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000001", "200000000000002"))));
+                Map.entry("integration", b -> withSender(b, new SenderRevision(UUID.randomUUID(), "100000000000001", "200000000000001", 1))),
+                Map.entry("sender number", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000002", "200000000000001", 1))),
+                // Credential rotation in place (POST /api/integrations/whatsapp/credential-rotations) only bumps this revision.
+                Map.entry("credential rotation", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000001", "200000000000001", 2))),
+                Map.entry("business account", b -> withSender(b, new SenderRevision(INTEGRATION, "100000000000001", "200000000000002", 1))));
 
         ApprovalFingerprint stored = ApprovalFingerprint.of(BASE);
         changes.forEach((name, change) -> assertThat(stored.covers(change.apply(BASE))).as(name).isFalse());

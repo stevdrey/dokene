@@ -1,8 +1,10 @@
 import enumsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/enums.json?raw';
+import integrationJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/integration.json?raw';
 import messagesJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/messages.json?raw';
 import problemsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/problems.json?raw';
 import requestsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/requests.json?raw';
 import { describe, expect, it } from 'vitest';
+import type { IntegrationRequest, IntegrationResponse } from '../../integrations/types';
 import { SEMANTIC_ACTIONS, SEMANTIC_TEMPLATE_INTENTS } from '../../followups/types';
 import {
   APPROVAL_DECISIONS,
@@ -148,6 +150,23 @@ const problemShape: Shape<MessagingProblem> = {
   status: integer,
   code: enumOf(MESSAGING_ERROR_CODES)
 };
+const integrationRequestShape: Shape<IntegrationRequest> = {
+  phoneNumberId: text,
+  businessAccountId: text,
+  displayPhoneNumber: { kind: 'string', nullable: true, optional: true },
+  enabled: bool,
+  secretRef: text
+};
+const integrationResponseShape: Shape<IntegrationResponse> = {
+  enabled: bool,
+  outboundEnabled: bool,
+  phoneNumberId: text,
+  businessAccountId: text,
+  displayPhoneNumber: { kind: 'string', nullable: true },
+  secretRef: text,
+  webhookVerified: bool,
+  version: integer
+};
 const requestShapes = {
   submit: {
     contactId: uuid,
@@ -210,6 +229,10 @@ type Named = Record<string, unknown>;
 const enums = JSON.parse(enumsJson) as Record<string, string[]>;
 const messages = JSON.parse(messagesJson) as { details: Named; pages: Named; events: Named };
 const requests = JSON.parse(requestsJson) as Record<keyof typeof requestShapes, { valid: Named; invalid: Named }>;
+const integration = JSON.parse(integrationJson) as {
+  request: { valid: Named; invalid: Named };
+  response: { valid: Named };
+};
 const problems = JSON.parse(problemsJson) as { valid: Named; invalid: Named };
 
 describe('messaging v1 contract fixtures', () => {
@@ -271,5 +294,19 @@ describe('messaging v1 contract fixtures', () => {
 
   it.each(Object.entries(problems.invalid))('refuses invalid problem %s', (_name, fixture) => {
     expect(parseMessagingProblem(fixture)).toBeNull();
+  });
+
+  describe('integration', () => {
+    it.each(Object.entries(integration.request.valid))('accepts request %s', (_name, fixture) => {
+      expect(violations(fixture, integrationRequestShape)).toEqual([]);
+    });
+
+    it.each(Object.entries(integration.request.invalid))('rejects request %s', (_name, fixture) => {
+      expect(violations(fixture, integrationRequestShape)).not.toEqual([]);
+    });
+
+    it.each(Object.entries(integration.response.valid))('response %s matches IntegrationResponse', (_name, fixture) => {
+      expect(violations(fixture, integrationResponseShape)).toEqual([]);
+    });
   });
 });

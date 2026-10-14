@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 public record ApprovalFingerprint(String value) {
     /** Domain label of the canonical encoding; a different binding needs a new label, never a reinterpretation. */
-    public static final String SCHEME = "approval/v1";
+    public static final String SCHEME = "approval/v2";
 
     private static final Pattern SHA256_HEX = Pattern.compile("^[0-9a-f]{64}$");
 
@@ -96,6 +96,7 @@ public record ApprovalFingerprint(String value) {
             fields.add(sender.integrationId().toString());
             fields.add(sender.phoneNumberId());
             fields.add(sender.businessAccountId());
+            fields.add(Long.toString(sender.credentialRevision()));
             return fields;
         }
     }
@@ -125,12 +126,19 @@ public record ApprovalFingerprint(String value) {
         }
     }
 
-    /** The sending identity: changing the integration or its business number voids the approval. */
-    public record SenderRevision(UUID integrationId, String phoneNumberId, String businessAccountId) {
+    /**
+     * The sending identity: changing the integration, its business number or its credential voids the approval.
+     * {@code credentialRevision} counts secret reference changes (rotation); it is a number, never the reference.
+     */
+    public record SenderRevision(UUID integrationId, String phoneNumberId, String businessAccountId,
+            long credentialRevision) {
         public SenderRevision {
             Objects.requireNonNull(integrationId, "Integration id is required");
             Objects.requireNonNull(phoneNumberId, "Phone number id is required");
             Objects.requireNonNull(businessAccountId, "Business account id is required");
+            if (credentialRevision < 1) {
+                throw new IllegalArgumentException("Credential revision starts at 1");
+            }
         }
     }
 }

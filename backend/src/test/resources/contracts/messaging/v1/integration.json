@@ -1,0 +1,72 @@
+{
+  "request": {
+    "valid": {
+      "enabledWithDisplayNumber": {
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "displayPhoneNumber": "+50600000011",
+        "enabled": true,
+        "secretRef": "synthetic-wa-token"
+      },
+      "disabledWithoutDisplayNumber": {
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "enabled": false,
+        "secretRef": "synthetic-wa-token"
+      }
+    },
+    "invalid": {
+      "missingEnabled": {
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "secretRef": "synthetic-wa-token"
+      },
+      "missingSecretRef": {
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "enabled": true
+      },
+      "rawCredentialSmuggled": {
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "enabled": true,
+        "secretRef": "synthetic-wa-token",
+        "accessToken": "SYNTHETIC-NOT-A-REAL-TOKEN"
+      }
+    }
+  },
+  "response": {
+    "valid": {
+      "enabledWithDisplayNumber": {
+        "enabled": true,
+        "outboundEnabled": false,
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "displayPhoneNumber": "+50600000011",
+        "secretRef": "synthetic-wa-token",
+        "webhookVerified": false,
+        "version": 3
+      },
+      "disabledWithoutDisplayNumber": {
+        "enabled": false,
+        "outboundEnabled": false,
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "displayPhoneNumber": null,
+        "secretRef": "synthetic-wa-token",
+        "webhookVerified": false,
+        "version": 0
+      },
+      "outboundAndWebhookReady": {
+        "enabled": true,
+        "outboundEnabled": true,
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "displayPhoneNumber": "+50600000011",
+        "secretRef": "synthetic-wa-token",
+        "webhookVerified": true,
+        "version": 3
+      }
+    }
+  }
+}
