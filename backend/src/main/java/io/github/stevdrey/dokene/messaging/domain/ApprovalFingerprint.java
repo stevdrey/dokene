@@ -103,7 +103,10 @@ public record ApprovalFingerprint(String value) {
     /** The template mapping revision the approval was given against. */
     public record TemplateRevision(long version, String providerTemplateName, String language,
             List<String> parameterNames) {
-        /** Meta's naming grammar, mirrored from the template port because this package cannot depend on it. */
+        /**
+         * Meta's naming grammar. The name and language rules mirror TemplateMappingResolver.ResolvedTemplateMapping,
+         * because this package cannot depend on the template module.
+         */
         private static final Pattern PROVIDER_TEMPLATE_NAME = Pattern.compile("^[a-z0-9_]{1,512}$");
 
         public TemplateRevision {

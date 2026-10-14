@@ -102,7 +102,11 @@ class ApprovalFingerprintTest {
         assertThatThrownBy(() -> new TemplateRevision(3, "Repeat Purchase", "es", List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", " ", List.of()))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Template language is required");
+        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", "", List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Template language is required");
     }
 
     private static Binding copy(UnaryOperator<Binding> change) {

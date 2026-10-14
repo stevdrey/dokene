@@ -37,8 +37,12 @@ public interface TemplateMappingResolver {
             Objects.requireNonNull(providerTemplateName, "Provider template name is required");
             Objects.requireNonNull(language, "Template language is required");
             parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "Parameter names are required"));
+            // Same name and language rules as ApprovalFingerprint.TemplateRevision, which binds this mapping.
             if (!PROVIDER_TEMPLATE_NAME.matcher(providerTemplateName).matches()) {
                 throw new IllegalArgumentException("Provider template name is malformed");
+            }
+            if (language.isBlank()) {
+                throw new IllegalArgumentException("Template language is required");
             }
             if (version < 0) {
                 throw new IllegalArgumentException("Mapping version cannot be negative");
