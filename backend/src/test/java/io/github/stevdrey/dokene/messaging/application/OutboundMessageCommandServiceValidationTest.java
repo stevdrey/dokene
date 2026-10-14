@@ -36,11 +36,13 @@ class OutboundMessageCommandServiceValidationTest {
     private final FollowUpService followUps = mock(FollowUpService.class);
     private final DraftGroundingAssembler grounding = mock(DraftGroundingAssembler.class);
     private final TemplateMappingGate templates = mock(TemplateMappingGate.class);
+    private final ApprovalBindingAssembler bindings = mock(ApprovalBindingAssembler.class);
+    private final OutboundSafetyControl safety = mock(OutboundSafetyControl.class);
     private final TenantAuthorizationService authorization = mock(TenantAuthorizationService.class);
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
     private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
-            customers, contactPolicies, followUps, grounding, templates, authorization, contexts, audit,
+            customers, contactPolicies, followUps, grounding, templates, bindings, safety, authorization, contexts, audit,
             Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
 
     @Test

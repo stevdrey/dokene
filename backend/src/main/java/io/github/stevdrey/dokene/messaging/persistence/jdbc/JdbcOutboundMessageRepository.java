@@ -4,8 +4,10 @@ package io.github.stevdrey.dokene.messaging.persistence.jdbc;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.messaging.application.MessageCursor;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.MessageActorKind;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
@@ -24,8 +26,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,6 +39,14 @@ import org.springframework.stereotype.Repository;
 public class JdbcOutboundMessageRepository implements OutboundMessageRepository {
     private static final String OPEN_MESSAGE_INDEX = "one_open_message_per_customer";
     private static final String UNIQUE_VIOLATION = "23505";
+    /** The message plus whether the customer still owns the snapshotted contact (no foreign key, spec 0001). */
+    private static final String LISTED_SELECT = """
+            SELECT m.*, NOT EXISTS (
+                SELECT 1 FROM dokene.customer_phone_contacts c
+                WHERE c.tenant_id = m.tenant_id AND c.customer_id = m.customer_id AND c.id = m.contact_id
+            ) AS contact_removed
+            FROM dokene.outbound_messages m
+            """;
 
     private final JdbcTemplate jdbc;
 
@@ -83,6 +95,37 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     }
 
     @Override
+    public Optional<ListedMessage> findListedById(UUID tenantId, UUID messageId) {
+        return first(jdbc.query(LISTED_SELECT + "WHERE m.tenant_id = ? AND m.id = ?", this::mapListed, tenantId,
+                messageId));
+    }
+
+    @Override
+    public List<ListedMessage> findPage(UUID tenantId, Set<MessageStatus> statuses, Optional<UUID> customerId,
+            Optional<MessageCursor> after, int fetchLimit) {
+        var sql = new StringBuilder(LISTED_SELECT).append("WHERE m.tenant_id = ?");
+        var arguments = new ArrayList<Object>();
+        arguments.add(tenantId);
+        if (!statuses.isEmpty()) {
+            sql.append(" AND m.status IN (").append(String.join(", ", statuses.stream().map(status -> "?").toList()))
+                    .append(')');
+            statuses.stream().map(MessageStatus::name).sorted().forEach(arguments::add);
+        }
+        customerId.ifPresent(id -> {
+            sql.append(" AND m.customer_id = ?");
+            arguments.add(id);
+        });
+        after.ifPresent(cursor -> {
+            sql.append(" AND (m.created_at, m.id) < (?, ?)");
+            arguments.add(Timestamp.from(cursor.createdAt()));
+            arguments.add(cursor.id());
+        });
+        sql.append(" ORDER BY m.created_at DESC, m.id DESC LIMIT ?");
+        arguments.add(fetchLimit);
+        return jdbc.query(sql.toString(), this::mapListed, arguments.toArray());
+    }
+
+    @Override
     public Optional<ProviderMessageRef> findIdsByProviderMessageId(UUID tenantId, String providerMessageId) {
         return first(jdbc.query("""
                 SELECT id, customer_id FROM dokene.outbound_messages
@@ -127,11 +170,12 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     public MessageApproval insertApproval(MessageApproval a) {
         jdbc.update("""
                 INSERT INTO dokene.outbound_message_approvals
-                    (id, tenant_id, message_id, decision, note, decided_at, decided_by_membership_id,
-                     decided_by_actor_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, tenant_id, message_id, decision, note, approval_fingerprint, decided_at,
+                     decided_by_membership_id, decided_by_actor_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, a.id(), a.tenantId(), a.messageId(), a.decision().name(), a.note(),
-                Timestamp.from(a.decidedAt()), a.decidedByMembershipId(), a.decidedByActorId());
+                a.fingerprint().map(ApprovalFingerprint::value).orElse(null), Timestamp.from(a.decidedAt()),
+                a.decidedByMembershipId(), a.decidedByActorId());
         return a;
     }
 
@@ -139,12 +183,14 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     public Optional<MessageApproval> findApproval(UUID tenantId, UUID approvalId) {
         return first(jdbc.query("""
                 SELECT * FROM dokene.outbound_message_approvals WHERE tenant_id = ? AND id = ?
-                """, (row, index) -> new MessageApproval(row.getObject("id", UUID.class),
-                        row.getObject("tenant_id", UUID.class), row.getObject("message_id", UUID.class),
-                        ApprovalDecision.valueOf(row.getString("decision")), row.getString("note"),
-                        row.getTimestamp("decided_at").toInstant(),
-                        row.getObject("decided_by_membership_id", UUID.class),
-                        row.getObject("decided_by_actor_id", UUID.class)), tenantId, approvalId));
+                """, this::mapApproval, tenantId, approvalId));
+    }
+
+    @Override
+    public Optional<MessageApproval> findApprovalByMessage(UUID tenantId, UUID messageId) {
+        return first(jdbc.query("""
+                SELECT * FROM dokene.outbound_message_approvals WHERE tenant_id = ? AND message_id = ?
+                """, this::mapApproval, tenantId, messageId));
     }
 
     @Override
@@ -241,6 +287,19 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
                         row.getObject("membership_id", UUID.class), failureCategory(row.getString("failure_category")),
                         (Integer) row.getObject("attempt_number"), row.getTimestamp("occurred_at").toInstant()),
                 tenantId, messageId);
+    }
+
+    private MessageApproval mapApproval(ResultSet row, int index) throws SQLException {
+        String fingerprint = row.getString("approval_fingerprint");
+        return new MessageApproval(row.getObject("id", UUID.class), row.getObject("tenant_id", UUID.class),
+                row.getObject("message_id", UUID.class), ApprovalDecision.valueOf(row.getString("decision")),
+                row.getString("note"), Optional.ofNullable(fingerprint).map(ApprovalFingerprint::new),
+                row.getTimestamp("decided_at").toInstant(), row.getObject("decided_by_membership_id", UUID.class),
+                row.getObject("decided_by_actor_id", UUID.class));
+    }
+
+    private ListedMessage mapListed(ResultSet row, int index) throws SQLException {
+        return new ListedMessage(mapMessage(row, index), row.getBoolean("contact_removed"));
     }
 
     private OutboundMessage mapMessage(ResultSet row, int index) throws SQLException {

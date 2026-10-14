@@ -1,4 +1,4 @@
-// ABOUTME: Transactional T1 to T5 command services: submit, approve, reject and cancel (spec 0001).
+// ABOUTME: Transactional T1 to T5 command services: submit, approve (binding the approval fingerprint), reject, cancel.
 // ABOUTME: Order: validate, permission, idempotency lock, customer lock, message lock, guards, domain, persist, audit.
 package io.github.stevdrey.dokene.messaging.application;
 
@@ -22,6 +22,7 @@ import io.github.stevdrey.dokene.followup.application.DraftGroundingAssembler;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageCancellation;
 import io.github.stevdrey.dokene.messaging.domain.MessageOperation;
@@ -68,6 +69,8 @@ public class OutboundMessageCommandService {
     private final FollowUpService followUps;
     private final DraftGroundingAssembler grounding;
     private final TemplateMappingGate templates;
+    private final ApprovalBindingAssembler bindings;
+    private final OutboundSafetyControl safety;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final MessageAuditPort audit;
@@ -75,9 +78,9 @@ public class OutboundMessageCommandService {
 
     public OutboundMessageCommandService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, ContactPolicyRepository contactPolicies, FollowUpService followUps,
-            DraftGroundingAssembler grounding, TemplateMappingGate templates,
-            TenantAuthorizationService authorization, TenantContextProvider contexts, MessageAuditPort audit,
-            Clock clock) {
+            DraftGroundingAssembler grounding, TemplateMappingGate templates, ApprovalBindingAssembler bindings,
+            OutboundSafetyControl safety, TenantAuthorizationService authorization, TenantContextProvider contexts,
+            MessageAuditPort audit, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -85,6 +88,8 @@ public class OutboundMessageCommandService {
         this.followUps = Objects.requireNonNull(followUps);
         this.grounding = Objects.requireNonNull(grounding);
         this.templates = Objects.requireNonNull(templates);
+        this.bindings = Objects.requireNonNull(bindings);
+        this.safety = Objects.requireNonNull(safety);
         this.authorization = Objects.requireNonNull(authorization);
         this.contexts = Objects.requireNonNull(contexts);
         this.audit = Objects.requireNonNull(audit);
@@ -206,6 +211,7 @@ public class OutboundMessageCommandService {
         }
         Instant now = clock.instant();
         Transition transition;
+        MessageApproval approval;
         if (decision == ApprovalDecision.APPROVE) {
             Customer customer = customers.findById(context.tenantId(), new CustomerId(message.customerId()))
                     .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
@@ -218,14 +224,21 @@ public class OutboundMessageCommandService {
             if (messages.findOpenByCustomer(tenantId, message.customerId(), Optional.of(message.id())).isPresent()) {
                 throw refuse(MessagingErrorCode.MESSAGE_ALREADY_OPEN);
             }
+            // ADR 0024 §2: bind what is approved under the customer lock. No integration means no sender to bind;
+            // kill switches are not checked here, so approving while sending is off is allowed.
+            ApprovalFingerprint.SenderRevision sender = safety.configuredSender(context.tenantId())
+                    .orElseThrow(() -> refuse(MessagingErrorCode.INTEGRATION_DISABLED));
+            ApprovalFingerprint binding = ApprovalFingerprint.of(bindings.bind(message, customer, sender));
             transition = message.approve(context.membershipId().value(), now);
+            approval = MessageApproval.approve(UUID.randomUUID(), tenantId, message.id(), input.note(), binding,
+                    now, context.membershipId().value(), context.identityId().value());
         } else {
             transition = message.reject(context.membershipId().value(), now);
+            approval = MessageApproval.reject(UUID.randomUUID(), tenantId, message.id(), input.note(), now,
+                    context.membershipId().value(), context.identityId().value());
         }
         OutboundMessage stored = messages.update(message, transition.next());
-        MessageApproval approval = messages.insertApproval(new MessageApproval(UUID.randomUUID(), tenantId,
-                message.id(), decision, input.note(), now, context.membershipId().value(),
-                context.identityId().value()));
+        messages.insertApproval(approval);
         messages.appendEvent(transition.event());
         idempotency.record(new MessageIdempotencyStore.IdempotencyRecord(UUID.randomUUID(), tenantId,
                 MessageOperation.APPROVAL, input.idempotencyKey(), fingerprint, stored.id(), approval.id(), now));

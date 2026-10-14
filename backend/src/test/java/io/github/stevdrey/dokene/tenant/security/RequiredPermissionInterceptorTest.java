@@ -3,12 +3,14 @@ package io.github.stevdrey.dokene.tenant.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
@@ -72,6 +74,38 @@ class RequiredPermissionInterceptorTest {
         verifyNoMoreInteractions(authorization);
     }
 
+    @Test
+    void anyOfAdmitsACallerHoldingOneOfThePermissionsWithoutADenial() throws Exception {
+        when(authorization.evaluate(TenantPermission.MESSAGE_DRAFT)).thenReturn(new AuthorizationDecision(false, "no"));
+        when(authorization.evaluate(TenantPermission.MESSAGE_APPROVE)).thenReturn(new AuthorizationDecision(true, "ok"));
+
+        assertThat(interceptor.preHandle(request, response, handler("either"))).isTrue();
+
+        verify(authorization).evaluate(TenantPermission.MESSAGE_DRAFT);
+        verify(authorization).evaluate(TenantPermission.MESSAGE_APPROVE);
+        verifyNoMoreInteractions(authorization);
+    }
+
+    @Test
+    void anyOfDeniesAndAuditsWithTheLastPermissionWhenNoneIsHeld() throws Exception {
+        when(authorization.evaluate(TenantPermission.MESSAGE_DRAFT)).thenReturn(new AuthorizationDecision(false, "no"));
+        when(authorization.evaluate(TenantPermission.MESSAGE_APPROVE)).thenReturn(new AuthorizationDecision(false, "no"));
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.MESSAGE_APPROVE);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("either")))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        verify(authorization).requirePermission(TenantPermission.MESSAGE_APPROVE);
+    }
+
+    @Test
+    void anyOfWithoutPermissionsFailsClosed() throws Exception {
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("emptyAnyOf")))
+                .isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(authorization);
+    }
+
     private static HandlerMethod handler(String name) throws Exception {
         return new HandlerMethod(new StubController(), StubController.class.getDeclaredMethod(name));
     }
@@ -84,5 +118,11 @@ class RequiredPermissionInterceptorTest {
 
         @RequiredPermission({TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE})
         void multiple() { }
+
+        @RequiredPermission(value = {TenantPermission.MESSAGE_DRAFT, TenantPermission.MESSAGE_APPROVE}, anyOf = true)
+        void either() { }
+
+        @RequiredPermission(value = {}, anyOf = true)
+        void emptyAnyOf() { }
     }
 }

@@ -61,12 +61,41 @@ There is no `DRAFT` state. A draft, whether an AI suggestion or operator text, l
 
 Transitions are validated in the aggregate; arbitrary status mutation is refused with `INVALID_TRANSITION`. Each applied transition advances the message version by one and appends one row to the event log, so the latest event sequence number always equals the message version.
 
+### Review and approval API
+
+The review routes ([#136](https://github.com/stevdrey/dokene/issues/136)) wrap the T1 to T5 services with the frozen v1 records (`MessageController`, `MessagingExceptionHandler`):
+
+| Route | Permission | Notes |
+| --- | --- | --- |
+| `POST /api/customers/{customerId}/messages` | `MESSAGE_DRAFT` | Submit (T1). `If-Match` is the customer's follow-up policy version, `Idempotency-Key` required. `201` with `Location`, replay `200`. |
+| `GET /api/messages` | `MESSAGE_READ` | `status` (repeatable), `customerId`, `cursor`, `limit` 1 to 100. Items carry no body or phone. |
+| `GET /api/messages/{messageId}` and `/events` | `MESSAGE_READ` | Detail with strong `ETag`; append-only history without membership ids. |
+| `POST /api/messages/{messageId}/approvals` | `MESSAGE_APPROVE` | `{ decision: APPROVE \| REJECT, note? }` (T2, T3). Approval calls no provider. |
+| `POST /api/messages/{messageId}/cancellations` | `MESSAGE_DRAFT` or `MESSAGE_APPROVE` | `{ note? }` (T4, T5). Either permission passes the route; the service then requires `MESSAGE_DRAFT` for a pending message and `MESSAGE_APPROVE` for an approved one. |
+
+Rules that hold for every route:
+
+- **No edit route.** Body, recipient, intent and locale are immutable once submitted. To change the text, cancel and submit a new message; the new message needs its own approval.
+- **Strict bodies.** Unknown members, unknown enum values, numbers for enums or text, and missing required members are `400 INVALID_INPUT`, so a client cannot set a status, a recipient or a fingerprint.
+- **Authorization first.** Permissions are checked before headers or bodies are read, so a `VIEWER` gets `403` even for a malformed request. Another tenant's ids are `404`.
+- **Preconditions.** `If-Match` must be one strong numeric ETag (`"3"`); a stale one is `409 STALE_VERSION`. Replays follow ADR 0023 §4.2; a reused key with another payload or target is `409 IDEMPOTENCY_KEY_REUSED`.
+- **Responses.** Every command answers with the current detail representation and its `ETag`. Message responses are `Cache-Control: no-store` because `contactRemoved` is derived live. Refusals are closed-code `application/problem+json`; an audit failure is `503` with an empty body and rolls the change back.
+
+Approval (T2) re-checks customer status, do-not-contact, WhatsApp consent, eligibility, the body, the template mapping and the open-message rule from stored state under the customer lock. It then computes the approval fingerprint and stores it on the approval row (V22). The fingerprint is never returned, audited or logged. Template parameters are rendered from a closed vocabulary only:
+
+| Parameter name | Value |
+| --- | --- |
+| `customer_name` | The customer's current display name |
+| `message_body` | The submitted body, unchanged |
+
+A mapping with any other parameter name, or written in a different language from the message locale (`es`/`es_MX` for `es-419`), is refused with `TEMPLATE_NOT_MAPPED`. A rendered value the provider would reject (a line break, a run of five spaces) is refused with `BODY_REJECTED`. A tenant without a configured integration is refused with `INTEGRATION_DISABLED`; the kill switches are not checked at approval.
+
 ### Tables (V18)
 
 | Table | Purpose | Runtime grants |
 | --- | --- | --- |
 | `outbound_messages` | One row per message: status, body, recipient snapshot (`contact_id` plus `recipient_phone`, with no foreign key to the contact row so phone corrections still work; readers derive `contactRemoved` from whether the contact row still exists), send key, attempt count, provider message id, timestamps, version. | `SELECT, INSERT, UPDATE` |
-| `outbound_message_approvals` | One row per approve or reject decision, with the operator note. | `SELECT, INSERT` |
+| `outbound_message_approvals` | One row per approve or reject decision, with the operator note and, for an approval, its fingerprint (V22). | `SELECT, INSERT` |
 | `outbound_message_cancellations` | One row per cancellation, with the operator note. | `SELECT, INSERT` |
 | `outbound_send_attempts` | One row per provider call, committed before the call and completed after it. | `SELECT, INSERT, UPDATE` |
 | `outbound_message_events` | Append only log of every transition and every ignored delivery report. | `SELECT, INSERT` |

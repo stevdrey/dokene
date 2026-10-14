@@ -17,4 +17,11 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface RequiredPermission {
     TenantPermission[] value();
+
+    /**
+     * When true, holding any one of {@link #value()} admits the request; a caller holding none is denied and audited
+     * with the last listed permission. For routes whose exact permission depends on resource state, which the service
+     * then enforces (ADR 0023 §3.1, message cancellation). Defaults to requiring every listed permission.
+     */
+    boolean anyOf() default false;
 }

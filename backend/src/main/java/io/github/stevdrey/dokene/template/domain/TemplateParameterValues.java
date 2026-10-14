@@ -38,8 +38,14 @@ public final class TemplateParameterValues {
     /** Returns the values unchanged when they fit the schema; otherwise throws without quoting any value. */
     public static List<String> validate(TemplateMapping mapping, List<String> values) {
         Objects.requireNonNull(mapping, "Mapping is required");
+        return validate(mapping.parameterNames(), values);
+    }
+
+    /** The same check against a resolved mapping's ordered parameter names. */
+    public static List<String> validate(List<String> parameterNames, List<String> values) {
+        Objects.requireNonNull(parameterNames, "Parameter names are required");
         Objects.requireNonNull(values, "Parameter values are required");
-        if (values.size() != mapping.parameterNames().size()) {
+        if (values.size() != parameterNames.size()) {
             throw new IllegalArgumentException("Parameter count does not match the template");
         }
         for (String value : values) {

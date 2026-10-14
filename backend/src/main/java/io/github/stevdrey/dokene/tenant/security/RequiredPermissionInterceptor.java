@@ -23,7 +23,20 @@ public class RequiredPermissionInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if (handler instanceof HandlerMethod method) {
             RequiredPermission required = method.getMethodAnnotation(RequiredPermission.class);
-            if (required != null) {
+            if (required != null && required.anyOf()) {
+                TenantPermission[] permissions = required.value();
+                if (permissions.length == 0) {
+                    throw new IllegalStateException("anyOf requires at least one permission");
+                }
+                boolean admitted = false;
+                for (TenantPermission permission : permissions) {
+                    admitted = admitted || authorization.evaluate(permission).isAllowed();
+                }
+                if (!admitted) {
+                    // requirePermission denies and audits; the last listed permission names the denial.
+                    authorization.requirePermission(permissions[permissions.length - 1]);
+                }
+            } else if (required != null) {
                 for (TenantPermission permission : required.value()) {
                     authorization.requirePermission(permission);
                 }
