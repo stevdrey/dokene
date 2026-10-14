@@ -206,6 +206,18 @@ class GraphApiTemplateProviderGatewayTest {
     }
 
     @Test
+    void oneDeadlineCoversTheHeadersAndTheBody() {
+        body = list("repeat_purchase_v1", "es_MX", "APPROVED");
+        // Headers take ~350 ms and the body ~(length x 4 ms): each alone fits the 500 ms timeout, together they do not.
+        delayMillis = 350;
+        dripMillis = 4;
+        assertThat(body.length() * dripMillis).isBetween(200L, 480L);
+        long started = System.nanoTime();
+        assertThat(gateway.lookup("repeat_purchase_v1", "es_MX")).isInstanceOf(Unavailable.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(900));
+    }
+
+    @Test
     void redirectsAreNotFollowed() {
         status = 302;
         body = "";

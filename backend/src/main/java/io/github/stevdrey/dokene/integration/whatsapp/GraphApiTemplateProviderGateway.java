@@ -90,6 +90,8 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
     }
 
     private Reply send(URI uri, char[] token) {
+        // One deadline covers the headers and the body, so the whole call never exceeds the configured timeout.
+        long deadline = System.nanoTime() + properties.timeout().toNanos();
         try {
             HttpRequest request = HttpRequest.newBuilder(uri).timeout(properties.timeout())
                     .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
@@ -101,7 +103,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
                 if (response.statusCode() != 200 || declared > MAX_BODY_BYTES) {
                     return new Reply(response.statusCode(), null);
                 }
-                return new Reply(200, readBounded(stream));
+                return new Reply(200, readBounded(stream, deadline));
             } finally {
                 stream.close(); // also cancels the exchange when the body was not fully read
             }
@@ -114,10 +116,14 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
     }
 
     /**
-     * Reads at most {@code MAX_BODY_BYTES} within the configured timeout, so neither a huge or endless body nor a
+     * Reads at most {@code MAX_BODY_BYTES} before {@code deadline} (nanoTime), so neither a huge or endless body nor a
      * slow drip can exhaust the heap or hold the caller. Returns null when either bound is exceeded.
      */
-    private byte[] readBounded(InputStream stream) throws InterruptedException {
+    private byte[] readBounded(InputStream stream, long deadline) throws InterruptedException {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            return null;
+        }
         CompletableFuture<byte[]> read = new CompletableFuture<>();
         Thread.ofVirtual().start(() -> {
             try {
@@ -128,7 +134,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
             }
         });
         try {
-            return read.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            return read.get(remaining, TimeUnit.NANOSECONDS);
         } catch (TimeoutException | ExecutionException failure) {
             return null;
         }
