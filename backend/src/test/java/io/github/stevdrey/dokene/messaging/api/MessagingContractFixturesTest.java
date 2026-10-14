@@ -3,7 +3,7 @@
 package io.github.stevdrey.dokene.messaging.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
@@ -42,10 +42,33 @@ import org.junit.jupiter.api.TestFactory;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.exc.InvalidFormatException;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
 import tools.jackson.databind.json.JsonMapper;
 
 class MessagingContractFixturesTest {
     private static final String ROOT = "/contracts/messaging/v1/";
+
+    private static final Map<String, Class<? extends Throwable>> INVALID_REQUEST_REASONS = Map.ofEntries(
+            Map.entry("submit.missingBody", NullPointerException.class),
+            Map.entry("submit.unknownOrigin", InvalidFormatException.class),
+            Map.entry("submit.unknownMember", UnrecognizedPropertyException.class),
+            Map.entry("submit.providerTemplateSmuggled", UnrecognizedPropertyException.class),
+            Map.entry("approval.missingDecision", NullPointerException.class),
+            Map.entry("approval.unknownDecision", InvalidFormatException.class),
+            Map.entry("approval.noteTooLong", IllegalArgumentException.class),
+            Map.entry("cancellation.noteTooLong", IllegalArgumentException.class),
+            Map.entry("cancellation.unknownMember", UnrecognizedPropertyException.class),
+            Map.entry("resolution.markedSent", InvalidFormatException.class),
+            Map.entry("resolution.missingOutcome", NullPointerException.class),
+            Map.entry("resolution.noteTooLong", IllegalArgumentException.class));
+
+    private static final Map<String, Class<? extends Throwable>> INVALID_PROBLEM_REASONS = Map.of(
+            "freeTextDetail", UnrecognizedPropertyException.class,
+            "unknownCode", InvalidFormatException.class,
+            "statusMismatch", IllegalArgumentException.class,
+            "customType", IllegalArgumentException.class,
+            "missingCode", NullPointerException.class);
 
     /** The request reader of the messaging controllers must be at least this strict (ADR 0024 §1). */
     private final ObjectMapper mapper = JsonMapper.builder()
@@ -81,11 +104,11 @@ class MessagingContractFixturesTest {
         JsonNode messages = fixture("messages.json");
         var tests = new ArrayList<DynamicTest>();
         named(messages.get("details")).forEach((name, node) ->
-                tests.add(dynamicTest("details." + name, () -> assertRoundTrip(node, MessageResponse.class))));
+                tests.add(dynamicTest("details." + name, () -> assertResponseRoundTrip(node, MessageResponse.class))));
         named(messages.get("pages")).forEach((name, node) ->
-                tests.add(dynamicTest("pages." + name, () -> assertRoundTrip(node, MessagePageResponse.class))));
+                tests.add(dynamicTest("pages." + name, () -> assertResponseRoundTrip(node, MessagePageResponse.class))));
         named(messages.get("events")).forEach((name, node) ->
-                tests.add(dynamicTest("events." + name, () -> assertRoundTrip(node, MessageEventsResponse.class))));
+                tests.add(dynamicTest("events." + name, () -> assertResponseRoundTrip(node, MessageEventsResponse.class))));
         return tests.stream();
     }
 
@@ -121,11 +144,17 @@ class MessagingContractFixturesTest {
                         .map(RecordComponent::getName).toList());
             }));
             named(requests.get(operation).get("valid")).forEach((name, node) -> tests.add(
-                    dynamicTest(operation + ".valid." + name, () -> assertRoundTrip(node, type))));
+                    dynamicTest(operation + ".valid." + name, () -> assertRequestRoundTrip(node, type))));
             named(requests.get(operation).get("invalid")).forEach((name, node) -> tests.add(
-                    dynamicTest(operation + ".invalid." + name, () -> assertThatThrownBy(
-                            () -> mapper.treeToValue(node, type)).isInstanceOf(RuntimeException.class))));
+                    dynamicTest(operation + ".invalid." + name, () -> assertRejectedFor(
+                            INVALID_REQUEST_REASONS, operation + "." + name, node, type))));
         });
+        tests.add(dynamicTest("every invalid request has an expected reason", () -> {
+            var names = new ArrayList<String>();
+            types.keySet().forEach(operation -> named(requests.get(operation).get("invalid")).keySet()
+                    .forEach(name -> names.add(operation + "." + name)));
+            assertThat(names).containsExactlyInAnyOrderElementsOf(INVALID_REQUEST_REASONS.keySet());
+        }));
         return tests.stream();
     }
 
@@ -135,7 +164,7 @@ class MessagingContractFixturesTest {
         assertThat(valid.keySet()).containsExactlyInAnyOrderElementsOf(
                 Arrays.stream(MessagingErrorCode.values()).map(Enum::name).toList());
         for (var entry : valid.entrySet()) {
-            assertRoundTrip(entry.getValue(), MessagingProblem.class);
+            assertResponseRoundTrip(entry.getValue(), MessagingProblem.class);
             MessagingErrorCode code = MessagingErrorCode.valueOf(entry.getKey());
             assertThat(mapper.treeToValue(entry.getValue(), MessagingProblem.class))
                     .isEqualTo(MessagingProblem.of(code));
@@ -144,10 +173,26 @@ class MessagingContractFixturesTest {
 
     @TestFactory
     Stream<DynamicTest> invalidProblemsAreRejected() {
-        return named(fixture("problems.json").get("invalid")).entrySet().stream()
-                .map(entry -> dynamicTest(entry.getKey(), () -> assertThatThrownBy(
-                        () -> mapper.treeToValue(entry.getValue(), MessagingProblem.class))
-                        .isInstanceOf(RuntimeException.class)));
+        Map<String, JsonNode> invalid = named(fixture("problems.json").get("invalid"));
+        assertThat(invalid.keySet()).containsExactlyInAnyOrderElementsOf(INVALID_PROBLEM_REASONS.keySet());
+        return invalid.entrySet().stream().map(entry -> dynamicTest(entry.getKey(), () -> assertRejectedFor(
+                INVALID_PROBLEM_REASONS, entry.getKey(), entry.getValue(), MessagingProblem.class)));
+    }
+
+    /**
+     * Each invalid fixture must fail for the rule it was written to prove, identified by the innermost cause: an
+     * unknown member, an unknown enum value, a missing required value or a record invariant.
+     */
+    private void assertRejectedFor(Map<String, Class<? extends Throwable>> reasons, String name, JsonNode node,
+            Class<?> type) {
+        assertThat(reasons).as("expected reason for %s", name).containsKey(name);
+        Throwable thrown = catchThrowable(() -> mapper.treeToValue(node, type));
+        assertThat(thrown).as(name).isNotNull();
+        Throwable innermost = thrown;
+        while (innermost.getCause() != null && innermost.getCause() != innermost) {
+            innermost = innermost.getCause();
+        }
+        assertThat(innermost).as(name).isInstanceOf(reasons.get(name));
     }
 
     /**
@@ -210,12 +255,18 @@ class MessagingContractFixturesTest {
                 .containsExactlyElementsOf(components));
     }
 
-    /** Requests may omit optional members; responses must emit every member, null included. */
-    private void assertRoundTrip(JsonNode fixture, Class<?> type) {
-        Object value = mapper.treeToValue(fixture, type);
-        JsonNode written = mapper.readTree(mapper.writeValueAsString(value));
-        boolean request = !type.getSimpleName().endsWith("Response") && type != MessagingProblem.class;
-        assertThat(request ? withoutNulls(written) : written).isEqualTo(request ? withoutNulls(fixture) : fixture);
+    /** Responses must emit every member, null included, so the written tree equals the fixture exactly. */
+    private void assertResponseRoundTrip(JsonNode fixture, Class<?> type) {
+        assertThat(writtenTree(fixture, type)).isEqualTo(fixture);
+    }
+
+    /** Requests may omit optional members, so absent and null compare equal. */
+    private void assertRequestRoundTrip(JsonNode fixture, Class<?> type) {
+        assertThat(withoutNulls(writtenTree(fixture, type))).isEqualTo(withoutNulls(fixture));
+    }
+
+    private JsonNode writtenTree(JsonNode fixture, Class<?> type) {
+        return mapper.readTree(mapper.writeValueAsString(mapper.treeToValue(fixture, type)));
     }
 
     private JsonNode withoutNulls(JsonNode node) {

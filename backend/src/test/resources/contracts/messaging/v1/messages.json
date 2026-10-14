@@ -289,8 +289,8 @@
       "readAt": null,
       "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
       "createdAt": "2026-10-13T15:00:00Z",
-      "updatedAt": "2026-10-13T15:11:00Z",
-      "version": 6
+      "updatedAt": "2026-10-13T15:12:00Z",
+      "version": 7
     },
     "read": {
       "messageId": "7a5c0000-0000-4000-8000-000000000010",

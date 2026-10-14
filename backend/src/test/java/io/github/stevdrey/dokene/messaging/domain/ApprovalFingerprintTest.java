@@ -99,6 +99,10 @@ class ApprovalFingerprintTest {
         assertThatThrownBy(() -> new ApprovalFingerprint("ABC")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new TemplateRevision(-1, "t", "es", List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateRevision(3, "Repeat Purchase", "es", List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", " ", List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static Binding copy(UnaryOperator<Binding> change) {

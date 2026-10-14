@@ -5,12 +5,17 @@ package io.github.stevdrey.dokene.architecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaCall;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.properties.HasOwner;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnMessagingFixture;
+import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEvent;
 import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEventHandler;
+import io.github.stevdrey.dokene.integration.archfixture.FabricatedWebhookEventFixture;
 import io.github.stevdrey.dokene.integration.archfixture.RawReportBypassFixture;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
@@ -50,6 +55,12 @@ class ModuleDependencyArchitectureTest {
             .should().dependOnClassesThat().areAssignableTo(DeliveryStatusSink.class)
             .because("ADR 0024 §3: provider reports reach the sink only as a VerifiedWebhookEvent");
 
+    private static final ArchRule ONLY_THE_WEBHOOK_VERIFIER_BUILDS_VERIFIED_EVENTS = noClasses()
+            .that().resideOutsideOfPackage(ROOT + ".integration..webhook..")
+            .should().callConstructorWhere(JavaCall.Predicates.target(HasOwner.Predicates.With.owner(
+                    JavaClass.Predicates.equivalentTo(VerifiedWebhookEvent.class))))
+            .because("ADR 0024 §3: only the webhook verifier, after signature, tenant lookup and dedup, may build one");
+
     private static final ArchRule MESSAGING_DOMAIN_IS_PURE = noClasses().that()
             .resideInAPackage(ROOT + ".messaging.domain..")
             .should().dependOnClassesThat(
@@ -87,6 +98,20 @@ class ModuleDependencyArchitectureTest {
                 .importClasses(RawReportBypassFixture.class, DeliveryStatusSink.class);
 
         assertThat(ONLY_VERIFIED_HANDLERS_REACH_THE_DELIVERY_SINK.evaluate(fixture).hasViolation()).isTrue();
+    }
+
+    @Test
+    void onlyTheWebhookVerifierBuildsVerifiedEvents() {
+        ONLY_THE_WEBHOOK_VERIFIER_BUILDS_VERIFIED_EVENTS.check(production);
+    }
+
+    /** Negative proof: a class outside the verifier fabricating a verified event is reported. */
+    @Test
+    void aFabricatedVerifiedEventFailsTheConstructionRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(FabricatedWebhookEventFixture.class, VerifiedWebhookEvent.class);
+
+        assertThat(ONLY_THE_WEBHOOK_VERIFIER_BUILDS_VERIFIED_EVENTS.evaluate(fixture).hasViolation()).isTrue();
     }
 
     @Test

@@ -38,7 +38,7 @@ Each consumer has a contract test.
 - **Backend, `MessagingContractFixturesTest`:**
   - Every valid example deserializes into its record, using a mapper with `FAIL_ON_UNKNOWN_PROPERTIES`.
   - Re-serializing it gives the same JSON. Responses must emit every member, nulls included; requests may omit optional members.
-  - Every `invalid` example is rejected.
+  - Every `invalid` example is rejected for the rule it was written to prove: the test pins the expected innermost cause per example (unknown member, unknown enum value, missing required value or record invariant).
   - The Java type of every component of every contract record is pinned against an explicit schema, because a retype with the same JSON form (`UUID` or `Instant` to `String`) would pass a round trip.
   - For each request, the valid examples together name every record component. The round trip ignores omitted optional members, so without this check a new optional member would pass unnoticed.
   - `enums.json` equals the Java enums, and every `MessagingErrorCode` has exactly one problem with its fixed status.
@@ -85,7 +85,7 @@ The fields, in this order:
 | Identity | tenant id, message id, customer id, contact id |
 | Recipient and content | recipient E.164, channel, semantic action, template intent, locale, body |
 | Policy snapshot | `sourcePolicyVersion`, the snapshot the operator submitted against |
-| Consent revision | the contact policy version recorded by the latest WhatsApp consent change for the contact (`customer_consent_history.policy_version`). Every consent change advances the customer's contact policy version by compare-and-set, so the value strictly increases; a timestamp is not used because two changes can share one at database precision |
+| Consent revision | the contact policy version (`customer_consent_history.policy_version`) of the history row that started the contact's current WhatsApp `GRANTED` run: the first `GRANTED` row after the latest non-`GRANTED` row, or the first row when consent was never withdrawn. Every consent change advances the version by compare-and-set, so a revocation followed by a re-grant always yields a new value, and re-saving `GRANTED` over `GRANTED` does not void approvals. A timestamp is not used because two changes can share one at database precision |
 | Template mapping | mapping version, provider template name, language, parameter count, then each parameter name in order |
 | Parameter values | the exact ordered values the provider will receive, one per parameter name |
 | Sender identity | integration id, `phoneNumberId`, `businessAccountId` |
@@ -108,7 +108,8 @@ How each kind of change is handled:
 | --- | --- |
 | Edit the text | Cancel and resubmit (bodies are immutable, ADR 0023 §2). |
 | Consent revoked | Step 6 refuses the send with `NO_CONTACT_CONSENT`. |
-| Consent revoked and later granted again | Still voids the approval, because the consent revision increased. |
+| Consent revoked and later granted again | Still voids the approval, because the re-grant starts a new `GRANTED` run with a higher revision. |
+| Consent re-saved as `GRANTED` while already `GRANTED` | Does not void the approval. |
 | Template mapping edited | Voids the approval through the mapping version. |
 | A parameter value would render differently (for example, the customer name or product changed) | Voids the approval through the parameter values. |
 | Integration moved to another number or account | Voids the approval through the sender identity. |
@@ -122,8 +123,8 @@ How each kind of change is handled:
 | `OutboundSafetyControl.configuredSender(TenantId) -> Optional<SenderRevision>` | `messaging.application`, implemented by `integration` | T2 fingerprint | Returns the configured sender regardless of kill switches and the enabled flag; empty only when no integration exists, which refuses T2 with `INTEGRATION_DISABLED`. |
 | `OutboundSafetyControl.evaluate(TenantId) -> Permitted(SenderRevision) \| Blocked(code)` | `messaging.application`, implemented by `integration` | send policy steps 3 and 4, plus the T6 fingerprint sender identity | Read at send time, never cached. `Blocked` admits only `OUTBOUND_DISABLED_GLOBALLY`, `OUTBOUND_DISABLED_FOR_TENANT` and `INTEGRATION_DISABLED`. Missing configuration throws. |
 | `TemplateMappingResolver.resolve(SemanticTemplateIntent) -> Resolved \| NotMapped \| Disabled` | `template.application` | submit, approve, send and dispatch | Only `Resolved` continues; it carries the mapping version for the fingerprint. It supersedes `TemplateMappingGate` and its stub when [#135](https://github.com/stevdrey/dokene/issues/135) lands. |
-| `IntegrationSecretResolver.resolve(SecretReference) -> ResolvedSecret` | `integration.application` | the Meta adapter and webhook verifier only | An unresolvable reference throws; there is no default or empty secret. `ResolvedSecret` is `AutoCloseable`: consumers read it only through `withValue(callback)`, which hands out a copy and zero-fills that copy when the callback returns or throws; `close()` wipes the held array. `toString` is redacted, and the secret never leaves `integration`. |
-| `VerifiedWebhookEvent(provider, providerEventId, tenantId, DeliveryStatusReport)` | `integration.application` | webhook boundary | Built only after the HMAC check on the raw bytes, schema validation, tenant lookup by the stored `phoneNumberId` and dedup on `(provider, providerEventId)`. |
+| `IntegrationSecretResolver.resolve(SecretScope, SecretReference) -> ResolvedSecret` | `integration.application` | the Meta adapter and webhook verifier only | A reference is a bare key (`^[A-Za-z0-9_-]{1,128}$`: no scheme, path or separator) resolved only inside its scope. A reference stored in tenant integration configuration is resolved with `Tenant(tenantId)` and is confined to that tenant's namespace, so a tenant can never name a deployment secret or another tenant's secret. `Deployment` is used only for references read from configuration properties (verify token, app secret). An unresolvable reference throws; there is no default or empty secret. `ResolvedSecret` takes ownership of the caller's buffer (wiping it), is `AutoCloseable` and thread-safe, and is read only through `withValue(callback)`, which zero-fills the handed-out copy. The callback passes the characters straight to the consuming API and builds a `String` only when that API accepts nothing else, keeping it local to the call. `toString` is redacted, and the secret never leaves `integration`. |
+| `VerifiedWebhookEvent(provider, providerEventId, tenantId, DeliveryStatusReport)` | `integration.application` | webhook boundary | Built only after the HMAC check on the raw bytes, schema validation, tenant lookup by the stored `phoneNumberId` and dedup on `(provider, providerEventId)`. Only classes in `integration.whatsapp.webhook` (any `..integration..webhook..` package) may call its constructor; `ModuleDependencyArchitectureTest` enforces this with a negative-proof fixture. |
 | `VerifiedWebhookEventHandler.handle(VerifiedWebhookEvent)` | `integration.application` | webhook parsers | The only path from a provider event to `DeliveryStatusSink`. Outside `messaging`, only implementations of this handler may depend on the sink; `ModuleDependencyArchitectureTest` enforces this, with a negative-proof fixture. |
 
 Credentials, secret values and raw provider JSON never enter `messaging` types, HTTP DTOs, audit metadata or logs. `messaging` never depends on `integration`, and `template` depends on neither. Both rules are enforced in `ModuleDependencyArchitectureTest`.

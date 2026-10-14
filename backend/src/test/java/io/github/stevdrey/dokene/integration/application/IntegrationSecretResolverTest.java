@@ -1,5 +1,5 @@
-// ABOUTME: Proves secret material is wiped after scoped use and after close, and never printed (ADR 0024 §3).
-// ABOUTME: Also pins the opaque secret reference grammar.
+// ABOUTME: Proves secret material is owned, wiped after scoped use and after close, and never printed (ADR 0024 §3).
+// ABOUTME: Also pins the bare-key reference grammar and the tenant and deployment scopes.
 package io.github.stevdrey.dokene.integration.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -7,21 +7,38 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class IntegrationSecretResolverTest {
+    private static final char[] EXPECTED = "s3cr3t".toCharArray();
+
+    @Test
+    void takesOwnershipOfTheCallersBuffer() {
+        char[] input = "s3cr3t".toCharArray();
+
+        var secret = new ResolvedSecret(input);
+
+        assertThat(input).containsOnly('\0');
+        boolean matches = secret.withValue(buffer -> Arrays.equals(buffer, EXPECTED));
+        assertThat(matches).isTrue();
+    }
+
     @Test
     void theBufferHandedToTheCallbackIsWipedOnReturn() {
         var secret = new ResolvedSecret("s3cr3t".toCharArray());
         var seen = new AtomicReference<char[]>();
 
-        String result = secret.withValue(buffer -> {
+        boolean matches = secret.withValue(buffer -> {
             seen.set(buffer);
-            return new String(buffer);
+            return Arrays.equals(buffer, EXPECTED);
         });
 
-        assertThat(result).isEqualTo("s3cr3t");
+        assertThat(matches).isTrue();
         assertThat(seen.get()).containsOnly('\0');
     }
 
@@ -41,12 +58,11 @@ class IntegrationSecretResolverTest {
     @Test
     void closeWipesTheSecretAndRefusesFurtherUse() {
         var secret = new ResolvedSecret("s3cr3t".toCharArray());
-        String value = secret.withValue(String::new);
-        assertThat(value).isEqualTo("s3cr3t");
 
         secret.close();
 
-        assertThatThrownBy(() -> secret.withValue(String::new)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> secret.withValue(buffer -> buffer.length))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -56,11 +72,22 @@ class IntegrationSecretResolverTest {
     }
 
     @Test
-    void secretReferencesAreOpaqueKeysOnly() {
-        assertThat(new SecretReference("env:DOKENE_WHATSAPP_APP_SECRET").value())
-                .isEqualTo("env:DOKENE_WHATSAPP_APP_SECRET");
-        assertThatThrownBy(() -> new SecretReference("")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new SecretReference("has spaces")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new SecretReference("x".repeat(257))).isInstanceOf(IllegalArgumentException.class);
+    void referencesAreBareKeys() {
+        assertThat(new SecretReference("whatsapp_access-token").value()).isEqualTo("whatsapp_access-token");
+        assertThat(new SecretReference("x".repeat(128)).value()).hasSize(128);
+    }
+
+    /** A tenant-supplied key must not name a scheme, path or another namespace. */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "has spaces", "env:DOKENE_DATASOURCE_PASSWORD", "../other-tenant/token",
+            "tenants/other/token", "token.v2", "secret-manager://prod/app"})
+    void rejectsReferencesThatCouldEscapeTheirScope(String value) {
+        assertThatThrownBy(() -> new SecretReference(value)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SecretReference("x".repeat(129))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void tenantScopeRequiresATenant() {
+        assertThatThrownBy(() -> new Tenant(null)).isInstanceOf(NullPointerException.class);
     }
 }

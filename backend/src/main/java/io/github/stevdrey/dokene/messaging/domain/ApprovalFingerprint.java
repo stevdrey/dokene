@@ -38,8 +38,9 @@ public record ApprovalFingerprint(String value) {
      * receives; the send command carries the values of the binding whose fingerprint just matched. The message
      * version, kill switches and the follow-up policy version are deliberately absent: they are re-checked live by
      * the send policy and must not void approvals on their own. {@code consentRevision} is the contact policy
-     * version recorded by the latest WhatsApp consent change for the contact; it strictly increases on every change,
-     * so a revocation followed by a re-grant always yields a new value, unlike a timestamp.
+     * version of the consent history row that started the contact's current WhatsApp GRANTED run (the first GRANTED
+     * row after the latest non-GRANTED row). A revocation followed by a re-grant always yields a new value, unlike a
+     * timestamp, while re-saving GRANTED over GRANTED does not void approvals.
      */
     public record Binding(UUID tenantId, UUID messageId, UUID customerId, UUID contactId, String recipientPhone,
             MessageChannel channel, SemanticAction action, SemanticTemplateIntent templateIntent, String locale,
@@ -102,9 +103,18 @@ public record ApprovalFingerprint(String value) {
     /** The template mapping revision the approval was given against. */
     public record TemplateRevision(long version, String providerTemplateName, String language,
             List<String> parameterNames) {
+        /** Meta's naming grammar, mirrored from the template port because this package cannot depend on it. */
+        private static final Pattern PROVIDER_TEMPLATE_NAME = Pattern.compile("^[a-z0-9_]{1,512}$");
+
         public TemplateRevision {
             Objects.requireNonNull(providerTemplateName, "Provider template name is required");
             Objects.requireNonNull(language, "Template language is required");
+            if (!PROVIDER_TEMPLATE_NAME.matcher(providerTemplateName).matches()) {
+                throw new IllegalArgumentException("Provider template name is malformed");
+            }
+            if (language.isBlank()) {
+                throw new IllegalArgumentException("Template language is required");
+            }
             parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "Parameter names are required"));
             if (version < 0) {
                 throw new IllegalArgumentException("Template mapping version cannot be negative");
