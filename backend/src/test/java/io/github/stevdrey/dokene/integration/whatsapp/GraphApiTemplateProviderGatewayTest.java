@@ -115,7 +115,7 @@ class GraphApiTemplateProviderGatewayTest {
         when(resolver.resolve(any(), any())).thenAnswer(call -> new ResolvedSecret("EAAG-secret".toCharArray()));
         gateway = new GraphApiTemplateProviderGateway(integrations, secrets, contexts, new GraphApiProperties(
                 URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v23.0"),
-                Duration.ofMillis(500)));
+                Duration.ofMillis(500), java.util.List.of()));
     }
 
     @AfterEach
