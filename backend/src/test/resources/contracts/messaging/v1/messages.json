@@ -1,0 +1,765 @@
+{
+  "details": {
+    "pendingApproval": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000001",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "PENDING_APPROVAL",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": null,
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:00:00Z",
+      "version": 1
+    },
+    "approved": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000002",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "APPROVED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:05:00Z",
+      "version": 2
+    },
+    "approvedContactRemoved": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000003",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": true,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "APPROVED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:05:00Z",
+      "version": 2
+    },
+    "rejected": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000004",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "REJECTED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "REJECT",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:05:00Z",
+      "version": 2
+    },
+    "cancelled": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000005",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "CANCELLED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": null,
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:06:00Z",
+      "version": 2
+    },
+    "queued": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000006",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "QUEUED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:10:00Z",
+      "version": 3
+    },
+    "sendingOutcomeUnknown": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000007",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "SENDING",
+      "outcomeUnknown": true,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "OUTCOME_UNKNOWN",
+          "failureCategory": null
+        }
+      ],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:10:00Z",
+      "version": 5
+    },
+    "sent": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000008",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "SENT",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "ACCEPTED",
+          "failureCategory": null
+        }
+      ],
+      "providerMessageId": "wamid.SYNTHETIC-0001",
+      "sentAt": "2026-10-13T15:10:00Z",
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:10:00Z",
+      "version": 5
+    },
+    "delivered": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000009",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "DELIVERED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "ACCEPTED",
+          "failureCategory": null
+        }
+      ],
+      "providerMessageId": "wamid.SYNTHETIC-0001",
+      "sentAt": "2026-10-13T15:10:00Z",
+      "deliveredAt": "2026-10-13T15:11:00Z",
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:12:00Z",
+      "version": 7
+    },
+    "read": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000010",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "READ",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "ACCEPTED",
+          "failureCategory": null
+        }
+      ],
+      "providerMessageId": "wamid.SYNTHETIC-0001",
+      "sentAt": "2026-10-13T15:10:00Z",
+      "deliveredAt": "2026-10-13T15:11:00Z",
+      "readAt": "2026-10-13T15:12:00Z",
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:12:00Z",
+      "version": 7
+    },
+    "failedPermanently": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000011",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "FAILED",
+      "outcomeUnknown": false,
+      "failureCategory": "INVALID_RECIPIENT",
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "FAILED_PERMANENT",
+          "failureCategory": "INVALID_RECIPIENT"
+        }
+      ],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:10:00Z",
+      "version": 5
+    },
+    "approvedAfterTransientFailure": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000012",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "APPROVED",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "FAILED_TRANSIENT",
+          "failureCategory": "RATE_LIMITED"
+        }
+      ],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:10:00Z",
+      "version": 5
+    },
+    "failedByWebhook": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000013",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "FAILED",
+      "outcomeUnknown": false,
+      "failureCategory": "POLICY_VIOLATION",
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "ACCEPTED",
+          "failureCategory": null
+        }
+      ],
+      "providerMessageId": "wamid.SYNTHETIC-0001",
+      "sentAt": "2026-10-13T15:10:00Z",
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:11:00Z",
+      "version": 6
+    },
+    "failedByResolution": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000014",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "FAILED",
+      "outcomeUnknown": false,
+      "failureCategory": "UNKNOWN",
+      "action": "REPEAT_PURCHASE_FOLLOW_UP",
+      "templateIntent": "REPEAT_PURCHASE",
+      "locale": "es-419",
+      "origin": "AI_DRAFT",
+      "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "sourcePolicyVersion": 7,
+      "approval": {
+        "decision": "APPROVE",
+        "decidedAt": "2026-10-13T15:05:00Z",
+        "decidedByMembershipId": "7a5c0000-0000-4000-8000-0000000a0002"
+      },
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-10-13T15:10:00Z",
+          "outcome": "OUTCOME_UNKNOWN",
+          "failureCategory": null
+        }
+      ],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:20:00Z",
+      "version": 6
+    }
+  },
+  "pages": {
+    "firstPage": {
+      "items": [
+        {
+          "messageId": "7a5c0000-0000-4000-8000-000000000003",
+          "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+          "contactRemoved": true,
+          "status": "APPROVED",
+          "outcomeUnknown": false,
+          "action": "REPEAT_PURCHASE_FOLLOW_UP",
+          "templateIntent": "REPEAT_PURCHASE",
+          "origin": "AI_DRAFT",
+          "createdAt": "2026-10-13T15:00:00Z",
+          "updatedAt": "2026-10-13T15:05:00Z",
+          "version": 2
+        },
+        {
+          "messageId": "7a5c0000-0000-4000-8000-000000000001",
+          "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+          "contactRemoved": false,
+          "status": "PENDING_APPROVAL",
+          "outcomeUnknown": false,
+          "action": "REPEAT_PURCHASE_FOLLOW_UP",
+          "templateIntent": "REPEAT_PURCHASE",
+          "origin": "AI_DRAFT",
+          "createdAt": "2026-10-13T15:00:00Z",
+          "updatedAt": "2026-10-13T15:00:00Z",
+          "version": 1
+        }
+      ],
+      "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTEzVDE1OjAwOjAwWiJ9"
+    },
+    "lastPage": {
+      "items": [],
+      "nextCursor": null
+    }
+  },
+  "events": {
+    "acceptedDeliveredThenStaleReport": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000009",
+      "events": [
+        {
+          "sequenceNumber": 1,
+          "type": "SUBMITTED",
+          "statusFrom": null,
+          "statusTo": "PENDING_APPROVAL",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:00:00Z"
+        },
+        {
+          "sequenceNumber": 2,
+          "type": "APPROVED",
+          "statusFrom": "PENDING_APPROVAL",
+          "statusTo": "APPROVED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:05:00Z"
+        },
+        {
+          "sequenceNumber": 3,
+          "type": "SEND_REQUESTED",
+          "statusFrom": "APPROVED",
+          "statusTo": "QUEUED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 4,
+          "type": "SEND_ATTEMPT_STARTED",
+          "statusFrom": "QUEUED",
+          "statusTo": "SENDING",
+          "applied": true,
+          "actorKind": "SYSTEM",
+          "failureCategory": null,
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 5,
+          "type": "SENT",
+          "statusFrom": "SENDING",
+          "statusTo": "SENT",
+          "applied": true,
+          "actorKind": "SYSTEM",
+          "failureCategory": null,
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 6,
+          "type": "DELIVERY_UPDATED",
+          "statusFrom": "SENT",
+          "statusTo": "DELIVERED",
+          "applied": true,
+          "actorKind": "PROVIDER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:11:00Z"
+        },
+        {
+          "sequenceNumber": 7,
+          "type": "DELIVERY_UPDATED",
+          "statusFrom": "DELIVERED",
+          "statusTo": "DELIVERED",
+          "applied": false,
+          "actorKind": "PROVIDER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:12:00Z"
+        }
+      ]
+    },
+    "outcomeUnknownResolvedFailed": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000014",
+      "events": [
+        {
+          "sequenceNumber": 1,
+          "type": "SUBMITTED",
+          "statusFrom": null,
+          "statusTo": "PENDING_APPROVAL",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:00:00Z"
+        },
+        {
+          "sequenceNumber": 2,
+          "type": "APPROVED",
+          "statusFrom": "PENDING_APPROVAL",
+          "statusTo": "APPROVED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:05:00Z"
+        },
+        {
+          "sequenceNumber": 3,
+          "type": "SEND_REQUESTED",
+          "statusFrom": "APPROVED",
+          "statusTo": "QUEUED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 4,
+          "type": "SEND_ATTEMPT_STARTED",
+          "statusFrom": "QUEUED",
+          "statusTo": "SENDING",
+          "applied": true,
+          "actorKind": "SYSTEM",
+          "failureCategory": null,
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 5,
+          "type": "SEND_OUTCOME_UNKNOWN",
+          "statusFrom": "SENDING",
+          "statusTo": "SENDING",
+          "applied": true,
+          "actorKind": "SYSTEM",
+          "failureCategory": null,
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 6,
+          "type": "SEND_FAILED",
+          "statusFrom": "SENDING",
+          "statusTo": "FAILED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": "UNKNOWN",
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:20:00Z"
+        }
+      ]
+    },
+    "transientFailureBackToApproved": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000012",
+      "events": [
+        {
+          "sequenceNumber": 1,
+          "type": "SUBMITTED",
+          "statusFrom": null,
+          "statusTo": "PENDING_APPROVAL",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:00:00Z"
+        },
+        {
+          "sequenceNumber": 2,
+          "type": "APPROVED",
+          "statusFrom": "PENDING_APPROVAL",
+          "statusTo": "APPROVED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:05:00Z"
+        },
+        {
+          "sequenceNumber": 3,
+          "type": "SEND_REQUESTED",
+          "statusFrom": "APPROVED",
+          "statusTo": "QUEUED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 4,
+          "type": "SEND_ATTEMPT_STARTED",
+          "statusFrom": "QUEUED",
+          "statusTo": "SENDING",
+          "applied": true,
+          "actorKind": "SYSTEM",
+          "failureCategory": null,
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        },
+        {
+          "sequenceNumber": 5,
+          "type": "SEND_FAILED",
+          "statusFrom": "SENDING",
+          "statusTo": "APPROVED",
+          "applied": true,
+          "actorKind": "SYSTEM",
+          "failureCategory": "RATE_LIMITED",
+          "attemptNumber": 1,
+          "occurredAt": "2026-10-13T15:10:00Z"
+        }
+      ]
+    },
+    "rejected": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000004",
+      "events": [
+        {
+          "sequenceNumber": 1,
+          "type": "SUBMITTED",
+          "statusFrom": null,
+          "statusTo": "PENDING_APPROVAL",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:00:00Z"
+        },
+        {
+          "sequenceNumber": 2,
+          "type": "REJECTED",
+          "statusFrom": "PENDING_APPROVAL",
+          "statusTo": "REJECTED",
+          "applied": true,
+          "actorKind": "MEMBER",
+          "failureCategory": null,
+          "attemptNumber": null,
+          "occurredAt": "2026-10-13T15:05:00Z"
+        }
+      ]
+    }
+  }
+}
