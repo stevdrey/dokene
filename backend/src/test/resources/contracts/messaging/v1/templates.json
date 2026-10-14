@@ -1,0 +1,104 @@
+{
+  "request": {
+    "valid": {
+      "withParameters": {
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "parameterNames": ["customer_name", "product"],
+        "enabled": true
+      },
+      "disabledWithoutParameters": {
+        "providerTemplateName": "synthetic_general_follow_up",
+        "language": "es",
+        "parameterNames": [],
+        "enabled": false
+      }
+    },
+    "invalid": {
+      "missingParameterNames": {
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "enabled": true
+      },
+      "missingEnabled": {
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "parameterNames": []
+      },
+      "providerTemplateIdSmuggled": {
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "parameterNames": [],
+        "enabled": true,
+        "providerTemplateId": "1259544702043867"
+      },
+      "approvalStatusSmuggled": {
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "parameterNames": [],
+        "enabled": true,
+        "approvalStatus": "APPROVED"
+      }
+    }
+  },
+  "response": {
+    "valid": {
+      "approvedAndSendable": {
+        "templateIntent": "REPEAT_PURCHASE",
+        "mapped": true,
+        "enabled": true,
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "parameterNames": ["customer_name", "product"],
+        "approvalStatus": "APPROVED",
+        "approvalCheckedAt": "2026-10-13T12:00:00Z",
+        "sendable": true,
+        "version": 2
+      },
+      "mappedButUnverified": {
+        "templateIntent": "RELATED_PRODUCT",
+        "mapped": true,
+        "enabled": true,
+        "providerTemplateName": "synthetic_related_product",
+        "language": "es",
+        "parameterNames": [],
+        "approvalStatus": "UNVERIFIED",
+        "approvalCheckedAt": null,
+        "sendable": false,
+        "version": 0
+      },
+      "unmapped": {
+        "templateIntent": "SEASONAL_EVENT",
+        "mapped": false,
+        "enabled": false,
+        "providerTemplateName": null,
+        "language": null,
+        "parameterNames": [],
+        "approvalStatus": "UNVERIFIED",
+        "approvalCheckedAt": null,
+        "sendable": false,
+        "version": null
+      }
+    }
+  },
+  "list": {
+    "valid": {
+      "oneSlotPerIntent": {
+        "items": [
+          {
+            "templateIntent": "GENERAL_FOLLOW_UP",
+            "mapped": false,
+            "enabled": false,
+            "providerTemplateName": null,
+            "language": null,
+            "parameterNames": [],
+            "approvalStatus": "UNVERIFIED",
+            "approvalCheckedAt": null,
+            "sendable": false,
+            "version": null
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+/* Keep customer-entered text readable inside responsive profile cards. */
+.customer-profile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.customer-profile__identity,
+.customer-profile__grid > *,
+.customer-profile__wrapping-row > *,
+.customer-profile__name,
+.customer-profile__notes {
+  min-width: 0;
+}
+
+.customer-profile__identity {
+  flex: 1 1 20rem;
+}
+
+.customer-profile__wrapping-row,
+.customer-purchase__row {
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.customer-profile__name,
+.customer-profile__notes,
+.customer-profile__purchase-description,
+.customer-profile__business-status,
+.customer-purchase__description {
+  overflow-wrap: anywhere;
+}
+
+.customer-purchase__content {
+  flex: 1 1 12rem;
+}
+
+.customer-purchase__description {
+  min-width: 0;
+}

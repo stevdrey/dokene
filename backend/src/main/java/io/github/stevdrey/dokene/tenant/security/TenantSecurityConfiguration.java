@@ -85,7 +85,7 @@ class TenantSecurityConfiguration {
                 .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-                "Content-Type", "Idempotency-Key", "If-Match", "X-CSRF-TOKEN", "X-Tenant-Id"
+                "Content-Type", "Idempotency-Key", "If-Match", "If-None-Match", "X-CSRF-TOKEN", "X-Tenant-Id"
         ));
         // X-Request-Id is the server-generated correlation id; the SPA needs it to report problems to support.
         configuration.setExposedHeaders(List.of("ETag", "X-Request-Id"));

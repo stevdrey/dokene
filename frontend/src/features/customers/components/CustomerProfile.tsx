@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import './CustomerLayout.css';
 import { CustomerResponse, PurchaseResponse, EligibilityResponse } from '@/features/customers/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { Button } from '@/shared/components/Button';
@@ -248,9 +249,9 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
   const primaryPhone = customer.phones.find((p) => p.primary) || customer.phones[0];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-24)', paddingBottom: 'var(--space-32)' }}>
+    <div className="customer-profile" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-24)', paddingBottom: 'var(--space-32)' }}>
       {/* Top Navigation Bridge */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="customer-profile__wrapping-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Button variant="ghost" onClick={onBack} style={{ paddingLeft: 0 }}>
           <ArrowBackIcon size={18} />
           <span>Volver a Clientes</span>
@@ -277,9 +278,10 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
           gap: 'var(--space-16)'
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+        <div className="customer-profile__identity" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-12)', flexWrap: 'wrap' }}>
             <h1
+              className="customer-profile__name"
               style={{
                 fontSize: 'var(--font-size-page-heading)',
                 lineHeight: 'var(--line-height-page-heading)',
@@ -314,13 +316,13 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
             {customer.notes && (
               <>
                 <span>•</span>
-                <span>{customer.notes}</span>
+                <span className="customer-profile__notes">{customer.notes}</span>
               </>
             )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-8)' }}>
+        <div className="customer-profile__wrapping-row" style={{ display: 'flex', gap: 'var(--space-8)' }}>
           {!isArchived && canWrite && (
             <Button variant="secondary" onClick={() => setIsEditModalOpen(true)}>
               <EditIcon size={18} />
@@ -343,6 +345,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
 
       {/* Two-Column Responsive Grid */}
       <div
+        className="customer-profile__grid"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))',
@@ -363,6 +366,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
             }}
           >
             <div
+              className="customer-profile__wrapping-row"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -393,7 +397,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))',
                 gap: 'var(--space-16)'
               }}
             >
@@ -426,7 +430,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
                     <div style={{ fontSize: 'var(--font-size-section-heading)', fontWeight: 600, color: 'var(--color-text-main)' }}>
                       {formatDate(lastPurchase.purchasedAt)}
                     </div>
-                    <div style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginTop: '4px' }}>
+                    <div className="customer-profile__purchase-description" style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginTop: '4px' }}>
                       {lastPurchase.description}
                     </div>
                   </>
@@ -550,7 +554,7 @@ export function CustomerProfile({ customerId, onBack }: CustomerProfileProps) {
             >
               Estado en el negocio
             </h2>
-            <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginBottom: 'var(--space-16)' }}>
+            <p className="customer-profile__business-status" style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginBottom: 'var(--space-16)' }}>
               {isArchived
                 ? 'Este cliente se encuentra archivado. Sus registros históricos se mantienen resguardados con fines de auditoría y consultas contables.'
                 : `${customer.displayName} forma parte de la cartera activa de clientes.`}

@@ -16,8 +16,8 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // The header test reads the nginx snippets (?raw); allow exactly that folder besides the project root.
-    fs: { allow: ['.', '../infra/docker/frontend'] },
+    // The header and contract tests read the nginx snippets and the shared messaging fixtures (?raw); allow exactly those folders.
+    fs: { allow: ['.', '../infra/docker/frontend', '../backend/src/test/resources/contracts'] },
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

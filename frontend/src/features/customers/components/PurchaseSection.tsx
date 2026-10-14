@@ -1,3 +1,4 @@
+import './CustomerLayout.css';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PurchaseResponse, PurchaseEventResponse } from '@/features/customers/types';
 import { customerApi } from '@/features/customers/api/customerApi';
@@ -438,6 +439,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
             return (
               <div
                 key={purchase.id}
+                className="customer-purchase__row"
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -449,7 +451,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
                   opacity: isVoid ? 0.75 : 1
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-12)', minWidth: 0 }}>
+                <div className="customer-purchase__content" style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-12)', minWidth: 0 }}>
                   <div
                     style={{
                       width: '36px',
@@ -468,6 +470,7 @@ export function PurchaseSection({ customerId, isArchived, canWrite = true, onPur
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flexWrap: 'wrap' }}>
                       <span
+                        className="customer-purchase__description"
                         style={{
                           fontWeight: 600,
                           fontSize: 'var(--font-size-dense)',

@@ -18,6 +18,15 @@ An initial adapter can integrate with Meta WhatsApp Cloud API. Future adapters m
 
 The provider abstraction should expose application-level semantics, not leak arbitrary provider JSON into the domain.
 
+### Frozen Phase 3 contracts
+
+[ADR 0024](../adr/0024-phase-3-messaging-contract-freeze.md) freezes the v1 messaging contract that both Phase 3 tracks build against:
+
+- HTTP records in `messaging.api.MessagingApiContract`, mirrored by `frontend/src/features/messages/types`;
+- synthetic fixtures in `backend/src/test/resources/contracts/messaging/v1/`, checked by `MessagingContractFixturesTest` (backend) and `contractFixtures.test.ts` (frontend), so an incompatible change fails both workflows;
+- ports with fail-closed rules: `OutboundSafetyControl` (kill switches, integration enabled, sender identity), `TemplateMappingResolver`, `IntegrationSecretResolver` (secrets never leave `integration`) and `VerifiedWebhookEvent`;
+- the approval fingerprint (`approval/v2`): an approval binds recipient, content, template mapping revision, exact parameter values, sending identity and consent revision; if any of them changes before send, the send is refused with `APPROVAL_INVALIDATED` and the operator cancels and resubmits.
+
 ## Message lifecycle
 
 The message state machine is durable and explicit. [ADR 0023](../adr/0023-phase-3-outbound-messaging-contracts.md) fixes the states and the sixteen transitions; `OutboundMessage` in `backend/src/main/java/io/github/stevdrey/dokene/messaging/domain` is the only place a status changes.
@@ -96,6 +105,8 @@ DORMANT_CUSTOMER
 
 Application code maps allowed semantic templates to tenant/provider template configuration.
 
+The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dispatch-policy.md)) stores one mapping per semantic intent and tenant: provider template name, language, ordered parameter names and an `enabled` flag, behind `GET /api/templates`, `PUT /api/templates/{templateIntent}` and `POST /api/templates/{templateIntent}/approval-refresh`. Approval is provider evidence, never operator input: the refresh asks (from #135 on; until then a fail-closed gateway reports nothing) Meta's Graph API with the tenant's own credential and records the status, check time, business account and mapping revision. A mapping is sendable only when it is enabled, `APPROVED` for its current revision and business account, and the evidence is younger than `dokene.template.approval-max-age` (24 hours by default). Editing a mapping drops the evidence and voids open approvals; a failed refresh drops it too. Phase 3 never sends free-form text: with no trusted customer-service-window evidence it sends only a verified template.
+
 The AI must not invent provider template IDs.
 
 ## Webhooks
@@ -127,6 +138,26 @@ An integration record may contain non-secret metadata such as:
 - creation/update timestamps.
 
 Reusable credentials should live in a secret store or secret-management abstraction, not in ordinary plaintext application columns.
+
+### WhatsApp integration API (V20, issue 134)
+
+`tenant_messaging_integrations` holds one `META_WHATSAPP` record per tenant under forced row level security (runtime grants `SELECT, INSERT, UPDATE`). The Meta `phone_number_id` and `business_account_id` are numeric identifiers and are stored apart from the optional human `display_phone_number` (E.164). `(provider, phone_number_id)` is globally unique, because webhooks resolve the tenant from it.
+
+| Route | Permission | Behaviour |
+| --- | --- | --- |
+| `GET /api/integrations/whatsapp` | `INTEGRATION_READ` (all roles) | Returns `enabled`, `outboundEnabled`, the identifiers, `displayPhoneNumber`, `secretRef`, `webhookVerified` and `version` with a strong `ETag`; `404 NOT_FOUND` when none exists. `outboundEnabled` (tenant kill switch, #144) and `webhookVerified` (#139) are fixed to `false`, fail closed, until those features persist their state. |
+| `PUT /api/integrations/whatsapp` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Exactly one precondition is required, else `400`: `If-None-Match: *` creates the record (`409 STALE_VERSION` if one already exists) and `If-Match: "<version>"` replaces it (stale `409 STALE_VERSION`). |
+| `POST /api/integrations/whatsapp/credential-rotations` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Records that the secret behind the unchanged `secretRef` was replaced in the store. Strong `If-Match`, no body; bumps `credential_revision` and the version and is audited; `404` when no integration exists. |
+
+- Tenant-selection failures (missing, duplicate or malformed `X-Tenant-Id`, no membership) are rejected by `TenantContextRequestFilter` before the controller and keep the framework's empty-body `400`/`403`, as ADR 0023 keeps the 401/403 semantics unchanged. Every failure after the tenant is resolved uses the closed problem+json shape.
+- Tenant and actor come from the verified context, never the body. Unknown or wrongly typed members, including any raw token, are rejected with `400 INVALID_INPUT`.
+- The body carries a `secretRef`, a bare key (`^[A-Za-z0-9_-]{1,128}$`). Only the reference is stored: it is resolved by `IntegrationSecretResolver` inside the provider adapter at send time (fail closed: unknown, missing or wrong-scope references block the send), never when configuration is written, so the write path needs no resolver. Secret values are never stored, returned, logged or audited, and nothing contacts Meta to validate them.
+- A phone number id already mapped by another tenant is refused with the same `400 INVALID_INPUT` as any malformed id, so the API never reads or names another tenant's record. Because the mapping is globally unique, an admin can still learn that a candidate id is unavailable; this is an accepted residual risk tracked in the threat model.
+- Rotating a secret in place (same `secretRef`): replace it in the store, then `POST /api/integrations/whatsapp/credential-rotations` with `If-Match` (no body). Changing `secretRef` bumps `credential_revision` too, which is part of the approval sender identity: open approvals then fail the send with `APPROVAL_INVALIDATED`. Enabling or disabling does not void approvals; the enabled flag is read live at send time.
+- The `ETag` is the configuration concurrency token (the stored `version`). `outboundEnabled` and `webhookVerified` are live runtime state, so `GET` and `PUT` send `Cache-Control: no-store` and never answer `304`.
+- Mapping ownership is **not verified** by this API: every stored mapping is unverified (`webhookVerified=false`) until #139 proves ownership. The webhook must not resolve tenants from unverified mappings and the send path must fail closed on `webhookVerified=false`; a squatted id is released out of band by a platform operator until verification-based reclaim exists (ADR 0024 addendum).
+- Each write appends `INTEGRATION_UPDATED` in the same transaction with the `enabled` flag only. If the audit append fails, the change rolls back.
+- The `OutboundSafetyControl` implementation that combines this record with the kill switches belongs to the kill switch work (#144).
 
 ## Meta identifiers
 

@@ -3,7 +3,9 @@
 .idea/
 *.iml
 .vscode/
-.codex/
+# Only the shared Codex hook definition is versioned; local Codex files stay ignored.
+.codex/*
+!.codex/hooks.json
 
 # Java / Gradle
 .gradle/

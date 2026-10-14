@@ -1,0 +1,118 @@
+{
+  "submit": {
+    "valid": {
+      "aiDraft": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+        "templateIntent": "REPEAT_PURCHASE",
+        "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+        "locale": "es-419",
+        "origin": "AI_DRAFT"
+      },
+      "manual": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "GENERAL_CHECK_IN",
+        "templateIntent": "GENERAL_FOLLOW_UP",
+        "body": "Hola Ana, ¿cómo te ha ido con tu compra?",
+        "locale": "es-419",
+        "origin": "MANUAL"
+      }
+    },
+    "invalid": {
+      "missingBody": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+        "templateIntent": "REPEAT_PURCHASE",
+        "locale": "es-419",
+        "origin": "MANUAL"
+      },
+      "unknownOrigin": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+        "templateIntent": "REPEAT_PURCHASE",
+        "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+        "locale": "es-419",
+        "origin": "AI_AUTONOMOUS"
+      },
+      "unknownMember": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+        "templateIntent": "REPEAT_PURCHASE",
+        "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+        "locale": "es-419",
+        "origin": "MANUAL",
+        "recipientPhone": "+50600000002"
+      },
+      "providerTemplateSmuggled": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "REPEAT_PURCHASE_FOLLOW_UP",
+        "templateIntent": "REPEAT_PURCHASE",
+        "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+        "locale": "es-419",
+        "origin": "MANUAL",
+        "providerTemplateName": "repeat_purchase_v2"
+      }
+    }
+  },
+  "approval": {
+    "valid": {
+      "approve": {
+        "decision": "APPROVE"
+      },
+      "rejectWithNote": {
+        "decision": "REJECT",
+        "note": "El tono no es adecuado."
+      }
+    },
+    "invalid": {
+      "missingDecision": {
+        "note": "Sin decisión"
+      },
+      "unknownDecision": {
+        "decision": "AUTO_APPROVE"
+      },
+      "noteTooLong": {
+        "decision": "REJECT",
+        "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  },
+  "cancellation": {
+    "valid": {
+      "empty": {},
+      "withNote": {
+        "note": "Cliente pidió no recibir mensajes esta semana."
+      }
+    },
+    "invalid": {
+      "noteTooLong": {
+        "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "unknownMember": {
+        "note": null,
+        "status": "CANCELLED"
+      }
+    }
+  },
+  "resolution": {
+    "valid": {
+      "failed": {
+        "outcome": "FAILED"
+      },
+      "failedWithNote": {
+        "outcome": "FAILED",
+        "note": "Sin evidencia de entrega del proveedor."
+      }
+    },
+    "invalid": {
+      "markedSent": {
+        "outcome": "SENT"
+      },
+      "missingOutcome": {},
+      "noteTooLong": {
+        "outcome": "FAILED",
+        "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}

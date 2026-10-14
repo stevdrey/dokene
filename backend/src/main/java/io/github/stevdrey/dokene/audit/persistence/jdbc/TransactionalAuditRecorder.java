@@ -105,6 +105,22 @@ class TransactionalAuditRecorder implements AuditRecorder {
     }
 
     @Override
+    public void integrationUpdated(UUID integrationId, boolean enabled) {
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.INTEGRATION_UPDATED,
+                new AuditTarget(AuditTarget.Type.INTEGRATION, integrationId), AuditOutcome.SUCCESS,
+                new AuditMetadata.IntegrationToggle(enabled)), mandatory);
+    }
+
+    @Override
+    public void templateMappingUpdated(UUID mappingId, boolean enabled) {
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.TEMPLATE_MAPPING_UPDATED,
+                new AuditTarget(AuditTarget.Type.TEMPLATE_MAPPING, mappingId), AuditOutcome.SUCCESS,
+                new AuditMetadata.IntegrationToggle(enabled)), mandatory);
+    }
+
+    @Override
     public void purchaseMutated(UUID target, AuditEventType eventType) {
         if (eventType != AuditEventType.PURCHASE_RECORDED && eventType != AuditEventType.PURCHASE_CORRECTED
                 && eventType != AuditEventType.PURCHASE_VOIDED) {
