@@ -78,9 +78,10 @@ class IntegrationContractFixturesTest {
         expected.put(IntegrationRequest.class, List.of("phoneNumberId: java.lang.String",
                 "businessAccountId: java.lang.String", "displayPhoneNumber: java.lang.String",
                 "enabled: java.lang.Boolean", "secretRef: java.lang.String"));
-        expected.put(IntegrationResponse.class, List.of("enabled: boolean", "phoneNumberId: java.lang.String",
-                "businessAccountId: java.lang.String", "displayPhoneNumber: java.lang.String",
-                "secretRef: java.lang.String", "version: long"));
+        expected.put(IntegrationResponse.class, List.of("enabled: boolean", "outboundEnabled: boolean",
+                "phoneNumberId: java.lang.String", "businessAccountId: java.lang.String",
+                "displayPhoneNumber: java.lang.String", "secretRef: java.lang.String", "webhookVerified: boolean",
+                "version: long"));
         assertThat(Arrays.stream(IntegrationApiContract.class.getDeclaredClasses()).filter(Class::isRecord).toList())
                 .containsExactlyInAnyOrderElementsOf(expected.keySet());
         expected.forEach((type, members) -> assertThat(Arrays.stream(type.getRecordComponents())

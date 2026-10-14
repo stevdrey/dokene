@@ -11,9 +11,11 @@ export interface IntegrationRequest {
 
 export interface IntegrationResponse {
   enabled: boolean;
+  outboundEnabled: boolean;
   phoneNumberId: string;
   businessAccountId: string;
   displayPhoneNumber: string | null;
   secretRef: string;
+  webhookVerified: boolean;
   version: number;
 }

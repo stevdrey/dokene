@@ -171,3 +171,10 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 ## Addendum (issue 134): credential revision in the sender identity
 
 `SenderRevision` gains `credentialRevision`, the count of secret reference changes for the integration (starts at 1; the reference itself is never hashed). Because the canonical encoding changes, the scheme label moves from `approval/v1` to `approval/v2`, as the label rule requires. Nothing had persisted a v1 fingerprint yet. Rotating the credential therefore voids open approvals, while toggling `enabled` still does not.
+
+## Addendum (issue 134): integration endpoint preconditions and filter-level rejections
+
+- `PUT /api/integrations/whatsapp` states exactly one precondition (ADR 0023 §4.1): `If-None-Match: *` to create, which fails with `409 STALE_VERSION` if the tenant already has an integration, or `If-Match: "<version>"` to replace. A missing, doubled or malformed precondition is `400 INVALID_INPUT`, so nothing is created or replaced unconditionally.
+- `outboundEnabled` and `webhookVerified` are part of the response from the start. They are fixed to `false` until the tenant kill switch (#144) and webhook verification (#139) own and persist that state.
+- Tenant-selection failures raised by `TenantContextRequestFilter` (missing, duplicate or malformed `X-Tenant-Id`, no membership) keep the framework's empty-body `400`/`403` before any controller advice runs, because ADR 0023 keeps those semantics unchanged and the filter is shared by every tenant-scoped endpoint. A shared problem+json responder for those rejections is follow-up work, also needed by the messages endpoints.
+

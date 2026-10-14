@@ -117,10 +117,12 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                 .andExpect(jsonPath("$.phoneNumberId").value(phoneId))
                 .andExpect(jsonPath("$.displayPhoneNumber").value("+50688887777"))
                 .andExpect(jsonPath("$.secretRef").value("wa-token-ok"))
+                .andExpect(jsonPath("$.outboundEnabled").value(false))
+                .andExpect(jsonPath("$.webhookVerified").value(false))
                 .andExpect(jsonPath("$.accessToken").doesNotExist());
 
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", false))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
         write(adminA, tenantA, "\"0\"", body(phoneId, "wa-token-ok", false))
                 .andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
                 .andExpect(jsonPath("$.enabled").value(false));
@@ -133,6 +135,28 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         }
         assertThat(auditCount(tenantA)).isEqualTo(2);
+    }
+
+    @Test
+    void requiresExactlyOnePreconditionToCreateOrReplace() throws Exception {
+        String json = body(phoneId, "wa-token-ok", true);
+        var put = put("/api/integrations/whatsapp").with(user(adminA)).with(csrf())
+                .header("X-Tenant-Id", tenantA.id().value()).contentType(MediaType.APPLICATION_JSON).content(json);
+        mvc.perform(put).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        mvc.perform(put("/api/integrations/whatsapp").with(user(adminA)).with(csrf())
+                        .header("X-Tenant-Id", tenantA.id().value()).header("If-Match", "\"0\"")
+                        .header("If-None-Match", "*").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isBadRequest());
+        for (String invalid : List.of("\"0\"", "W/\"*\"", "", "*, *")) {
+            mvc.perform(put("/api/integrations/whatsapp").with(user(adminA)).with(csrf())
+                            .header("X-Tenant-Id", tenantA.id().value()).header("If-None-Match", invalid)
+                            .contentType(MediaType.APPLICATION_JSON).content(json))
+                    .andExpect(status().isBadRequest());
+        }
+        read(adminA, tenantA).andExpect(status().isNotFound());
+        write(adminA, tenantA, null, json).andExpect(status().isOk());
+        write(adminA, tenantA, null, json).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_VERSION"));
     }
 
     @Test
@@ -233,6 +257,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                 .header("X-Tenant-Id", tenant.id().value()).contentType(MediaType.APPLICATION_JSON).content(json);
         if (ifMatch != null) {
             request.header("If-Match", ifMatch);
+        } else {
+            request.header("If-None-Match", "*"); // creation precondition
         }
         return mvc.perform(request);
     }

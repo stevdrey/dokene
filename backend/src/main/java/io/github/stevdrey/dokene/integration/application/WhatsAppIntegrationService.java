@@ -42,12 +42,21 @@ public class WhatsAppIntegrationService {
                 .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
     }
 
-    /**
-     * Creates the tenant's integration, or replaces it when {@code expectedVersion} matches. Absent record requires no
-     * version; an existing one requires one.
-     */
+    /** The caller's explicit precondition: create only when absent, or replace exactly this version. */
+    public sealed interface Precondition permits Create, Version {
+    }
+
+    /** {@code If-None-Match: *}: succeeds only while the tenant has no integration. */
+    public record Create() implements Precondition {
+    }
+
+    /** {@code If-Match: "<version>"}: succeeds only while the stored version equals this one. */
+    public record Version(long value) implements Precondition {
+    }
+
+    /** A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. */
     @Transactional
-    public WhatsAppIntegration upsert(Long expectedVersion, String phoneNumberId, String businessAccountId,
+    public WhatsAppIntegration upsert(Precondition precondition, String phoneNumberId, String businessAccountId,
             String displayPhoneNumber, boolean enabled, String secretRef) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
         TenantId tenantId = contexts.requireCurrent().tenantId();
@@ -55,7 +64,7 @@ public class WhatsAppIntegrationService {
         WhatsAppIntegration saved;
         try {
             if (existing.isEmpty()) {
-                if (expectedVersion != null) {
+                if (!(precondition instanceof Create)) {
                     throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
                 }
                 WhatsAppIntegration created = WhatsAppIntegration.create(tenantId, phoneNumberId, businessAccountId,
@@ -64,8 +73,8 @@ public class WhatsAppIntegrationService {
                 saved = created;
             } else {
                 WhatsAppIntegration current = existing.get();
-                if (expectedVersion == null) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
+                if (!(precondition instanceof Version(long expectedVersion))) {
+                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
                 }
                 if (current.version() != expectedVersion) {
                     throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);

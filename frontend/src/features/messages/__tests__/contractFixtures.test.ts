@@ -159,10 +159,12 @@ const integrationRequestShape: Shape<IntegrationRequest> = {
 };
 const integrationResponseShape: Shape<IntegrationResponse> = {
   enabled: bool,
+  outboundEnabled: bool,
   phoneNumberId: text,
   businessAccountId: text,
   displayPhoneNumber: { kind: 'string', nullable: true },
   secretRef: text,
+  webhookVerified: bool,
   version: integer
 };
 const requestShapes = {

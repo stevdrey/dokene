@@ -39,19 +39,33 @@
     "valid": {
       "enabledWithDisplayNumber": {
         "enabled": true,
+        "outboundEnabled": false,
         "phoneNumberId": "100000000000001",
         "businessAccountId": "200000000000001",
         "displayPhoneNumber": "+50600000011",
         "secretRef": "synthetic-wa-token",
+        "webhookVerified": false,
         "version": 3
       },
       "disabledWithoutDisplayNumber": {
         "enabled": false,
+        "outboundEnabled": false,
         "phoneNumberId": "100000000000001",
         "businessAccountId": "200000000000001",
         "displayPhoneNumber": null,
         "secretRef": "synthetic-wa-token",
+        "webhookVerified": false,
         "version": 0
+      },
+      "outboundAndWebhookReady": {
+        "enabled": true,
+        "outboundEnabled": true,
+        "phoneNumberId": "100000000000001",
+        "businessAccountId": "200000000000001",
+        "displayPhoneNumber": "+50600000011",
+        "secretRef": "synthetic-wa-token",
+        "webhookVerified": true,
+        "version": 3
       }
     }
   }

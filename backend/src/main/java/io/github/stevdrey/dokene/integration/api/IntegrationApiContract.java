@@ -53,7 +53,8 @@ public final class IntegrationApiContract {
     }
 
     /** Returned by {@code GET} and {@code PUT}; every member is always emitted, null included. */
-    public record IntegrationResponse(boolean enabled, String phoneNumberId, String businessAccountId,
-            String displayPhoneNumber, String secretRef, long version) {
+    public record IntegrationResponse(boolean enabled, boolean outboundEnabled, String phoneNumberId,
+            String businessAccountId, String displayPhoneNumber, String secretRef, boolean webhookVerified,
+            long version) {
     }
 }

@@ -143,9 +143,10 @@ Reusable credentials should live in a secret store or secret-management abstract
 
 | Route | Permission | Behaviour |
 | --- | --- | --- |
-| `GET /api/integrations/whatsapp` | `INTEGRATION_READ` (all roles) | Returns `enabled`, the identifiers, `displayPhoneNumber`, `secretRef` and `version` with a strong `ETag`; `404 NOT_FOUND` when none exists. |
-| `PUT /api/integrations/whatsapp` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Creates the record (no `If-Match`) or replaces it (`If-Match` required, else `400`; stale `409 STALE_VERSION`). |
+| `GET /api/integrations/whatsapp` | `INTEGRATION_READ` (all roles) | Returns `enabled`, `outboundEnabled`, the identifiers, `displayPhoneNumber`, `secretRef`, `webhookVerified` and `version` with a strong `ETag`; `404 NOT_FOUND` when none exists. `outboundEnabled` (tenant kill switch, #144) and `webhookVerified` (#139) are fixed to `false`, fail closed, until those features persist their state. |
+| `PUT /api/integrations/whatsapp` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Exactly one precondition is required, else `400`: `If-None-Match: *` creates the record (`409 STALE_VERSION` if one already exists) and `If-Match: "<version>"` replaces it (stale `409 STALE_VERSION`). |
 
+- Tenant-selection failures (missing, duplicate or malformed `X-Tenant-Id`, no membership) are rejected by `TenantContextRequestFilter` before the controller and keep the framework's empty-body `400`/`403`, as ADR 0023 keeps the 401/403 semantics unchanged. Every failure after the tenant is resolved uses the closed problem+json shape.
 - Tenant and actor come from the verified context, never the body. Unknown or wrongly typed members, including any raw token, are rejected with `400 INVALID_INPUT`.
 - The body carries a `secretRef`, a bare key (`^[A-Za-z0-9_-]{1,128}$`). Only the reference is stored: it is resolved by `IntegrationSecretResolver` inside the provider adapter at send time (fail closed: unknown, missing or wrong-scope references block the send), never when configuration is written, so the write path needs no resolver. Secret values are never stored, returned, logged or audited, and nothing contacts Meta to validate them.
 - A phone number id already mapped by another tenant is refused with the same `400 INVALID_INPUT` as any malformed id, so the API does not reveal whether another tenant has an integration.
