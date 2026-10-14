@@ -15,20 +15,24 @@ public final class TemplateParameterValues {
     }
 
     /**
-     * ISO control characters (C0, DEL, C1), the Unicode line and paragraph separators, and the invisible or
-     * direction-changing format characters that could disguise a value: bidi marks, embeddings, overrides and
-     * isolates, zero-width space, word joiner and the byte order mark. Zero-width (non-)joiners stay allowed because
-     * emoji sequences and several scripts need them.
+     * Refuses ISO control characters (C0, DEL, C1), the Unicode line and paragraph separators and, by default, every
+     * Unicode FORMAT character (soft hyphen, bidi controls, zero-width space, word joiner, byte order mark, the
+     * deprecated U+206A..U+206F and so on), since they hide or reorder what the customer reads. The exceptions are
+     * the ones real text needs: zero-width (non-)joiners for emoji sequences and several scripts, and the tag block
+     * U+E0020..U+E007F that subdivision-flag emoji are built from.
      */
     private static boolean forbidden(int codePoint) {
         return Character.isISOControl(codePoint) || Character.getType(codePoint) == Character.LINE_SEPARATOR
-                || Character.getType(codePoint) == Character.PARAGRAPH_SEPARATOR || isInvisibleFormat(codePoint);
+                || Character.getType(codePoint) == Character.PARAGRAPH_SEPARATOR || isDisallowedFormat(codePoint);
     }
 
-    private static boolean isInvisibleFormat(int codePoint) {
-        return codePoint == 0x061C || codePoint == 0x200B || codePoint == 0x200E || codePoint == 0x200F
-                || (codePoint >= 0x202A && codePoint <= 0x202E) || codePoint == 0x2060
-                || (codePoint >= 0x2066 && codePoint <= 0x2069) || codePoint == 0xFEFF;
+    private static boolean isDisallowedFormat(int codePoint) {
+        if (Character.getType(codePoint) != Character.FORMAT) {
+            return false;
+        }
+        boolean joiner = codePoint == 0x200C || codePoint == 0x200D;
+        boolean emojiTag = codePoint >= 0xE0020 && codePoint <= 0xE007F;
+        return !joiner && !emojiTag;
     }
 
     /** Returns the values unchanged when they fit the schema; otherwise throws without quoting any value. */

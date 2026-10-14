@@ -92,7 +92,8 @@ class TemplateMappingTest {
         for (List<String> invalid : List.of(List.of("Ana"), List.of("Ana", "Café", "extra"), List.of("Ana", ""),
                 List.of("Ana", "a\nb"), List.of("Ana", "a     b"),
                 List.of("Ana", "a\u202Eb"), List.of("Ana", "a\u200Bb"), List.of("Ana", "a\u200Eb"),
-                List.of("Ana", "a\u2066b"), List.of("Ana", "\uFEFFAna"), List.of("Ana", "a\u2060b"), List.of("Ana", "a\tb"),
+                List.of("Ana", "a\u2066b"), List.of("Ana", "a\u00ADb"), List.of("Ana", "a\u206Ab"),
+                List.of("Ana", "a\u206Fb"), List.of("Ana", "a\uD83D\uDC01\uDB40\uDC01b"), List.of("Ana", "\uFEFFAna"), List.of("Ana", "a\u2060b"), List.of("Ana", "a\tb"),
                 List.of("Ana", "a\u0085b"), List.of("Ana", "a\u009fb"), List.of("Ana", "a\u007fb"),
                 List.of("Ana", "a\u2028b"), List.of("Ana", "a\u2029b"),
                 List.of("Ana", "x".repeat(TemplateParameterValues.MAX_LENGTH + 1)))) {
@@ -102,6 +103,11 @@ class TemplateMappingTest {
         // Four spaces are allowed (Meta refuses more than four); ZWJ emoji sequences and ZWNJ stay valid.
         assertThat(TemplateParameterValues.validate(two, List.of("a    b", "\uD83D\uDC68\u200D\uD83D\uDC69")))
                 .hasSize(2);
+        // Legitimate text keeps working: ZWNJ in Persian, accented Spanish, and an England flag (emoji tag sequence).
+        assertThat(TemplateParameterValues.validate(two, List.of("\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645",
+                "Mar\u00EDa Jos\u00E9 Pe\u00F1a"))).hasSize(2);
+        assertThat(TemplateParameterValues.validate(two, List.of("\uD83C\uDFF4\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65"
+                + "\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F", "y"))).hasSize(2);
         assertThat(TemplateParameterValues.validate(two, List.of("Ñandú", "Café \uD83C\uDF81"))).hasSize(2);
         assertThatThrownBy(() -> TemplateParameterValues.validate(two, java.util.Arrays.asList("Ana", null)))
                 .isInstanceOf(IllegalArgumentException.class);
