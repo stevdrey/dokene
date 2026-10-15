@@ -80,7 +80,7 @@ Cancelling the abandoned call was prototyped and rejected. The only way to learn
 
 The current limits bound call frequency (`dokene.ai.rate-limit.*`, a per-process, in-memory window that each backend replica keeps separately and a restart clears, so it is not fleet-wide or durable spend protection; at most two provider attempts per invocation by default, three at the configured hard maximum `dokene.ai.retry.max-attempts=3`) but are not a monetary budget: they do not cap output tokens or spend. A spend or token budget is a separate concern from this limitation.
 
-Revisit this if the servlet container changes or the endpoint moves to a streaming response contract. The evaluated alternative, explicit client-driven cancellation, is tracked in [Issue #180](https://github.com/stevdrey/dokene/issues/180).
+Revisit this if the servlet container changes or the endpoint moves to a streaming response contract. The evaluated alternative, explicit client-driven cancellation, is tracked in [Issue #180](https://github.com/stevdrey/dokene/issues/180); its spike findings and proposed design are in [ADR 0026](0026-explicit-ai-invocation-cancellation.md) (Proposed).
 
 ## Consequences
 

@@ -1,8 +1,5 @@
 package io.github.stevdrey.dokene.tenant.security;
 
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.context;
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doCallRealMethod;
@@ -25,10 +22,6 @@ import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
-import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
-import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
-import io.github.stevdrey.dokene.customer.domain.ContactChannel;
-import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.AiUnavailableReason;
 import io.github.stevdrey.dokene.followup.application.FollowUpQueueQuery;
@@ -39,19 +32,13 @@ import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
-import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
-import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.SQLException;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -94,27 +81,18 @@ class AiFailureHandlingIntegrationTest {
     @Autowired AuditReader auditReader;
     @Autowired MeterRegistry meters;
 
+    private AiInvocationSeed seed;
     private TenantContext tenantContext;
     private Customer customer;
 
     @BeforeEach
     void setUp() throws Exception {
         Mockito.reset(provider);
-        Instant now = Instant.now();
-        Tenant tenant = seedTenant(tenants, contexts, "AI Failure Tenant " + UUID.randomUUID(), now);
-        tenantContext = context(seedMembership(memberships, contexts, tenant.id(),
-                new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
-        inContext(() -> followUps.configureTenant(14, ZoneId.of("America/Costa_Rica"), 0L));
-        customer = inContext(() -> customers.create("Jane Doe", null,
-                List.of(new PhoneInput("8888" + String.format("%04d", Math.abs(UUID.randomUUID().hashCode()) % 10000),
-                        "CR", true))));
-        UUID contactId = customer.phones().getFirst().id();
-        var contactPolicy = inContext(() -> contacts.get(customer.id()));
-        inContext(() -> contacts.changeConsent(customer.id(), contactId, ContactChannel.WHATSAPP,
-                ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, contactPolicy.version()));
-        Instant past = LocalDate.now(ZoneId.of("America/Costa_Rica")).minusDays(20)
-                .atStartOfDay(ZoneId.of("America/Costa_Rica")).toInstant();
-        inContext(() -> purchases.record(customer.id(), past, "Coffee Beans", "order-" + UUID.randomUUID()));
+        seed = new AiInvocationSeed(tenants, memberships, contexts, auditExecution, followUps, customers, contacts,
+                purchases);
+        AiInvocationSeed.Seeded seeded = seed.dueCustomer("AI Failure Tenant");
+        tenantContext = seeded.tenantContext();
+        customer = seeded.customer();
     }
 
     @Test
@@ -214,7 +192,6 @@ class AiFailureHandlingIntegrationTest {
     }
 
     private <T> T inContext(Callable<T> operation) throws Exception {
-        return auditExecution.callWithCorrelation(UUID.randomUUID(),
-                () -> contexts.callWithContext(tenantContext, operation::call));
+        return seed.inContext(tenantContext, operation);
     }
 }

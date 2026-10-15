@@ -51,8 +51,21 @@ dependencies {
 tasks.named('test') {
     // Live-provider evaluation is opt-in (see aiEvalLive); it must never run, cost money or need a key in normal CI.
     useJUnitPlatform {
-        excludeTags 'ai-eval-live'
+        excludeTags 'ai-eval-live', 'spike'
     }
+}
+
+// Spike evidence (e.g. Issue #180) relies on wall-clock socket timings and long race loops; it is run on demand,
+// never as part of check/CI.
+tasks.register('spikeTest', Test) {
+    description = 'Runs the opt-in spike evidence tests (timing-sensitive; not part of check).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'spike'
+    }
+    outputs.upToDateWhen { false }
 }
 
 // Opt-in live evaluation of the configured provider against the synthetic dataset (Issue #98, ADR 0021).
