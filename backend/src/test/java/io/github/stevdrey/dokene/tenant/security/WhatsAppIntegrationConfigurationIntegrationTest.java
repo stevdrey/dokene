@@ -1,5 +1,5 @@
 // ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, duplicate mapping, stale
-// ABOUTME: writes, credential rotation and audit rollback. Secrets are only referenced, never resolved (issue 134).
+// ABOUTME: writes, credential rotation, audit rollback, rejected-mapping audit and throttle (issues 134 and 208).
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
@@ -11,6 +11,7 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -28,6 +29,7 @@ import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
 import io.github.stevdrey.dokene.integration.application.IntegrationReadiness;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
+import io.github.stevdrey.dokene.integration.application.MappingRejectionLimitProperties;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
@@ -42,8 +44,11 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -54,10 +59,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest
@@ -65,6 +72,10 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong(
             100_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "200000000000001";
+    private static final int ACTOR_BUDGET = MappingRejectionLimitProperties.DEFAULT_ACTOR_REJECTIONS;
+    private static final int TENANT_BUDGET = MappingRejectionLimitProperties.DEFAULT_TENANT_REJECTIONS;
+    private static final String MAPPING_REJECTED = "MAPPING_REJECTED";
+    private static final String RATE_LIMITED = "RATE_LIMITED";
 
     /** Runtime readiness that tests can flip without touching the stored integration version. */
     static final class MutableReadiness implements IntegrationReadiness {
@@ -360,6 +371,141 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
+    void repeatedForeignMappingsAreThrottledWithTheClosedProblemAndAuditedWithoutTheCandidateId() throws Exception {
+        write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        for (int attempt = 1; attempt <= ACTOR_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+            // Each rejected probe is durable on its own, although its write rolled back.
+            assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(attempt);
+        }
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
+
+        var throttled = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(content().json("{\"type\":\"about:blank\",\"title\":\"Too Many Requests\","
+                        + "\"status\":429,\"code\":\"RATE_LIMITED\"}", JsonCompareMode.STRICT))
+                .andExpect(header().string("Retry-After", org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")))
+                .andReturn().getResponse();
+        assertThat(Long.parseLong(throttled.getHeader("Retry-After"))).isLessThanOrEqualTo(15 * 60);
+        assertThat(throttled.getContentAsString()).doesNotContain(phoneId);
+        assertThat(throttled.getHeaderNames()).allSatisfy(name -> assertThat(throttled.getHeaders(name))
+                .noneMatch(value -> value.contains(phoneId)));
+        // Every mapping change is gated, so an unmapped candidate cannot be told apart while throttled.
+        write(adminA, tenantA, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isTooManyRequests());
+
+        // One denial per refused attempt, attributed to the prober, with no target or id.
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(2);
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events a WHERE a.tenant_id = ? "
+                    + "AND row_to_json(a)::text LIKE ?", tenantA.id().value(), "%" + phoneId + "%")).isZero();
+        }
+        assertThat(auditCount(tenantA)).isZero();
+
+        // Another tenant keeps its own budget.
+        write(adminB, tenantB, "\"0\"", body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isOk());
+        assertThat(denials(tenantB, adminB, MAPPING_REJECTED)).isZero();
+        assertThat(denials(tenantB, adminB, RATE_LIMITED)).isZero();
+    }
+
+    @Test
+    void successfulWritesNeverConsumeBudgetAndKeepingTheStoredNumberIsNeverThrottled() throws Exception {
+        String foreign = Long.toString(NEXT_ID.incrementAndGet());
+        write(adminB, tenantB, null, body(foreign, "wa-token-ok", true)).andExpect(status().isOk());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        long version = 0;
+        String stored = phoneId;
+        for (int remap = 0; remap <= TENANT_BUDGET; remap++, version++) {
+            stored = Long.toString(NEXT_ID.incrementAndGet());
+            write(adminA, tenantA, "\"" + version + "\"", body(stored, "wa-token-ok", true))
+                    .andExpect(status().isOk());
+        }
+
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        exhaust(adminA, version, foreign);
+        write(adminA, tenantA, "\"" + version + "\"", body(foreign, "wa-token-ok", true))
+                .andExpect(status().isTooManyRequests());
+        // The kill path: disabling with the stored number cannot probe anything, so it is never throttled.
+        write(adminA, tenantA, "\"" + version + "\"", body(stored, "wa-token-ok", false)).andExpect(status().isOk());
+        version++;
+
+        // Below the tenant budget another admin is unaffected; once it is exhausted, every actor is throttled.
+        exhaust(secondAdminA, version, foreign);
+        IdentityId thirdAdminA = member(tenantA, TenantRole.ADMIN);
+        write(thirdAdminA, tenantA, "\"" + version + "\"", body(Long.toString(NEXT_ID.incrementAndGet()),
+                "wa-token-ok", true)).andExpect(status().isTooManyRequests());
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, secondAdminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(1);
+        assertThat(denials(tenantA, thirdAdminA, RATE_LIMITED)).isEqualTo(1);
+        read(adminA, tenantA).andExpect(jsonPath("$.phoneNumberId").value(stored))
+                .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    @Test
+    void refusalsFailClosedWhenTheirDenialCannotBeAuditedAndNeverAuditInsideTheWrite() throws Exception {
+        List<Boolean> auditedInsideATransaction = new CopyOnWriteArrayList<>();
+        AtomicBoolean auditFails = new AtomicBoolean(true);
+        Answer<Object> recording = invocation -> {
+            auditedInsideATransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+            if (auditFails.get()) {
+                throw new AuditPersistenceException();
+            }
+            return invocation.callRealMethod();
+        };
+        doAnswer(recording).when(audit).mappingRejected();
+        doAnswer(recording).when(audit).mappingThrottled();
+        write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+
+        // A rejected probe whose denial cannot be recorded is not answered; it still counts (fail closed).
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+
+        auditFails.set(false);
+        for (int attempt = 1; attempt < ACTOR_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isBadRequest());
+        }
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET - 1);
+
+        auditFails.set(true);
+        write(adminA, tenantA, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+
+        assertThat(auditedInsideATransaction).hasSize(ACTOR_BUDGET + 1).containsOnly(false);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.tenant_messaging_integrations "
+                    + "WHERE tenant_id = ?", tenantA.id().value())).isZero();
+        }
+    }
+
+    @Test
+    void conflictClassificationReliesOnTheseConstraintNames() throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_constraint WHERE contype = 'u' AND conrelid = "
+                    + "'dokene.tenant_messaging_integrations'::regclass AND conname IN (?, ?)",
+                    "uq_tenant_messaging_integrations_tenant_provider",
+                    "uq_tenant_messaging_integrations_phone_number")).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void malformedNumbersNeverConsumeTheBudget() throws Exception {
+        for (int attempt = 0; attempt <= TENANT_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body("12", "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
+    }
+
+    @Test
     void rotatingTheSecretReferenceBumpsTheCredentialRevisionButDisablingDoesNot() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
         assertThat(credentialRevision(tenantA)).isEqualTo(1);
@@ -397,6 +543,23 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                     + "WHERE tenant_id = ?", tenantA.id().value())).isZero();
         }
         assertThat(auditCount(tenantA)).isZero();
+    }
+
+    /** Spends the actor's whole budget remapping onto a number another tenant owns; the version never moves. */
+    private void exhaust(IdentityId who, long version, String foreign) throws Exception {
+        for (int attempt = 0; attempt < ACTOR_BUDGET; attempt++) {
+            write(who, tenantA, "\"" + version + "\"", body(foreign, "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+    }
+
+    private int denials(Tenant tenant, IdentityId actor, String reason) throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? AND actor_id = ? "
+                    + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' "
+                    + "AND denial_reason = ? AND permission = 'INTEGRATION_MANAGE' "
+                    + "AND target_type IS NULL AND target_id IS NULL", tenant.id().value(), actor.value(), reason);
+        }
     }
 
     private ResultActions read(IdentityId who, Tenant tenant) throws Exception {

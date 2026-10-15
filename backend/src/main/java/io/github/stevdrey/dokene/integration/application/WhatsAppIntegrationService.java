@@ -1,8 +1,10 @@
 package io.github.stevdrey.dokene.integration.application;
 
+import io.github.stevdrey.dokene.integration.application.MappingRejectionLimiter.MappingAttempt;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -11,7 +13,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Tenant and actor come from the current context, never from the request. Credentials are only referenced: the
@@ -25,17 +29,25 @@ public class WhatsAppIntegrationService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final IntegrationReadiness readiness;
+    private final MappingRejectionLimiter rejections;
     private final Clock clock;
+    private final TransactionTemplate reads;
+    private final TransactionTemplate writes;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
             TenantAuthorizationService authorization, TenantContextProvider contexts, IntegrationReadiness readiness,
-            Clock clock) {
+            MappingRejectionLimiter rejections, Clock clock, PlatformTransactionManager transactions) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
         this.readiness = Objects.requireNonNull(readiness, "Readiness is required");
+        this.rejections = Objects.requireNonNull(rejections, "Rejection limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
+        Objects.requireNonNull(transactions, "Transaction manager is required");
+        this.reads = new TransactionTemplate(transactions);
+        this.reads.setReadOnly(true);
+        this.writes = new TransactionTemplate(transactions);
     }
 
     /** The stored configuration plus the runtime state reported with it. */
@@ -62,13 +74,44 @@ public class WhatsAppIntegrationService {
     public record Version(long value) implements Precondition {
     }
 
-    /** A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. */
-    @Transactional
+    /**
+     * A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. A write that
+     * changes the mapping is refused with {@code RATE_LIMITED} while the tenant or actor has exhausted its budget of
+     * phone numbers already mapped by another tenant (issue 208); keeping the stored number is never throttled.
+     *
+     * <p>Not one transaction: the budget check, its audit and the rejection bookkeeping run between a short read and
+     * the write transaction, so a refused or rejected attempt never holds a connection while its denial is audited.
+     */
     public IntegrationView upsert(Precondition precondition, String phoneNumberId, String businessAccountId,
             String displayPhoneNumber, boolean enabled, String secretRef) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
+        TenantContext context = contexts.requireCurrent();
+        boolean changesMapping = Boolean.TRUE.equals(reads.execute(status -> changesMapping(
+                repository.findByTenant(context.tenantId()), phoneNumberId)));
+        // A null attempt (the stored number is kept) is allowed by try-with-resources and never closed.
+        try (MappingAttempt attempt = changesMapping ? beginMappingAttempt(context) : null) {
+            try {
+                return writes.execute(status -> write(context.tenantId(), changesMapping, precondition,
+                        phoneNumberId, businessAccountId, displayPhoneNumber, enabled, secretRef));
+            } catch (PhoneNumberMappingConflictException conflict) {
+                // The write transaction has rolled back, so the audit below runs on its own connection only.
+                if (attempt != null) {
+                    attempt.reject();
+                }
+                audit.mappingRejected();
+                throw conflict;
+            }
+        }
+    }
+
+    private IntegrationView write(TenantId tenantId, boolean reserved, Precondition precondition,
+            String phoneNumberId, String businessAccountId, String displayPhoneNumber, boolean enabled,
+            String secretRef) {
         Optional<WhatsAppIntegration> existing = repository.findByTenant(tenantId);
+        if (!reserved && changesMapping(existing, phoneNumberId)) {
+            // The stored number moved after the unreserved pre-read; this write would be an uncounted mapping change.
+            throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+        }
         WhatsAppIntegration saved;
         if (existing.isEmpty()) {
             if (!(precondition instanceof Create)) {
@@ -94,6 +137,10 @@ public class WhatsAppIntegrationService {
         return view(saved);
     }
 
+    private static boolean changesMapping(Optional<WhatsAppIntegration> existing, String phoneNumberId) {
+        return existing.map(current -> !current.phoneNumberId().equals(phoneNumberId)).orElse(true);
+    }
+
     /**
      * Controlled rotation (ADR 0024 addendum): the operator replaced the secret in the store behind the same
      * reference and calls this to bump the credential revision. Never touches {@code enabled}.
@@ -113,6 +160,19 @@ public class WhatsAppIntegrationService {
         WhatsAppIntegration saved = next.withVersion(storedVersion);
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
+    }
+
+    /**
+     * Reserves budget before the write, so concurrent attempts cannot reveal more conflicts than allowed. Every
+     * throttled attempt is a denied action, audited in its own transaction before the refusal propagates.
+     */
+    private MappingAttempt beginMappingAttempt(TenantContext context) {
+        try {
+            return rejections.begin(context.tenantId(), context.identityId());
+        } catch (IntegrationRateLimitedException throttled) {
+            audit.mappingThrottled();
+            throw throttled;
+        }
     }
 
     /** Only domain validation maps to INVALID_INPUT; other failures stay server errors. */
