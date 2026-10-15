@@ -43,6 +43,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -85,7 +86,8 @@ class FollowUpControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"\"01\"", "\"0001\"", "\"00\"", "\"bad\"", "\"\"", "1", "\"1.0\"", "\"-1\""})
+    @ValueSource(strings = {"\"01\"", "\"0001\"", "\"00\"", "\"bad\"", "\"\"", "1", "\"1.0\"", "\"-1\"", "\"+1\"",
+            "W/\"1\"", "\"1\", \"2\"", "*", "\"99999999999999999999\""})
     void configureTenantRejectsNoncanonicalAndMalformedEtags(String invalidEtag) throws Exception {
         mvc.perform(put("/api/follow-up-policy")
                 .header("If-Match", invalidEtag)
@@ -278,6 +280,21 @@ class FollowUpControllerTest {
                 .andExpect(jsonPath("$.recommendation.action").value("REPEAT_PURCHASE_FOLLOW_UP"))
                 .andExpect(jsonPath("$.recommendation.rationale").value("Cadence reached"))
                 .andExpect(jsonPath("$.evaluation.reasons[0]").value("DUE_TODAY"));
+    }
+
+    /** A present but empty or blank If-Match is malformed, never the absent optional precondition. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/api/customers/{id}/recommendation|''", "/api/customers/{id}/recommendation|' '",
+            "/api/customers/{id}/follow-up-recommendation|''", "/api/customers/{id}/follow-up-recommendation|' '",
+            "/api/customers/{id}/draft|''", "/api/customers/{id}/draft|' '",
+            "/api/customers/{id}/follow-up-draft|''", "/api/customers/{id}/follow-up-draft|' '"
+    })
+    void aiRequestsRefuseAPresentButBlankIfMatchWithoutCallingTheService(String route, String ifMatch)
+            throws Exception {
+        mvc.perform(post(route, customerId).header("If-Match", ifMatch))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(recommendations, drafts);
     }
 
     @Test

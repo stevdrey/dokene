@@ -2,6 +2,7 @@
 // ABOUTME: Thin transport layer over the frozen v1 contract; every rule and re-check lives in the messaging services.
 package io.github.stevdrey.dokene.messaging.api;
 
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalSummary;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.AttemptSummary;
@@ -27,7 +28,6 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;
@@ -103,7 +103,7 @@ public class MessageController {
     @GetMapping("/messages/{messageId}")
     public MessageResponse get(@PathVariable UUID messageId, HttpServletResponse response) {
         MessageDetail detail = queries.detail(messageId);
-        response.setHeader(HttpHeaders.ETAG, etag(detail.message().version()));
+        response.setHeader(HttpHeaders.ETAG, StrictRequests.strongEtag(detail.message().version()));
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         return toResponse(detail);
     }
@@ -161,7 +161,7 @@ public class MessageController {
         if (result.created() && location) {
             builder.location(URI.create("/api/messages/" + detail.message().id()));
         }
-        return noStore(builder).eTag(etag(detail.message().version())).body(toResponse(detail));
+        return noStore(builder).eTag(StrictRequests.strongEtag(detail.message().version())).body(toResponse(detail));
     }
 
     /**
@@ -172,10 +172,6 @@ public class MessageController {
      */
     private static ResponseEntity.BodyBuilder noStore(ResponseEntity.BodyBuilder builder) {
         return builder.header(HttpHeaders.CACHE_CONTROL, "no-store");
-    }
-
-    private static String etag(long version) {
-        return "\"" + version + "\"";
     }
 
     /** Missing stays null so the service refuses it; anything present but not one strong value is invalid input. */

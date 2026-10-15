@@ -96,14 +96,14 @@ class ContactPolicyEndpointIntegrationTest {
         assertEligibility(customerId, contactId, true, null);
 
         mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).with(user(owner)).with(csrf())
-                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "1")
+                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "\"1\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
                 .andExpect(status().isOk()).andExpect(header().string("ETag", "\"2\""));
         assertEligibility(customerId, contactId, false, "DO_NOT_CONTACT");
 
         mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).with(user(owner)).with(csrf())
-                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "2")
+                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "\"2\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":false,\"source\":\"OPERATOR_CORRECTION\"}"))
                 .andExpect(status().isOk()).andExpect(header().string("ETag", "\"3\""));
@@ -125,7 +125,7 @@ class ContactPolicyEndpointIntegrationTest {
         IdentityId viewer = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), viewer, TenantRole.VIEWER, Instant.now());
         mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).with(user(viewer)).with(csrf())
-                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "3")
+                        .header("X-Tenant-Id", tenant.id().value()).header("If-Match", "\"3\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
                 .andExpect(status().isForbidden());

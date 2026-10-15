@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.purchase.api;
 
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.purchase.application.PurchaseCursor;
 import io.github.stevdrey.dokene.purchase.application.PurchaseEventCursor;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
@@ -42,7 +43,8 @@ public class PurchaseController {
         var response = response(result.purchase());
         if (!result.created()) return response;
         return ResponseEntity.created(URI.create("/api/customers/" + customerId + "/purchases/"
-                        + result.purchase().id().value())).eTag(etag(result.purchase())).body(response.getBody());
+                        + result.purchase().id().value()))
+                .eTag(StrictRequests.strongEtag(result.purchase().version())).body(response.getBody());
     }
 
     @GetMapping("/{purchaseId}")
@@ -91,7 +93,7 @@ public class PurchaseController {
     }
 
     private ResponseEntity<PurchaseResponse> response(Purchase purchase) {
-        return ResponseEntity.ok().eTag(etag(purchase)).body(body(purchase));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(purchase.version())).body(body(purchase));
     }
     private PurchaseResponse body(Purchase p) {
         return new PurchaseResponse(p.id().value(), p.customerId().value(), p.purchasedAt(), p.description(),
@@ -101,25 +103,15 @@ public class PurchaseController {
         return new EventResponse(event.id(), event.type(), event.purchasedAt(), event.description(), event.occurredAt(),
                 event.actorId().value(), event.membershipId().value(), event.purchaseVersion());
     }
-    private static String etag(Purchase purchase) { return "\"" + purchase.version() + "\""; }
     private static void requireRequest(PurchaseRequest request) {
         if (request == null || request.purchasedAt() == null || request.description() == null) {
             throw new IllegalArgumentException("Purchase timestamp and description are required");
         }
     }
+    /** Exactly one strong canonical numeric ETag such as {@code "3"} (ADR 0023 §4.1). */
     private static long parseVersion(String value) {
-        try {
-            if (value == null || value.isBlank()) throw new IllegalArgumentException();
-            String normalized = value.strip();
-            if (normalized.startsWith("\"") && normalized.endsWith("\"") && normalized.length() >= 2) {
-                normalized = normalized.substring(1, normalized.length() - 1);
-            }
-            long version = Long.parseLong(normalized);
-            if (version < 0) throw new IllegalArgumentException();
-            return version;
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException("Invalid purchase version");
-        }
+        return StrictRequests.strongNumericVersion(value)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid purchase version"));
     }
 
     public record PurchaseRequest(Instant purchasedAt, String description) { }

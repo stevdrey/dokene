@@ -143,7 +143,7 @@ CUST_VER="$(echo "$CUST_JSON" | jq -r '.version')"
 CODE="$(curl -s -b "$OWNER_COOKIE" -D "$RESP_HDR" -o "$RESP_BODY" -w "%{http_code}" \
     -X PUT "$BFF_URL/api/customers/$CUST_XSS_ID" \
     -H "Content-Type: application/json" -H "X-CSRF-TOKEN: $OWNER_CSRF" -H "X-Tenant-Id: $TENANT_A_ID" \
-    -H "If-Match: $CUST_VER" \
+    -H "If-Match: \"$CUST_VER\"" \
     -d "{\"displayName\":\"<script>alert(\\\"xss1\\\")</script>\",\"notes\":\"<img src=x onerror=alert(1)> \\\" onfocus=\\\"alert(2)\\\" autofocus=true <<SCRIPT>alert(3)//<</SCRIPT>\",\"phones\":[{\"number\":\"$XSS_PHONE\",\"region\":\"CL\",\"primary\":true}]}")"
 if [ "$CODE" = "200" ]; then
     NOTES_STORED="$(jq -r '.notes' "$RESP_BODY")"
@@ -301,7 +301,7 @@ fi
 CODE="$(curl -s -b "$OPERATOR_COOKIE" -o "$RESP_BODY" -w "%{http_code}" \
     -X PUT "$BFF_URL/api/customers/$CUST_B_ID" \
     -H "Content-Type: application/json" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" -H "X-Tenant-Id: $TENANT_A_ID" \
-    -H "If-Match: 0" \
+    -H 'If-Match: "0"' \
     -d "{\"displayName\":\"Malicious update across tenants\",\"phones\":[{\"number\":\"$B_PHONE\",\"region\":\"CL\",\"primary\":true}]}")"
 if [ "$CODE" = "404" ]; then
     record_result "IDOR" "Cross-tenant customer mutation in Tenant A context" "PASS" "Rejected mutation with HTTP 404 Not Found fail-closed"
@@ -639,12 +639,12 @@ echo "=== SUITE 9: EXCEPTIONAL-CONDITION SECURITY ==="
 CODE="$(curl -s -b "$OWNER_COOKIE" -o "$RESP_BODY" -w "%{http_code}" \
     -X PUT "$BFF_URL/api/customers/$CUST_XSS_ID" \
     -H "Content-Type: application/json" -H "X-CSRF-TOKEN: $OWNER_CSRF" -H "X-Tenant-Id: $TENANT_A_ID" \
-    -H "If-Match: 99999" \
+    -H 'If-Match: "99999"' \
     -d "{\"displayName\":\"Stale Lock Test\",\"phones\":[{\"number\":\"$XSS_PHONE\",\"region\":\"CL\",\"primary\":true}]}")"
 if [ "$CODE" = "409" ]; then
-    record_result "Exceptional" "Stale optimistic lock (If-Match: 99999)" "PASS" "Safely rejected stale version with HTTP 409 Conflict without modifying state"
+    record_result "Exceptional" "Stale optimistic lock (If-Match: \"99999\")" "PASS" "Safely rejected stale version with HTTP 409 Conflict without modifying state"
 else
-    record_result "Exceptional" "Stale optimistic lock (If-Match: 99999)" "FAIL" "Expected 409 but got HTTP $CODE: $(cat "$RESP_BODY")"
+    record_result "Exceptional" "Stale optimistic lock (If-Match: \"99999\")" "FAIL" "Expected 409 but got HTTP $CODE: $(cat "$RESP_BODY")"
 fi
 
 # 9.2 Malformed JSON combined with unauthorized tenant context
