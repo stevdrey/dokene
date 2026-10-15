@@ -1,6 +1,8 @@
 package io.github.stevdrey.dokene.audit.application;
 
+import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -15,5 +17,10 @@ public class DurableIntegrationAuditAdapter implements IntegrationAuditPort {
     @Override
     public void updated(UUID integrationId, boolean enabled) {
         recorder.integrationUpdated(integrationId, enabled);
+    }
+
+    @Override
+    public void mappingThrottled() {
+        recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.RATE_LIMITED);
     }
 }

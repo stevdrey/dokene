@@ -184,6 +184,15 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 - **Credential rotation.** `credential_revision` is part of the approval sender identity. It increments when `secretRef` changes and through `POST /api/integrations/whatsapp/credential-rotations` (`INTEGRATION_MANAGE`, strong `If-Match`, no body). To rotate a secret in place: replace it in the secret store, then call that operation; the adapter resolves the new value at send time and approvals bound to the previous revision fail with `APPROVAL_INVALIDATED`. Toggling `enabled` is not a rotation and does not void approvals.
 - **ETag scope.** The strong ETag of `GET`/`PUT` is the configuration concurrency token: the stored row's `version`. `outboundEnabled` and `webhookVerified` are live runtime state that can change without it, so these responses carry `Cache-Control: no-store` and are never answered with `304`.
 
+## Addendum (issue 208): throttling rejected phone-number-id mappings
+
+[#208](https://github.com/stevdrey/dokene/issues/208) mitigates the availability probe left open by the issue 134 follow-up review. ADR 0023 §4.4 defined `429 RATE_LIMITED` with `Retry-After` for the send rate limit only; `PUT /api/integrations/whatsapp` now uses the same closed code, status, body and header. No record, fixture or enum changes.
+
+- **What counts.** Only a phone number id already mapped by another tenant (`uq_tenant_messaging_integrations_phone_number`) is a rejected mapping. It is still answered as `400 INVALID_INPUT`, identical to any invalid mapping. Malformed ids are deterministic and leak nothing, so they do not count, and neither do successful writes, stale preconditions or credential rotations.
+- **Budget.** An in-memory sliding window per tenant and per actor within the tenant, configured by `dokene.integration.whatsapp.mapping-rejection-limit.tenant-rejections` (10), `actor-rejections` (5) and `window` (15m). State is per instance and is lost on restart.
+- **Gate.** While either budget is spent, a `PUT` that creates the integration or changes `phoneNumberId` is refused with `429 RATE_LIMITED` before any write, whatever the candidate. `Retry-After` is the whole seconds until enough rejections leave the window. A `PUT` that keeps the stored id cannot probe anything, so it is never throttled; disabling the integration always works.
+- **Audit.** The rejection that spends a budget and every throttled attempt append `AUTHORIZATION_DENIED` with permission `INTEGRATION_MANAGE` and the new denial reason `RATE_LIMITED` (V23 extends `ck_audit_shape`). These are written in their own transaction (`REQUIRES_NEW`, ADR 0006), so they survive the rejected request's rollback. They carry no target and no candidate id. A failed audit write keeps the fail-closed `503`.
+
 ## Addendum (issue 136): review and approval routes, parameter vocabulary and cancellation permission
 
 [#136](https://github.com/stevdrey/dokene/issues/136) adds the submit, read, approval and cancellation routes of ADR 0023 §3.1 and the T2 half of §2. It does not change the v1 records, fixtures, state machine or role map.

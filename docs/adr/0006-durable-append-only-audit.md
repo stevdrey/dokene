@@ -54,6 +54,10 @@ Metadata is a sealed set of typed records persisted as constrained scalar column
 - Customer and purchase mutations: no metadata beyond the privacy-reviewed target UUID.
 - AI invocation outcome (`AI_INVOCATION_OUTCOME`, [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md)): target `CUSTOMER` UUID plus three enumerated values (operation, outcome, detail), persisted as constrained columns. No prompt, generated text, note or provider message.
 
+Denial reason `RATE_LIMITED` (V23, issue 208) is recorded directly, not through the
+listener, for throttled WhatsApp phone-number-id mappings with permission `INTEGRATION_MANAGE`;
+it carries no target and never the candidate id.
+
 The listener translates only known reasons; unknown text becomes `UNSPECIFIED`.
 There is no general string/map/JSON payload API. SQL checks reject unknown permission,
 reason, role, and event shapes. Secrets, tokens, credentials, message bodies, request

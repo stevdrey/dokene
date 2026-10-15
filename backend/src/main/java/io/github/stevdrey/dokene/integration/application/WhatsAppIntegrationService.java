@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.integration.application;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -25,16 +26,18 @@ public class WhatsAppIntegrationService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final IntegrationReadiness readiness;
+    private final MappingRejectionLimiter rejections;
     private final Clock clock;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
             TenantAuthorizationService authorization, TenantContextProvider contexts, IntegrationReadiness readiness,
-            Clock clock) {
+            MappingRejectionLimiter rejections, Clock clock) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
         this.readiness = Objects.requireNonNull(readiness, "Readiness is required");
+        this.rejections = Objects.requireNonNull(rejections, "Rejection limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
     }
 
@@ -62,13 +65,22 @@ public class WhatsAppIntegrationService {
     public record Version(long value) implements Precondition {
     }
 
-    /** A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. */
+    /**
+     * A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. A write that
+     * changes the mapping is refused with {@code RATE_LIMITED} while the tenant or actor has exhausted its budget of
+     * phone numbers already mapped by another tenant (issue 208); keeping the stored number is never throttled.
+     */
     @Transactional
     public IntegrationView upsert(Precondition precondition, String phoneNumberId, String businessAccountId,
             String displayPhoneNumber, boolean enabled, String secretRef) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
+        TenantContext context = contexts.requireCurrent();
+        TenantId tenantId = context.tenantId();
         Optional<WhatsAppIntegration> existing = repository.findByTenant(tenantId);
+        boolean changesMapping = existing.map(current -> !current.phoneNumberId().equals(phoneNumberId)).orElse(true);
+        if (changesMapping) {
+            requireMappingBudget(context);
+        }
         WhatsAppIntegration saved;
         if (existing.isEmpty()) {
             if (!(precondition instanceof Create)) {
@@ -76,8 +88,10 @@ public class WhatsAppIntegrationService {
             }
             WhatsAppIntegration created = validated(() -> WhatsAppIntegration.create(tenantId, phoneNumberId,
                     businessAccountId, displayPhoneNumber, enabled, secretRef, clock.instant()));
-            repository.insert(created);
-            saved = created;
+            saved = countingRejections(context, () -> {
+                repository.insert(created);
+                return created;
+            });
         } else {
             WhatsAppIntegration current = existing.get();
             if (!(precondition instanceof Version(long expectedVersion))
@@ -86,8 +100,8 @@ public class WhatsAppIntegrationService {
             }
             WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
                     displayPhoneNumber, enabled, secretRef, clock.instant()));
-            long storedVersion = repository.update(next, expectedVersion).orElseThrow(
-                    () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
+            long storedVersion = countingRejections(context, () -> repository.update(next, expectedVersion))
+                    .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
             saved = next.withVersion(storedVersion);
         }
         audit.updated(saved.id(), saved.enabled());
@@ -113,6 +127,31 @@ public class WhatsAppIntegrationService {
         WhatsAppIntegration saved = next.withVersion(storedVersion);
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
+    }
+
+    /** Every throttled attempt is a denied action, audited in its own transaction before the refusal propagates. */
+    private void requireMappingBudget(TenantContext context) {
+        try {
+            rejections.requireAvailable(context.tenantId(), context.identityId());
+        } catch (IntegrationRateLimitedException throttled) {
+            audit.mappingThrottled();
+            throw throttled;
+        }
+    }
+
+    /**
+     * A phone number mapped by another tenant still answers as plain invalid input; it only consumes budget, and the
+     * rejection that exhausts it is audited. The candidate id is never recorded.
+     */
+    private <T> T countingRejections(TenantContext context, Supplier<T> write) {
+        try {
+            return write.get();
+        } catch (PhoneNumberMappingConflictException conflict) {
+            if (rejections.recordRejection(context.tenantId(), context.identityId())) {
+                audit.mappingThrottled();
+            }
+            throw conflict;
+        }
     }
 
     /** Only domain validation maps to INVALID_INPUT; other failures stay server errors. */

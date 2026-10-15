@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.integration.persistence.jdbc;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberMappingConflictException;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
@@ -18,6 +19,8 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
     private static final String PROVIDER = "META_WHATSAPP";
     /** The tenant already has an integration: a lost create race, which is a stale precondition, not bad input. */
     private static final String TENANT_PROVIDER_CONSTRAINT = "uq_tenant_messaging_integrations_tenant_provider";
+    /** The phone number id is mapped by another tenant: refused as invalid input, counted as a rejected mapping. */
+    private static final String PHONE_NUMBER_CONSTRAINT = "uq_tenant_messaging_integrations_phone_number";
 
     private final JdbcTemplate jdbc;
 
@@ -51,12 +54,11 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                     Timestamp.from(integration.createdAt()), Timestamp.from(integration.updatedAt()),
                     integration.version());
         } catch (DataIntegrityViolationException conflict) {
-            String cause = String.valueOf(conflict.getMostSpecificCause().getMessage());
+            String cause = violatedConstraint(conflict);
             if (cause.contains(TENANT_PROVIDER_CONSTRAINT)) {
                 throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
             }
-            // A mapping owned by another tenant is indistinguishable from any other invalid mapping.
-            throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
+            throw refusal(cause);
         }
     }
 
@@ -75,7 +77,17 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                     integration.tenantId().value(), integration.id(), expectedVersion)
                     .stream().mapToLong(Long::longValue).findFirst();
         } catch (DataIntegrityViolationException conflict) {
-            throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
+            throw refusal(violatedConstraint(conflict));
         }
+    }
+
+    /** A mapping owned by another tenant is answered exactly like any other invalid mapping. */
+    private static IntegrationRefusedException refusal(String violatedConstraint) {
+        return violatedConstraint.contains(PHONE_NUMBER_CONSTRAINT) ? new PhoneNumberMappingConflictException()
+                : new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
+    }
+
+    private static String violatedConstraint(DataIntegrityViolationException conflict) {
+        return String.valueOf(conflict.getMostSpecificCause().getMessage());
     }
 }

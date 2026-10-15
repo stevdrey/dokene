@@ -1,11 +1,13 @@
 package io.github.stevdrey.dokene.integration.api;
 
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.InvalidRequestException;
+import io.github.stevdrey.dokene.integration.application.IntegrationRateLimitedException;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +23,15 @@ public class IntegrationExceptionHandler {
     @ExceptionHandler(IntegrationRefusedException.class)
     ResponseEntity<MessagingProblem> refused(IntegrationRefusedException refusal) {
         return problem(refusal.code());
+    }
+
+    /** The closed problem plus {@code Retry-After}; nothing about the rejected mappings is disclosed. */
+    @ExceptionHandler(IntegrationRateLimitedException.class)
+    ResponseEntity<MessagingProblem> rateLimited(IntegrationRateLimitedException throttled) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(throttled.retryAfterSeconds()))
+                .contentType(MediaType.parseMediaType(MessagingApiContract.PROBLEM_MEDIA_TYPE))
+                .body(MessagingProblem.of(throttled.code()));
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)

@@ -1,5 +1,5 @@
 // ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, duplicate mapping, stale
-// ABOUTME: writes, credential rotation and audit rollback. Secrets are only referenced, never resolved (issue 134).
+// ABOUTME: writes, credential rotation, audit rollback and the rejected-mapping throttle (issues 134 and 208).
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
@@ -28,6 +28,7 @@ import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
 import io.github.stevdrey.dokene.integration.application.IntegrationReadiness;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
+import io.github.stevdrey.dokene.integration.application.MappingRejectionLimitProperties;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
@@ -54,6 +55,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -65,6 +67,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong(
             100_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "200000000000001";
+    private static final int ACTOR_BUDGET = MappingRejectionLimitProperties.DEFAULT_ACTOR_REJECTIONS;
+    private static final int TENANT_BUDGET = MappingRejectionLimitProperties.DEFAULT_TENANT_REJECTIONS;
 
     /** Runtime readiness that tests can flip without touching the stored integration version. */
     static final class MutableReadiness implements IntegrationReadiness {
@@ -360,6 +364,84 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
+    void repeatedForeignMappingsAreThrottledWithTheClosedProblemAndAuditedWithoutTheCandidateId() throws Exception {
+        write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        for (int attempt = 0; attempt < ACTOR_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+
+        var throttled = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(content().json("{\"type\":\"about:blank\",\"title\":\"Too Many Requests\","
+                        + "\"status\":429,\"code\":\"RATE_LIMITED\"}", JsonCompareMode.STRICT))
+                .andExpect(header().string("Retry-After", org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")))
+                .andReturn().getResponse();
+        assertThat(Long.parseLong(throttled.getHeader("Retry-After"))).isLessThanOrEqualTo(15 * 60);
+        assertThat(throttled.getContentAsString()).doesNotContain(phoneId);
+        assertThat(throttled.getHeaderNames()).allSatisfy(name -> assertThat(throttled.getHeaders(name))
+                .noneMatch(value -> value.contains(phoneId)));
+        // Every mapping change is gated, so an unmapped candidate cannot be told apart while throttled.
+        write(adminA, tenantA, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isTooManyRequests());
+
+        // The exhausting rejection and both throttled attempts, attributed to the prober, with no target or id.
+        assertThat(rateLimitedDenials(tenantA, adminA)).isEqualTo(3);
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events a WHERE a.tenant_id = ? "
+                    + "AND row_to_json(a)::text LIKE ?", tenantA.id().value(), "%" + phoneId + "%")).isZero();
+        }
+        assertThat(auditCount(tenantA)).isZero();
+
+        // Another tenant keeps its own budget.
+        write(adminB, tenantB, "\"0\"", body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isOk());
+        assertThat(rateLimitedDenials(tenantB, adminB)).isZero();
+    }
+
+    @Test
+    void successfulWritesNeverConsumeBudgetAndKeepingTheStoredNumberIsNeverThrottled() throws Exception {
+        String foreign = Long.toString(NEXT_ID.incrementAndGet());
+        write(adminB, tenantB, null, body(foreign, "wa-token-ok", true)).andExpect(status().isOk());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        long version = 0;
+        String stored = phoneId;
+        for (int remap = 0; remap <= TENANT_BUDGET; remap++, version++) {
+            stored = Long.toString(NEXT_ID.incrementAndGet());
+            write(adminA, tenantA, "\"" + version + "\"", body(stored, "wa-token-ok", true))
+                    .andExpect(status().isOk());
+        }
+
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        exhaust(adminA, version, foreign);
+        write(adminA, tenantA, "\"" + version + "\"", body(foreign, "wa-token-ok", true))
+                .andExpect(status().isTooManyRequests());
+        // The kill path: disabling with the stored number cannot probe anything, so it is never throttled.
+        write(adminA, tenantA, "\"" + version + "\"", body(stored, "wa-token-ok", false)).andExpect(status().isOk());
+        version++;
+
+        // Below the tenant budget another admin is unaffected; once it is exhausted, every actor is throttled.
+        exhaust(secondAdminA, version, foreign);
+        IdentityId thirdAdminA = member(tenantA, TenantRole.ADMIN);
+        write(thirdAdminA, tenantA, "\"" + version + "\"", body(Long.toString(NEXT_ID.incrementAndGet()),
+                "wa-token-ok", true)).andExpect(status().isTooManyRequests());
+        assertThat(rateLimitedDenials(tenantA, thirdAdminA)).isEqualTo(1);
+        read(adminA, tenantA).andExpect(jsonPath("$.phoneNumberId").value(stored))
+                .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    @Test
+    void malformedNumbersNeverConsumeTheBudget() throws Exception {
+        for (int attempt = 0; attempt <= TENANT_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body("12", "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        assertThat(rateLimitedDenials(tenantA, adminA)).isZero();
+    }
+
+    @Test
     void rotatingTheSecretReferenceBumpsTheCredentialRevisionButDisablingDoesNot() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
         assertThat(credentialRevision(tenantA)).isEqualTo(1);
@@ -397,6 +479,23 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                     + "WHERE tenant_id = ?", tenantA.id().value())).isZero();
         }
         assertThat(auditCount(tenantA)).isZero();
+    }
+
+    /** Spends the actor's whole budget remapping onto a number another tenant owns; the version never moves. */
+    private void exhaust(IdentityId who, long version, String foreign) throws Exception {
+        for (int attempt = 0; attempt < ACTOR_BUDGET; attempt++) {
+            write(who, tenantA, "\"" + version + "\"", body(foreign, "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+    }
+
+    private int rateLimitedDenials(Tenant tenant, IdentityId actor) throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? AND actor_id = ? "
+                    + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' "
+                    + "AND denial_reason = 'RATE_LIMITED' AND permission = 'INTEGRATION_MANAGE' "
+                    + "AND target_type IS NULL AND target_id IS NULL", tenant.id().value(), actor.value());
+        }
     }
 
     private ResultActions read(IdentityId who, Tenant tenant) throws Exception {
