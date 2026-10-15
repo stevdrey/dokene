@@ -171,6 +171,55 @@ class RecommendationCancellationSpikeTest {
     }
 
     @Test
+    void theVirtualThreadWorkerMechanismIsAuditedAsCancelledAndLeavesTheRequestThreadClean() throws Exception {
+        CountDownLatch blocked = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        AiProvider blockingAdapter = new AiProvider() {
+            @Override
+            public AiRecommendationResponse recommend(AiRecommendationRequest request) {
+                calls.incrementAndGet();
+                blocked.countDown();
+                try {
+                    // Stands in for a socket read: interrupting the virtual worker ends the wait.
+                    Thread.sleep(Duration.ofSeconds(30));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AiProviderException(AiFailureCategory.CANCELLED, new AiInvocationMetadata(
+                            "test", "test-model", null, Duration.ZERO, null, AiCompletionStatus.CANCELLED));
+                }
+                return new AiRecommendationResponse(action, success());
+            }
+        };
+        recommendations = new FollowUpRecommendationService(new VirtualThreadCancellableProvider(blockingAdapter),
+                assembler, gate, authorization, contexts, followUps, rateLimiter,
+                new AiResilience(new AiRetryProperties(2, Duration.ofMillis(1), Duration.ofMillis(2),
+                        Duration.ofMillis(10)), AiTelemetry.noop()),
+                new AiOutcomeReporter(AiTelemetry.noop(), audit, AiCorrelationSource.none()));
+        Key key = key();
+        CompletableFuture<FollowUpRecommendationResult> result = new CompletableFuture<>();
+        AtomicReference<Boolean> requestThreadInterrupted = new AtomicReference<>();
+        Thread.ofPlatform().start(() -> {
+            try {
+                FollowUpRecommendationResult value = runRegistered(key);
+                requestThreadInterrupted.set(Thread.currentThread().isInterrupted());
+                result.complete(value);
+            } catch (Throwable t) {
+                result.completeExceptionally(t);
+            }
+        });
+
+        assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+        registry.cancel(key, ALL);
+
+        FollowUpRecommendationResult value = result.get(5, TimeUnit.SECONDS);
+        assertThat(value.unavailableReason()).isEqualTo(AiUnavailableReason.CANCELLED);
+        assertThat(calls.get()).as("no retry").isEqualTo(1);
+        assertThat(audit.events).containsExactly("failed:NEXT_BEST_ACTION:CANCELLED");
+        assertThat(lastOutcome.get()).isEqualTo(AiInvocationCancellationRegistry.Outcome.CANCELLED);
+        assertThat(requestThreadInterrupted.get()).as("the request thread is never interrupted").isFalse();
+    }
+
+    @Test
     void aCancelThatLosesTheRaceKeepsTheGeneratedOutcome() throws Exception {
         Key key = key();
         Invocation invocation = start(key);

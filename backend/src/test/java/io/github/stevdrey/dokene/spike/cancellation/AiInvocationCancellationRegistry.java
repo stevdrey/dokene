@@ -4,13 +4,15 @@ import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
-import java.util.Objects;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Semaphore;
 
 /**
  * Spike prototype (Issue #180), test sources only. In-memory, per-instance registry of in-flight AI invocations.
@@ -18,12 +20,15 @@ import java.util.concurrent.Semaphore;
  * The client-generated invocation id is only a lookup key: the full key also holds the tenant and actor taken from
  * the trusted server-side context, so an id alone never authorizes a cancel. An id is unique per (tenant, actor)
  * across operations, so {@code POST /api/ai-invocations/{id}/cancel} is unambiguous. The caller must currently hold
- * every permission the stored operation requires, the same conjunction its endpoint enforces. {@link #cancel} returns nothing, which makes "not found", "someone
- * else's", "not permitted" and "already finished" indistinguishable (no existence oracle).
+ * every permission the stored operation requires, the same conjunction its endpoint enforces. {@link #cancel}
+ * returns nothing, which makes "not found", "someone else's", "not permitted" and "already finished"
+ * indistinguishable (no existence oracle).
  * <p>
  * An entry lives exactly as long as the request that owns it (registered before context assembly, closed in
- * {@code finally}), so a lost cancel leaves nothing behind and no live entry can expire. Capacity is reserved
- * atomically.
+ * {@code finally}), so no live entry can expire. A cancel can overtake its own request on the network; when it finds
+ * no entry it leaves a short-lived, bounded tombstone that a later {@link #register} with the same key consumes, so
+ * that registration is born cancelled. {@code register} and {@code cancel} share one lock so the two steps cannot
+ * interleave; both are O(1) apart from purging expired tombstones.
  */
 final class AiInvocationCancellationRegistry {
 
@@ -65,44 +70,81 @@ final class AiInvocationCancellationRegistry {
 
         @Override
         public void close() {
-            if (entries.remove(key, this)) {
-                capacity.release();
+            synchronized (lock) {
+                entries.remove(key, this);
             }
         }
     }
 
-    private final ConcurrentMap<Key, Registration> entries = new ConcurrentHashMap<>();
-    private final Semaphore capacity;
+    private record Tombstone(Set<TenantPermission> callerPermissions, Instant expiresAt) {
+    }
+
+    private final Object lock = new Object();
+    private final Map<Key, Registration> entries = new HashMap<>();
+    private final Map<Key, Tombstone> tombstones = new HashMap<>();
+    private final int maxEntries;
+    private final int maxTombstones;
+    private final Duration tombstoneTtl;
+    private final Clock clock;
 
     AiInvocationCancellationRegistry(int maxEntries) {
-        if (maxEntries < 1) {
-            throw new IllegalArgumentException("maxEntries must be positive");
+        this(maxEntries, maxEntries, Duration.ofSeconds(30), Clock.systemUTC());
+    }
+
+    AiInvocationCancellationRegistry(int maxEntries, int maxTombstones, Duration tombstoneTtl, Clock clock) {
+        if (maxEntries < 1 || maxTombstones < 1) {
+            throw new IllegalArgumentException("Capacities must be positive");
         }
-        this.capacity = new Semaphore(maxEntries);
+        this.maxEntries = maxEntries;
+        this.maxTombstones = maxTombstones;
+        this.tombstoneTtl = Objects.requireNonNull(tombstoneTtl, "Tombstone TTL is required");
+        this.clock = Objects.requireNonNull(clock, "Clock is required");
     }
 
     /** Registers before the provider call starts; the caller closes the registration in a finally block. */
     Registration register(Key key, AiOperation operation) {
         Objects.requireNonNull(operation, "Operation is required");
-        if (!capacity.tryAcquire()) {
-            throw new RegistrationRejectedException("Too many in-flight AI invocations");
+        synchronized (lock) {
+            if (entries.size() >= maxEntries) {
+                throw new RegistrationRejectedException("Too many in-flight AI invocations");
+            }
+            if (entries.containsKey(key)) {
+                throw new RegistrationRejectedException("Duplicate AI invocation id");
+            }
+            Registration registration = new Registration(key, operation);
+            entries.put(key, registration);
+            Tombstone tombstone = tombstones.remove(key);
+            if (tombstone != null && tombstone.expiresAt().isAfter(clock.instant())
+                    && tombstone.callerPermissions().containsAll(requiredPermissions(operation))) {
+                registration.handle.cancel();
+            }
+            return registration;
         }
-        Registration registration = new Registration(key, operation);
-        if (entries.putIfAbsent(key, registration) != null) {
-            capacity.release();
-            throw new RegistrationRejectedException("Duplicate AI invocation id");
-        }
-        return registration;
     }
 
     /**
-     * Idempotent. Acts only on a live entry whose tenant, actor and id match, when the caller currently holds every
-     * permission required to perform the stored operation.
+     * Idempotent. Acts only on an entry whose tenant, actor and id match, when the caller currently holds every
+     * permission required to perform the stored operation. Without a live entry it leaves a tombstone, checked
+     * against the operation when the request registers. A full tombstone store drops the cancel (today's behaviour).
      */
     void cancel(Key key, Set<TenantPermission> callerPermissions) {
-        Registration registration = entries.get(key);
-        if (registration != null && callerPermissions.containsAll(requiredPermissions(registration.operation))) {
-            registration.handle.cancel();
+        AiCancellationHandle toCancel = null;
+        synchronized (lock) {
+            Registration registration = entries.get(key);
+            if (registration != null) {
+                if (callerPermissions.containsAll(requiredPermissions(registration.operation))) {
+                    toCancel = registration.handle;
+                }
+            } else {
+                Instant now = clock.instant();
+                tombstones.values().removeIf(tombstone -> !tombstone.expiresAt().isAfter(now));
+                if (tombstones.containsKey(key) || tombstones.size() < maxTombstones) {
+                    tombstones.put(key, new Tombstone(Set.copyOf(callerPermissions), now.plus(tombstoneTtl)));
+                }
+            }
+        }
+        if (toCancel != null) {
+            toCancel.cancel();
         }
     }
 
@@ -115,6 +157,14 @@ final class AiInvocationCancellationRegistry {
     }
 
     int size() {
-        return entries.size();
+        synchronized (lock) {
+            return entries.size();
+        }
+    }
+
+    int tombstones() {
+        synchronized (lock) {
+            return tombstones.size();
+        }
     }
 }

@@ -22,9 +22,11 @@ import io.github.stevdrey.dokene.ai.provider.openai.OpenAiProviderProperties;
 import io.github.stevdrey.dokene.ai.provider.openai.OpenAiResponsesApiAdapter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -56,6 +58,7 @@ class OpenAiCallCancellationSpikeTest {
     private static final Duration PROMPT_CLOSE = Duration.ofMillis(1_000);
     private static final Duration RETRY_GRACE = Duration.ofMillis(750);
     private static final int RACE_ITERATIONS = 5_000;
+    private static final Duration BODY_READ_SETTLE = Duration.ofMillis(200);
 
     private final RecommendationContext context = new RecommendationContext(
             new RecommendationContext.TrustedFacts(
@@ -226,6 +229,84 @@ class OpenAiCallCancellationSpikeTest {
                 RACE_ITERATIONS, prevented, RACE_ITERATIONS - prevented);
     }
 
+    @Test
+    void theDelegatingHttpClientCannotCancelOnceTheBodyIsBeingRead() throws Exception {
+        provider.stallMidBody = true;
+        OpenAiResponsesApiAdapter adapter = new OpenAiResponsesApiAdapter(cancellableClient(), properties());
+        AiCancellationHandle handle = new AiCancellationHandle();
+        AtomicReference<Throwable> outcome = new AtomicReference<>();
+        Thread worker = Thread.ofPlatform().start(() -> {
+            try {
+                ScopedValue.where(CancellableHttpClient.HANDLE, handle).run(() -> adapter.recommend(request));
+            } catch (Throwable t) {
+                outcome.set(t);
+            } finally {
+                Thread.interrupted();
+            }
+        });
+
+        assertThat(provider.bodyStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        Thread.sleep(BODY_READ_SETTLE.toMillis());
+        long cancelNanos = System.nanoTime();
+        handle.cancel();
+
+        boolean closedPromptly = provider.closed.await(PROMPT_CLOSE.toMillis(), TimeUnit.MILLISECONDS);
+        worker.join(PROVIDER_TIMEOUT.plusSeconds(2).toMillis());
+        report("delegating HttpClient + cancel while reading the body", cancelNanos, outcome.get());
+
+        // The HTTP future completed when the headers arrived, so Call#cancel is no longer reachable.
+        assertThat(closedPromptly).as("cancel during the body read leaves the provider socket open").isFalse();
+        assertThat(handle.aborted()).isFalse();
+    }
+
+    @Test
+    void aVirtualThreadWorkerClosesTheSocketWhileWaitingForHeaders() throws Exception {
+        assertVirtualThreadWorkerClosesTheSocket("virtual-thread worker + cancel while waiting for headers",
+                provider.requestReceived);
+    }
+
+    @Test
+    void aVirtualThreadWorkerClosesTheSocketWhileReadingTheBody() throws Exception {
+        provider.stallMidBody = true;
+        assertVirtualThreadWorkerClosesTheSocket("virtual-thread worker + cancel while reading the body",
+                provider.bodyStarted);
+    }
+
+    private void assertVirtualThreadWorkerClosesTheSocket(String path, CountDownLatch phaseReached) throws Exception {
+        VirtualThreadCancellableProvider cancellable =
+                new VirtualThreadCancellableProvider(new OpenAiResponsesApiAdapter(standardClient(), properties()));
+        AiCancellationHandle handle = new AiCancellationHandle();
+        AtomicReference<Throwable> outcome = new AtomicReference<>();
+        AtomicReference<Boolean> requestThreadInterrupted = new AtomicReference<>();
+        Thread requestThread = Thread.ofPlatform().start(() -> {
+            try {
+                ScopedValue.where(CancellableHttpClient.HANDLE, handle).run(() -> cancellable.recommend(request));
+            } catch (Throwable t) {
+                outcome.set(t);
+            } finally {
+                requestThreadInterrupted.set(Thread.interrupted());
+            }
+        });
+
+        assertThat(phaseReached.await(5, TimeUnit.SECONDS)).isTrue();
+        Thread.sleep(BODY_READ_SETTLE.toMillis());
+        long cancelNanos = System.nanoTime();
+        handle.cancel();
+
+        assertThat(provider.closed.await(PROMPT_CLOSE.toMillis(), TimeUnit.MILLISECONDS)).isTrue();
+        requestThread.join(PROMPT_CLOSE.toMillis());
+        report(path, cancelNanos, outcome.get());
+
+        assertThat(closeLatency(cancelNanos)).isLessThanOrEqualTo(PROMPT_CLOSE);
+        assertThat(requestThread.isAlive()).isFalse();
+        assertThat(outcome.get()).isInstanceOfSatisfying(AiProviderException.class,
+                e -> assertThat(e.category()).isEqualTo(AiFailureCategory.CANCELLED));
+        assertThat(handle.aborted()).isTrue();
+        assertThat(requestThreadInterrupted.get()).as("only the worker is interrupted").isFalse();
+        Thread.sleep(RETRY_GRACE.toMillis());
+        assertThat(provider.requests.get()).isEqualTo(1);
+    }
+
     private OpenAiProviderProperties properties() {
         return new OpenAiProviderProperties("test-api-key", "gpt-test", provider.baseUrl(), PROVIDER_TIMEOUT, 0);
     }
@@ -295,6 +376,9 @@ class OpenAiCallCancellationSpikeTest {
         final CountDownLatch requestReceived = new CountDownLatch(1);
         final CountDownLatch closed = new CountDownLatch(1);
         final AtomicLong closedAtNanos = new AtomicLong();
+        final CountDownLatch bodyStarted = new CountDownLatch(1);
+        /** When set, answers 200 with headers and the start of a large body, then stalls mid-body. */
+        volatile boolean stallMidBody;
         private final ServerSocket server;
 
         SilentProvider() throws IOException {
@@ -327,6 +411,14 @@ class OpenAiCallCancellationSpikeTest {
                         counted = true;
                         requests.incrementAndGet();
                         requestReceived.countDown();
+                        if (stallMidBody) {
+                            OutputStream out = socket.getOutputStream();
+                            out.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                    + "Content-Length: 1000000\r\n\r\n{\"id\":\"resp_1\",\"object\":\"response\",")
+                                    .getBytes(StandardCharsets.US_ASCII));
+                            out.flush();
+                            bodyStarted.countDown();
+                        }
                     }
                 }
             } catch (IOException ignored) {

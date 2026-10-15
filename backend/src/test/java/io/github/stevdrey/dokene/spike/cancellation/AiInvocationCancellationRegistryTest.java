@@ -8,6 +8,11 @@ import io.github.stevdrey.dokene.spike.cancellation.AiInvocationCancellationRegi
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -210,6 +215,96 @@ class AiInvocationCancellationRegistryTest {
     }
 
     @Test
+    void aCancelThatOvertakesItsRequestIsAppliedWhenTheRequestRegisters() {
+        AtomicInteger started = new AtomicInteger();
+        registry.cancel(key, ALL);
+
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            assertThatThrownBy(() -> registration.handle().start(() -> {
+                started.incrementAndGet();
+                return new CompletableFuture<String>();
+            })).isInstanceOf(CancellationException.class);
+            assertThat(started.get()).as("the provider is never called").isZero();
+            assertThat(registration.outcome()).isEqualTo(Outcome.CANCELLED);
+        }
+        assertThat(registry.tombstones()).as("the tombstone is consumed").isZero();
+    }
+
+    @Test
+    void aTombstoneOnlyAppliesToTheSameTenantActorAndPermittedOperation() {
+        registry.cancel(new Key(tenantB, actor, invocationId), ALL);
+        registry.cancel(new Key(tenantA, otherActor, invocationId), ALL);
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            assertThat(registration.handle().isCancelled()).isFalse();
+        }
+
+        UUID draftId = UUID.randomUUID();
+        Key draftKey = new Key(tenantA, actor, draftId);
+        registry.cancel(draftKey, EnumSet.of(TenantPermission.MESSAGE_DRAFT));
+        try (Registration draft = registry.register(draftKey, AiOperation.MESSAGE_DRAFT)) {
+            assertThat(draft.handle().isCancelled()).as("a draft needs both permissions").isFalse();
+        }
+    }
+
+    @Test
+    void anExpiredTombstoneNoLongerApplies() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-15T12:00:00Z"));
+        AiInvocationCancellationRegistry timed =
+                new AiInvocationCancellationRegistry(10, 10, Duration.ofSeconds(30), clock);
+        timed.cancel(key, ALL);
+
+        clock.advance(Duration.ofSeconds(31));
+        try (Registration registration = timed.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            assertThat(registration.handle().isCancelled()).isFalse();
+        }
+    }
+
+    @Test
+    void theTombstoneStoreIsBoundedAndDropsCancelsWhenFull() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-15T12:00:00Z"));
+        AiInvocationCancellationRegistry bounded =
+                new AiInvocationCancellationRegistry(10, 2, Duration.ofSeconds(30), clock);
+        bounded.cancel(new Key(tenantA, actor, UUID.randomUUID()), ALL);
+        bounded.cancel(new Key(tenantA, actor, UUID.randomUUID()), ALL);
+        bounded.cancel(key, ALL);
+
+        assertThat(bounded.tombstones()).isEqualTo(2);
+        try (Registration registration = bounded.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            assertThat(registration.handle().isCancelled()).as("dropped: today's behaviour").isFalse();
+        }
+
+        clock.advance(Duration.ofSeconds(31));
+        bounded.cancel(key, ALL);
+        assertThat(bounded.tombstones()).as("expired tombstones free the store").isEqualTo(1);
+    }
+
+    @Test
+    void cancelRacingRegistrationIsNeverLost() throws Exception {
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            for (int i = 0; i < RACE_ITERATIONS; i++) {
+                Key raceKey = new Key(tenantA, actor, UUID.randomUUID());
+                CountDownLatch start = new CountDownLatch(1);
+                Future<?> canceller = pool.submit(() -> {
+                    start.await();
+                    registry.cancel(raceKey, ALL);
+                    return null;
+                });
+                Future<Registration> request = pool.submit(() -> {
+                    start.await();
+                    return registry.register(raceKey, AiOperation.NEXT_BEST_ACTION);
+                });
+                start.countDown();
+                canceller.get(5, TimeUnit.SECONDS);
+                try (Registration registration = request.get(5, TimeUnit.SECONDS)) {
+                    assertThat(registration.handle().isCancelled()).isTrue();
+                }
+            }
+        }
+        assertThat(registry.size()).isZero();
+        assertThat(registry.tombstones()).isZero();
+    }
+
+    @Test
     void cancelRacingCompletionAlwaysYieldsExactlyOneConsistentOutcome() throws Exception {
         int cancelledWins = 0;
         try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
@@ -291,5 +386,32 @@ class AiInvocationCancellationRegistryTest {
         }
         System.out.printf("[spike-180] cancel/start race: %d iterations, prevented before start %d, aborted after start %d%n",
                 RACE_ITERATIONS, prevented, RACE_ITERATIONS - prevented);
+    }
+
+    private static final class MutableClock extends Clock {
+        private volatile Instant now;
+
+        MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
     }
 }
