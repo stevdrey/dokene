@@ -5,17 +5,12 @@ package io.github.stevdrey.dokene.template.api;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.MapperFeature;
-import tools.jackson.databind.cfg.CoercionAction;
-import tools.jackson.databind.cfg.CoercionInputShape;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.type.LogicalType;
 
 /**
  * Transport shapes only. A request names the template by semantic intent in the path and by provider template name in
@@ -24,33 +19,17 @@ import tools.jackson.databind.type.LogicalType;
 public final class TemplateApiContract {
     public static final String PROBLEM_MEDIA_TYPE = "application/problem+json";
 
-    private static final JsonMapper STRICT_READER = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
-            .withCoercionConfig(LogicalType.Textual, config -> config
-                    .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
-                    .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
-            .build();
-
     private TemplateApiContract() {
     }
 
+    /** The shared strict reader, also used by the fixture tests. */
     public static JsonMapper strictReader() {
-        return STRICT_READER;
+        return StrictRequests.reader();
     }
 
     /** Binds a request body, mapping every malformed shape to {@link InvalidRequestException}. */
     public static TemplateRequest read(JsonNode body) {
-        try {
-            TemplateRequest request = body == null ? null : STRICT_READER.treeToValue(body, TemplateRequest.class);
-            if (request == null) {
-                throw new InvalidRequestException();
-            }
-            return request;
-        } catch (JacksonException malformed) {
-            throw new InvalidRequestException();
-        }
+        return StrictRequests.read(body, TemplateRequest.class).orElseThrow(InvalidRequestException::new);
     }
 
     public static final class InvalidRequestException extends RuntimeException {

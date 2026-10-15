@@ -5,10 +5,13 @@ package io.github.stevdrey.dokene.messaging.application;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageCancellation;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
+import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface OutboundMessageRepository {
@@ -17,12 +20,31 @@ public interface OutboundMessageRepository {
     record ProviderMessageRef(UUID messageId, UUID customerId) {
     }
 
+    /**
+     * A message with its derived {@code contactRemoved} flag: true when the customer no longer owns the snapshotted
+     * contact (spec 0001, contact lifecycle rule).
+     */
+    record ListedMessage(OutboundMessage message, boolean contactRemoved) {
+        public ListedMessage {
+            Objects.requireNonNull(message, "Message is required");
+        }
+    }
+
     /** Translates a hit on the one open message per customer index into MESSAGE_ALREADY_OPEN. */
     OutboundMessage insert(OutboundMessage message);
 
     Optional<OutboundMessage> findById(UUID tenantId, UUID messageId);
 
     Optional<OutboundMessage> findByIdForUpdate(UUID tenantId, UUID messageId);
+
+    Optional<ListedMessage> findListedById(UUID tenantId, UUID messageId);
+
+    /**
+     * Ordered {@code createdAt DESC, id DESC}, strictly after {@code after} when given. An empty {@code statuses} set
+     * means every status.
+     */
+    List<ListedMessage> findPage(UUID tenantId, Set<MessageStatus> statuses, Optional<UUID> customerId,
+            Optional<MessageCursor> after, int fetchLimit);
 
     Optional<ProviderMessageRef> findIdsByProviderMessageId(UUID tenantId, String providerMessageId);
 
@@ -34,6 +56,9 @@ public interface OutboundMessageRepository {
     MessageApproval insertApproval(MessageApproval approval);
 
     Optional<MessageApproval> findApproval(UUID tenantId, UUID approvalId);
+
+    /** The message's single decision, if one was made. */
+    Optional<MessageApproval> findApprovalByMessage(UUID tenantId, UUID messageId);
 
     MessageCancellation insertCancellation(MessageCancellation cancellation);
 

@@ -15,10 +15,25 @@ public interface TemplateProviderGateway {
      * Asks the provider for the template's current state in the current tenant's business account. Never throws for
      * provider or credential problems: they are {@link Unavailable}, which carries no provider text.
      */
-    Lookup lookup(String providerTemplateName, String language);
+    Lookup lookup(Sender sender, String providerTemplateName, String language);
 
-    record Sender(UUID integrationId, String businessAccountId) {
-        public Sender {
+    /**
+     * The sending identity a mapping is bound to. An adapter may return its own subtype carrying what it needs to
+     * call the provider (for example a credential reference) and receives it back in {@link #lookup}, so the
+     * template module never handles credentials and the integration is read once per operation.
+     */
+    interface Sender {
+        UUID integrationId();
+
+        String businessAccountId();
+
+        static Sender of(UUID integrationId, String businessAccountId) {
+            return new BasicSender(integrationId, businessAccountId);
+        }
+    }
+
+    record BasicSender(UUID integrationId, String businessAccountId) implements Sender {
+        public BasicSender {
             Objects.requireNonNull(integrationId, "Integration id is required");
             Objects.requireNonNull(businessAccountId, "Business account id is required");
         }

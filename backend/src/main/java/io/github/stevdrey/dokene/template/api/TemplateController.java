@@ -14,11 +14,11 @@ import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Pr
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Version;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
-import java.util.regex.Pattern;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,7 +33,6 @@ import tools.jackson.databind.JsonNode;
 @RestController
 @RequestMapping("/api/templates")
 public class TemplateController {
-    private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,17})\"$");
 
     private final TemplateRegistryService registry;
 
@@ -117,9 +116,6 @@ public class TemplateController {
             }
             return new Create();
         }
-        if (!STRONG_NUMERIC_ETAG.matcher(ifMatch).matches()) {
-            throw new InvalidRequestException();
-        }
-        return new Version(Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1)));
+        return new Version(StrictRequests.strongNumericVersion(ifMatch).orElseThrow(InvalidRequestException::new));
     }
 }

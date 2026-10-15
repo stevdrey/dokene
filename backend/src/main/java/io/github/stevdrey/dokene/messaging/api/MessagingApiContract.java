@@ -20,7 +20,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Transport shapes only: no controller uses them yet. Requests reject missing required members and out-of-contract
+ * Transport shapes, used by {@code MessageController}. Requests reject missing required members and out-of-contract
  * values at construction so a controller maps the failure to {@code 400 INVALID_INPUT}; business rules stay in the
  * service. Responses never carry secrets, provider payloads, notes or identity UUIDs.
  */

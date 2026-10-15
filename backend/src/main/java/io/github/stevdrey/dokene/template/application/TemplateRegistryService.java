@@ -128,7 +128,7 @@ public class TemplateRegistryService {
         }
         TemplateProviderGateway.Sender sender = gateway.currentSender()
                 .orElseThrow(() -> new TemplateRefusedException(TemplateErrorCode.INTEGRATION_DISABLED));
-        TemplateProviderGateway.Lookup lookup = gateway.lookup(current.providerTemplateName(), current.language());
+        TemplateProviderGateway.Lookup lookup = gateway.lookup(sender, current.providerTemplateName(), current.language());
         // Evidence is only kept for the account that was asked; an answer about any other account is not evidence.
         if (!answeredFor(lookup, sender)) {
             lookup = new TemplateProviderGateway.Unavailable();

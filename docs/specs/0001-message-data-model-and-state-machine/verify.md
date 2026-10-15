@@ -26,7 +26,7 @@ One step per Value sourcing row, each varying the input that breaks if the sourc
 - [x] submit follow up status: customer `NOT_YET_DUE` → `FOLLOW_UP_INELIGIBLE` → AC-4
 - [x] submit `source_policy_version`: `If-Match` of `policyVersion + 5` → `STALE_VERSION`; the stored `source_policy_version` equals the evaluation's version → AC-4
 - [x] body safety: body with a URL → `BODY_REJECTED` on submit → AC-4
-- [x] template mapping: intent not in `dokene.messaging.template-gate.stub.enabled-intents` → `TEMPLATE_NOT_MAPPED`; listed → accepted → AC-12
+- [x] template mapping: an unmapped, unverified, rejected, expired or edited mapping → `TEMPLATE_NOT_MAPPED`; an enabled, provider-approved, fresh mapping → accepted → AC-12 (originally verified with the stub property, replaced under issue #135)
 - [x] `send_key`: two different messages never share a `send_key`; replay returns the same key → AC-5
 - [x] open message check: insert a second open row by SQL under the tenant context while one is open → unique violation on `one_open_message_per_customer` → AC-2
 - [x] timestamps from the clock: event `occurred_at` of an applied report equals the applying instant, not the report's `occurredAt` → AC-10

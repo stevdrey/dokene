@@ -23,6 +23,12 @@ public record ApprovalFingerprint(String value) {
         }
     }
 
+    /** Redacted: the value is never returned, audited or logged (ADR 0024 §2). */
+    @Override
+    public String toString() {
+        return "ApprovalFingerprint[redacted]";
+    }
+
     public static ApprovalFingerprint of(Binding binding) {
         Objects.requireNonNull(binding, "Binding is required");
         return new ApprovalFingerprint(RequestFingerprint.digest(SCHEME, binding.canonicalFields()));

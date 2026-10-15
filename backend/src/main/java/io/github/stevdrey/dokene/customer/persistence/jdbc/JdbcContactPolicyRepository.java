@@ -21,6 +21,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -33,6 +34,25 @@ public class JdbcContactPolicyRepository implements ContactPolicyRepository {
 
     public JdbcContactPolicyRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    @Override
+    public OptionalLong whatsAppConsentRevision(Customer customer, UUID contactId) {
+        // Policy versions advance by compare-and-set on every consent change, so they order a contact's history
+        // without the ties a timestamp can have.
+        Long revision = jdbc.queryForObject("""
+                SELECT MIN(granted.policy_version)
+                FROM dokene.customer_consent_history granted
+                WHERE granted.tenant_id = ? AND granted.customer_id = ? AND granted.phone_contact_id = ?
+                  AND granted.channel = 'WHATSAPP' AND granted.status = 'GRANTED'
+                  AND granted.policy_version > COALESCE((
+                      SELECT MAX(other.policy_version)
+                      FROM dokene.customer_consent_history other
+                      WHERE other.tenant_id = granted.tenant_id AND other.customer_id = granted.customer_id
+                        AND other.phone_contact_id = granted.phone_contact_id
+                        AND other.channel = 'WHATSAPP' AND other.status <> 'GRANTED'), 0)
+                """, Long.class, customer.tenantId().value(), customer.id().value(), contactId);
+        return revision == null ? OptionalLong.empty() : OptionalLong.of(revision);
     }
 
     @Override
