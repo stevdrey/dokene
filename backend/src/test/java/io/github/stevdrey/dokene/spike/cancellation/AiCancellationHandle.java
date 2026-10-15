@@ -10,6 +10,9 @@ import java.util.function.Supplier;
  * lock: either the start sees the cancel and sends nothing, or the cancel sees the started call and aborts it.
  */
 final class AiCancellationHandle {
+    /** The current invocation's handle, bound per request with {@link ScopedValue#where}. */
+    static final ScopedValue<AiCancellationHandle> CURRENT = ScopedValue.newInstance();
+
     private final Object lock = new Object();
     private boolean cancelled;
     private boolean prevented;

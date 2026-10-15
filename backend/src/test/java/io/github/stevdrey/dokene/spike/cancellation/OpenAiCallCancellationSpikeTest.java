@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,6 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Java interrupt to {@code CANCELLED}), and does nothing retry afterwards? The "provider" is a raw socket that reads
  * the request and never answers; it observes the client closing the connection.
  */
+@Tag("spike")
 class OpenAiCallCancellationSpikeTest {
 
     private static final Duration PROVIDER_TIMEOUT = Duration.ofSeconds(4);
@@ -146,7 +148,7 @@ class OpenAiCallCancellationSpikeTest {
         AtomicReference<Boolean> interruptedAfter = new AtomicReference<>();
         Thread worker = Thread.ofPlatform().start(() -> {
             try {
-                ScopedValue.where(CancellableHttpClient.HANDLE, handle).run(() -> adapter.recommend(request));
+                ScopedValue.where(AiCancellationHandle.CURRENT, handle).run(() -> adapter.recommend(request));
             } catch (Throwable t) {
                 outcome.set(t);
             } finally {
@@ -185,7 +187,7 @@ class OpenAiCallCancellationSpikeTest {
         AtomicReference<Throwable> outcome = new AtomicReference<>();
         Thread worker = Thread.ofPlatform().start(() -> {
             try {
-                ScopedValue.where(CancellableHttpClient.HANDLE, handle).run(() -> adapter.recommend(request));
+                ScopedValue.where(AiCancellationHandle.CURRENT, handle).run(() -> adapter.recommend(request));
             } catch (Throwable t) {
                 outcome.set(t);
             }
@@ -210,7 +212,7 @@ class OpenAiCallCancellationSpikeTest {
                 Future<?> caller = pool.submit(() -> {
                     start.await();
                     try {
-                        ScopedValue.where(CancellableHttpClient.HANDLE, handle)
+                        ScopedValue.where(AiCancellationHandle.CURRENT, handle)
                                 .run(() -> client.execute(null, RequestOptions.none()));
                     } catch (CancellationException expected) {
                         // prevented before the start, or aborted after it
@@ -246,7 +248,7 @@ class OpenAiCallCancellationSpikeTest {
         AtomicReference<Throwable> outcome = new AtomicReference<>();
         Thread worker = Thread.ofPlatform().start(() -> {
             try {
-                ScopedValue.where(CancellableHttpClient.HANDLE, handle).run(() -> adapter.recommend(request));
+                ScopedValue.where(AiCancellationHandle.CURRENT, handle).run(() -> adapter.recommend(request));
             } catch (Throwable t) {
                 outcome.set(t);
             } finally {
@@ -289,7 +291,7 @@ class OpenAiCallCancellationSpikeTest {
         AtomicReference<Boolean> requestThreadInterrupted = new AtomicReference<>();
         Thread requestThread = Thread.ofPlatform().start(() -> {
             try {
-                ScopedValue.where(CancellableHttpClient.HANDLE, handle).run(() -> cancellable.recommend(request));
+                ScopedValue.where(AiCancellationHandle.CURRENT, handle).run(() -> cancellable.recommend(request));
             } catch (Throwable t) {
                 outcome.set(t);
             } finally {
@@ -345,7 +347,7 @@ class OpenAiCallCancellationSpikeTest {
                 CountDownLatch started = new CountDownLatch(1);
                 Future<Object> caller = pool.submit(() -> {
                     try {
-                        return ScopedValue.where(CancellableHttpClient.HANDLE, handle).call(() -> {
+                        return ScopedValue.where(AiCancellationHandle.CURRENT, handle).call(() -> {
                             started.countDown();
                             return cancellable.recommend(request);
                         });
@@ -394,7 +396,7 @@ class OpenAiCallCancellationSpikeTest {
                 CountDownLatch started = new CountDownLatch(1);
                 Future<AiProviderException> caller = pool.submit(() -> {
                     try {
-                        ScopedValue.where(CancellableHttpClient.HANDLE, handle).call(() -> {
+                        ScopedValue.where(AiCancellationHandle.CURRENT, handle).call(() -> {
                             started.countDown();
                             return cancellable.recommend(request);
                         });

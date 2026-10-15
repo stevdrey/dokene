@@ -1,8 +1,5 @@
 package io.github.stevdrey.dokene.tenant.security;
 
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.context;
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
-import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -23,10 +20,6 @@ import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
-import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
-import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
-import io.github.stevdrey.dokene.customer.domain.ContactChannel;
-import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.AiUnavailableReason;
 import io.github.stevdrey.dokene.followup.application.FollowUpRecommendationResult;
@@ -36,20 +29,17 @@ import io.github.stevdrey.dokene.followup.application.RecommendationStatus;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
-import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
-import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.io.InterruptedIOException;
 import java.sql.SQLException;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
-import java.util.UUID;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,6 +60,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
         "dokene.ai.retry.initial-backoff=10ms",
         "dokene.ai.retry.max-backoff=20ms",
         "dokene.ai.retry.min-attempt-budget=100ms"})
+@Tag("spike")
 class CancelledInvocationDurableAuditSpikeIntegrationTest {
 
     @DynamicPropertySource
@@ -89,27 +80,18 @@ class CancelledInvocationDurableAuditSpikeIntegrationTest {
     @Autowired AuditExecutionContext auditExecution;
     @Autowired AuditReader auditReader;
 
+    private AiInvocationSeed seed;
     private TenantContext tenantContext;
     private Customer customer;
 
     @BeforeEach
     void setUp() throws Exception {
         Mockito.reset(provider);
-        Instant now = Instant.now();
-        Tenant tenant = seedTenant(tenants, contexts, "AI Cancel Tenant " + UUID.randomUUID(), now);
-        tenantContext = context(seedMembership(memberships, contexts, tenant.id(),
-                new IdentityId(UUID.randomUUID()), TenantRole.OWNER, now));
-        inContext(() -> followUps.configureTenant(14, ZoneId.of("America/Costa_Rica"), 0L));
-        customer = inContext(() -> customers.create("Jane Doe", null,
-                List.of(new PhoneInput("8888" + String.format("%04d", Math.abs(UUID.randomUUID().hashCode()) % 10000),
-                        "CR", true))));
-        UUID contactId = customer.phones().getFirst().id();
-        var contactPolicy = inContext(() -> contacts.get(customer.id()));
-        inContext(() -> contacts.changeConsent(customer.id(), contactId, ContactChannel.WHATSAPP,
-                ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, contactPolicy.version()));
-        Instant past = LocalDate.now(ZoneId.of("America/Costa_Rica")).minusDays(20)
-                .atStartOfDay(ZoneId.of("America/Costa_Rica")).toInstant();
-        inContext(() -> purchases.record(customer.id(), past, "Coffee Beans", "order-" + UUID.randomUUID()));
+        seed = new AiInvocationSeed(tenants, memberships, contexts, auditExecution, followUps, customers, contacts,
+                purchases);
+        AiInvocationSeed.Seeded seeded = seed.dueCustomer("AI Cancel Tenant");
+        tenantContext = seeded.tenantContext();
+        customer = seeded.customer();
     }
 
     @Test
@@ -152,18 +134,33 @@ class CancelledInvocationDurableAuditSpikeIntegrationTest {
     }
 
     /**
-     * Encodes the behaviour observed on JDK 26 / Hikari / PostgreSQL 17 (see ADR 0026, interrupt-flag row): with an
-     * idle pooled connection the durable row is written despite the flag, but the flag survives the request, so a
-     * pooled worker thread would carry it into its next request. A borrow that has to wait for a connection is not
-     * exercised here.
+     * The flag survives the request in every environment: nothing on the request path clears it, which is the risk
+     * ADR 0026 records. Whether the durable write survives it depends on the pool: with an idle connection the row
+     * is written (what was observed locally); when the borrow has to wait, Hikari's interruptible wait may fail the
+     * write instead. Both are accepted here, so the test does not depend on pool timing, but nothing else is.
      */
     private void assertObservedCaseA(Object observed, boolean stillInterrupted, List<AuditEvent> events) {
-        assertThat(observed).isInstanceOfSatisfying(FollowUpRecommendationResult.class,
-                result -> assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.CANCELLED));
-        assertThat(events).singleElement().satisfies(event -> assertThat(event.metadata()).isEqualTo(
-                new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.FAILED,
-                        AiAuditDetail.CANCELLED)));
-        assertThat(stillInterrupted).as("the interrupt flag leaks past the request").isTrue();
+        assertThat(stillInterrupted).as("the interrupt flag outlives the request").isTrue();
+        if (observed instanceof FollowUpRecommendationResult result) {
+            assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.CANCELLED);
+            assertThat(events).singleElement().satisfies(event -> assertThat(event.metadata()).isEqualTo(
+                    new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION, AiAuditOutcome.FAILED,
+                            AiAuditDetail.CANCELLED)));
+        } else {
+            assertThat(observed).as("only an interrupted audit write may fail the request").isInstanceOf(Throwable.class);
+            assertThat(causedByInterruption((Throwable) observed)).as(describe(observed)).isTrue();
+            assertThat(events).isEmpty();
+        }
+    }
+
+    private static boolean causedByInterruption(Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof InterruptedException || t instanceof InterruptedIOException
+                    || String.valueOf(t.getMessage()).toLowerCase(Locale.ROOT).contains("interrupt")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String describe(Object observed) {
@@ -193,7 +190,6 @@ class CancelledInvocationDurableAuditSpikeIntegrationTest {
     }
 
     private <T> T inContext(Callable<T> operation) throws Exception {
-        return auditExecution.callWithCorrelation(UUID.randomUUID(),
-                () -> contexts.callWithContext(tenantContext, operation::call));
+        return seed.inContext(tenantContext, operation);
     }
 }

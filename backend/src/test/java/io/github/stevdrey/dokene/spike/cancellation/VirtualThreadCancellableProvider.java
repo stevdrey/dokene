@@ -58,10 +58,11 @@ final class VirtualThreadCancellableProvider implements AiProvider {
     }
 
     private <T> T run(Callable<T> attempt) {
-        AiCancellationHandle handle = CancellableHttpClient.HANDLE.isBound() ? CancellableHttpClient.HANDLE.get() : null;
-        if (handle == null) {
+        // ScopedValue.orElse rejects a null default, so check the binding explicitly.
+        if (!AiCancellationHandle.CURRENT.isBound()) {
             return call(attempt);
         }
+        AiCancellationHandle handle = AiCancellationHandle.CURRENT.get();
         WorkerAttempt<T> worker;
         try {
             worker = handle.start(() -> WorkerAttempt.start(attempt));
@@ -77,6 +78,9 @@ final class VirtualThreadCancellableProvider implements AiProvider {
             Thread.currentThread().interrupt();
             throw notStarted();
         } catch (ExecutionException e) {
+            if (e.getCause() instanceof Error error) {
+                throw error;
+            }
             if (worker.cancelWon()) {
                 throw asCancelled(e.getCause());
             }

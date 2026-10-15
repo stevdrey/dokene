@@ -12,11 +12,10 @@ import java.util.concurrent.ExecutionException;
 /**
  * Spike prototype (Issue #180), test sources only. Keeps the blocking SDK call shape for the adapter, but runs the
  * HTTP exchange through the SDK's async OkHttp path, whose future cancels the underlying {@code okhttp3.Call} (and
- * so closes the provider socket) when it is cancelled. The handle is bound per invocation with a {@link ScopedValue}.
+ * so closes the provider socket) when it is cancelled. The handle is bound per invocation with
+ * {@link AiCancellationHandle#CURRENT}.
  */
 final class CancellableHttpClient implements HttpClient {
-    static final ScopedValue<AiCancellationHandle> HANDLE = ScopedValue.newInstance();
-
     private final HttpClient delegate;
 
     CancellableHttpClient(HttpClient delegate) {
@@ -25,11 +24,12 @@ final class CancellableHttpClient implements HttpClient {
 
     @Override
     public HttpResponse execute(HttpRequest request, RequestOptions requestOptions) {
-        if (!HANDLE.isBound()) {
+        if (!AiCancellationHandle.CURRENT.isBound()) {
             return delegate.execute(request, requestOptions);
         }
         // Throws CancellationException without sending anything when the cancel won before this attempt.
-        CompletableFuture<HttpResponse> call = HANDLE.get().start(() -> delegate.executeAsync(request, requestOptions));
+        CompletableFuture<HttpResponse> call = AiCancellationHandle.CURRENT.get()
+                .start(() -> delegate.executeAsync(request, requestOptions));
         try {
             return call.get();
         } catch (InterruptedException e) {

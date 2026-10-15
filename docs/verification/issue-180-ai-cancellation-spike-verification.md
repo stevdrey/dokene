@@ -7,11 +7,11 @@ The backend ran on JDK 26 (Temurin 26.0.2) with `openai-java` 4.78.0 and Tomcat 
 ## Commands
 
 ```bash
-cd backend && ./gradlew test --tests 'io.github.stevdrey.dokene.spike.cancellation.*' --tests '*CancelledInvocationDurableAuditSpikeIntegrationTest' -i
+cd backend && ./gradlew spikeTest -i
 cd frontend && npx vitest run src/features/followups/__tests__/aiCancellationOrdering.spike.test.ts
 ```
 
-The [timings](#measured-timings-local-loopback-provider-4s-sdk-timeout) are the `[spike-180]` lines printed by the backend command.
+The backend spike tests are tagged `spike`. The `spikeTest` task runs them on demand, and `./gradlew test`/`check` excludes them, because they depend on wall-clock socket timings and long race loops. The [timings](#measured-timings-local-loopback-provider-4s-sdk-timeout) are the `[spike-180]` lines printed by the backend command.
 
 ## Acceptance criteria
 

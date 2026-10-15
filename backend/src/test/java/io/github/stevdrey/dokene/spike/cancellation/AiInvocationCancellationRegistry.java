@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -81,26 +82,49 @@ final class AiInvocationCancellationRegistry {
     /**
      * One permission snapshot per cancel request. The tombstone applies only if a single snapshot covers the
      * operation: a later, weaker cancel never removes an earlier authorized one, and separately insufficient cancels
-     * never combine into an authorized one.
+     * never combine into an authorized one. Its expiry is fixed when it is created; repeated cancels never extend it.
      */
-    private record Tombstone(List<Set<TenantPermission>> snapshots, Instant expiresAt) {
+    private static final class Tombstone {
+        private final List<Set<TenantPermission>> snapshots = new ArrayList<>();
+        private final Instant expiresAt;
+
+        private Tombstone(Set<TenantPermission> first, Instant expiresAt) {
+            this.snapshots.add(first);
+            this.expiresAt = expiresAt;
+        }
+
         boolean authorizes(Set<TenantPermission> required) {
             return snapshots.stream().anyMatch(snapshot -> snapshot.containsAll(required));
         }
+
+        void add(Set<TenantPermission> snapshot) {
+            if (!snapshots.contains(snapshot) && snapshots.size() < MAX_SNAPSHOTS_PER_TOMBSTONE) {
+                snapshots.add(snapshot);
+            }
+        }
     }
+
+    private record Expiry(Key key, Tombstone tombstone) {
+    }
+
+    /** Matches the recommendation service's maximum provider timeout; a tombstone outlives it by the margin. */
+    static final Duration DEFAULT_PROVIDER_MAX_TIMEOUT = Duration.ofSeconds(30);
+    static final Duration TOMBSTONE_MARGIN = Duration.ofSeconds(10);
 
     private static final int MAX_SNAPSHOTS_PER_TOMBSTONE = 4;
 
     private final Object lock = new Object();
     private final Map<Key, Registration> entries = new HashMap<>();
     private final Map<Key, Tombstone> tombstones = new HashMap<>();
+    /** Tombstones in creation order, which is also expiry order because the TTL is constant and never extended. */
+    private final ArrayDeque<Expiry> expiryOrder = new ArrayDeque<>();
     private final int maxEntries;
     private final int maxTombstones;
     private final Duration tombstoneTtl;
     private final Clock clock;
 
     AiInvocationCancellationRegistry(int maxEntries) {
-        this(maxEntries, maxEntries, Duration.ofSeconds(30), Clock.systemUTC());
+        this(maxEntries, maxEntries, DEFAULT_PROVIDER_MAX_TIMEOUT.plus(TOMBSTONE_MARGIN), Clock.systemUTC());
     }
 
     AiInvocationCancellationRegistry(int maxEntries, int maxTombstones, Duration tombstoneTtl, Clock clock) {
@@ -126,7 +150,7 @@ final class AiInvocationCancellationRegistry {
             Registration registration = new Registration(key, operation);
             entries.put(key, registration);
             Tombstone tombstone = tombstones.remove(key);
-            if (tombstone != null && tombstone.expiresAt().isAfter(clock.instant())
+            if (tombstone != null && tombstone.expiresAt.isAfter(clock.instant())
                     && tombstone.authorizes(requiredPermissions(operation))) {
                 registration.handle.cancel();
             }
@@ -149,22 +173,37 @@ final class AiInvocationCancellationRegistry {
                 }
             } else {
                 Instant now = clock.instant();
-                tombstones.values().removeIf(tombstone -> !tombstone.expiresAt().isAfter(now));
+                purgeExpired(now);
                 Set<TenantPermission> snapshot = Set.copyOf(callerPermissions);
                 Tombstone existing = tombstones.get(key);
                 if (existing != null) {
-                    List<Set<TenantPermission>> snapshots = new ArrayList<>(existing.snapshots());
-                    if (!snapshots.contains(snapshot) && snapshots.size() < MAX_SNAPSHOTS_PER_TOMBSTONE) {
-                        snapshots.add(snapshot);
-                    }
-                    tombstones.put(key, new Tombstone(List.copyOf(snapshots), now.plus(tombstoneTtl)));
+                    existing.add(snapshot);
                 } else if (tombstones.size() < maxTombstones) {
-                    tombstones.put(key, new Tombstone(List.of(snapshot), now.plus(tombstoneTtl)));
+                    Tombstone created = new Tombstone(snapshot, now.plus(tombstoneTtl));
+                    tombstones.put(key, created);
+                    expiryOrder.addLast(new Expiry(key, created));
                 }
             }
         }
         if (toCancel != null) {
             toCancel.cancel();
+        }
+    }
+
+    /**
+     * Amortized O(1): pops only expired heads (or heads already consumed by a registration) instead of scanning
+     * every tombstone under the lock on each cancel.
+     */
+    private void purgeExpired(Instant now) {
+        for (Expiry head = expiryOrder.peekFirst(); head != null; head = expiryOrder.peekFirst()) {
+            boolean consumed = tombstones.get(head.key()) != head.tombstone();
+            if (!consumed && head.tombstone().expiresAt.isAfter(now)) {
+                return;
+            }
+            expiryOrder.pollFirst();
+            if (!consumed) {
+                tombstones.remove(head.key());
+            }
         }
     }
 

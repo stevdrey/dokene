@@ -70,6 +70,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,6 +85,7 @@ import static org.mockito.Mockito.when;
  * rate limiter: a won cancel is audited once as {@code FAILED/CANCELLED} without retry, a lost cancel keeps
  * {@code GENERATED}, and permits consumed by cancelled calls stay consumed.
  */
+@Tag("spike")
 class RecommendationCancellationSpikeTest {
 
     private static final int ACTOR_PERMITS = 3;
@@ -274,7 +276,7 @@ class RecommendationCancellationSpikeTest {
         AiProvider resilient = new AiResilience(new AiRetryProperties(2, Duration.ofMillis(1), Duration.ofMillis(2),
                 Duration.ofMillis(10)), telemetry).wrap(cancelAfterAttempt, cancellationGuard);
 
-        assertThatThrownBy(() -> ScopedValue.where(CancellableHttpClient.HANDLE, handle)
+        assertThatThrownBy(() -> ScopedValue.where(AiCancellationHandle.CURRENT, handle)
                 .call(() -> resilient.recommend(new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION, context(),
                         Duration.ofSeconds(3)))))
                 .isInstanceOfSatisfying(AiProviderException.class, e -> {
@@ -357,7 +359,7 @@ class RecommendationCancellationSpikeTest {
     /** Mirrors a request thread: tenant context bound by the filter, cancellation handle bound per invocation. */
     private FollowUpRecommendationResult recommendIn(Registration registration) throws Exception {
         return contexts.callWithContext(requestContext, () -> ScopedValue
-                .where(CancellableHttpClient.HANDLE, registration.handle())
+                .where(AiCancellationHandle.CURRENT, registration.handle())
                 .call(() -> recommendations.recommendSafe(customerId, Duration.ofSeconds(3), null)));
     }
 
@@ -431,7 +433,7 @@ class RecommendationCancellationSpikeTest {
         @Override
         public AiRecommendationResponse recommend(AiRecommendationRequest request) {
             int attempt = invocations.incrementAndGet();
-            AiCancellationHandle handle = CancellableHttpClient.HANDLE.get();
+            AiCancellationHandle handle = AiCancellationHandle.CURRENT.get();
             Runnable afterFailure = afterFailedFirstAttempt;
             CompletableFuture<AiRecommendationResponse> attemptCall;
             try {

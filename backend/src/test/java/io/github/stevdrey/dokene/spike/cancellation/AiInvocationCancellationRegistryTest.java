@@ -27,12 +27,14 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Spike evidence for Issue #180: binding, idempotency, capacity and the cancel races of the prototype registry. */
+@Tag("spike")
 class AiInvocationCancellationRegistryTest {
 
     private static final int RACE_ITERATIONS = 5_000;
@@ -276,6 +278,21 @@ class AiInvocationCancellationRegistryTest {
         clock.advance(Duration.ofSeconds(31));
         try (Registration registration = timed.register(key, AiOperation.NEXT_BEST_ACTION)) {
             assertThat(registration.handle().isCancelled()).isFalse();
+        }
+    }
+
+    @Test
+    void repeatedCancelsNeverExtendATombstone() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-15T12:00:00Z"));
+        AiInvocationCancellationRegistry timed =
+                new AiInvocationCancellationRegistry(10, 10, Duration.ofSeconds(30), clock);
+        timed.cancel(key, ALL);
+        clock.advance(Duration.ofSeconds(20));
+        timed.cancel(key, ALL);
+
+        clock.advance(Duration.ofSeconds(11));
+        try (Registration registration = timed.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            assertThat(registration.handle().isCancelled()).as("expired 30s after the first cancel").isFalse();
         }
     }
 
