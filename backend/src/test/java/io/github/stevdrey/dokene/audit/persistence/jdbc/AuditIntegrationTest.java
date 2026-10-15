@@ -167,6 +167,22 @@ class AuditIntegrationTest {
     }
 
     @Test
+    void rateLimitedMappingDenialSurvivesTheRejectedRequestsRollback() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        scoped(context, () -> {
+            assertThatThrownBy(() -> transaction(() -> {
+                recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.RATE_LIMITED);
+                throw new IllegalStateException("rejected mapping");
+            })).isInstanceOf(IllegalStateException.class);
+            assertThat(jdbc.queryForMap("SELECT outcome, permission, denial_reason, target_type, actor_id "
+                    + "FROM dokene.audit_events WHERE event_type = 'AUTHORIZATION_DENIED'"))
+                    .containsEntry("outcome", "DENIED").containsEntry("permission", "INTEGRATION_MANAGE")
+                    .containsEntry("denial_reason", "RATE_LIMITED").containsEntry("target_type", null)
+                    .containsEntry("actor_id", context.identityId().value());
+        });
+    }
+
+    @Test
     void recordsGlobalDenialWithoutMakingItVisibleToRuntime() throws SQLException {
         UUID correlation = UUID.randomUUID();
         execution.runWithCorrelation(correlation, () -> {

@@ -44,6 +44,13 @@ dokene:
       initial-backoff: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:250ms}
       max-backoff: ${DOKENE_AI_RETRY_MAX_BACKOFF:2s}
       min-attempt-budget: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:1s}
+  integration:
+    whatsapp:
+      # Phone numbers already mapped by another tenant, per sliding window, before mapping changes get 429 (issue 208).
+      mapping-rejection-limit:
+        tenant-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_TENANT_LIMIT:10}
+        actor-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_ACTOR_LIMIT:5}
+        window: ${DOKENE_WHATSAPP_MAPPING_REJECTION_WINDOW:15m}
   template:
     # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
     approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}

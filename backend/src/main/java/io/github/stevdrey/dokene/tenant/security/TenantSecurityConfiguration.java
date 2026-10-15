@@ -58,14 +58,16 @@ class TenantSecurityConfiguration {
             TenantContextResolver tenantContextResolver,
             AuthenticatedTenantIdentityResolver identityResolver,
             RequestMatcher tenantScopedRequestMatcher,
-            AuditRecorder auditRecorder
+            AuditRecorder auditRecorder,
+            ObjectProvider<TenantSelectionRejectionResponder> rejectionResponders
     ) {
         return new TenantContextRequestFilter(
                 tenantContexts,
                 tenantContextResolver,
                 identityResolver,
                 tenantScopedRequestMatcher,
-                auditRecorder
+                auditRecorder,
+                rejectionResponders.orderedStream().toList()
         );
     }
 
