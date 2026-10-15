@@ -55,7 +55,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -83,6 +85,7 @@ import static org.mockito.Mockito.when;
 class RecommendationCancellationSpikeTest {
 
     private static final int ACTOR_PERMITS = 3;
+    private static final Set<AiOperation> ALL = EnumSet.allOf(AiOperation.class);
 
     private final TenantId tenantId = TenantId.random();
     private final IdentityId actorId = new IdentityId(UUID.randomUUID());
@@ -105,13 +108,14 @@ class RecommendationCancellationSpikeTest {
     private final FollowUpService followUps = mock();
 
     private final AiInvocationCancellationRegistry registry =
-            new AiInvocationCancellationRegistry(100, Duration.ofSeconds(60), Clock.systemUTC());
+            new AiInvocationCancellationRegistry(100);
     private final CancellableProvider provider = new CancellableProvider();
     private final RecordingAudit audit = new RecordingAudit();
     private final DefaultFollowUpRecommendationRateLimiter rateLimiter =
             new DefaultFollowUpRecommendationRateLimiter(100, ACTOR_PERMITS, Duration.ofSeconds(5), Clock.systemUTC());
     private final TenantContext requestContext =
             new TenantContext(tenantId, actorId, TenantMembershipId.random(), TenantRole.OPERATOR);
+    private final AtomicReference<AiInvocationCancellationRegistry.Outcome> lastOutcome = new AtomicReference<>();
     private FollowUpRecommendationService recommendations;
 
     @BeforeEach
@@ -137,7 +141,7 @@ class RecommendationCancellationSpikeTest {
         Invocation invocation = start(key);
         assertThat(provider.started.await(5, TimeUnit.SECONDS)).isTrue();
 
-        registry.cancel(key);
+        registry.cancel(key, ALL);
         FollowUpRecommendationResult result = invocation.await();
 
         assertThat(result.status()).isEqualTo(RecommendationStatus.AI_UNAVAILABLE);
@@ -145,7 +149,23 @@ class RecommendationCancellationSpikeTest {
         assertThat(audit.events).containsExactly("failed:NEXT_BEST_ACTION:CANCELLED");
         assertThat(audit.tenants).containsExactly(tenantId);
         assertThat(provider.invocations.get()).as("no retry after a cancel").isEqualTo(1);
+        assertThat(provider.providerCalls.get()).isEqualTo(1);
         assertThat(invocation.outcome.get()).isEqualTo(AiInvocationCancellationRegistry.Outcome.CANCELLED);
+    }
+
+    @Test
+    void aCancelDuringRetryBackoffPreventsTheRetryAndIsAuditedAsCancelled() throws Exception {
+        Key key = key();
+        // The first attempt completes with a retryable failure; the cancel lands before the retry starts.
+        provider.failFirstAttemptThen(() -> registry.cancel(key, ALL));
+
+        FollowUpRecommendationResult result = runRegistered(key);
+
+        assertThat(result.unavailableReason()).isEqualTo(AiUnavailableReason.CANCELLED);
+        assertThat(provider.invocations.get()).as("the retry was attempted").isEqualTo(2);
+        assertThat(provider.providerCalls.get()).as("but never reached the provider").isEqualTo(1);
+        assertThat(audit.events).containsExactly("failed:NEXT_BEST_ACTION:CANCELLED");
+        assertThat(lastOutcome.get()).isEqualTo(AiInvocationCancellationRegistry.Outcome.CANCELLED);
     }
 
     @Test
@@ -156,7 +176,7 @@ class RecommendationCancellationSpikeTest {
 
         provider.respond(new AiRecommendationResponse(action, success()));
         FollowUpRecommendationResult result = invocation.await();
-        registry.cancel(key);
+        registry.cancel(key, ALL);
 
         assertThat(result.status()).isEqualTo(RecommendationStatus.AVAILABLE);
         assertThat(audit.events).containsExactly("generated:NEXT_BEST_ACTION");
@@ -170,7 +190,7 @@ class RecommendationCancellationSpikeTest {
             provider.reset();
             Invocation invocation = start(key);
             assertThat(provider.started.await(5, TimeUnit.SECONDS)).isTrue();
-            registry.cancel(key);
+            registry.cancel(key, ALL);
             assertThat(invocation.await().unavailableReason()).isEqualTo(AiUnavailableReason.CANCELLED);
         }
 
@@ -183,7 +203,7 @@ class RecommendationCancellationSpikeTest {
     void aCancelDuringContextAssemblyPreventsTheProviderCallButStillConsumesThePermit() throws Exception {
         Key key = key();
         when(assembler.assemble(customerId)).thenAnswer(invocation -> {
-            registry.cancel(key);
+            registry.cancel(key, ALL);
             return assembly;
         });
 
@@ -202,12 +222,16 @@ class RecommendationCancellationSpikeTest {
     }
 
     private Key key() {
-        return new Key(tenantId, actorId, AiOperation.NEXT_BEST_ACTION, UUID.randomUUID());
+        return new Key(tenantId, actorId, UUID.randomUUID());
     }
 
     private FollowUpRecommendationResult runRegistered(Key key) throws Exception {
-        try (Registration registration = registry.register(key)) {
-            return recommendIn(registration);
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            try {
+                return recommendIn(registration);
+            } finally {
+                lastOutcome.set(registration.outcome());
+            }
         }
     }
 
@@ -221,7 +245,7 @@ class RecommendationCancellationSpikeTest {
     private Invocation start(Key key) {
         Invocation invocation = new Invocation();
         Thread.ofPlatform().start(() -> {
-            try (Registration registration = registry.register(key)) {
+            try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
                 FollowUpRecommendationResult result = recommendIn(registration);
                 invocation.outcome.set(registration.outcome());
                 invocation.result.complete(result);
@@ -269,10 +293,16 @@ class RecommendationCancellationSpikeTest {
         final AtomicInteger providerCalls = new AtomicInteger();
         volatile CountDownLatch started = new CountDownLatch(1);
         private volatile CompletableFuture<AiRecommendationResponse> call = new CompletableFuture<>();
+        private volatile Runnable afterFailedFirstAttempt;
 
         void reset() {
             started = new CountDownLatch(1);
             call = new CompletableFuture<>();
+            afterFailedFirstAttempt = null;
+        }
+
+        void failFirstAttemptThen(Runnable afterAttempt) {
+            afterFailedFirstAttempt = afterAttempt;
         }
 
         void respond(AiRecommendationResponse response) {
@@ -281,16 +311,27 @@ class RecommendationCancellationSpikeTest {
 
         @Override
         public AiRecommendationResponse recommend(AiRecommendationRequest request) {
-            invocations.incrementAndGet();
+            int attempt = invocations.incrementAndGet();
             AiCancellationHandle handle = CancellableHttpClient.HANDLE.get();
-            if (handle.isCancelled()) {
+            Runnable afterFailure = afterFailedFirstAttempt;
+            CompletableFuture<AiRecommendationResponse> attemptCall;
+            try {
+                attemptCall = handle.start(() -> {
+                    providerCalls.incrementAndGet();
+                    return afterFailure != null && attempt == 1 ? new CompletableFuture<>() : call;
+                });
+            } catch (CancellationException e) {
                 throw cancelled();
             }
-            providerCalls.incrementAndGet();
-            handle.attach(call);
+            if (afterFailure != null && attempt == 1) {
+                attemptCall.complete(null);
+                afterFailure.run();
+                throw new AiProviderException(AiFailureCategory.UNAVAILABLE, new AiInvocationMetadata(
+                        "test", "test-model", null, Duration.ZERO, null, AiCompletionStatus.FAILED));
+            }
             started.countDown();
             try {
-                return call.get();
+                return attemptCall.get();
             } catch (CancellationException e) {
                 throw cancelled();
             } catch (InterruptedException e) {

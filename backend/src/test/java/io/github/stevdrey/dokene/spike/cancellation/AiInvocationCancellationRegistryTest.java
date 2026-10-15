@@ -7,49 +7,48 @@ import io.github.stevdrey.dokene.spike.cancellation.AiInvocationCancellationRegi
 import io.github.stevdrey.dokene.spike.cancellation.AiInvocationCancellationRegistry.RegistrationRejectedException;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Spike evidence for Issue #180: binding, idempotency and the cancel/completion race of the prototype registry. */
+/** Spike evidence for Issue #180: binding, idempotency, capacity and the cancel races of the prototype registry. */
 class AiInvocationCancellationRegistryTest {
 
     private static final int RACE_ITERATIONS = 5_000;
+    private static final Set<AiOperation> ALL = EnumSet.allOf(AiOperation.class);
 
-    private final MutableClock clock = new MutableClock(Instant.parse("2026-10-14T12:00:00Z"));
-    private final AiInvocationCancellationRegistry registry =
-            new AiInvocationCancellationRegistry(100, Duration.ofSeconds(60), clock);
+    private final AiInvocationCancellationRegistry registry = new AiInvocationCancellationRegistry(100);
 
     private final TenantId tenantA = new TenantId(UUID.randomUUID());
     private final TenantId tenantB = new TenantId(UUID.randomUUID());
     private final IdentityId actor = new IdentityId(UUID.randomUUID());
     private final IdentityId otherActor = new IdentityId(UUID.randomUUID());
     private final UUID invocationId = UUID.randomUUID();
-    private final Key key = new Key(tenantA, actor, AiOperation.NEXT_BEST_ACTION, invocationId);
+    private final Key key = new Key(tenantA, actor, invocationId);
 
     @Test
     void theIdAloneNeverAuthorizesACancel() {
-        try (Registration registration = registry.register(key)) {
-            CompletableFuture<String> call = new CompletableFuture<>();
-            registration.handle().attach(call);
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            CompletableFuture<String> call = registration.handle().start(CompletableFuture::new);
 
-            registry.cancel(new Key(tenantB, actor, AiOperation.NEXT_BEST_ACTION, invocationId));
-            registry.cancel(new Key(tenantA, otherActor, AiOperation.NEXT_BEST_ACTION, invocationId));
-            registry.cancel(new Key(tenantA, actor, AiOperation.MESSAGE_DRAFT, invocationId));
+            registry.cancel(new Key(tenantB, actor, invocationId), ALL);
+            registry.cancel(new Key(tenantA, otherActor, invocationId), ALL);
+            registry.cancel(key, EnumSet.of(AiOperation.MESSAGE_DRAFT));
 
             assertThat(call.complete("generated")).isTrue();
             assertThat(registration.outcome()).isEqualTo(Outcome.NOT_CANCELLED);
@@ -58,14 +57,13 @@ class AiInvocationCancellationRegistryTest {
 
     @Test
     void cancelIsIdempotentAndUnknownIdsAreSilentNoOps() {
-        registry.cancel(new Key(tenantA, actor, AiOperation.NEXT_BEST_ACTION, UUID.randomUUID()));
+        registry.cancel(new Key(tenantA, actor, UUID.randomUUID()), ALL);
 
-        try (Registration registration = registry.register(key)) {
-            CompletableFuture<String> call = new CompletableFuture<>();
-            registration.handle().attach(call);
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            CompletableFuture<String> call = registration.handle().start(CompletableFuture::new);
 
-            registry.cancel(key);
-            registry.cancel(key);
+            registry.cancel(key, ALL);
+            registry.cancel(key, ALL);
 
             assertThat(call).isCancelled();
             assertThat(registration.outcome()).isEqualTo(Outcome.CANCELLED);
@@ -74,53 +72,110 @@ class AiInvocationCancellationRegistryTest {
 
     @Test
     void cancelAfterCompletionKeepsTheRealOutcome() {
-        try (Registration registration = registry.register(key)) {
-            CompletableFuture<String> call = new CompletableFuture<>();
-            registration.handle().attach(call);
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            CompletableFuture<String> call = registration.handle().start(CompletableFuture::new);
             call.complete("generated");
 
-            registry.cancel(key);
+            registry.cancel(key, ALL);
 
             assertThat(registration.outcome()).isEqualTo(Outcome.NOT_CANCELLED);
         }
-        registry.cancel(key);
+        registry.cancel(key, ALL);
         assertThat(registry.size()).isZero();
     }
 
     @Test
-    void cancelBeforeTheCallStartsIsAppliedWhenItAttaches() {
-        try (Registration registration = registry.register(key)) {
-            registry.cancel(key);
-            CompletableFuture<String> call = new CompletableFuture<>();
+    void cancelBeforeTheCallStartsPreventsItEntirely() {
+        AtomicInteger started = new AtomicInteger();
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            registry.cancel(key, ALL);
 
-            registration.handle().attach(call);
+            assertThatThrownBy(() -> registration.handle().start(() -> {
+                started.incrementAndGet();
+                return new CompletableFuture<String>();
+            })).isInstanceOf(CancellationException.class);
 
-            assertThat(call).isCancelled();
+            assertThat(started.get()).isZero();
             assertThat(registration.outcome()).isEqualTo(Outcome.CANCELLED);
         }
     }
 
     @Test
-    void duplicateIdsForTheSameActorAreRejectedButDoNotLeakAcrossActors() {
-        try (Registration ignored = registry.register(key);
-             Registration other = registry.register(new Key(tenantA, otherActor, AiOperation.NEXT_BEST_ACTION, invocationId))) {
-            assertThatThrownBy(() -> registry.register(key)).isInstanceOf(RegistrationRejectedException.class);
-            assertThat(other.outcome()).isEqualTo(Outcome.NOT_CANCELLED);
+    void cancelBetweenAttemptsIsCancelledEvenThoughThePreviousAttemptCompleted() {
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            CompletableFuture<String> firstAttempt = registration.handle().start(CompletableFuture::new);
+            firstAttempt.complete("transient failure");
+
+            registry.cancel(key, ALL);
+
+            assertThatThrownBy(() -> registration.handle().start(CompletableFuture::new))
+                    .isInstanceOf(CancellationException.class);
+            assertThat(registration.outcome()).isEqualTo(Outcome.CANCELLED);
         }
     }
 
     @Test
-    void lostCancelsAndAbandonedEntriesAreBoundedByCapacityAndTtl() {
-        AiInvocationCancellationRegistry small = new AiInvocationCancellationRegistry(2, Duration.ofSeconds(60), clock);
-        small.register(new Key(tenantA, actor, AiOperation.NEXT_BEST_ACTION, UUID.randomUUID()));
-        small.register(new Key(tenantA, actor, AiOperation.NEXT_BEST_ACTION, UUID.randomUUID()));
+    void idsAreUniquePerActorAcrossOperationsButDoNotCollideAcrossActors() {
+        try (Registration ignored = registry.register(key, AiOperation.NEXT_BEST_ACTION);
+             Registration other = registry.register(new Key(tenantA, otherActor, invocationId),
+                     AiOperation.NEXT_BEST_ACTION)) {
+            assertThatThrownBy(() -> registry.register(key, AiOperation.MESSAGE_DRAFT))
+                    .isInstanceOf(RegistrationRejectedException.class);
+            assertThatThrownBy(() -> registry.register(key, AiOperation.NEXT_BEST_ACTION))
+                    .isInstanceOf(RegistrationRejectedException.class);
+            assertThat(other.outcome()).isEqualTo(Outcome.NOT_CANCELLED);
+        }
+        assertThat(registry.size()).isZero();
+    }
 
-        assertThatThrownBy(() -> small.register(key)).isInstanceOf(RegistrationRejectedException.class);
+    @Test
+    void capacityIsReleasedWhenTheOwningRequestEnds() {
+        AiInvocationCancellationRegistry small = new AiInvocationCancellationRegistry(2);
+        Registration first = small.register(new Key(tenantA, actor, UUID.randomUUID()), AiOperation.NEXT_BEST_ACTION);
+        small.register(new Key(tenantA, actor, UUID.randomUUID()), AiOperation.NEXT_BEST_ACTION);
 
-        clock.advance(Duration.ofSeconds(61));
-        try (Registration registration = small.register(key)) {
-            assertThat(small.size()).isEqualTo(1);
-            assertThat(registration.outcome()).isEqualTo(Outcome.NOT_CANCELLED);
+        assertThatThrownBy(() -> small.register(key, AiOperation.NEXT_BEST_ACTION))
+                .isInstanceOf(RegistrationRejectedException.class);
+
+        first.close();
+        first.close();
+        try (Registration registration = small.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            assertThat(small.size()).isEqualTo(2);
+            assertThatThrownBy(() -> small.register(new Key(tenantA, actor, UUID.randomUUID()),
+                    AiOperation.NEXT_BEST_ACTION)).as("a double close must not free extra capacity")
+                    .isInstanceOf(RegistrationRejectedException.class);
+        }
+    }
+
+    @Test
+    void capacityHoldsUnderConcurrentRegistration() throws Exception {
+        int max = 8;
+        int threads = 64;
+        for (int round = 0; round < 200; round++) {
+            AiInvocationCancellationRegistry bounded = new AiInvocationCancellationRegistry(max);
+            AtomicInteger accepted = new AtomicInteger();
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<?>> tasks = new ArrayList<>();
+            try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+                for (int i = 0; i < threads; i++) {
+                    tasks.add(pool.submit(() -> {
+                        start.await();
+                        try {
+                            bounded.register(new Key(tenantA, actor, UUID.randomUUID()), AiOperation.NEXT_BEST_ACTION);
+                            accepted.incrementAndGet();
+                        } catch (RegistrationRejectedException expected) {
+                            // full
+                        }
+                        return null;
+                    }));
+                }
+                start.countDown();
+                for (Future<?> task : tasks) {
+                    task.get(5, TimeUnit.SECONDS);
+                }
+            }
+            assertThat(accepted.get()).isEqualTo(max);
+            assertThat(bounded.size()).isEqualTo(max);
         }
     }
 
@@ -129,16 +184,15 @@ class AiInvocationCancellationRegistryTest {
         int cancelledWins = 0;
         try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
             for (int i = 0; i < RACE_ITERATIONS; i++) {
-                Key raceKey = new Key(tenantA, actor, AiOperation.NEXT_BEST_ACTION, UUID.randomUUID());
-                try (Registration registration = registry.register(raceKey)) {
-                    CompletableFuture<String> call = new CompletableFuture<>();
-                    registration.handle().attach(call);
+                Key raceKey = new Key(tenantA, actor, UUID.randomUUID());
+                try (Registration registration = registry.register(raceKey, AiOperation.NEXT_BEST_ACTION)) {
+                    CompletableFuture<String> call = registration.handle().start(CompletableFuture::new);
                     CountDownLatch start = new CountDownLatch(1);
                     AtomicReference<Boolean> completed = new AtomicReference<>();
 
                     Future<?> canceller = pool.submit(() -> {
                         start.await();
-                        registry.cancel(raceKey);
+                        registry.cancel(raceKey, ALL);
                         return null;
                     });
                     Future<?> provider = pool.submit(() -> {
@@ -165,58 +219,47 @@ class AiInvocationCancellationRegistryTest {
     }
 
     @Test
-    void cancelRacingTheStartOfTheCallNeverLetsAnUncancelledCallThrough() throws Exception {
+    void cancelRacingTheStartNeverLeavesAStartedCallRunning() throws Exception {
+        int prevented = 0;
         try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
             for (int i = 0; i < RACE_ITERATIONS; i++) {
-                Key raceKey = new Key(tenantA, actor, AiOperation.NEXT_BEST_ACTION, UUID.randomUUID());
-                try (Registration registration = registry.register(raceKey)) {
-                    CompletableFuture<String> call = new CompletableFuture<>();
+                Key raceKey = new Key(tenantA, actor, UUID.randomUUID());
+                try (Registration registration = registry.register(raceKey, AiOperation.NEXT_BEST_ACTION)) {
+                    AtomicInteger sent = new AtomicInteger();
+                    AtomicReference<CompletableFuture<String>> call = new AtomicReference<>();
                     CountDownLatch start = new CountDownLatch(1);
                     Future<?> canceller = pool.submit(() -> {
                         start.await();
-                        registry.cancel(raceKey);
+                        registry.cancel(raceKey, ALL);
                         return null;
                     });
                     Future<?> starter = pool.submit(() -> {
                         start.await();
-                        registration.handle().attach(call);
+                        try {
+                            call.set(registration.handle().start(() -> {
+                                sent.incrementAndGet();
+                                return new CompletableFuture<String>();
+                            }));
+                        } catch (CancellationException expected) {
+                            // cancel won before the start
+                        }
                         return null;
                     });
                     start.countDown();
                     canceller.get(5, TimeUnit.SECONDS);
                     starter.get(5, TimeUnit.SECONDS);
 
-                    assertThat(call).isCancelled();
                     assertThat(registration.outcome()).isEqualTo(Outcome.CANCELLED);
+                    if (sent.get() == 0) {
+                        prevented++;
+                        assertThat(call.get()).isNull();
+                    } else {
+                        assertThat(call.get()).as("a started call is always aborted").isCancelled();
+                    }
                 }
             }
         }
-    }
-
-    private static final class MutableClock extends Clock {
-        private volatile Instant now;
-
-        MutableClock(Instant now) {
-            this.now = now;
-        }
-
-        void advance(Duration duration) {
-            now = now.plus(duration);
-        }
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
-        }
+        System.out.printf("[spike-180] cancel/start race: %d iterations, prevented before start %d, aborted after start %d%n",
+                RACE_ITERATIONS, prevented, RACE_ITERATIONS - prevented);
     }
 }

@@ -6,6 +6,9 @@ import com.openai.client.okhttp.OkHttpClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.ClientOptions;
 import com.openai.core.RequestOptions;
+import com.openai.core.http.HttpClient;
+import com.openai.core.http.HttpRequest;
+import com.openai.core.http.HttpResponse;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseCreateParams;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
@@ -26,8 +29,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -48,6 +55,7 @@ class OpenAiCallCancellationSpikeTest {
     private static final Duration PROVIDER_TIMEOUT = Duration.ofSeconds(4);
     private static final Duration PROMPT_CLOSE = Duration.ofMillis(1_000);
     private static final Duration RETRY_GRACE = Duration.ofMillis(750);
+    private static final int RACE_ITERATIONS = 5_000;
 
     private final RecommendationContext context = new RecommendationContext(
             new RecommendationContext.TrustedFacts(
@@ -175,6 +183,46 @@ class OpenAiCallCancellationSpikeTest {
         assertThat(provider.connections.get()).isZero();
     }
 
+    @Test
+    void aCancelRacingTheStartOfTheHttpCallNeverLeavesARequestRunning() throws Exception {
+        int prevented = 0;
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            for (int i = 0; i < RACE_ITERATIONS; i++) {
+                CountingHttpClient delegate = new CountingHttpClient();
+                CancellableHttpClient client = new CancellableHttpClient(delegate);
+                AiCancellationHandle handle = new AiCancellationHandle();
+                CountDownLatch start = new CountDownLatch(1);
+                Future<?> caller = pool.submit(() -> {
+                    start.await();
+                    try {
+                        ScopedValue.where(CancellableHttpClient.HANDLE, handle)
+                                .run(() -> client.execute(null, RequestOptions.none()));
+                    } catch (CancellationException expected) {
+                        // prevented before the start, or aborted after it
+                    }
+                    return null;
+                });
+                Future<?> canceller = pool.submit(() -> {
+                    start.await();
+                    handle.cancel();
+                    return null;
+                });
+                start.countDown();
+                canceller.get(5, TimeUnit.SECONDS);
+                caller.get(5, TimeUnit.SECONDS);
+
+                assertThat(handle.aborted()).isTrue();
+                if (delegate.started.get() == 0) {
+                    prevented++;
+                } else {
+                    assertThat(delegate.lastCall.get()).as("a started request is always cancelled").isCancelled();
+                }
+            }
+        }
+        System.out.printf("[spike-180] HttpClient cancel/start race: %d iterations, prevented %d, aborted after start %d%n",
+                RACE_ITERATIONS, prevented, RACE_ITERATIONS - prevented);
+    }
+
     private OpenAiProviderProperties properties() {
         return new OpenAiProviderProperties("test-api-key", "gpt-test", provider.baseUrl(), PROVIDER_TIMEOUT, 0);
     }
@@ -206,6 +254,29 @@ class OpenAiCallCancellationSpikeTest {
                 : outcome == null ? "none" : outcome.getClass().getSimpleName();
         System.out.printf("[spike-180] %s: socket closed after %s; requests=%d; outcome=%s%n",
                 path, closeAfter, provider.requests.get(), result);
+    }
+
+    /** Stands in for the SDK OkHttp client: counts started requests, which only finish when cancelled. */
+    private static final class CountingHttpClient implements HttpClient {
+        final AtomicInteger started = new AtomicInteger();
+        final AtomicReference<CompletableFuture<HttpResponse>> lastCall = new AtomicReference<>();
+
+        @Override
+        public HttpResponse execute(HttpRequest request, RequestOptions requestOptions) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<HttpResponse> executeAsync(HttpRequest request, RequestOptions requestOptions) {
+            started.incrementAndGet();
+            CompletableFuture<HttpResponse> call = new CompletableFuture<>();
+            lastCall.set(call);
+            return call;
+        }
+
+        @Override
+        public void close() {
+        }
     }
 
     /** Accepts connections, reads the request, never answers and records when the client closes the socket. */

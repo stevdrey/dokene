@@ -28,12 +28,8 @@ final class CancellableHttpClient implements HttpClient {
         if (!HANDLE.isBound()) {
             return delegate.execute(request, requestOptions);
         }
-        AiCancellationHandle handle = HANDLE.get();
-        if (handle.isCancelled()) {
-            throw new CancellationException("AI invocation cancelled before the provider call started");
-        }
-        CompletableFuture<HttpResponse> call = delegate.executeAsync(request, requestOptions);
-        handle.attach(call);
+        // Throws CancellationException without sending anything when the cancel won before this attempt.
+        CompletableFuture<HttpResponse> call = HANDLE.get().start(() -> delegate.executeAsync(request, requestOptions));
         try {
             return call.get();
         } catch (InterruptedException e) {
