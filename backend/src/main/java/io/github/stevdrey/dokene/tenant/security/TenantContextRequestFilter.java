@@ -36,6 +36,7 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
     private final AuthenticatedTenantIdentityResolver identityResolver;
     private final RequestMatcher tenantScopedRequestMatcher;
     private final AuditRecorder auditRecorder;
+    private final List<TenantSelectionRejectionResponder> rejectionResponders;
 
     private static final AuditRecorder NO_OP_AUDIT = new AuditRecorder() {
         @Override
@@ -75,11 +76,24 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
             RequestMatcher tenantScopedRequestMatcher,
             AuditRecorder auditRecorder
     ) {
+        this(tenantContexts, tenantContextResolver, identityResolver, tenantScopedRequestMatcher, auditRecorder, List.of());
+    }
+
+    TenantContextRequestFilter(
+            TenantContextProvider tenantContexts,
+            TenantContextResolver tenantContextResolver,
+            AuthenticatedTenantIdentityResolver identityResolver,
+            RequestMatcher tenantScopedRequestMatcher,
+            AuditRecorder auditRecorder,
+            List<TenantSelectionRejectionResponder> rejectionResponders
+    ) {
         this.tenantContexts = Objects.requireNonNull(tenantContexts, "Tenant context provider is required");
         this.tenantContextResolver = Objects.requireNonNull(tenantContextResolver, "Tenant context resolver is required");
         this.identityResolver = Objects.requireNonNull(identityResolver, "Identity resolver is required");
         this.tenantScopedRequestMatcher = Objects.requireNonNull(tenantScopedRequestMatcher, "Tenant scoped request matcher is required");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "Audit recorder is required");
+        this.rejectionResponders = List.copyOf(
+                Objects.requireNonNull(rejectionResponders, "Rejection responders are required"));
     }
 
     @Override
@@ -101,18 +115,17 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
 
         List<String> selectors = Collections.list(request.getHeaders(TENANT_ID_HEADER));
         if (selectors.isEmpty()) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
-            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+            reject(request, response, TenantSelectionRejection.ACCESS_DENIED);
             return;
         }
         if (selectors.size() != 1) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            reject(request, response, TenantSelectionRejection.INVALID_SELECTOR);
             return;
         }
 
-        TenantId requestedTenantId = parseTenantId(selectors.getFirst(), response);
+        TenantId requestedTenantId = parseTenantId(selectors.getFirst());
         if (requestedTenantId == null) {
+            reject(request, response, TenantSelectionRejection.INVALID_SELECTOR);
             return;
         }
 
@@ -132,9 +145,24 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
                 throw new ServletException(exception);
             }
         } catch (TenantContextAuthorizationException exception) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
-            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+            reject(request, response, TenantSelectionRejection.ACCESS_DENIED);
         }
+    }
+
+    /** Audits the denial, then lets the owning module write its body or falls back to the empty-body error. */
+    private void reject(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            TenantSelectionRejection rejection
+    ) throws IOException {
+        auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        for (TenantSelectionRejectionResponder responder : rejectionResponders) {
+            if (responder.handles(request)) {
+                responder.write(response, rejection);
+                return;
+            }
+        }
+        response.sendError(rejection.status());
     }
 
     private boolean isAuthenticated(Authentication authentication) {
@@ -142,12 +170,10 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
                 && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
-    private TenantId parseTenantId(String selector, HttpServletResponse response) throws IOException {
+    private TenantId parseTenantId(String selector) {
         try {
             return new TenantId(UUID.fromString(selector));
         } catch (IllegalArgumentException exception) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
-            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return null;
         }
     }
