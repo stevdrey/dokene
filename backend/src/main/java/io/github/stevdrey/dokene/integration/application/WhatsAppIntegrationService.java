@@ -95,9 +95,10 @@ public class WhatsAppIntegrationService {
                         phoneNumberId, businessAccountId, displayPhoneNumber, enabled, secretRef));
             } catch (PhoneNumberMappingConflictException conflict) {
                 // The write transaction has rolled back, so the audit below runs on its own connection only.
-                if (attempt != null && attempt.reject()) {
-                    audit.mappingThrottled();
+                if (attempt != null) {
+                    attempt.reject();
                 }
+                audit.mappingRejected();
                 throw conflict;
             }
         }

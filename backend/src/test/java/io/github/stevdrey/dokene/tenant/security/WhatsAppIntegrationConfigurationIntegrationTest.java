@@ -1,5 +1,5 @@
 // ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, duplicate mapping, stale
-// ABOUTME: writes, credential rotation, audit rollback and the rejected-mapping throttle (issues 134 and 208).
+// ABOUTME: writes, credential rotation, audit rollback, rejected-mapping audit and throttle (issues 134 and 208).
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
@@ -45,8 +45,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -72,6 +74,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final String WABA_ID = "200000000000001";
     private static final int ACTOR_BUDGET = MappingRejectionLimitProperties.DEFAULT_ACTOR_REJECTIONS;
     private static final int TENANT_BUDGET = MappingRejectionLimitProperties.DEFAULT_TENANT_REJECTIONS;
+    private static final String MAPPING_REJECTED = "MAPPING_REJECTED";
+    private static final String RATE_LIMITED = "RATE_LIMITED";
 
     /** Runtime readiness that tests can flip without touching the stored integration version. */
     static final class MutableReadiness implements IntegrationReadiness {
@@ -369,10 +373,13 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     @Test
     void repeatedForeignMappingsAreThrottledWithTheClosedProblemAndAuditedWithoutTheCandidateId() throws Exception {
         write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
-        for (int attempt = 0; attempt < ACTOR_BUDGET; attempt++) {
+        for (int attempt = 1; attempt <= ACTOR_BUDGET; attempt++) {
             write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+            // Each rejected probe is durable on its own, although its write rolled back.
+            assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(attempt);
         }
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
 
         var throttled = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
                 .andExpect(status().isTooManyRequests())
@@ -389,8 +396,9 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         write(adminA, tenantA, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
                 .andExpect(status().isTooManyRequests());
 
-        // The exhausting rejection and both throttled attempts, attributed to the prober, with no target or id.
-        assertThat(rateLimitedDenials(tenantA, adminA)).isEqualTo(3);
+        // One denial per refused attempt, attributed to the prober, with no target or id.
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(2);
         try (Connection migration = migrationConnection()) {
             assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events a WHERE a.tenant_id = ? "
                     + "AND row_to_json(a)::text LIKE ?", tenantA.id().value(), "%" + phoneId + "%")).isZero();
@@ -400,7 +408,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         // Another tenant keeps its own budget.
         write(adminB, tenantB, "\"0\"", body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
                 .andExpect(status().isOk());
-        assertThat(rateLimitedDenials(tenantB, adminB)).isZero();
+        assertThat(denials(tenantB, adminB, MAPPING_REJECTED)).isZero();
+        assertThat(denials(tenantB, adminB, RATE_LIMITED)).isZero();
     }
 
     @Test
@@ -429,31 +438,46 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         IdentityId thirdAdminA = member(tenantA, TenantRole.ADMIN);
         write(thirdAdminA, tenantA, "\"" + version + "\"", body(Long.toString(NEXT_ID.incrementAndGet()),
                 "wa-token-ok", true)).andExpect(status().isTooManyRequests());
-        assertThat(rateLimitedDenials(tenantA, thirdAdminA)).isEqualTo(1);
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, secondAdminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(1);
+        assertThat(denials(tenantA, thirdAdminA, RATE_LIMITED)).isEqualTo(1);
         read(adminA, tenantA).andExpect(jsonPath("$.phoneNumberId").value(stored))
                 .andExpect(jsonPath("$.enabled").value(false));
     }
 
     @Test
-    void throttlingFailsClosedWhenItsDenialCannotBeAuditedAndNeverAuditsInsideTheWrite() throws Exception {
+    void refusalsFailClosedWhenTheirDenialCannotBeAuditedAndNeverAuditInsideTheWrite() throws Exception {
         List<Boolean> auditedInsideATransaction = new CopyOnWriteArrayList<>();
+        AtomicBoolean auditFails = new AtomicBoolean(true);
+        Answer<Object> recording = invocation -> {
+            auditedInsideATransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+            if (auditFails.get()) {
+                throw new AuditPersistenceException();
+            }
+            return invocation.callRealMethod();
+        };
+        doAnswer(recording).when(audit).mappingRejected();
+        doAnswer(recording).when(audit).mappingThrottled();
         write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+
+        // A rejected probe whose denial cannot be recorded is not answered; it still counts (fail closed).
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+
+        auditFails.set(false);
         for (int attempt = 1; attempt < ACTOR_BUDGET; attempt++) {
             write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isBadRequest());
         }
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET - 1);
 
-        doAnswer(invocation -> {
-            auditedInsideATransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
-            throw new AuditPersistenceException();
-        }).when(audit).mappingThrottled();
-        // Neither the exhausting rejection nor the next throttled attempt answers without its durable denial.
-        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
-                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+        auditFails.set(true);
         write(adminA, tenantA, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
                 .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
 
-        assertThat(auditedInsideATransaction).hasSize(2).containsOnly(false);
-        assertThat(rateLimitedDenials(tenantA, adminA)).isZero();
+        assertThat(auditedInsideATransaction).hasSize(ACTOR_BUDGET + 1).containsOnly(false);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
         try (Connection migration = migrationConnection()) {
             assertThat(queryInt(migration, "SELECT count(*) FROM dokene.tenant_messaging_integrations "
                     + "WHERE tenant_id = ?", tenantA.id().value())).isZero();
@@ -477,7 +501,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         }
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
-        assertThat(rateLimitedDenials(tenantA, adminA)).isZero();
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
     }
 
     @Test
@@ -528,12 +553,12 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         }
     }
 
-    private int rateLimitedDenials(Tenant tenant, IdentityId actor) throws SQLException {
+    private int denials(Tenant tenant, IdentityId actor, String reason) throws SQLException {
         try (Connection migration = migrationConnection()) {
             return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? AND actor_id = ? "
                     + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' "
-                    + "AND denial_reason = 'RATE_LIMITED' AND permission = 'INTEGRATION_MANAGE' "
-                    + "AND target_type IS NULL AND target_id IS NULL", tenant.id().value(), actor.value());
+                    + "AND denial_reason = ? AND permission = 'INTEGRATION_MANAGE' "
+                    + "AND target_type IS NULL AND target_id IS NULL", tenant.id().value(), actor.value(), reason);
         }
     }
 

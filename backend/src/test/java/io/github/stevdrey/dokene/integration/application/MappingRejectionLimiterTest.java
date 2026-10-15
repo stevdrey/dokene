@@ -26,12 +26,12 @@ class MappingRejectionLimiterTest {
     private final IdentityId actor = identity();
 
     @Test
-    void availableUntilTheActorBudgetIsExhaustedAndReportsTheExhaustingRejection() {
+    void availableUntilTheActorBudgetIsExhausted() {
         assertThat(available(tenant, actor)).isTrue();
-        assertThat(rejected(tenant, actor)).isFalse();
+        rejected(tenant, actor);
         assertThat(available(tenant, actor)).isTrue();
 
-        assertThat(rejected(tenant, actor)).isTrue();
+        rejected(tenant, actor);
 
         assertThatThrownBy(() -> limiter.begin(tenant, actor))
                 .isInstanceOfSatisfying(IntegrationRateLimitedException.class,
@@ -45,7 +45,7 @@ class MappingRejectionLimiterTest {
         rejected(tenant, actor);
 
         assertThat(available(tenant, other)).isTrue();
-        assertThat(rejected(tenant, other)).isTrue();
+        rejected(tenant, other);
 
         assertThatThrownBy(() -> limiter.begin(tenant, other))
                 .isInstanceOf(IntegrationRateLimitedException.class);
@@ -70,7 +70,7 @@ class MappingRejectionLimiterTest {
         assertThatThrownBy(() -> limiter.begin(tenant, actor))
                 .isInstanceOfSatisfying(IntegrationRateLimitedException.class,
                         throttled -> assertThat(throttled.retryAfterSeconds()).isEqualTo(1));
-        assertThat(inFlight.reject()).isTrue();
+        inFlight.reject();
         inFlight.close();
 
         assertThatThrownBy(() -> limiter.begin(tenant, actor)).isInstanceOf(IntegrationRateLimitedException.class);
@@ -83,8 +83,10 @@ class MappingRejectionLimiterTest {
         succeeded.close();
         succeeded.close();
 
-        assertThat(rejected(tenant, actor)).isTrue();
-        assertThat(succeeded.reject()).isFalse();
+        // A settled attempt cannot be rejected afterwards, so the actor still has its second unit.
+        succeeded.reject();
+        rejected(tenant, actor);
+        assertThatThrownBy(() -> limiter.begin(tenant, actor)).isInstanceOf(IntegrationRateLimitedException.class);
     }
 
     @Test
@@ -95,7 +97,9 @@ class MappingRejectionLimiterTest {
         }
         assertThatThrownBy(() -> limiter.begin(tenant, identity()))
                 .isInstanceOf(IntegrationRateLimitedException.class);
-        assertThat(attempts.stream().filter(MappingAttempt::reject).count()).isEqualTo(1);
+        attempts.forEach(MappingAttempt::reject);
+        assertThatThrownBy(() -> limiter.begin(tenant, identity()))
+                .isInstanceOf(IntegrationRateLimitedException.class);
     }
 
     @Test
@@ -119,7 +123,8 @@ class MappingRejectionLimiterTest {
 
         clock.advance(WINDOW.minusMinutes(1));
         assertThat(available(tenant, actor)).isTrue();
-        assertThat(rejected(tenant, actor)).isTrue();
+        rejected(tenant, actor);
+        assertThatThrownBy(() -> limiter.begin(tenant, actor)).isInstanceOf(IntegrationRateLimitedException.class);
     }
 
     @Test
@@ -165,9 +170,9 @@ class MappingRejectionLimiterTest {
     }
 
     /** Begins an attempt and rejects it, as a write onto a number another tenant owns does. */
-    private boolean rejected(TenantId tenantId, IdentityId identityId) {
+    private void rejected(TenantId tenantId, IdentityId identityId) {
         try (MappingAttempt attempt = limiter.begin(tenantId, identityId)) {
-            return attempt.reject();
+            attempt.reject();
         }
     }
 

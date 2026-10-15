@@ -93,17 +93,15 @@ public class MappingRejectionLimiter {
             this.actor = actor;
         }
 
-        /** Turns the reservation into a rejection; returns true when it exhausted the tenant or actor budget. */
-        public boolean reject() {
+        /** Turns the reservation into a rejection counted against both budgets; does nothing once settled. */
+        public void reject() {
             synchronized (MappingRejectionLimiter.this) {
-                if (settled) {
-                    return false;
+                if (!settled) {
+                    settle();
+                    Instant now = clock.instant();
+                    tenant.rejections.record(now);
+                    actor.rejections.record(now);
                 }
-                settle();
-                Instant now = clock.instant();
-                boolean tenantExhausted = record(tenant, tenantRejections, now);
-                boolean actorExhausted = record(actor, actorRejections, now);
-                return tenantExhausted || actorExhausted;
             }
         }
 
@@ -152,11 +150,6 @@ public class MappingRejectionLimiter {
             return null;
         }
         return budget.inFlight > 0 ? Duration.ofSeconds(1) : budget.rejections.untilBelow(limit, now);
-    }
-
-    private static boolean record(Budget budget, int limit, Instant now) {
-        budget.rejections.record(now);
-        return budget.rejections.count(now) == limit;
     }
 
     private void maybeEvictExpired(Instant now) {

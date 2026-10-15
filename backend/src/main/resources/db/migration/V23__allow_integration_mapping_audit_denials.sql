@@ -1,5 +1,5 @@
--- ABOUTME: Allows the RATE_LIMITED denial reason on AUTHORIZATION_DENIED (issue 208): throttled WhatsApp mapping
--- ABOUTME: attempts are audited without any identifier. Every other ck_audit_shape branch is copied unchanged from V19.
+-- ABOUTME: Allows the MAPPING_REJECTED and RATE_LIMITED denial reasons on AUTHORIZATION_DENIED (issue 208): rejected
+-- ABOUTME: and throttled WhatsApp mappings are audited without any identifier. Other branches are copied from V19.
 
 ALTER TABLE dokene.audit_events DROP CONSTRAINT ck_audit_shape;
 ALTER TABLE dokene.audit_events ADD CONSTRAINT ck_audit_shape CHECK (
@@ -7,8 +7,8 @@ ALTER TABLE dokene.audit_events ADD CONSTRAINT ck_audit_shape CHECK (
         AND target_type IS NULL AND target_id IS NULL AND previous_role IS NULL AND new_role IS NULL
         AND denial_reason IS NOT NULL AND denial_reason IN (
             'NO_TENANT_CONTEXT', 'INACTIVE_MEMBERSHIP', 'MISSING_ROLE', 'MISSING_PERMISSION',
-            'MISSING_RESOURCE_TENANT', 'CROSS_TENANT_RESOURCE', 'INSUFFICIENT_PERMISSION', 'RATE_LIMITED',
-            'UNSPECIFIED')
+            'MISSING_RESOURCE_TENANT', 'CROSS_TENANT_RESOURCE', 'INSUFFICIENT_PERMISSION', 'MAPPING_REJECTED',
+            'RATE_LIMITED', 'UNSPECIFIED')
         AND ((tenant_id IS NULL AND denial_reason = 'NO_TENANT_CONTEXT')
             OR (tenant_id IS NOT NULL AND denial_reason <> 'NO_TENANT_CONTEXT')))
     OR (event_type = 'MEMBERSHIP_ROLE_CHANGED' AND outcome = 'SUCCESS'

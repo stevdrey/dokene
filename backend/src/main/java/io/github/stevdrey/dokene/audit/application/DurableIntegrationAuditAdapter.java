@@ -20,6 +20,11 @@ public class DurableIntegrationAuditAdapter implements IntegrationAuditPort {
     }
 
     @Override
+    public void mappingRejected() {
+        recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.MAPPING_REJECTED);
+    }
+
+    @Override
     public void mappingThrottled() {
         recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.RATE_LIMITED);
     }
