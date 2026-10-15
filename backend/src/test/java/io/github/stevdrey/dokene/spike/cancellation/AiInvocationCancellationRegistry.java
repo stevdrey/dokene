@@ -138,7 +138,14 @@ final class AiInvocationCancellationRegistry {
             } else {
                 Instant now = clock.instant();
                 tombstones.values().removeIf(tombstone -> !tombstone.expiresAt().isAfter(now));
-                if (tombstones.containsKey(key) || tombstones.size() < maxTombstones) {
+                Tombstone existing = tombstones.get(key);
+                if (existing != null) {
+                    // A later, weaker cancel never downgrades an earlier authorized one.
+                    Set<TenantPermission> merged = EnumSet.noneOf(TenantPermission.class);
+                    merged.addAll(existing.callerPermissions());
+                    merged.addAll(callerPermissions);
+                    tombstones.put(key, new Tombstone(Set.copyOf(merged), now.plus(tombstoneTtl)));
+                } else if (tombstones.size() < maxTombstones) {
                     tombstones.put(key, new Tombstone(Set.copyOf(callerPermissions), now.plus(tombstoneTtl)));
                 }
             }

@@ -247,6 +247,16 @@ class AiInvocationCancellationRegistryTest {
     }
 
     @Test
+    void aLaterUnderAuthorizedCancelNeverWeakensAnAuthorizedTombstone() {
+        registry.cancel(key, EnumSet.of(TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE));
+        registry.cancel(key, EnumSet.of(TenantPermission.MESSAGE_DRAFT));
+
+        try (Registration draft = registry.register(key, AiOperation.MESSAGE_DRAFT)) {
+            assertThat(draft.handle().isCancelled()).isTrue();
+        }
+    }
+
+    @Test
     void anExpiredTombstoneNoLongerApplies() {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-15T12:00:00Z"));
         AiInvocationCancellationRegistry timed =

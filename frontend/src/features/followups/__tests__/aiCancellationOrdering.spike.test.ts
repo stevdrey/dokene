@@ -59,27 +59,38 @@ function createAiInvocationTracker() {
 type AiInvocationTracker = ReturnType<typeof createAiInvocationTracker>;
 
 /**
- * Prototype of the provider-side transitions. A generation counter serializes them: a switch applies only if no
- * later switch or logout started while its cancels were pending, and nothing restores a tenant after logout.
+ * Prototype of the provider-side transitions. Every user-initiated tenant change (switch, provisioning, logout) goes
+ * through it. A generation counter serializes them: a tenant change applies only if no later transition started
+ * while its cancels were pending, and nothing restores a tenant after a successful logout.
  */
 function createWorkspaceTransitions(tracker: AiInvocationTracker) {
   let generation = 0;
   let loggedOut = false;
+  const apply = async (mine: number, next: string): Promise<boolean> => {
+    const current = apiClient.getCurrentTenantId();
+    if (current) await tracker.cancelTenant(current, 1_000);
+    if (mine !== generation || loggedOut) return false;
+    apiClient.setCurrentTenantId(next);
+    return true;
+  };
   return {
-    async switchTo(next: string): Promise<boolean> {
+    switchTo(next: string): Promise<boolean> {
+      return apply(++generation, next);
+    },
+    /** Like TenantContext.provisionWorkspace: create first, then the same cancel-then-apply path as a switch. */
+    async provision(create: () => Promise<{ tenantId: string }>): Promise<boolean> {
       const mine = ++generation;
-      const current = apiClient.getCurrentTenantId();
-      if (current) await tracker.cancelTenant(current, 1_000);
-      if (mine !== generation || loggedOut) return false;
-      apiClient.setCurrentTenantId(next);
-      return true;
+      const created = await create();
+      return apply(mine, created.tenantId);
     },
     async logout(): Promise<void> {
+      // Supersede pending transitions now, but become terminal only once /logout succeeded: a failed logout leaves
+      // the session (and workspace switching) usable, as SessionContext.logout does today.
       generation++;
-      loggedOut = true;
       const current = apiClient.getCurrentTenantId();
       if (current) await tracker.cancelTenant(current, 1_000);
       await apiClient.post<void>('/logout');
+      loggedOut = true;
       apiClient.setCsrfToken(null);
       apiClient.setCurrentTenantId(null);
       apiClient.invalidateSession();
@@ -88,14 +99,14 @@ function createWorkspaceTransitions(tracker: AiInvocationTracker) {
 }
 
 /** fetch mock whose AI cancels stay pending until released, in any order; everything else answers 204. */
-function controllableFetch() {
+function controllableFetch(statusFor: (url: string) => number = () => 204) {
   const calls: { url: string; tenant?: string; release: () => void }[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const url = String(input);
     const tenant = ((init?.headers ?? {}) as Record<string, string>)['X-Tenant-Id'];
     if (!url.includes('/api/ai-invocations/')) {
       calls.push({ url, tenant, release: () => undefined });
-      return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(new Response(null, { status: statusFor(url) }));
     }
     return new Promise<Response>((resolve, reject) => {
       calls.push({ url, tenant, release: () => resolve(new Response(null, { status: 204 })) });
@@ -294,6 +305,70 @@ describe('AI cancellation ordering (Issue #180 spike)', () => {
 
       expect(apiClient.getCurrentTenantId()).toBeNull();
       expect(calls.filter((call) => call.url === '/logout')).toHaveLength(1);
+    });
+  });
+
+  describe('provisioning and failed logout', () => {
+    it('provisioning a workspace cancels the old tenant before applying the new one', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      const calls = controllableFetch();
+      tracker.track({ tenantId: 'tenant-a', invocationId, operation: 'NEXT_BEST_ACTION' });
+
+      const provisioned = transitions.provision(async () => ({ tenantId: 'tenant-new' }));
+      await flush();
+      expect(calls.map((call) => [call.url, call.tenant])).toEqual([
+        [`/api/ai-invocations/${invocationId}/cancel`, 'tenant-a']
+      ]);
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-a');
+
+      calls[0].release();
+      expect(await provisioned).toBe(true);
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-new');
+    });
+
+    it('a switch made while provisioning is pending wins', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      const calls = controllableFetch();
+      tracker.track({ tenantId: 'tenant-a', invocationId, operation: 'NEXT_BEST_ACTION' });
+
+      const provisioned = transitions.provision(async () => ({ tenantId: 'tenant-new' }));
+      const toC = transitions.switchTo('tenant-c');
+      await flush();
+      calls.forEach((call) => call.release());
+
+      expect(await toC).toBe(true);
+      expect(await provisioned).toBe(false);
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-c');
+    });
+
+    it('provisioning never restores a tenant after logout', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      const calls = controllableFetch();
+      tracker.track({ tenantId: 'tenant-a', invocationId, operation: 'NEXT_BEST_ACTION' });
+
+      const provisioned = transitions.provision(async () => ({ tenantId: 'tenant-new' }));
+      const logout = transitions.logout();
+      await flush();
+      calls.forEach((call) => call.release());
+      await logout;
+
+      expect(await provisioned).toBe(false);
+      expect(apiClient.getCurrentTenantId()).toBeNull();
+    });
+
+    it('a failed logout keeps the session usable for later switches', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      controllableFetch((url) => (url === '/logout' ? 500 : 204));
+
+      await expect(transitions.logout()).rejects.toThrow();
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-a');
+
+      expect(await transitions.switchTo('tenant-b')).toBe(true);
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-b');
     });
   });
 

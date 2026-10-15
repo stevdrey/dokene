@@ -11,11 +11,17 @@ import com.openai.core.http.HttpRequest;
 import com.openai.core.http.HttpResponse;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseCreateParams;
+import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
+import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
+import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
+import io.github.stevdrey.dokene.ai.domain.NoRecommendationReason;
+import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.TrustedFollowUpReason;
 import io.github.stevdrey.dokene.ai.provider.openai.OpenAiProviderProperties;
@@ -299,12 +305,70 @@ class OpenAiCallCancellationSpikeTest {
 
         assertThat(closeLatency(cancelNanos)).isLessThanOrEqualTo(PROMPT_CLOSE);
         assertThat(requestThread.isAlive()).isFalse();
-        assertThat(outcome.get()).isInstanceOfSatisfying(AiProviderException.class,
-                e -> assertThat(e.category()).isEqualTo(AiFailureCategory.CANCELLED));
+        assertThat(outcome.get()).isInstanceOfSatisfying(AiProviderException.class, e -> {
+            assertThat(e.category()).isEqualTo(AiFailureCategory.CANCELLED);
+            // The adapter's own exception surfaces, so telemetry keeps the provider/model tags (ADR 0019).
+            assertThat(e.metadata().providerId()).isEqualTo("openai");
+            assertThat(e.metadata().modelId()).isEqualTo("gpt-test");
+        });
         assertThat(handle.aborted()).isTrue();
         assertThat(requestThreadInterrupted.get()).as("only the worker is interrupted").isFalse();
         Thread.sleep(RETRY_GRACE.toMillis());
         assertThat(provider.requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void aWorkerCancelRacingCompletionKeepsTheRealOutcomeAndMetadata() throws Exception {
+        AiRecommendationResponse generated = new AiRecommendationResponse(
+                new NoRecommendation(NoRecommendationReason.UNCERTAIN_INTENT, "Insufficient signal",
+                        RecommendationConfidence.of(0.4)),
+                new AiInvocationMetadata("fake", "fake-model", "req-1", Duration.ofMillis(1), null,
+                        AiCompletionStatus.SUCCEEDED));
+        int cancelled = 0;
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            for (int i = 0; i < RACE_ITERATIONS; i++) {
+                CountDownLatch go = new CountDownLatch(1);
+                VirtualThreadCancellableProvider cancellable = new VirtualThreadCancellableProvider(attempt -> {
+                    try {
+                        go.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AiProviderException(AiFailureCategory.CANCELLED, new AiInvocationMetadata(
+                                "fake", "fake-model", null, Duration.ZERO, null, AiCompletionStatus.CANCELLED));
+                    }
+                    return generated;
+                });
+                AiCancellationHandle handle = new AiCancellationHandle();
+                CountDownLatch started = new CountDownLatch(1);
+                Future<Object> caller = pool.submit(() -> {
+                    try {
+                        return ScopedValue.where(CancellableHttpClient.HANDLE, handle).call(() -> {
+                            started.countDown();
+                            return cancellable.recommend(request);
+                        });
+                    } catch (AiProviderException e) {
+                        return e;
+                    }
+                });
+                assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+                Future<?> canceller = pool.submit(handle::cancel);
+                go.countDown();
+                canceller.get(5, TimeUnit.SECONDS);
+                Object outcome = caller.get(5, TimeUnit.SECONDS);
+
+                if (outcome instanceof AiProviderException failure) {
+                    cancelled++;
+                    assertThat(failure.category()).isEqualTo(AiFailureCategory.CANCELLED);
+                    assertThat(failure.metadata().providerId()).isIn("fake", "none");
+                    assertThat(handle.aborted()).isTrue();
+                } else {
+                    assertThat(outcome).isSameAs(generated);
+                    assertThat(handle.aborted()).as("a completion is never reported as cancelled").isFalse();
+                }
+            }
+        }
+        System.out.printf("[spike-180] worker cancel/completion race: %d iterations, cancelled %d, completed %d%n",
+                RACE_ITERATIONS, cancelled, RACE_ITERATIONS - cancelled);
     }
 
     private OpenAiProviderProperties properties() {
