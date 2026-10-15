@@ -13,7 +13,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Tenant and actor come from the current context, never from the request. Credentials are only referenced: the
@@ -29,10 +31,12 @@ public class WhatsAppIntegrationService {
     private final IntegrationReadiness readiness;
     private final MappingRejectionLimiter rejections;
     private final Clock clock;
+    private final TransactionTemplate reads;
+    private final TransactionTemplate writes;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
             TenantAuthorizationService authorization, TenantContextProvider contexts, IntegrationReadiness readiness,
-            MappingRejectionLimiter rejections, Clock clock) {
+            MappingRejectionLimiter rejections, Clock clock, PlatformTransactionManager transactions) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
@@ -40,6 +44,10 @@ public class WhatsAppIntegrationService {
         this.readiness = Objects.requireNonNull(readiness, "Readiness is required");
         this.rejections = Objects.requireNonNull(rejections, "Rejection limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
+        Objects.requireNonNull(transactions, "Transaction manager is required");
+        this.reads = new TransactionTemplate(transactions);
+        this.reads.setReadOnly(true);
+        this.writes = new TransactionTemplate(transactions);
     }
 
     /** The stored configuration plus the runtime state reported with it. */
@@ -70,43 +78,66 @@ public class WhatsAppIntegrationService {
      * A missing precondition cannot reach here, so nothing is ever created or replaced unconditionally. A write that
      * changes the mapping is refused with {@code RATE_LIMITED} while the tenant or actor has exhausted its budget of
      * phone numbers already mapped by another tenant (issue 208); keeping the stored number is never throttled.
+     *
+     * <p>Not one transaction: the budget check, its audit and the rejection bookkeeping run between a short read and
+     * the write transaction, so a refused or rejected attempt never holds a connection while its denial is audited.
      */
-    @Transactional
     public IntegrationView upsert(Precondition precondition, String phoneNumberId, String businessAccountId,
             String displayPhoneNumber, boolean enabled, String secretRef) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
         TenantContext context = contexts.requireCurrent();
-        TenantId tenantId = context.tenantId();
-        Optional<WhatsAppIntegration> existing = repository.findByTenant(tenantId);
-        boolean changesMapping = existing.map(current -> !current.phoneNumberId().equals(phoneNumberId)).orElse(true);
+        boolean changesMapping = Boolean.TRUE.equals(reads.execute(status -> changesMapping(
+                repository.findByTenant(context.tenantId()), phoneNumberId)));
         // A null attempt (the stored number is kept) is allowed by try-with-resources and never closed.
         try (MappingAttempt attempt = changesMapping ? beginMappingAttempt(context) : null) {
-            WhatsAppIntegration saved;
-            if (existing.isEmpty()) {
-                if (!(precondition instanceof Create)) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+            try {
+                return writes.execute(status -> write(context.tenantId(), changesMapping, precondition,
+                        phoneNumberId, businessAccountId, displayPhoneNumber, enabled, secretRef));
+            } catch (PhoneNumberMappingConflictException conflict) {
+                // The write transaction has rolled back, so the audit below runs on its own connection only.
+                if (attempt != null && attempt.reject()) {
+                    audit.mappingThrottled();
                 }
-                WhatsAppIntegration created = validated(() -> WhatsAppIntegration.create(tenantId, phoneNumberId,
-                        businessAccountId, displayPhoneNumber, enabled, secretRef, clock.instant()));
-                saved = countingRejections(attempt, () -> {
-                    repository.insert(created);
-                    return created;
-                });
-            } else {
-                WhatsAppIntegration current = existing.get();
-                if (!(precondition instanceof Version(long expectedVersion))
-                        || current.version() != expectedVersion) {
-                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-                }
-                WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
-                        displayPhoneNumber, enabled, secretRef, clock.instant()));
-                long storedVersion = countingRejections(attempt, () -> repository.update(next, expectedVersion))
-                        .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-                saved = next.withVersion(storedVersion);
+                throw conflict;
             }
-            audit.updated(saved.id(), saved.enabled());
-            return view(saved);
         }
+    }
+
+    private IntegrationView write(TenantId tenantId, boolean reserved, Precondition precondition,
+            String phoneNumberId, String businessAccountId, String displayPhoneNumber, boolean enabled,
+            String secretRef) {
+        Optional<WhatsAppIntegration> existing = repository.findByTenant(tenantId);
+        if (!reserved && changesMapping(existing, phoneNumberId)) {
+            // The stored number moved after the unreserved pre-read; this write would be an uncounted mapping change.
+            throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+        }
+        WhatsAppIntegration saved;
+        if (existing.isEmpty()) {
+            if (!(precondition instanceof Create)) {
+                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+            }
+            WhatsAppIntegration created = validated(() -> WhatsAppIntegration.create(tenantId, phoneNumberId,
+                    businessAccountId, displayPhoneNumber, enabled, secretRef, clock.instant()));
+            repository.insert(created);
+            saved = created;
+        } else {
+            WhatsAppIntegration current = existing.get();
+            if (!(precondition instanceof Version(long expectedVersion))
+                    || current.version() != expectedVersion) {
+                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+            }
+            WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
+                    displayPhoneNumber, enabled, secretRef, clock.instant()));
+            long storedVersion = repository.update(next, expectedVersion).orElseThrow(
+                    () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
+            saved = next.withVersion(storedVersion);
+        }
+        audit.updated(saved.id(), saved.enabled());
+        return view(saved);
+    }
+
+    private static boolean changesMapping(Optional<WhatsAppIntegration> existing, String phoneNumberId) {
+        return existing.map(current -> !current.phoneNumberId().equals(phoneNumberId)).orElse(true);
     }
 
     /**
@@ -140,21 +171,6 @@ public class WhatsAppIntegrationService {
         } catch (IntegrationRateLimitedException throttled) {
             audit.mappingThrottled();
             throw throttled;
-        }
-    }
-
-    /**
-     * A phone number mapped by another tenant still answers as plain invalid input; it only consumes budget, and the
-     * rejection that exhausts it is audited. The candidate id is never recorded.
-     */
-    private <T> T countingRejections(MappingAttempt attempt, Supplier<T> write) {
-        try {
-            return write.get();
-        } catch (PhoneNumberMappingConflictException conflict) {
-            if (attempt != null && attempt.reject()) {
-                audit.mappingThrottled();
-            }
-            throw conflict;
         }
     }
 

@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.integration.application;
 
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.ratelimit.RetryAfter;
 import java.time.Duration;
 import java.util.Objects;
 
@@ -15,10 +16,6 @@ public class IntegrationRateLimitedException extends IntegrationRefusedException
 
     /** Whole seconds, rounded up and never below one. */
     public long retryAfterSeconds() {
-        if (retryAfter.isNegative() || retryAfter.isZero()) {
-            return 1;
-        }
-        long seconds = retryAfter.getSeconds();
-        return retryAfter.getNano() > 0 ? seconds + 1 : Math.max(seconds, 1);
+        return RetryAfter.seconds(retryAfter);
     }
 }

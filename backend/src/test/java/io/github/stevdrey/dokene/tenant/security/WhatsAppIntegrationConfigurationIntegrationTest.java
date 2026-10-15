@@ -11,6 +11,7 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -43,6 +44,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +62,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest
@@ -429,6 +432,42 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         assertThat(rateLimitedDenials(tenantA, thirdAdminA)).isEqualTo(1);
         read(adminA, tenantA).andExpect(jsonPath("$.phoneNumberId").value(stored))
                 .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    @Test
+    void throttlingFailsClosedWhenItsDenialCannotBeAuditedAndNeverAuditsInsideTheWrite() throws Exception {
+        List<Boolean> auditedInsideATransaction = new CopyOnWriteArrayList<>();
+        write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        for (int attempt = 1; attempt < ACTOR_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isBadRequest());
+        }
+
+        doAnswer(invocation -> {
+            auditedInsideATransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+            throw new AuditPersistenceException();
+        }).when(audit).mappingThrottled();
+        // Neither the exhausting rejection nor the next throttled attempt answers without its durable denial.
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+        write(adminA, tenantA, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+
+        assertThat(auditedInsideATransaction).hasSize(2).containsOnly(false);
+        assertThat(rateLimitedDenials(tenantA, adminA)).isZero();
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.tenant_messaging_integrations "
+                    + "WHERE tenant_id = ?", tenantA.id().value())).isZero();
+        }
+    }
+
+    @Test
+    void conflictClassificationReliesOnTheseConstraintNames() throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_constraint WHERE contype = 'u' AND conrelid = "
+                    + "'dokene.tenant_messaging_integrations'::regclass AND conname IN (?, ?)",
+                    "uq_tenant_messaging_integrations_tenant_provider",
+                    "uq_tenant_messaging_integrations_phone_number")).isEqualTo(2);
+        }
     }
 
     @Test

@@ -1,14 +1,12 @@
 package io.github.stevdrey.dokene.integration.application;
 
+import io.github.stevdrey.dokene.ratelimit.SlidingWindow;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -46,8 +44,12 @@ public class MappingRejectionLimiter {
 
     /** Rejections still inside the window plus attempts whose outcome is not known yet. */
     private static final class Budget {
-        private final Deque<Instant> rejections = new ArrayDeque<>();
+        private final SlidingWindow rejections;
         private int inFlight;
+
+        Budget(Duration window) {
+            this.rejections = new SlidingWindow(window);
+        }
 
         boolean idle() {
             return rejections.isEmpty() && inFlight == 0;
@@ -62,27 +64,32 @@ public class MappingRejectionLimiter {
     public synchronized MappingAttempt begin(TenantId tenantId, IdentityId identityId) {
         Instant now = clock.instant();
         maybeEvictExpired(now);
-        Budget tenant = tenantBudgets.computeIfAbsent(Objects.requireNonNull(tenantId, "Tenant ID is required"),
-                key -> new Budget());
-        Budget actor = actorBudgets.computeIfAbsent(actorKey(tenantId, identityId), key -> new Budget());
+        Objects.requireNonNull(tenantId, "Tenant ID is required");
+        ActorKey actorKey = actorKey(tenantId, identityId);
+        Budget tenant = tenantBudgets.computeIfAbsent(tenantId, key -> new Budget(window));
+        Budget actor = actorBudgets.computeIfAbsent(actorKey, key -> new Budget(window));
         Duration delay = longest(blockedFor(tenant, tenantRejections, now), blockedFor(actor, actorRejections, now));
         if (delay != null) {
-            evictIdle();
+            removeIfIdle(tenantId, tenant, actorKey, actor);
             throw new IntegrationRateLimitedException(delay);
         }
         tenant.inFlight++;
         actor.inFlight++;
-        return new MappingAttempt(tenant, actor);
+        return new MappingAttempt(tenantId, tenant, actorKey, actor);
     }
 
     /** A reservation held by one mapping change until it is rejected or closed. */
     public final class MappingAttempt implements AutoCloseable {
+        private final TenantId tenantId;
         private final Budget tenant;
+        private final ActorKey actorKey;
         private final Budget actor;
         private boolean settled;
 
-        private MappingAttempt(Budget tenant, Budget actor) {
+        private MappingAttempt(TenantId tenantId, Budget tenant, ActorKey actorKey, Budget actor) {
+            this.tenantId = tenantId;
             this.tenant = tenant;
+            this.actorKey = actorKey;
             this.actor = actor;
         }
 
@@ -106,7 +113,7 @@ public class MappingRejectionLimiter {
             synchronized (MappingRejectionLimiter.this) {
                 if (!settled) {
                     settle();
-                    evictIdle();
+                    removeIfIdle(tenantId, tenant, actorKey, actor);
                 }
             }
         }
@@ -119,10 +126,8 @@ public class MappingRejectionLimiter {
     }
 
     synchronized void evictExpired(Instant now) {
-        Instant windowStart = now.minus(window);
-        tenantBudgets.values().forEach(budget -> prune(budget, windowStart));
-        actorBudgets.values().forEach(budget -> prune(budget, windowStart));
-        evictIdle();
+        tenantBudgets.values().removeIf(budget -> budget.rejections.count(now) == 0 && budget.inFlight == 0);
+        actorBudgets.values().removeIf(budget -> budget.rejections.count(now) == 0 && budget.inFlight == 0);
     }
 
     synchronized boolean hasTenantBucket(TenantId tenantId) {
@@ -142,28 +147,16 @@ public class MappingRejectionLimiter {
      * unit as soon as it finishes, so while any is pending the wait is one second; otherwise it lasts until enough
      * rejections leave the window.
      */
-    private Duration blockedFor(Budget budget, int limit, Instant now) {
-        prune(budget, now.minus(window));
-        int overLimit = budget.rejections.size() + budget.inFlight - limit;
-        if (overLimit < 0) {
+    private static Duration blockedFor(Budget budget, int limit, Instant now) {
+        if (budget.rejections.count(now) + budget.inFlight < limit) {
             return null;
         }
-        if (budget.inFlight > 0) {
-            return Duration.ofSeconds(1);
-        }
-        Iterator<Instant> oldestFirst = budget.rejections.iterator();
-        Instant releasing = oldestFirst.next();
-        for (int skip = overLimit; skip > 0; skip--) {
-            releasing = oldestFirst.next();
-        }
-        Duration delay = Duration.between(now, releasing.plus(window));
-        return delay.isNegative() || delay.isZero() ? Duration.ofSeconds(1) : delay;
+        return budget.inFlight > 0 ? Duration.ofSeconds(1) : budget.rejections.untilBelow(limit, now);
     }
 
-    private boolean record(Budget budget, int limit, Instant now) {
-        prune(budget, now.minus(window));
-        budget.rejections.addLast(now);
-        return budget.rejections.size() == limit;
+    private static boolean record(Budget budget, int limit, Instant now) {
+        budget.rejections.record(now);
+        return budget.rejections.count(now) == limit;
     }
 
     private void maybeEvictExpired(Instant now) {
@@ -173,14 +166,13 @@ public class MappingRejectionLimiter {
         }
     }
 
-    private void evictIdle() {
-        tenantBudgets.values().removeIf(Budget::idle);
-        actorBudgets.values().removeIf(Budget::idle);
-    }
-
-    private static void prune(Budget budget, Instant windowStart) {
-        while (!budget.rejections.isEmpty() && !budget.rejections.peekFirst().isAfter(windowStart)) {
-            budget.rejections.pollFirst();
+    /** Drops just the two budgets an attempt touched, once nothing in them is pending or inside the window. */
+    private void removeIfIdle(TenantId tenantId, Budget tenant, ActorKey actorKey, Budget actor) {
+        if (tenant.idle()) {
+            tenantBudgets.remove(tenantId, tenant);
+        }
+        if (actor.idle()) {
+            actorBudgets.remove(actorKey, actor);
         }
     }
 
