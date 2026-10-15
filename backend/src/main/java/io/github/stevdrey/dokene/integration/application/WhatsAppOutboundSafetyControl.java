@@ -1,5 +1,5 @@
 // ABOUTME: Integration-side implementation of the messaging safety port (ADR 0024 §3): the configured sender identity
-// ABOUTME: for the approval fingerprint, and a send decision that stays blocked until the kill-switch policy (#144) exists.
+// ABOUTME: for the approval fingerprint, and a fail-closed send decision: kill switches (#144), then a verified mapping.
 package io.github.stevdrey.dokene.integration.application;
 
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
@@ -31,13 +31,27 @@ public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
     }
 
     /**
-     * Fails closed: nothing in Phase 3 may send until the global and tenant kill switches (#144) and webhook
-     * verification (#139) own their state. Dispatch (#138) is the only caller.
+     * Fails closed: nothing in Phase 3 may send until the global and tenant kill switches (#144) own their state, so the
+     * global switch (send policy step 3, ADR 0023 §4.3) still blocks first. When #144 adds the switches it composes
+     * {@link #integrationGate(TenantId)} as the integration half of step 4. Dispatch (#138) is the only caller.
      */
     @Override
     public Decision evaluate(TenantId tenantId) {
         Objects.requireNonNull(tenantId, "Tenant id is required");
         return new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY);
+    }
+
+    /**
+     * The integration half of send policy step 4: a disabled integration, or one whose phone number ownership is not
+     * proven for the current credential (issue 210), is {@code INTEGRATION_DISABLED}. Missing configuration throws, as
+     * {@link OutboundSafetyControl#evaluate(TenantId)} requires. Empty means this gate does not block.
+     */
+    public Optional<Blocked> integrationGate(TenantId tenantId) {
+        Objects.requireNonNull(tenantId, "Tenant id is required");
+        WhatsAppIntegration integration = integrations.findByTenant(tenantId)
+                .orElseThrow(() -> new IllegalStateException("No integration is configured"));
+        return integration.enabled() && integration.ownershipVerified() ? Optional.empty()
+                : Optional.of(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
     }
 
     private static SenderRevision sender(WhatsAppIntegration integration) {

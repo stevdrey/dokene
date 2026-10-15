@@ -65,9 +65,25 @@ public class WhatsAppIntegrationController {
     }
 
     /**
-     * The ETag is the configuration concurrency token: the stored row's version. {@code outboundEnabled} and
-     * {@code webhookVerified} are live runtime state that can change without it, so the response is never cacheable
-     * and the handlers return the body directly (not a {@code ResponseEntity}) with headers set on the servlet
+     * Asks the provider adapter to prove that the tenant's credential reaches the stored phone number through the
+     * stored business account, and records the proof (issue 210). Strong {@code If-Match}, no body.
+     */
+    @RequiredPermission(TenantPermission.INTEGRATION_MANAGE)
+    @PostMapping("/ownership-verifications")
+    public IntegrationResponse verifyOwnership(
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch,
+            HttpServletResponse response) {
+        if (ifNoneMatch != null || !(precondition(ifMatch, null) instanceof Version(long expectedVersion))) {
+            throw new InvalidRequestException();
+        }
+        return respond(integrations.verifyOwnership(expectedVersion), response);
+    }
+
+    /**
+     * The ETag is the configuration concurrency token: the stored row's version, which every change to the ownership
+     * proof also bumps. {@code outboundEnabled} is live runtime state that can change without it, so the response is
+     * never cacheable and the handlers return the body directly (not a {@code ResponseEntity}) with headers set on the servlet
      * response, which keeps Spring from answering a matching {@code If-None-Match} GET with a {@code 304}.
      */
     private IntegrationResponse respond(IntegrationView view, HttpServletResponse response) {
