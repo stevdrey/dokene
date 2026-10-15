@@ -188,6 +188,37 @@ Reusable credentials should live in a secret store or secret-management abstract
 - Each write appends `INTEGRATION_UPDATED` in the same transaction with the `enabled` flag only. If the audit append fails, the change rolls back.
 - The `OutboundSafetyControl` implementation that combines this record with the kill switches belongs to the kill switch work (#144).
 
+### Secret references and the local secret source (spec 0006, issue 142)
+
+A stored `secretRef` is only a name. `IntegrationSecretResolver` turns it into the credential on the server, inside one scope, and only when a send, a template refresh or a webhook check needs it. Each scope states its purpose: `Tenant(tenantId, WHATSAPP_ACCESS_TOKEN)` for the tenant's own token, `Deployment(WEBHOOK_VERIFY_TOKEN)` or `Deployment(APP_SECRET)` for the deployment's webhook secrets. A tenant scope can only match that tenant's entries, never a deployment entry or another tenant's, whatever key it carries. Every refusal is a `SecretUnavailableException` with a closed category (`MISSING`, `WRONG_PURPOSE`, `SOURCE_DISABLED`), the scope kind and the tenant id, and nothing else: no reference string, no value, no cause. Consumers treat every category the same way: `INTEGRATION_DISABLED` in the safety control (#144) and `RejectedPermanently(AUTHENTICATION)` on a send (#143). The log line is `Secret unavailable category=... scope=... tenant=...`, one `WARN` per denial from the local source and a single `WARN` per process from the disabled one.
+
+**Selecting a source.** `DOKENE_INTEGRATION_SECRETS_SOURCE` (property `dokene.integration.secrets.source`) selects exactly one resolver bean. Blank, the default and what the dev stack ships with, selects the disabled resolver: every lookup is `SOURCE_DISABLED`, so nothing sends and no template becomes sendable. `local` selects the local source below. Any other value refuses to start, and the message names the property and the supported values but never the offending value, since a typo there could be a pasted secret. There is no fallback between sources.
+
+**The local source (laptops and staging, never production).** Entries live in configuration kept outside Git, one group per secret:
+
+| Field | Rule |
+| --- | --- |
+| `scope` | exactly `tenant` or `deployment`, lowercase |
+| `tenant-id` | the tenant UUID; required for `tenant`, must be unset (not blank) for `deployment` |
+| `ref` | the bare key the tenant stored, or the deployment property names (`^[A-Za-z0-9_-]{1,128}$`) |
+| `purpose` | the exact constant: `WHATSAPP_ACCESS_TOKEN` for a tenant entry, `WEBHOOK_VERIFY_TOKEN` or `APP_SECRET` for a deployment entry |
+| `value` | the secret, non blank, used exactly as bound |
+
+`(scope, tenant-id, ref)` is unique, so the webhook verify token and the app secret need two distinct deployment references. The same bare key may exist under two tenants, or as a tenant entry and a deployment entry; each owner gets its own value. Entries are validated at startup in index order and field order (`scope`, `tenant-id`, `ref`, `purpose`, `value`), then for duplicates; the first violation stops the application with `dokene.integration.secrets.local.entries[<n>].<field> is invalid` (or `is a duplicate`) and nothing more. A gap in the indices (entries 0 and 2 with no 1) is a binding failure rather than a validation failure; `SecretBindFailureAnalyzer` reports it by property name only, because Spring Boot's own report would print the stranded values. When the source is blank the entries are ignored entirely, but they are still bound, so the contiguous index rule applies even then. At startup the source logs one INFO line with the entry count, so an empty list under `local` is visible.
+
+Two ways to supply them:
+
+1. **Environment variables**: `DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_<n>_SCOPE`, `_TENANT_ID`, `_REF`, `_PURPOSE`, `_VALUE`, with `<n>` contiguous from 0. `.env.example` shows the shape with placeholders. Values are not relaxed by Spring, so `_SCOPE` stays lowercase and `_PURPOSE` is the exact constant name. This route reaches a host-run backend (`set -a; . ./.env; set +a; ./gradlew bootRun`). The Compose backend forwards only `DOKENE_INTEGRATION_SECRETS_SOURCE`, so for a container add the indexed variables in a compose override file, or use the mounted file below with a volume and `SPRING_CONFIG_ADDITIONAL_LOCATION` in that override.
+2. **A mounted file**: point the standard `SPRING_CONFIG_ADDITIONAL_LOCATION` at a directory holding an `application.yml` with `dokene.integration.secrets.local.entries` (a Compose or Kubernetes secret mount). This is the sane route for more than a handful of entries.
+
+A value is used exactly as bound. A trailing newline in a mounted file or a quoted space is part of the secret; this is the usual cause of a token that looks right and is refused by the provider.
+
+**Restart and rotation.** The local source is read once at startup and never again, so a changed value needs a restart. To rotate a tenant token in place (same `secretRef`): change the value in the configuration, restart the backend, then `POST /api/integrations/whatsapp/credential-rotations` with `If-Match` so `credential_revision` moves and approvals bound to the old revision fail with `APPROVAL_INVALIDATED`. A production secret store resolves a new value live, so there the restart step disappears and only the rotation call remains.
+
+**What stays in memory.** Spring binds each value as a `String` in the environment and in the bound properties bean for the life of the process. The resolver keeps its own `char[]` copies, hands out a fresh copy per resolve, redacts every `toString`, and actuator stays closed, so neither `/actuator/env` nor `/actuator/configprops` can show them. This is the same exposure the OpenAI API key already has and is accepted for a source that is explicitly not for production.
+
+**The production adapter boundary.** A real deployment gets a new `SecretSourceType` (a cloud secret manager or Vault) and a new resolver class behind the same port and the same entry semantics: owner and purpose carried by the store's metadata or path layout, read live at resolve time. Nothing in the port, the consumers or this section's rules changes for it; it is tracked in the scope's later list.
+
 ## Meta identifiers
 
 For Meta WhatsApp Cloud API, distinguish clearly between:

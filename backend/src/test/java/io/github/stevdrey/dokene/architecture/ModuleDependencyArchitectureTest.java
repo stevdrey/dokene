@@ -13,10 +13,16 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnMessagingFixture;
+import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretFailureFixture;
+import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretPortFixture;
+import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretSourceFixture;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
+import io.github.stevdrey.dokene.integration.application.SecretUnavailableException;
 import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEvent;
 import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEventHandler;
 import io.github.stevdrey.dokene.integration.archfixture.FabricatedWebhookEventFixture;
 import io.github.stevdrey.dokene.integration.archfixture.RawReportBypassFixture;
+import io.github.stevdrey.dokene.integration.secrets.SecretSourceType;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import org.junit.jupiter.api.BeforeAll;
@@ -60,6 +66,14 @@ class ModuleDependencyArchitectureTest {
             .should().callConstructorWhere(JavaCall.Predicates.target(HasOwner.Predicates.With.owner(
                     JavaClass.Predicates.equivalentTo(VerifiedWebhookEvent.class))))
             .because("ADR 0024 §3: only the webhook verifier, after signature, tenant lookup and dedup, may build one");
+
+    private static final ArchRule SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION = noClasses().that()
+            .resideOutsideOfPackage(ROOT + ".integration..")
+            .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(IntegrationSecretResolver.class)
+                    .or(JavaClass.Predicates.belongToAnyOf(SecretUnavailableException.class))
+                    .or(JavaClass.Predicates.resideInAPackage(ROOT + ".integration.secrets..")))
+            .because("ADR 0024 §3: the secret resolver port, its failure shape and the secret sources are reachable "
+                    + "only from integration");
 
     private static final ArchRule MESSAGING_DOMAIN_IS_PURE = noClasses().that()
             .resideInAPackage(ROOT + ".messaging.domain..")
@@ -117,6 +131,26 @@ class ModuleDependencyArchitectureTest {
     @Test
     void messagingDomainIsPlainJavaPlusAiDomain() {
         MESSAGING_DOMAIN_IS_PURE.check(production);
+    }
+
+    @Test
+    void secretMaterialNeverLeavesIntegration() {
+        SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION.check(production);
+    }
+
+    /** Negative proof (spec 0006 AC-7): each of the rule's three predicates is exercised by its own fixture. */
+    @Test
+    void aClassOutsideIntegrationReachingSecretMaterialFailsTheSecretRule() {
+        JavaClasses port = new ClassFileImporter()
+                .importClasses(UpstreamDependsOnSecretPortFixture.class, IntegrationSecretResolver.class);
+        JavaClasses failure = new ClassFileImporter()
+                .importClasses(UpstreamDependsOnSecretFailureFixture.class, SecretUnavailableException.class);
+        JavaClasses source = new ClassFileImporter()
+                .importClasses(UpstreamDependsOnSecretSourceFixture.class, SecretSourceType.class);
+
+        assertThat(SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION.evaluate(port).hasViolation()).isTrue();
+        assertThat(SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION.evaluate(failure).hasViolation()).isTrue();
+        assertThat(SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION.evaluate(source).hasViolation()).isTrue();
     }
 
     /** Negative proof (spec 0001 AC-11): the package patterns really match, so a violating fixture is reported. */

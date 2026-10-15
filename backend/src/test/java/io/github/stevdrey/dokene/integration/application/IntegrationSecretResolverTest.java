@@ -5,9 +5,12 @@ package io.github.stevdrey.dokene.integration.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Deployment;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -87,7 +90,35 @@ class IntegrationSecretResolverTest {
     }
 
     @Test
-    void tenantScopeRequiresATenant() {
-        assertThatThrownBy(() -> new Tenant(null)).isInstanceOf(NullPointerException.class);
+    void tenantScopeRequiresATenantAndAPurpose() {
+        assertThatThrownBy(() -> new Tenant(null, SecretPurpose.WHATSAPP_ACCESS_TOKEN))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new Tenant(TenantId.random(), null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new Deployment(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    /** Spec 0006 AC-1: a sender cannot even ask for a webhook secret, and the deployment never holds a tenant token. */
+    @Test
+    void eachScopeAdmitsOnlyItsOwnPurposes() {
+        TenantId tenantId = TenantId.random();
+
+        assertThat(new Tenant(tenantId, SecretPurpose.WHATSAPP_ACCESS_TOKEN).purpose())
+                .isEqualTo(SecretPurpose.WHATSAPP_ACCESS_TOKEN);
+        assertThat(new Deployment(SecretPurpose.WEBHOOK_VERIFY_TOKEN).purpose())
+                .isEqualTo(SecretPurpose.WEBHOOK_VERIFY_TOKEN);
+        assertThat(new Deployment(SecretPurpose.APP_SECRET).purpose()).isEqualTo(SecretPurpose.APP_SECRET);
+
+        assertThatThrownBy(() -> new Tenant(tenantId, SecretPurpose.WEBHOOK_VERIFY_TOKEN))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Tenant(tenantId, SecretPurpose.APP_SECRET))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Deployment(SecretPurpose.WHATSAPP_ACCESS_TOKEN))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void thePurposeEnumIsClosed() {
+        assertThat(SecretPurpose.values()).containsExactly(SecretPurpose.WHATSAPP_ACCESS_TOKEN,
+                SecretPurpose.WEBHOOK_VERIFY_TOKEN, SecretPurpose.APP_SECRET);
     }
 }

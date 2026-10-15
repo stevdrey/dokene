@@ -47,6 +47,11 @@ dokene:
   template:
     # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
     approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}
+  integration:
+    secrets:
+      # Blank keeps the resolver disabled (fail closed); `local` reads entries from
+      # DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_<n>_* or a mounted file (spec 0006).
+      source: ${DOKENE_INTEGRATION_SECRETS_SOURCE:}
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
