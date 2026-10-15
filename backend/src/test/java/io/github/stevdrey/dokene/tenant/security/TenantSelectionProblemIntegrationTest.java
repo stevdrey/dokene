@@ -1,7 +1,10 @@
 package io.github.stevdrey.dokene.tenant.security;
 
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryInt;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -18,11 +21,16 @@ import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +39,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -40,7 +49,11 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * Issue #207: tenant-selection rejections raised by {@link TenantContextRequestFilter} use the closed problem+json
@@ -49,6 +62,10 @@ import org.springframework.web.context.WebApplicationContext;
 @SpringBootTest(properties = "dokene.ai.provider=fake")
 class TenantSelectionProblemIntegrationTest {
     private static final String PROBLEM = "application/problem+json";
+    private static final List<String> PHASE_3_MODULES = List.of(
+            "io.github.stevdrey.dokene.messaging.", "io.github.stevdrey.dokene.integration.",
+            "io.github.stevdrey.dokene.template.");
+    private static final Pattern PATH_VARIABLE = Pattern.compile("\\{[^/}]+}");
     private static final String INVALID_INPUT =
             "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"code\":\"INVALID_INPUT\"}";
     private static final String FORBIDDEN =
@@ -96,13 +113,52 @@ class TenantSelectionProblemIntegrationTest {
     @ParameterizedTest
     @MethodSource("phase3Routes")
     void phase3RoutesAnswerTenantSelectionRejectionsWithTheClosedProblemShape(String route) throws Exception {
-        expectProblem(perform(route, request -> request), 403, FORBIDDEN);
-        expectProblem(perform(route, request -> request
+        expectAuditedProblem(perform(route, request -> request), 403, FORBIDDEN);
+        expectAuditedProblem(perform(route, request -> request
                 .header("X-Tenant-Id", memberTenant.id().value())
                 .header("X-Tenant-Id", foreignTenant.id().value())), 400, INVALID_INPUT);
-        expectProblem(perform(route, request -> request.header("X-Tenant-Id", "not-a-uuid")), 400, INVALID_INPUT);
-        expectProblem(perform(route, request -> request.header("X-Tenant-Id", foreignTenant.id().value())),
+        expectAuditedProblem(perform(route, request -> request.header("X-Tenant-Id", "not-a-uuid")), 400, INVALID_INPUT);
+        expectAuditedProblem(perform(route, request -> request.header("X-Tenant-Id", foreignTenant.id().value())),
                 403, FORBIDDEN);
+    }
+
+    /**
+     * Every {@code /api} handler of a Phase 3 module is claimed by a responder and no other handler is, so a new
+     * Phase 3 route cannot silently fall back to the empty body and an existing endpoint cannot gain one.
+     */
+    @Test
+    void responderOwnershipMatchesThePhase3ControllerRoutesExactly() {
+        List<TenantSelectionRejectionResponder> responders = webApplicationContext
+                .getBeansOfType(TenantSelectionRejectionResponder.class).values().stream().toList();
+        RequestMappingHandlerMapping handlerMappings = webApplicationContext
+                .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
+        List<String> unclaimedPhase3 = new ArrayList<>();
+        List<String> claimedOther = new ArrayList<>();
+        int phase3Handlers = 0;
+        for (Map.Entry<RequestMappingInfo, HandlerMethod> handler : handlerMappings.getHandlerMethods().entrySet()) {
+            boolean phase3 = isPhase3Module(handler.getValue().getBeanType());
+            Set<RequestMethod> methods = handler.getKey().getMethodsCondition().getMethods();
+            String method = methods.isEmpty() ? "GET" : methods.iterator().next().name();
+            for (String pattern : handler.getKey().getPatternValues()) {
+                if (!pattern.startsWith("/api/")) {
+                    continue;
+                }
+                String path = PATH_VARIABLE.matcher(pattern).replaceAll("sample");
+                MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+                boolean claimed = responders.stream().anyMatch(responder -> responder.handles(request));
+                if (phase3) {
+                    phase3Handlers++;
+                    if (!claimed) {
+                        unclaimedPhase3.add(method + " " + pattern);
+                    }
+                } else if (claimed) {
+                    claimedOther.add(method + " " + pattern);
+                }
+            }
+        }
+        assertThat(phase3Handlers).as("scanned Phase 3 handlers").isGreaterThanOrEqualTo(12);
+        assertThat(unclaimedPhase3).as("Phase 3 routes without a tenant-selection responder").isEmpty();
+        assertThat(claimedOther).as("non-Phase 3 routes claimed by a tenant-selection responder").isEmpty();
     }
 
     @Test
@@ -131,12 +187,23 @@ class TenantSelectionProblemIntegrationTest {
         return mvc.perform(selection.apply(request.with(user(owner))));
     }
 
-    private static void expectProblem(ResultActions result, int status, String body) throws Exception {
+    private static void expectAuditedProblem(ResultActions result, int status, String body) throws Exception {
         result.andExpect(status().is(status))
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM))
                 .andExpect(content().json(body, JsonCompareMode.STRICT))
                 .andExpect(header().string("Content-Security-Policy",
                         TenantSecurityConfiguration.API_CONTENT_SECURITY_POLICY));
+        UUID correlation = UUID.fromString(
+                result.andReturn().getResponse().getHeader(AuditRequestFilter.CORRELATION_HEADER));
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE correlation_id = ? "
+                    + "AND event_type = 'AUTHORIZATION_DENIED' AND denial_reason = 'NO_TENANT_CONTEXT'", correlation))
+                    .as("audited tenant-selection denial").isEqualTo(1);
+        }
+    }
+
+    private static boolean isPhase3Module(Class<?> controller) {
+        return PHASE_3_MODULES.stream().anyMatch(module -> controller.getPackageName().startsWith(module));
     }
 
     private static void expectEmpty(ResultActions result, int status) throws Exception {

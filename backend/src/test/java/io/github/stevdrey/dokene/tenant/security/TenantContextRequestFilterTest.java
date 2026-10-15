@@ -20,8 +20,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.ToIntFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -229,11 +231,17 @@ class TenantContextRequestFilterTest {
                 });
 
         assertThat(response.getStatus()).isEqualTo(expectedStatus);
-        assertThat(response.getContentType()).isEqualTo(ProblemJsonTenantSelectionResponder.PROBLEM_MEDIA_TYPE);
+        assertThat(response.getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         assertThat(response.getContentAsString()).isEqualTo(expectedBody);
         assertThat(response.isCommitted()).isTrue();
         assertThat(tenantContexts.current()).isEmpty();
         verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+    }
+
+    @Test
+    void refusesAResponderWhoseBodyStatusContradictsTheRejection() {
+        assertThatThrownBy(() -> new RecordingResponder("/api/tenant-resource", rejection -> 404))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     /** Echoes the rejection so a test can tell which responder answered and with which rejection. */
@@ -242,12 +250,12 @@ class TenantContextRequestFilterTest {
         }
 
         RecordingResponder(String pattern) {
-            super(PathPatternRequestMatcher.pathPattern(pattern));
+            this(pattern, TenantSelectionRejection::status);
         }
 
-        @Override
-        protected Record problem(TenantSelectionRejection rejection) {
-            return new Echo(rejection);
+        RecordingResponder(String pattern, ToIntFunction<TenantSelectionRejection> bodyStatus) {
+            super(PathPatternRequestMatcher.pathPattern(pattern), Echo::new,
+                    echo -> bodyStatus.applyAsInt(echo.rejection()));
         }
     }
 

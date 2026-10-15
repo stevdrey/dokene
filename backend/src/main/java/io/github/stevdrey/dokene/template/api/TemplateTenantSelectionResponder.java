@@ -1,5 +1,5 @@
 // ABOUTME: Gives /api/templates/** the closed template problem+json shape for tenant-selection rejections.
-// ABOUTME: The filter keeps the status (400 or 403) and the audit; this only owns the route list and the body.
+// ABOUTME: Keeps its own mapping because the template module may not depend on messaging (ADR 0024 §3).
 package io.github.stevdrey.dokene.template.api;
 
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateProblem;
@@ -13,11 +13,11 @@ import org.springframework.stereotype.Component;
 class TemplateTenantSelectionResponder extends ProblemJsonTenantSelectionResponder {
 
     TemplateTenantSelectionResponder() {
-        super(PathPatternRequestMatcher.pathPattern("/api/templates/**"));
+        super(PathPatternRequestMatcher.pathPattern("/api/templates/**"), TemplateTenantSelectionResponder::problemOf,
+                TemplateProblem::status);
     }
 
-    @Override
-    protected TemplateProblem problem(TenantSelectionRejection rejection) {
+    private static TemplateProblem problemOf(TenantSelectionRejection rejection) {
         return TemplateProblem.of(switch (rejection) {
             case INVALID_SELECTOR -> TemplateErrorCode.INVALID_INPUT;
             case ACCESS_DENIED -> TemplateErrorCode.FORBIDDEN;
