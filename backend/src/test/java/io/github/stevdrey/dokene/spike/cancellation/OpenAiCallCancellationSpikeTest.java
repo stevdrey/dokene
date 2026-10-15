@@ -101,6 +101,7 @@ class OpenAiCallCancellationSpikeTest {
         assertThat(closedPromptly)
                 .as("a platform thread blocked in a socket read ignores the interrupt until the SDK timeout")
                 .isFalse();
+        assertThat(closeLatency(cancelNanos)).isGreaterThan(PROMPT_CLOSE);
         assertThat(provider.requests.get()).isEqualTo(1);
     }
 
@@ -151,6 +152,8 @@ class OpenAiCallCancellationSpikeTest {
         report("delegating HttpClient + handle.cancel()", cancelNanos, outcome.get());
 
         assertThat(closedPromptly).as("cancel closes the provider socket").isTrue();
+        // Measured from when the cancel was initiated, so a cancel() that blocks before closing cannot hide a miss.
+        assertThat(closeLatency(cancelNanos)).isLessThanOrEqualTo(PROMPT_CLOSE);
         assertThat(worker.isAlive()).isFalse();
         assertThat(outcome.get()).isInstanceOfSatisfying(AiProviderException.class,
                 e -> assertThat(e.category()).isEqualTo(AiFailureCategory.CANCELLED));
@@ -245,6 +248,12 @@ class OpenAiCallCancellationSpikeTest {
                 .timeout(PROVIDER_TIMEOUT)
                 .maxRetries(0)
                 .build());
+    }
+
+    private Duration closeLatency(long cancelNanos) {
+        long closeNanos = provider.closedAtNanos.get();
+        assertThat(closeNanos).as("the provider observed the socket close").isNotZero();
+        return Duration.ofNanos(closeNanos - cancelNanos);
     }
 
     private void report(String path, long cancelNanos, Throwable outcome) {

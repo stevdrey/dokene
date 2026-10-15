@@ -3,7 +3,9 @@ package io.github.stevdrey.dokene.spike.cancellation;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.util.Objects;
+import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,8 +17,8 @@ import java.util.concurrent.Semaphore;
  * <p>
  * The client-generated invocation id is only a lookup key: the full key also holds the tenant and actor taken from
  * the trusted server-side context, so an id alone never authorizes a cancel. An id is unique per (tenant, actor)
- * across operations, so {@code POST /api/ai-invocations/{id}/cancel} is unambiguous; the stored operation is checked
- * against the caller's current permissions. {@link #cancel} returns nothing, which makes "not found", "someone
+ * across operations, so {@code POST /api/ai-invocations/{id}/cancel} is unambiguous. The caller must currently hold
+ * every permission the stored operation requires, the same conjunction its endpoint enforces. {@link #cancel} returns nothing, which makes "not found", "someone
  * else's", "not permitted" and "already finished" indistinguishable (no existence oracle).
  * <p>
  * An entry lives exactly as long as the request that owns it (registered before context assembly, closed in
@@ -94,14 +96,22 @@ final class AiInvocationCancellationRegistry {
     }
 
     /**
-     * Idempotent. Acts only on a live entry whose tenant, actor and id match and whose operation the caller is
-     * currently permitted to perform.
+     * Idempotent. Acts only on a live entry whose tenant, actor and id match, when the caller currently holds every
+     * permission required to perform the stored operation.
      */
-    void cancel(Key key, Set<AiOperation> permittedOperations) {
+    void cancel(Key key, Set<TenantPermission> callerPermissions) {
         Registration registration = entries.get(key);
-        if (registration != null && permittedOperations.contains(registration.operation)) {
+        if (registration != null && callerPermissions.containsAll(requiredPermissions(registration.operation))) {
             registration.handle.cancel();
         }
+    }
+
+    /** Mirrors the endpoints: recommendation needs FOLLOWUP_EVALUATE; draft needs MESSAGE_DRAFT and FOLLOWUP_EVALUATE. */
+    private Set<TenantPermission> requiredPermissions(AiOperation operation) {
+        return switch (operation) {
+            case NEXT_BEST_ACTION -> EnumSet.of(TenantPermission.FOLLOWUP_EVALUATE);
+            case MESSAGE_DRAFT -> EnumSet.of(TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE);
+        };
     }
 
     int size() {

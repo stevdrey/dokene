@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.spike.cancellation.AiInvocationCancellationRegi
 import io.github.stevdrey.dokene.spike.cancellation.AiInvocationCancellationRegistry.RegistrationRejectedException;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -30,7 +31,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AiInvocationCancellationRegistryTest {
 
     private static final int RACE_ITERATIONS = 5_000;
-    private static final Set<AiOperation> ALL = EnumSet.allOf(AiOperation.class);
+    private static final Set<TenantPermission> ALL =
+            EnumSet.of(TenantPermission.FOLLOWUP_EVALUATE, TenantPermission.MESSAGE_DRAFT);
 
     private final AiInvocationCancellationRegistry registry = new AiInvocationCancellationRegistry(100);
 
@@ -48,10 +50,38 @@ class AiInvocationCancellationRegistryTest {
 
             registry.cancel(new Key(tenantB, actor, invocationId), ALL);
             registry.cancel(new Key(tenantA, otherActor, invocationId), ALL);
-            registry.cancel(key, EnumSet.of(AiOperation.MESSAGE_DRAFT));
+            registry.cancel(key, EnumSet.of(TenantPermission.MESSAGE_DRAFT));
 
             assertThat(call.complete("generated")).isTrue();
             assertThat(registration.outcome()).isEqualTo(Outcome.NOT_CANCELLED);
+        }
+    }
+
+    @Test
+    void aDraftCancelRequiresBothPermissionsTheDraftEndpointRequires() {
+        try (Registration registration = registry.register(key, AiOperation.MESSAGE_DRAFT)) {
+            CompletableFuture<String> call = registration.handle().start(CompletableFuture::new);
+
+            registry.cancel(key, EnumSet.of(TenantPermission.MESSAGE_DRAFT));
+            registry.cancel(key, EnumSet.of(TenantPermission.FOLLOWUP_EVALUATE));
+            assertThat(call).isNotCancelled();
+
+            registry.cancel(key, EnumSet.of(TenantPermission.MESSAGE_DRAFT, TenantPermission.FOLLOWUP_EVALUATE));
+            assertThat(call).isCancelled();
+            assertThat(registration.outcome()).isEqualTo(Outcome.CANCELLED);
+        }
+    }
+
+    @Test
+    void aRecommendationCancelRequiresFollowUpEvaluate() {
+        try (Registration registration = registry.register(key, AiOperation.NEXT_BEST_ACTION)) {
+            CompletableFuture<String> call = registration.handle().start(CompletableFuture::new);
+
+            registry.cancel(key, EnumSet.of(TenantPermission.MESSAGE_DRAFT));
+            assertThat(call).isNotCancelled();
+
+            registry.cancel(key, EnumSet.of(TenantPermission.FOLLOWUP_EVALUATE));
+            assertThat(call).isCancelled();
         }
     }
 

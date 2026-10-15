@@ -48,6 +48,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
 import java.time.Duration;
@@ -85,7 +86,8 @@ import static org.mockito.Mockito.when;
 class RecommendationCancellationSpikeTest {
 
     private static final int ACTOR_PERMITS = 3;
-    private static final Set<AiOperation> ALL = EnumSet.allOf(AiOperation.class);
+    private static final Set<TenantPermission> ALL =
+            EnumSet.of(TenantPermission.FOLLOWUP_EVALUATE, TenantPermission.MESSAGE_DRAFT);
 
     private final TenantId tenantId = TenantId.random();
     private final IdentityId actorId = new IdentityId(UUID.randomUUID());
