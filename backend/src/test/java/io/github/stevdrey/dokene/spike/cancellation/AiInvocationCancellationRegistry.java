@@ -7,10 +7,11 @@ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,7 +32,7 @@ import java.util.UUID;
  * {@code finally}), so no live entry can expire. A cancel can overtake its own request on the network; when it finds
  * no entry it leaves a short-lived, bounded tombstone that a later {@link #register} with the same key consumes, so
  * that registration is born cancelled. {@code register} and {@code cancel} share one lock so the two steps cannot
- * interleave; both are O(1) apart from purging expired tombstones.
+ * interleave; both are O(1) apart from purging expired tombstones (amortized O(1), bounded by the cap).
  */
 final class AiInvocationCancellationRegistry {
 
@@ -104,9 +105,6 @@ final class AiInvocationCancellationRegistry {
         }
     }
 
-    private record Expiry(Key key, Tombstone tombstone) {
-    }
-
     /** Matches the recommendation service's maximum provider timeout; a tombstone outlives it by the margin. */
     static final Duration DEFAULT_PROVIDER_MAX_TIMEOUT = Duration.ofSeconds(30);
     static final Duration TOMBSTONE_MARGIN = Duration.ofSeconds(10);
@@ -115,9 +113,12 @@ final class AiInvocationCancellationRegistry {
 
     private final Object lock = new Object();
     private final Map<Key, Registration> entries = new HashMap<>();
-    private final Map<Key, Tombstone> tombstones = new HashMap<>();
-    /** Tombstones in creation order, which is also expiry order because the TTL is constant and never extended. */
-    private final ArrayDeque<Expiry> expiryOrder = new ArrayDeque<>();
+    /**
+     * The only tombstone bookkeeping, so {@code maxTombstones} bounds all of it. Insertion order is creation order,
+     * which is also expiry order because the TTL is constant and never extended; a consumed tombstone is removed
+     * from the middle in O(1), and merging into an existing key keeps its position.
+     */
+    private final LinkedHashMap<Key, Tombstone> tombstones = new LinkedHashMap<>();
     private final int maxEntries;
     private final int maxTombstones;
     private final Duration tombstoneTtl;
@@ -181,7 +182,6 @@ final class AiInvocationCancellationRegistry {
                 } else if (tombstones.size() < maxTombstones) {
                     Tombstone created = new Tombstone(snapshot, now.plus(tombstoneTtl));
                     tombstones.put(key, created);
-                    expiryOrder.addLast(new Expiry(key, created));
                 }
             }
         }
@@ -191,19 +191,13 @@ final class AiInvocationCancellationRegistry {
     }
 
     /**
-     * Amortized O(1): pops only expired heads (or heads already consumed by a registration) instead of scanning
-     * every tombstone under the lock on each cancel.
+     * Removes expired tombstones from the oldest end and stops at the first live one. Each tombstone is removed at
+     * most once, so the cost is amortized O(1) per cancel and never exceeds {@code maxTombstones} in one call.
      */
     private void purgeExpired(Instant now) {
-        for (Expiry head = expiryOrder.peekFirst(); head != null; head = expiryOrder.peekFirst()) {
-            boolean consumed = tombstones.get(head.key()) != head.tombstone();
-            if (!consumed && head.tombstone().expiresAt.isAfter(now)) {
-                return;
-            }
-            expiryOrder.pollFirst();
-            if (!consumed) {
-                tombstones.remove(head.key());
-            }
+        Iterator<Tombstone> oldestFirst = tombstones.values().iterator();
+        while (oldestFirst.hasNext() && !oldestFirst.next().expiresAt.isAfter(now)) {
+            oldestFirst.remove();
         }
     }
 

@@ -297,6 +297,33 @@ class AiInvocationCancellationRegistryTest {
     }
 
     @Test
+    void consumingTombstonesBehindALiveOneKeepsAllBookkeepingWithinTheCap() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-15T12:00:00Z"));
+        AiInvocationCancellationRegistry bounded =
+                new AiInvocationCancellationRegistry(10, 3, Duration.ofSeconds(30), clock);
+        Key oldest = new Key(tenantA, actor, UUID.randomUUID());
+        bounded.cancel(oldest, ALL);
+
+        // The live, unconsumed oldest tombstone stays at the head while many later ones are created and consumed.
+        for (int i = 0; i < 10_000; i++) {
+            Key later = new Key(tenantA, actor, UUID.randomUUID());
+            bounded.cancel(later, ALL);
+            try (Registration consumed = bounded.register(later, AiOperation.NEXT_BEST_ACTION)) {
+                assertThat(consumed.handle().isCancelled()).isTrue();
+            }
+            assertThat(bounded.tombstones()).isLessThanOrEqualTo(3);
+        }
+        assertThat(bounded.tombstones()).as("only the oldest remains").isEqualTo(1);
+
+        clock.advance(Duration.ofSeconds(31));
+        bounded.cancel(new Key(tenantA, actor, UUID.randomUUID()), ALL);
+        assertThat(bounded.tombstones()).as("the expired head is purged; only the new one remains").isEqualTo(1);
+        try (Registration expired = bounded.register(oldest, AiOperation.NEXT_BEST_ACTION)) {
+            assertThat(expired.handle().isCancelled()).isFalse();
+        }
+    }
+
+    @Test
     void theTombstoneStoreIsBoundedAndDropsCancelsWhenFull() {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-15T12:00:00Z"));
         AiInvocationCancellationRegistry bounded =
