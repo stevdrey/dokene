@@ -43,13 +43,14 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
 
     /**
      * Rotating or switching the secret reference bumps the credential revision, which voids open approvals. A proof of
-     * ownership holds for one phone number, business account and credential revision, so changing any of them clears
-     * it (issue 210); toggling {@code enabled} or the display number keeps it.
+     * ownership holds for one enabled phone number, business account and credential revision, so changing any of them or
+     * disabling the integration clears it (issue 210): a disabled tenant never holds a number another tenant could prove.
+     * Changing the display number keeps it.
      */
     public WhatsAppIntegration update(String phoneNumberId, String businessAccountId, String displayPhoneNumber,
             boolean enabled, String secretRef, Instant now) {
         long revision = Objects.equals(this.secretRef, secretRef) ? credentialRevision : credentialRevision + 1;
-        boolean sameIdentity = this.phoneNumberId.equals(phoneNumberId)
+        boolean sameIdentity = enabled && this.phoneNumberId.equals(phoneNumberId)
                 && this.businessAccountId.equals(businessAccountId) && revision == credentialRevision;
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
                 secretRef, revision, createdAt, now, version, sameIdentity ? ownershipVerifiedAt : null);
@@ -67,9 +68,12 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
 
     /**
      * Records that the provider adapter proved, with this tenant's current credential, that the phone number belongs
-     * to the configured business account. Only the ownership verification flow may call this.
+     * to the configured business account. Only the ownership verification flow may call this, and only while enabled.
      */
     public WhatsAppIntegration verifyOwnership(Instant now) {
+        if (!enabled) {
+            throw new IllegalStateException("A disabled integration cannot hold an ownership proof");
+        }
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
                 secretRef, credentialRevision, createdAt, now, version, now);
     }
@@ -83,6 +87,11 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
     public WhatsAppIntegration withVersion(long storedVersion) {
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
                 secretRef, credentialRevision, createdAt, updatedAt, storedVersion, ownershipVerifiedAt);
+    }
+
+    /** True for a well-formed Meta identifier (a numeric string, not a phone number). */
+    public static boolean isMetaId(String value) {
+        return value != null && META_ID.matcher(value).matches();
     }
 
     private static void requireMatch(String value, Pattern pattern, String message) {

@@ -1,13 +1,33 @@
 -- ABOUTME: Persists proof of WhatsApp phone number ownership (issue 210): uniqueness binds verified mappings only, so an
 -- ABOUTME: unverified claim never blocks the real owner, and webhook routing may resolve a tenant from verified ones only.
 
-ALTER TABLE dokene.tenant_messaging_integrations
-    ADD COLUMN ownership_verified_at TIMESTAMPTZ,
-    ADD COLUMN ownership_verified_revision BIGINT,
-    -- A proof holds for the credential it was made with; bumping credential_revision without clearing it fails here.
-    ADD CONSTRAINT ck_tenant_messaging_integrations_ownership_verification CHECK (
-        (ownership_verified_at IS NULL AND ownership_verified_revision IS NULL)
-        OR (ownership_verified_at IS NOT NULL AND ownership_verified_revision = credential_revision));
+ALTER TABLE dokene.tenant_messaging_integrations ADD COLUMN ownership_verified_at TIMESTAMPTZ;
+
+-- A proof holds for one enabled phone number, business account and credential revision. Any write that changes one of
+-- them, or disables the integration, must clear the proof in the same statement; one that keeps it is rejected. A new
+-- row is never verified. The guard only rejects; it never rewrites a row behind the application's back.
+CREATE FUNCTION dokene.guard_whatsapp_ownership_proof()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = pg_catalog, dokene
+AS $$
+BEGIN
+    IF NEW.ownership_verified_at IS NOT NULL AND (TG_OP = 'INSERT' OR NOT NEW.enabled
+            OR NEW.phone_number_id IS DISTINCT FROM OLD.phone_number_id
+            OR NEW.business_account_id IS DISTINCT FROM OLD.business_account_id
+            OR NEW.credential_revision IS DISTINCT FROM OLD.credential_revision) THEN
+        RAISE EXCEPTION 'WhatsApp ownership proof does not match the integration'
+            USING ERRCODE = 'check_violation', CONSTRAINT = 'tg_tenant_messaging_integrations_ownership_proof';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION dokene.guard_whatsapp_ownership_proof() FROM PUBLIC;
+
+CREATE TRIGGER tg_tenant_messaging_integrations_ownership_proof
+    BEFORE INSERT OR UPDATE ON dokene.tenant_messaging_integrations
+    FOR EACH ROW EXECUTE FUNCTION dokene.guard_whatsapp_ownership_proof();
 
 -- Every existing row is unverified, so replacing the global key with one over verified rows cannot fail.
 ALTER TABLE dokene.tenant_messaging_integrations DROP CONSTRAINT uq_tenant_messaging_integrations_phone_number;

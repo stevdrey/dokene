@@ -7,13 +7,13 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier;
+import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.Reply;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
-import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -27,8 +27,6 @@ public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershi
     /** Most pages one proof may read; a longer list is unavailable rather than assumed to lack the number. */
     private static final int MAX_PAGES = 5;
     private static final int PAGE_SIZE = 100;
-    /** Same shape the domain and the database enforce; anything else is never put in a URL. */
-    private static final Pattern META_ID = Pattern.compile("^[0-9]{5,32}$");
 
     private final ObjectProvider<IntegrationSecretResolver> secrets;
     private final TenantContextProvider contexts;
@@ -48,8 +46,9 @@ public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershi
             IntegrationSecretResolver resolver = secrets.getIfAvailable();
             // The credential is resolved in the claimed tenant's scope only, and only for the tenant now in context.
             if (resolver == null || !claim.tenantId().equals(contexts.requireCurrent().tenantId())
-                    || !META_ID.matcher(claim.phoneNumberId()).matches()
-                    || !META_ID.matcher(claim.businessAccountId()).matches()) {
+                    // Same shape the domain and the database enforce; anything else is never put in a URL.
+                    || !WhatsAppIntegration.isMetaId(claim.phoneNumberId())
+                    || !WhatsAppIntegration.isMetaId(claim.businessAccountId())) {
                 return new Unavailable();
             }
             long deadline = http.deadline();
@@ -104,9 +103,13 @@ public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershi
         return new Unavailable();
     }
 
-    /** Graph answers an object the token cannot see with 400/404 and a token without access with 401/403. */
+    /**
+     * Graph answers an object the token cannot see with 400/404, and a token without permission on it with 403. A 401
+     * means the token itself is invalid or expired: a credential problem, not evidence about ownership, so it is left
+     * to the unavailable path and never counts against the rejection budget.
+     */
     private static boolean refused(int status) {
-        return status == 400 || status == 401 || status == 403 || status == 404;
+        return status == 400 || status == 403 || status == 404;
     }
 
     private URI pageUri(String businessAccountId, String cursor) {

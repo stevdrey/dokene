@@ -1,8 +1,9 @@
 // ABOUTME: Pins when a proof of phone number ownership survives a change and when it is cleared (issue 210).
-// ABOUTME: A proof binds the phone number id, business account and credential revision; nothing else voids it.
+// ABOUTME: A proof binds the enabled phone number id, business account and credential revision; nothing else voids it.
 package io.github.stevdrey.dokene.integration.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Instant;
@@ -44,11 +45,26 @@ class WhatsAppIntegrationTest {
     }
 
     @Test
-    void togglingEnabledOrTheDisplayNumberKeepsTheProof() {
-        WhatsAppIntegration verified = created.verifyOwnership(T1);
+    void disablingClearsTheProofAndADisabledIntegrationCannotBeVerified() {
+        WhatsAppIntegration disabled = created.verifyOwnership(T1)
+                .update(PHONE, WABA, "+50688887777", false, "wa-token", T1);
+        assertThat(disabled.ownershipVerified()).isFalse();
+        assertThatThrownBy(() -> disabled.verifyOwnership(T1)).isInstanceOf(IllegalStateException.class);
+        // Re-enabling does not bring the proof back.
+        assertThat(disabled.update(PHONE, WABA, "+50688887777", true, "wa-token", T1).ownershipVerified()).isFalse();
+    }
 
-        assertThat(verified.update(PHONE, WABA, "+50688887777", false, "wa-token", T1).ownershipVerifiedAt())
-                .isEqualTo(T1);
+    @Test
+    void changingOnlyTheDisplayNumberKeepsTheProof() {
+        WhatsAppIntegration verified = created.verifyOwnership(T1);
         assertThat(verified.update(PHONE, WABA, null, true, "wa-token", T1).ownershipVerifiedAt()).isEqualTo(T1);
+    }
+
+    @Test
+    void recognisesMetaIdentifiersOnly() {
+        assertThat(WhatsAppIntegration.isMetaId(PHONE)).isTrue();
+        for (String invalid : java.util.Arrays.asList(null, "", "1234", "+50688887777", "12345a", "1".repeat(33))) {
+            assertThat(WhatsAppIntegration.isMetaId(invalid)).isFalse();
+        }
     }
 }

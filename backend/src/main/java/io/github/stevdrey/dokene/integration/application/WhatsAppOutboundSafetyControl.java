@@ -14,9 +14,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
     private final WhatsAppIntegrationRepository integrations;
+    private final IntegrationReadiness readiness;
 
-    public WhatsAppOutboundSafetyControl(WhatsAppIntegrationRepository integrations) {
+    public WhatsAppOutboundSafetyControl(WhatsAppIntegrationRepository integrations, IntegrationReadiness readiness) {
         this.integrations = Objects.requireNonNull(integrations, "Integration repository is required");
+        this.readiness = Objects.requireNonNull(readiness, "Readiness is required");
     }
 
     /**
@@ -31,19 +33,36 @@ public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
     }
 
     /**
-     * Fails closed: nothing in Phase 3 may send until the global and tenant kill switches (#144) own their state, so the
-     * global switch (send policy step 3, ADR 0023 §4.3) still blocks first. When #144 adds the switches it composes
-     * {@link #integrationGate(TenantId)} as the integration half of step 4. Dispatch (#138) is the only caller.
+     * Send policy steps 3 and 4 (ADR 0023 §4.3), in order, failing closed on the first gate that blocks. Read on every
+     * call, never cached. Dispatch (#138) is the only caller. The kill switches (#144) replace {@link #globalGate()} and
+     * the readiness behind {@link #tenantGate(TenantId)}; the verified-mapping gate is already composed, so it cannot
+     * be left out when they arrive.
      */
     @Override
     public Decision evaluate(TenantId tenantId) {
         Objects.requireNonNull(tenantId, "Tenant id is required");
-        return new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY);
+        Optional<Blocked> blocked = globalGate().or(() -> tenantGate(tenantId)).or(() -> integrationGate(tenantId));
+        if (blocked.isPresent()) {
+            return blocked.get();
+        }
+        return new Permitted(configuredSender(tenantId)
+                .orElseThrow(() -> new IllegalStateException("No integration is configured")));
+    }
+
+    /** Step 3: nothing in Phase 3 may send until the global kill switch (#144) owns its state. */
+    Optional<Blocked> globalGate() {
+        return Optional.of(new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY));
+    }
+
+    /** The tenant half of step 4: the tenant outbound switch, reported off until #144 persists it. */
+    Optional<Blocked> tenantGate(TenantId tenantId) {
+        return readiness.outboundEnabled(tenantId) ? Optional.empty()
+                : Optional.of(new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_FOR_TENANT));
     }
 
     /**
-     * The integration half of send policy step 4: a disabled integration, or one whose phone number ownership is not
-     * proven for the current credential (issue 210), is {@code INTEGRATION_DISABLED}. Missing configuration throws, as
+     * The integration half of step 4: a disabled integration, or one whose phone number ownership is not proven for
+     * the current configuration (issue 210), is {@code INTEGRATION_DISABLED}. Missing configuration throws, as
      * {@link OutboundSafetyControl#evaluate(TenantId)} requires. Empty means this gate does not block.
      */
     public Optional<Blocked> integrationGate(TenantId tenantId) {

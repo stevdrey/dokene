@@ -80,14 +80,13 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                     UPDATE dokene.tenant_messaging_integrations
                     SET phone_number_id = ?, business_account_id = ?, display_phone_number = ?, enabled = ?,
                         secret_ref = ?, credential_revision = ?, updated_at = ?, ownership_verified_at = ?,
-                        ownership_verified_revision = ?, version = version + 1
+                        version = version + 1
                     WHERE tenant_id = ? AND id = ? AND version = ?
                     RETURNING version
                     """, Long.class, integration.phoneNumberId(), integration.businessAccountId(),
                     integration.displayPhoneNumber(), integration.enabled(), integration.secretRef(),
                     integration.credentialRevision(), Timestamp.from(integration.updatedAt()),
                     integration.ownershipVerified() ? Timestamp.from(integration.ownershipVerifiedAt()) : null,
-                    integration.ownershipVerified() ? integration.credentialRevision() : null,
                     integration.tenantId().value(), integration.id(), expectedVersion)
                     .stream().mapToLong(Long::longValue).findFirst();
         } catch (DuplicateKeyException duplicate) {

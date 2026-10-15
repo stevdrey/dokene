@@ -383,13 +383,37 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                 new Claim(tenantA.id(), phoneId, WABA_ID, "wa-token-ok"),
                 new Claim(tenantB.id(), phoneId, WABA_ID, "wa-token-b"));
 
-        // Disabling keeps the proof but stops routing and sending; re-enabling restores both.
+        // Disabling clears the proof, so a disabled owner never locks the number: routing and sending stop at once.
         write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false))
-                .andExpect(jsonPath("$.webhookVerified").value(true));
+                .andExpect(jsonPath("$.webhookVerified").value(false));
         assertThat(mappings.tenantFor(phoneId)).isEmpty();
         assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
-        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        // Re-enabling does not bring the proof back; the owner verifies again.
+        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        verify(adminA, tenantA, "\"3\"").andExpect(jsonPath("$.webhookVerified").value(true));
         assertThat(mappings.tenantFor(phoneId)).contains(tenantA.id());
+    }
+
+    @Test
+    void aNumberReleasedByDisablingCanBeVerifiedByAnotherTenantThatReachesIt() throws Exception {
+        ownership.answer(tenantA, new Proven());
+        ownership.answer(tenantB, new Proven());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isOk());
+        write(adminB, tenantB, null, body(phoneId, "wa-token-b", true)).andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isBadRequest());
+
+        // A disables (for example after the number moved at Meta); B's credential now proves it and B takes over.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isOk()).andExpect(jsonPath("$.webhookVerified").value(true));
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantB.id());
+
+        // A re-enables later: its configuration is kept, but it cannot take the number back while B holds it.
+        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"3\"").andExpect(status().isBadRequest());
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantB.id());
     }
 
     @Test
@@ -418,13 +442,36 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         verify(adminA, tenantA, "\"9\"").andExpect(jsonPath("$.webhookVerified").value(true));
         assertThat(mappings.tenantFor(otherPhone)).contains(tenantA.id());
 
-        // The database refuses a proof that outlives the credential revision it was made with.
-        try (Connection migration = migrationConnection();
-                var bump = migration.prepareStatement("UPDATE dokene.tenant_messaging_integrations "
-                        + "SET credential_revision = credential_revision + 1 WHERE tenant_id = ?")) {
-            bump.setObject(1, tenantA.id().value());
-            assertThat(org.assertj.core.api.Assertions.catchThrowableOfType(SQLException.class, bump::executeUpdate)
-                    .getMessage()).contains("ck_tenant_messaging_integrations_ownership_verification");
+        // The database refuses any write that keeps a proof for a configuration it was not made for, and a new row that
+        // claims to be verified, even when it bypasses the domain.
+        try (Connection migration = migrationConnection()) {
+            for (String change : List.of("credential_revision = credential_revision + 1",
+                    "phone_number_id = '" + NEXT_ID.incrementAndGet() + "'",
+                    "business_account_id = '200000000000009'", "enabled = false")) {
+                try (var update = migration.prepareStatement("UPDATE dokene.tenant_messaging_integrations SET "
+                        + change + " WHERE tenant_id = ?")) {
+                    update.setObject(1, tenantA.id().value());
+                    assertThat(org.assertj.core.api.Assertions.catchThrowableOfType(SQLException.class,
+                            update::executeUpdate).getMessage())
+                            .contains("WhatsApp ownership proof does not match the integration");
+                }
+            }
+            try (var insert = migration.prepareStatement("INSERT INTO dokene.tenant_messaging_integrations (id, "
+                    + "tenant_id, provider, phone_number_id, business_account_id, enabled, secret_ref, created_at, "
+                    + "updated_at, ownership_verified_at) VALUES (?, ?, 'META_WHATSAPP', ?, ?, true, 'wa-token-ok', "
+                    + "now(), now(), now())")) {
+                insert.setObject(1, UUID.randomUUID());
+                insert.setObject(2, tenantB.id().value());
+                insert.setString(3, Long.toString(NEXT_ID.incrementAndGet()));
+                insert.setString(4, WABA_ID);
+                assertThat(org.assertj.core.api.Assertions.catchThrowableOfType(SQLException.class,
+                        insert::executeUpdate).getMessage())
+                        .contains("WhatsApp ownership proof does not match the integration");
+            }
+            // Clearing the proof in the same statement is always allowed.
+            assertThat(queryInt(migration, "WITH changed AS (UPDATE dokene.tenant_messaging_integrations "
+                    + "SET enabled = false, ownership_verified_at = NULL WHERE tenant_id = ? RETURNING 1) "
+                    + "SELECT count(*) FROM changed", tenantA.id().value())).isEqualTo(1);
         }
     }
 
@@ -457,6 +504,13 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         assertThat(ownership.claims).containsExactly(new Claim(tenantA.id(), phoneId, WABA_ID, "wa-token-ok"));
         assertThat(auditCount(tenantA)).isEqualTo(2);
         verify(adminB, tenantB, "\"0\"").andExpect(status().isNotFound());
+
+        // A disabled integration cannot be verified: refused deterministically, without the provider or any budget.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"2\"").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        assertThat(ownership.claims).hasSize(1);
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
     }
 
     @Test
@@ -628,8 +682,11 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
         exhaust(adminA, version);
         verify(adminA, tenantA, "\"" + version + "\"").andExpect(status().isTooManyRequests());
-        // The kill path: disabling is a configuration write, so it is never throttled.
-        write(adminA, tenantA, "\"" + version + "\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        // The kill path: disabling (and re-enabling) is a configuration write, so it is never throttled.
+        write(adminA, tenantA, "\"" + version + "\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        version++;
+        write(adminA, tenantA, "\"" + version + "\"", body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
         version++;
 
         // Below the tenant budget another admin is unaffected; once it is exhausted, every actor is throttled.
@@ -640,9 +697,9 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         assertThat(denials(tenantA, secondAdminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
         assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(1);
         assertThat(denials(tenantA, thirdAdminA, RATE_LIMITED)).isEqualTo(1);
-        // A failed proof never clears the proof already stored.
-        read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(true))
-                .andExpect(jsonPath("$.enabled").value(false));
+        // Disabling cleared the proof; failed proofs never recorded a new one.
+        read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(false))
+                .andExpect(jsonPath("$.enabled").value(true));
     }
     @Test
     void refusalsFailClosedWhenTheirDenialCannotBeAuditedAndNeverAuditInsideTheWrite() throws Exception {

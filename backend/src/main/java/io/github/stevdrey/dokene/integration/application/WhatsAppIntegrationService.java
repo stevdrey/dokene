@@ -127,6 +127,8 @@ public class WhatsAppIntegrationService {
      * stored business account, and records the proof against exactly that configuration version. The real owner can
      * always verify, even when another tenant mapped the number first; only one tenant can hold a verified mapping.
      *
+     * <p>Only an enabled integration can be verified; a disabled one is {@code INVALID_INPUT} without a provider call.
+     *
      * <p>A number the credential does not reach and a number another tenant already verified are answered alike with
      * {@code INVALID_INPUT} and count against the rejection budget (issue 208), so the outcome is not an oracle for
      * other tenants' mappings. An inconclusive provider answer is {@code PROVIDER_UNAVAILABLE} and costs no budget.
@@ -141,6 +143,10 @@ public class WhatsAppIntegrationService {
                 .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
         if (current.version() != expectedVersion) {
             throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+        }
+        if (!current.enabled()) {
+            // Deterministic and reveals nothing about other tenants, so it neither calls the provider nor costs budget.
+            throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }
         try (MappingAttempt attempt = beginMappingAttempt(context)) {
             Outcome outcome = ownership.verify(new Claim(current.tenantId(), current.phoneNumberId(),

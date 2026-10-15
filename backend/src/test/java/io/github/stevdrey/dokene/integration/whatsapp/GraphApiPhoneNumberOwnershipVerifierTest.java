@@ -120,7 +120,7 @@ class GraphApiPhoneNumberOwnershipVerifierTest {
         // A prefix or a lookalike is not the number.
         body = page(List.of("1000000000000011", "10000000000000"), null);
         assertThat(verify()).isInstanceOf(NotProven.class);
-        for (int code : new int[] {400, 401, 403, 404}) {
+        for (int code : new int[] {400, 403, 404}) {
             status = code;
             body = "{\"error\":{\"message\":\"Unsupported get request\"}}";
             assertThat(verify()).isInstanceOf(NotProven.class);
@@ -129,7 +129,8 @@ class GraphApiPhoneNumberOwnershipVerifierTest {
 
     @Test
     void anInconclusiveAnswerIsUnavailableWithoutThrowing() {
-        for (int code : new int[] {302, 429, 500, 503}) {
+        // A 401 is an invalid or expired token: a credential problem, not evidence about ownership.
+        for (int code : new int[] {302, 401, 429, 500, 503}) {
             status = code;
             body = page(List.of(PHONE), null);
             assertThat(verify()).isInstanceOf(Unavailable.class);
