@@ -50,7 +50,9 @@ The spike had to show six things before any implementation could be approved:
    - **Tombstones.** A cancel that finds no entry leaves a tombstone keyed by (tenant, actor, id) with the caller's permissions. The tombstone lives for the provider's maximum timeout plus a margin. A repeated cancel adds its own permission snapshot to the tombstone and never replaces an earlier one. The tombstone applies only if a **single** snapshot covers the operation. As a result, a later, weaker cancel cannot downgrade an earlier authorized one, and two cancels that are each insufficient never combine into an authorized one. The tombstone store has a global cap, and the implementation should add a per-actor cap. A later registration with the same key consumes the tombstone, and that registration starts cancelled if the permissions cover its operation. A full store drops the cancel. Ids are fresh UUIDs, so a tombstone left by a cancel that arrives after its request finished is harmless and expires.
    - A duplicate id for the same actor is rejected, whatever the operation. Ids from different actors never collide.
 3. **Cancel endpoint.** `POST /api/ai-invocations/{id}/cancel`.
-   - It is tenant-scoped (`X-Tenant-Id`) and requires CSRF. It acts only if the caller currently holds every permission the stored operation's endpoint requires: `FOLLOWUP_EVALUATE` for a recommendation, and both `MESSAGE_DRAFT` and `FOLLOWUP_EVALUATE` for a draft. Otherwise it is a no-op.
+   - It is tenant-scoped (`X-Tenant-Id`) and requires CSRF.
+   - It is declared with `@RequiredPermission(value = {FOLLOWUP_EVALUATE, MESSAGE_DRAFT}, anyOf = true)`, so it stays compatible with `RequiredPermissionInterceptor` and `RequiredPermissionCoverageTest`. A caller holding neither permission gets the interceptor's audited 403. Such a caller cannot have started any AI invocation, and the 403 depends only on the caller's own permissions, never on the id, so it is not an existence oracle.
+   - The registry then checks the stored operation's exact conjunction: `FOLLOWUP_EVALUATE` for a recommendation, and both `MESSAGE_DRAFT` and `FOLLOWUP_EVALUATE` for a draft. A mismatch is a silent no-op that still returns 204.
    - It always returns 204, so there is no existence oracle. It is idempotent.
    - It does not write an audit row; the invocation's own terminal outcome is the record.
 4. **Provider.** A decorator (the spike's `VirtualThreadCancellableProvider`) sits between `ResilientAiProvider` and the unchanged OpenAI adapter.
@@ -63,7 +65,8 @@ The spike had to show six things before any implementation could be approved:
    - Virtual threads are not bounded by the Tomcat pool. Concurrency stays bounded by the registry capacity and the rate limits.
    - The delegating `HttpClient` (`CancellableHttpClient`) is **rejected**, because it cannot cancel once the body is being read.
 5. **Outcome.** `CANCELLED` is reported only when the handle actually aborted provider work. That means one of two things: an attempt, whether the first or a retry, was prevented from starting, or the current attempt's worker was cancelled before it completed. Otherwise the real outcome is kept, as in ADR 0019 §7. The interrupt flag must not leak into the reporting path or past the request. With the virtual-thread worker, only the worker is interrupted, and the spike asserts that the request thread stays clean. The production integration test must still assert it, and must cover a pool under contention as well as the idle pool.
-6. **Retry and limits.** `CANCELLED` is already non-retryable. A cancel that arrives during backoff is checked in the `RetryGuard` that `FollowUpRecommendationService.invocationProvider` already builds. That guard runs before `retryScheduled` and before any attempt is recorded, so no retry or phantom attempt is counted. It throws `CANCELLED`, carrying the metadata of the attempt that really ran. `handle.start` stays as the last line of defence. Permits are never refunded.
+6. **Retry and limits.** `CANCELLED` is already non-retryable. A cancel that arrives during backoff is checked in the `RetryGuard` that `FollowUpRecommendationService.invocationProvider` already builds. That guard runs before `retryScheduled` and before any attempt is recorded. It throws `CANCELLED`, carrying the metadata of the attempt that really ran. `handle.start` stays as the last line of defence.
+   - The guard check alone only **reduces** accounting for retries that never happen. A cancel that lands just after the check still lets the retry be counted, and the attempt that `handle.start` then prevents is recorded too. Fully avoiding phantom accounting needs the atomic start described in "Requirements carried to the implementation". Permits are never refunded.
 7. **Frontend.**
    - **Ownership boundary.** The in-flight invocation belongs to the `useFollowUpAssistant` hook, which is a descendant of `TenantProvider` and `SessionProvider`, so those providers cannot read it. The shared coordinator is a non-React singleton, `aiInvocationTracker`, that lives next to `apiClient`:
      - `track({tenantId, invocationId, operation})` returns an `untrack` function. The hook tracks when it sends a request and untracks when the request settles.
@@ -87,18 +90,22 @@ The spike's review produced guarantees that the prototype shows and that the pro
   - The attempt's own result and its metadata surface to the request thread.
   - A failure is normalized to `CANCELLED` only when the cancel won.
   - The adapter checks for interruption in every catch branch.
-- **Retry.** The cancellation check lives in the `RetryGuard`, so no retry and no phantom attempt is counted. `handle.start` remains the last line of defence.
+- **Retry.**
+  - The cancellation check lives in the `RetryGuard`, and `handle.start` remains the last line of defence.
+  - A retry that the guard prevents is **recorded atomically as prevented**, in the same handle state that `handle.start` uses, so the registration reports `CANCELLED`. In the spike, a cancel during backoff that is stopped by the guard leaves the handle's `prevented` flag unset.
+  - **Accounting only after an atomic start.** `ResilientAiProvider` must count `retryScheduled` and the attempt only after the decorator's atomic start succeeds. Alternatively, the decorator returns a distinct "not started" result that the resilience layer leaves out of its counters. Either way this is a change to `ResilientAiProvider`, because a check in the guard is not atomic with the accounting that follows.
 - **Frontend.**
   - Every user-initiated tenant transition, including provisioning, goes through one generation-serialized coordinator that captures its source tenant.
-  - Logout becomes terminal only after it succeeds.
+  - Logout is **terminal while pending**: a switch or provisioning that starts while a logout is in flight is rejected, and transitions reopen only if the logout fails. An acceptable alternative is for the logout to drain the current tenant again just before it completes.
   - A tracker entry is owned by both the request and a pending supersede cancel.
   - A tenant drains: invocations tracked during a transition are cancelled too.
+  - The **coordinator** closes the drain, not `cancelTenant`. It does so synchronously, at the moment it applies or abandons the transition, so no continuation can be queued between the end of the drain and `setCurrentTenantId`. In the spike, `cancelTenant` closes the drain one promise turn early.
 
 ## Limitations
 
 - **Per instance.** The registry is in memory, like the rate limiter (ADR 0019 §7). A cancel that lands on another replica is a silent no-op. Supporting multiple instances would need sticky sessions or a shared registry, and a shared registry cannot hold the OkHttp call, so cancellation would have to become a notification to the owning node. This is deferred along with the other multi-instance work.
 - **A cancel can be lost**, for example when a tab is closed abruptly. The call then completes as it does today, and the owning request removes its entry when it ends.
-- **A won cancel is not free.** The provider may already have done some of the work, and the permit stays consumed. The saving is the part of the generation that has not happened yet and the output tokens not yet produced.
+- **The provider-side saving is unknown.** The spike proves only that the **client** closes the transport. It does not show that OpenAI stops generating, or stops billing output tokens, when a non-streaming client disconnects. In the mid-body case the response had almost certainly been generated in full before the headers were sent. The permit stays consumed either way. What client-driven cancellation certainly saves is local work: the waiting request thread, retries, and the rest of the processing. Saving tokens may require OpenAI `background=true` with cancel-by-id, which is listed under the alternatives.
 - **No monetary or token budget.** That concern is still separate, as in ADR 0019 §7.
 
 ## Alternatives considered
@@ -117,15 +124,18 @@ The spike also rejected three simpler variants, because none of them closes the 
 
 ## Recommendation
 
-The approach is feasible and safe as designed above. However, ADR 0019 §7 is low severity and **no waste measurement exists yet**. Before implementing:
+On the client side, the approach is feasible and safe as designed above. However, ADR 0019 §7 is low severity, **no waste measurement exists yet**, and **the provider-side saving is unverified**. Before implementing:
 
 1. Count the abandoned invocations: `GENERATED` outcomes whose result the frontend discarded. A cheap proxy is the existing local abort counted client-side, or the provider latency of calls that were not followed by a draft or an action.
-2. Implement only if abandoned calls are a material share of provider cost.
+2. Verify against a live call, or against OpenAI's documentation, whether closing the connection of a non-streaming Responses call stops generation and billing.
+   - **If it does not,** client-driven cancellation saves only local work. Saving tokens would then require OpenAI `background=true` with cancel-by-id, and the alternatives should be re-evaluated.
+3. Implement only if abandoned calls are a material share of provider cost **and** cancelling them actually reduces that cost.
 
 Until then, ADR 0019 §7 stays the accepted behaviour.
 
 ## Consequences (if accepted)
 
 - One new authorized endpoint, one optional request header, and an asynchronous `switchWorkspace` and logout ordering in the frontend.
+- No provider cost saving is claimed until it is verified (see "Recommendation"). The certain saving is local: request threads, retries and processing.
 - The cancellation depends on one JDK behaviour: an interrupt closes blocking socket I/O on a virtual thread. It also depends on OkHttp using blocking `java.net.Socket` I/O. A JDK or SDK upgrade must rerun `OpenAiCallCancellationSpikeTest`, or its production successor, in both phases.
 - The audit vocabulary and the database constraints are unchanged.
