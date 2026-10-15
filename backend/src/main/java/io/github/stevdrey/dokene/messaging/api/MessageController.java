@@ -103,7 +103,7 @@ public class MessageController {
     @GetMapping("/messages/{messageId}")
     public MessageResponse get(@PathVariable UUID messageId, HttpServletResponse response) {
         MessageDetail detail = queries.detail(messageId);
-        response.setHeader(HttpHeaders.ETAG, etag(detail.message().version()));
+        response.setHeader(HttpHeaders.ETAG, StrictRequests.strongEtag(detail.message().version()));
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         return toResponse(detail);
     }
@@ -161,7 +161,7 @@ public class MessageController {
         if (result.created() && location) {
             builder.location(URI.create("/api/messages/" + detail.message().id()));
         }
-        return noStore(builder).eTag(etag(detail.message().version())).body(toResponse(detail));
+        return noStore(builder).eTag(StrictRequests.strongEtag(detail.message().version())).body(toResponse(detail));
     }
 
     /**
@@ -172,10 +172,6 @@ public class MessageController {
      */
     private static ResponseEntity.BodyBuilder noStore(ResponseEntity.BodyBuilder builder) {
         return builder.header(HttpHeaders.CACHE_CONTROL, "no-store");
-    }
-
-    private static String etag(long version) {
-        return "\"" + version + "\"";
     }
 
     /** Missing stays null so the service refuses it; anything present but not one strong value is invalid input. */

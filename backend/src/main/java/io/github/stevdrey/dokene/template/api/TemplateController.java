@@ -89,7 +89,7 @@ public class TemplateController {
      */
     private static TemplateResponse respond(Entry entry, HttpServletResponse response) {
         TemplateResponse body = toResponse(entry);
-        response.setHeader("ETag", "\"" + body.version() + "\"");
+        response.setHeader("ETag", StrictRequests.strongEtag(body.version()));
         response.setHeader("Cache-Control", "no-store");
         return body;
     }

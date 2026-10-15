@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -281,18 +282,8 @@ public class FollowUpController {
     }
 
     private long version(String ifMatch) {
-        if (ifMatch == null || !ifMatch.matches("\"(0|[1-9][0-9]*)\"")) {
-            throw new IllegalArgumentException("If-Match must contain one strong numeric ETag");
-        }
-        try {
-            long version = Long.parseLong(ifMatch.substring(1, ifMatch.length() - 1));
-            if (!etag(version).equals(ifMatch)) {
-                throw new IllegalArgumentException("If-Match must contain one strong numeric ETag");
-            }
-            return version;
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("Invalid If-Match version", exception);
-        }
+        return StrictRequests.strongNumericVersion(ifMatch)
+                .orElseThrow(() -> new IllegalArgumentException("If-Match must contain one strong numeric ETag"));
     }
 
     private String validateNotes(String notes) {
@@ -302,7 +293,7 @@ public class FollowUpController {
         return notes;
     }
 
-    private String etag(long version) { return "\"" + version + "\""; }
+    private String etag(long version) { return StrictRequests.strongEtag(version); }
 
     public record TenantPolicyRequest(Integer cadenceDays, String timeZone) { }
     public record CustomerPolicyRequest(Integer cadenceDays, LocalDate explicitNextDate) { }

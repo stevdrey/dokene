@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.customer.api;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -245,6 +246,12 @@ class CustomerControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(delete("/api/customers/{id}", customer.id().value()).header("If-Match", "-5"))
                 .andExpect(status().isBadRequest());
+        for (String lenient : List.of("0", "\"00\"", "\"+0\"", "W/\"0\"", " \"0\" ", "\"0\", \"1\"", "*")) {
+            mvc.perform(delete("/api/customers/{id}", customer.id().value()).header("If-Match", lenient))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.field").value("If-Match"));
+        }
+        verify(service, never()).archive(any(), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

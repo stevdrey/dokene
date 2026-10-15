@@ -72,7 +72,7 @@ public class WhatsAppIntegrationController {
      */
     private IntegrationResponse respond(IntegrationView view, HttpServletResponse response) {
         var integration = view.integration();
-        response.setHeader("ETag", "\"" + integration.version() + "\"");
+        response.setHeader("ETag", StrictRequests.strongEtag(integration.version()));
         response.setHeader("Cache-Control", "no-store");
         return new IntegrationResponse(integration.enabled(), view.outboundEnabled(), integration.phoneNumberId(),
                 integration.businessAccountId(), integration.displayPhoneNumber(), integration.secretRef(),

@@ -85,7 +85,8 @@ class FollowUpControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"\"01\"", "\"0001\"", "\"00\"", "\"bad\"", "\"\"", "1", "\"1.0\"", "\"-1\""})
+    @ValueSource(strings = {"\"01\"", "\"0001\"", "\"00\"", "\"bad\"", "\"\"", "1", "\"1.0\"", "\"-1\"", "\"+1\"",
+            "W/\"1\"", "\"1\", \"2\"", "*", " \"1\"", "\"99999999999999999999\""})
     void configureTenantRejectsNoncanonicalAndMalformedEtags(String invalidEtag) throws Exception {
         mvc.perform(put("/api/follow-up-policy")
                 .header("If-Match", invalidEtag)

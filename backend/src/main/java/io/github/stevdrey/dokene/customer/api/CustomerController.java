@@ -10,6 +10,7 @@ import io.github.stevdrey.dokene.customer.application.PhoneNormalizer;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
@@ -45,7 +46,7 @@ public class CustomerController {
     public ResponseEntity<CustomerResponse> create(@RequestBody CustomerWriteRequest request) {
         Customer customer = customers.create(request.displayName(), request.notes(), inputs(request.phones()));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .eTag("\"" + customer.version() + "\"")
+                .eTag(StrictRequests.strongEtag(customer.version()))
                 .body(response(customer));
     }
 
@@ -53,7 +54,7 @@ public class CustomerController {
     public ResponseEntity<CustomerResponse> get(@PathVariable UUID customerId) {
         Customer customer = customers.get(new CustomerId(customerId));
         return ResponseEntity.ok()
-                .eTag("\"" + customer.version() + "\"")
+                .eTag(StrictRequests.strongEtag(customer.version()))
                 .body(response(customer));
     }
 
@@ -76,7 +77,7 @@ public class CustomerController {
         Customer customer = customers.update(new CustomerId(customerId), version, request.displayName(),
                 request.notes(), inputs(request.phones()));
         return ResponseEntity.ok()
-                .eTag("\"" + customer.version() + "\"")
+                .eTag(StrictRequests.strongEtag(customer.version()))
                 .body(response(customer));
     }
 
@@ -113,23 +114,13 @@ public class CustomerController {
         return phones.stream().map(phone -> new PhoneInput(phone.number(), phone.region(), phone.primary())).toList();
     }
 
+    /** Exactly one strong canonical numeric ETag such as {@code "3"} (ADR 0023 §4.1). */
     private long parseVersion(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("If-Match is required");
         }
-        String unquoted = value.strip();
-        if (unquoted.length() >= 2 && unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
-            unquoted = unquoted.substring(1, unquoted.length() - 1);
-        }
-        try {
-            long version = Long.parseLong(unquoted);
-            if (version < 0) {
-                throw new CustomerValidationException("If-Match", CustomerValidationMessages.VERSION_INVALID);
-            }
-            return version;
-        } catch (NumberFormatException exception) {
-            throw new CustomerValidationException("If-Match", CustomerValidationMessages.VERSION_INVALID);
-        }
+        return StrictRequests.strongNumericVersion(value).orElseThrow(
+                () -> new CustomerValidationException("If-Match", CustomerValidationMessages.VERSION_INVALID));
     }
 
     private CustomerResponse response(Customer customer) {

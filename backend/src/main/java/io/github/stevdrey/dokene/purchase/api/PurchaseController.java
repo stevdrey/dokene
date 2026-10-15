@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseEvent;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
+import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.net.URI;
@@ -101,25 +102,16 @@ public class PurchaseController {
         return new EventResponse(event.id(), event.type(), event.purchasedAt(), event.description(), event.occurredAt(),
                 event.actorId().value(), event.membershipId().value(), event.purchaseVersion());
     }
-    private static String etag(Purchase purchase) { return "\"" + purchase.version() + "\""; }
+    private static String etag(Purchase purchase) { return StrictRequests.strongEtag(purchase.version()); }
     private static void requireRequest(PurchaseRequest request) {
         if (request == null || request.purchasedAt() == null || request.description() == null) {
             throw new IllegalArgumentException("Purchase timestamp and description are required");
         }
     }
+    /** Exactly one strong canonical numeric ETag such as {@code "3"} (ADR 0023 §4.1). */
     private static long parseVersion(String value) {
-        try {
-            if (value == null || value.isBlank()) throw new IllegalArgumentException();
-            String normalized = value.strip();
-            if (normalized.startsWith("\"") && normalized.endsWith("\"") && normalized.length() >= 2) {
-                normalized = normalized.substring(1, normalized.length() - 1);
-            }
-            long version = Long.parseLong(normalized);
-            if (version < 0) throw new IllegalArgumentException();
-            return version;
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException("Invalid purchase version");
-        }
+        return StrictRequests.strongNumericVersion(value)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid purchase version"));
     }
 
     public record PurchaseRequest(Instant purchasedAt, String description) { }

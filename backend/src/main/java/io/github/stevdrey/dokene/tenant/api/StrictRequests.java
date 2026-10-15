@@ -1,5 +1,5 @@
-// ABOUTME: Shared transport strictness for the Phase 3 APIs: one strict JSON request reader and one strong numeric
-// ABOUTME: ETag grammar (ADR 0023 §4.1, ADR 0024 §1), so every controller refuses the same malformed input.
+// ABOUTME: Shared transport strictness for the APIs: one strict JSON request reader and one strong numeric ETag
+// ABOUTME: grammar (ADR 0023 §4.1, ADR 0024 §1), parsed and formatted here so every controller agrees on it.
 package io.github.stevdrey.dokene.tenant.api;
 
 import java.util.Optional;
@@ -62,5 +62,10 @@ public final class StrictRequests {
             return OptionalLong.empty();
         }
         return OptionalLong.of(Long.parseLong(header.substring(1, header.length() - 1)));
+    }
+
+    /** The strong ETag such as {@code "3"} for a version, the only form {@link #strongNumericVersion} accepts. */
+    public static String strongEtag(long version) {
+        return "\"" + version + "\"";
     }
 }
