@@ -143,7 +143,7 @@ CUST_VER="$(echo "$CUST_JSON" | jq -r '.version')"
 CODE="$(curl -s -b "$OWNER_COOKIE" -D "$RESP_HDR" -o "$RESP_BODY" -w "%{http_code}" \
     -X PUT "$BFF_URL/api/customers/$CUST_XSS_ID" \
     -H "Content-Type: application/json" -H "X-CSRF-TOKEN: $OWNER_CSRF" -H "X-Tenant-Id: $TENANT_A_ID" \
-    -H "If-Match: $CUST_VER" \
+    -H "If-Match: \"$CUST_VER\"" \
     -d "{\"displayName\":\"<script>alert(\\\"xss1\\\")</script>\",\"notes\":\"<img src=x onerror=alert(1)> \\\" onfocus=\\\"alert(2)\\\" autofocus=true <<SCRIPT>alert(3)//<</SCRIPT>\",\"phones\":[{\"number\":\"$XSS_PHONE\",\"region\":\"CL\",\"primary\":true}]}")"
 if [ "$CODE" = "200" ]; then
     NOTES_STORED="$(jq -r '.notes' "$RESP_BODY")"

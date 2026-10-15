@@ -16,8 +16,11 @@ import tools.jackson.databind.type.LogicalType;
 
 /** Callers map an empty answer to their own closed {@code INVALID_INPUT} refusal; nothing here echoes input. */
 public final class StrictRequests {
-    /** Exactly one strong canonical numeric ETag; weak, list, wildcard and zero-padded forms are refused. */
-    private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,17})\"$");
+    /**
+     * Exactly one strong canonical numeric ETag; weak, list, wildcard and zero-padded forms are refused. Nineteen digits
+     * admit every non-negative {@code long}; a value above {@link Long#MAX_VALUE} is refused when parsed.
+     */
+    private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,18})\"$");
 
     /**
      * Unknown members, unknown enum values, missing required values and scalar coercions (a number or boolean for a
@@ -56,12 +59,19 @@ public final class StrictRequests {
         }
     }
 
-    /** The version named by one strong numeric ETag such as {@code "3"}, or empty for any other header value. */
+    /**
+     * The version named by one strong numeric ETag such as {@code "3"}, for any non-negative {@code long}, so every
+     * value {@link #strongEtag} emits parses back; empty for any other header value.
+     */
     public static OptionalLong strongNumericVersion(String header) {
         if (header == null || !STRONG_NUMERIC_ETAG.matcher(header).matches()) {
             return OptionalLong.empty();
         }
-        return OptionalLong.of(Long.parseLong(header.substring(1, header.length() - 1)));
+        try {
+            return OptionalLong.of(Long.parseLong(header.substring(1, header.length() - 1)));
+        } catch (NumberFormatException aboveLongRange) {
+            return OptionalLong.empty();
+        }
     }
 
     /** The strong ETag such as {@code "3"} for a version, the only form {@link #strongNumericVersion} accepts. */

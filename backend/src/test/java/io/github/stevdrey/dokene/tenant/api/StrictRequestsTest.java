@@ -17,7 +17,9 @@ class StrictRequestsTest {
             "\"0\"|0",
             "\"1\"|1",
             "\"42\"|42",
-            "\"999999999999999999\"|999999999999999999"
+            "\"999999999999999999\"|999999999999999999",
+            "\"1000000000000000000\"|1000000000000000000",
+            "\"9223372036854775807\"|9223372036854775807"
     })
     void acceptsOneStrongCanonicalNumericEtag(String header, long version) {
         assertThat(StrictRequests.strongNumericVersion(header)).hasValue(version);
@@ -28,7 +30,7 @@ class StrictRequestsTest {
     @ValueSource(strings = {
             "", " ", "0", "12", "\"\"", "\"00\"", "\"01\"", "\"+0\"", "\"-1\"", "W/\"1\"", "w/\"1\"",
             "\"1\", \"2\"", "\"1\",\"2\"", "*", " \"1\"", "\"1\" ", "\"1", "1\"", "'1'", "\"1.0\"", "\"0x1\"",
-            "\"1000000000000000000\"", "\"99999999999999999999\""
+            "\"9223372036854775808\"", "\"9999999999999999999\"", "\"99999999999999999999\""
     })
     void refusesEveryOtherHeaderValue(String header) {
         assertThat(StrictRequests.strongNumericVersion(header)).isEmpty();
@@ -39,5 +41,7 @@ class StrictRequestsTest {
         assertThat(StrictRequests.strongEtag(0)).isEqualTo("\"0\"");
         assertThat(StrictRequests.strongEtag(17)).isEqualTo("\"17\"");
         assertThat(StrictRequests.strongNumericVersion(StrictRequests.strongEtag(123_456_789L))).hasValue(123_456_789L);
+        assertThat(StrictRequests.strongNumericVersion(StrictRequests.strongEtag(Long.MAX_VALUE)))
+                .hasValue(Long.MAX_VALUE);
     }
 }
