@@ -118,7 +118,7 @@ How each kind of change is handled:
 
 | Port | Owner (package) | Consumer | Fail-closed rule |
 | --- | --- | --- | --- |
-| `MessagingProvider.send(OutboundSendCommand) -> ProviderSendResult` (existing) | `messaging.application`, implemented in `integration.whatsapp` | dispatch (T7 to T11) | Exceptions never cross; a timeout after the request left is `OutcomeUnknown`, never a retry. |
+| `MessagingProvider.send(OutboundSendCommand) -> ProviderSendResult` (existing) | `messaging.application`, implemented in `integration.whatsapp` by `GraphApiMessagingProvider` ([ADR 0027](0027-meta-whatsapp-send-adapter.md)) | dispatch (T7 to T11) | Exceptions never cross; a timeout after the request left is `OutcomeUnknown`, never a retry. |
 | `DeliveryStatusSink.apply(DeliveryStatusReport)` (existing) | `messaging.application` | webhook boundary | Applied only under a `ProviderContext`. |
 | `OutboundSafetyControl.configuredSender(TenantId) -> Optional<SenderRevision>` | `messaging.application`, implemented by `integration` | T2 fingerprint | Returns the configured sender regardless of kill switches and the enabled flag; empty only when no integration exists, which refuses T2 with `INTEGRATION_DISABLED`. |
 | `OutboundSafetyControl.evaluate(TenantId) -> Permitted(SenderRevision) \| Blocked(code)` | `messaging.application`, implemented by `integration` | send policy steps 3 and 4, plus the T6 fingerprint sender identity | Read at send time, never cached. `Blocked` admits only `OUTBOUND_DISABLED_GLOBALLY`, `OUTBOUND_DISABLED_FOR_TENANT` and `INTEGRATION_DISABLED`. Missing configuration throws. |

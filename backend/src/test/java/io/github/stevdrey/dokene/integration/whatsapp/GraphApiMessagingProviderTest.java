@@ -1,0 +1,375 @@
+// ABOUTME: Drives the Meta send adapter against a loopback stub replaying synthetic Graph answers (issue 137).
+// ABOUTME: Covers the request shape, every result class, uncertain outcomes, fail-closed paths and secret hygiene.
+package io.github.stevdrey.dokene.integration.whatsapp;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.sun.net.httpserver.HttpServer;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
+import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
+import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
+import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.Accepted;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.FailedTransiently;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.OutcomeUnknown;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.RejectedPermanently;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+@ExtendWith(OutputCaptureExtension.class)
+class GraphApiMessagingProviderTest {
+    private static final String PHONE_NUMBER_ID = "100000000000001";
+    private static final String TOKEN = "SYNTHETIC-NOT-A-REAL-TOKEN";
+    private static final String RECIPIENT = "+50600000001";
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final JsonNode FIXTURES = loadFixtures();
+
+    private HttpServer server;
+    private final AtomicInteger requests = new AtomicInteger();
+    private final AtomicReference<String> method = new AtomicReference<>();
+    private final AtomicReference<String> path = new AtomicReference<>();
+    private final AtomicReference<String> authorization = new AtomicReference<>();
+    private final AtomicReference<String> contentType = new AtomicReference<>();
+    private final AtomicReference<String> requestBody = new AtomicReference<>();
+    private volatile int status = 200;
+    private volatile byte[] body = new byte[0];
+    private volatile long delayMillis;
+    private volatile String location;
+    private final TenantId tenantId = new TenantId(UUID.randomUUID());
+    private final WhatsAppIntegrationRepository integrations = mock(WhatsAppIntegrationRepository.class);
+    private final IntegrationSecretResolver resolver = mock(IntegrationSecretResolver.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<IntegrationSecretResolver> secrets = mock(ObjectProvider.class);
+    private final TenantContextProvider contexts = mock(TenantContextProvider.class);
+    private GraphApiMessagingProvider provider;
+
+    @BeforeEach
+    void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            method.set(exchange.getRequestMethod());
+            path.set(exchange.getRequestURI().toString());
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            try (InputStream in = exchange.getRequestBody()) {
+                requestBody.set(new String(in.readAllBytes(), StandardCharsets.UTF_8));
+            }
+            try {
+                Thread.sleep(delayMillis);
+                if (location != null) {
+                    exchange.getResponseHeaders().add("Location", location);
+                }
+                exchange.sendResponseHeaders(status, body.length == 0 ? -1 : body.length);
+                if (body.length > 0) {
+                    exchange.getResponseBody().write(body);
+                }
+            } catch (IOException | InterruptedException clientGone) {
+                // The adapter gave up on the exchange: exactly what the deadline is for.
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, true)));
+        when(contexts.requireCurrent()).thenReturn(new TenantContext(tenantId, new IdentityId(UUID.randomUUID()),
+                new TenantMembershipId(UUID.randomUUID()), TenantRole.ADMIN));
+        when(secrets.getIfAvailable()).thenReturn(resolver);
+        when(resolver.resolve(any(), any())).thenAnswer(call -> new ResolvedSecret(TOKEN.toCharArray()));
+        provider = providerFor(server.getAddress().getPort());
+    }
+
+    @AfterEach
+    void stop() {
+        server.stop(0);
+    }
+
+    @Test
+    void postsTheApprovedTemplateWithBoundParametersInOrderAndTheTenantCredentialAsBearerOnly() throws Exception {
+        replay("accepted");
+
+        assertThat(provider.send(command(List.of("Ana", "pedido 42")))).isEqualTo(new Accepted("wamid.SYNTHETIC-0001"));
+
+        assertThat(requests).hasValue(1);
+        assertThat(method.get()).isEqualTo("POST");
+        assertThat(path.get()).isEqualTo("/v23.0/" + PHONE_NUMBER_ID + "/messages").doesNotContain(TOKEN);
+        assertThat(authorization.get()).isEqualTo("Bearer " + TOKEN);
+        assertThat(contentType.get()).isEqualTo("application/json");
+        assertThat(JSON.readTree(requestBody.get())).isEqualTo(JSON.readTree("""
+                {"messaging_product":"whatsapp","recipient_type":"individual","to":"+50600000001","type":"template",
+                 "template":{"name":"repeat_purchase_v1","language":{"code":"es_MX"},
+                   "components":[{"type":"body","parameters":[{"type":"text","text":"Ana"},
+                                                              {"type":"text","text":"pedido 42"}]}]}}
+                """));
+        assertThat(requestBody.get()).doesNotContain(TOKEN);
+        verify(resolver).resolve(new Tenant(tenantId), new SecretReference("synthetic-wa-token"));
+    }
+
+    @Test
+    void omitsTheBodyComponentForATemplateWithoutParameters() throws Exception {
+        replay("acceptedWithoutStatus");
+
+        assertThat(provider.send(command(List.of()))).isEqualTo(new Accepted("wamid.SYNTHETIC-0002"));
+        assertThat(JSON.readTree(requestBody.get()).path("template").has("components")).isFalse();
+    }
+
+    @Test
+    void heldForQualityAssessmentIsAcceptanceButAPausedOrIdlessAnswerIsUncertain() {
+        replay("heldForQualityAssessment");
+        assertThat(send()).isEqualTo(new Accepted("wamid.SYNTHETIC-0003"));
+
+        replay("paused");
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.of("wamid.SYNTHETIC-0004")));
+
+        for (String fixture : List.of("acceptedWithoutId", "acceptedWithUnsafeId")) {
+            replay(fixture);
+            assertThat(send()).as(fixture).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        }
+    }
+
+    @Test
+    void aMalformedOrOversizedSuccessIsUncertainBecauseMetaMayHaveTakenTheMessage() {
+        status = 200;
+        body = "{not json".getBytes(StandardCharsets.UTF_8);
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+
+        body = ("{\"messages\":[{\"id\":\"wamid.SYNTHETIC-0005\"}],\"pad\":\""
+                + " ".repeat(GraphApiHttp.MAX_BODY_BYTES) + "\"}").getBytes(StandardCharsets.UTF_8);
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "templateParameterMismatch, TEMPLATE_REJECTED",
+            "templateMissing, TEMPLATE_REJECTED",
+            "invalidParameter, TEMPLATE_REJECTED",
+            "recipientUndeliverable, INVALID_RECIPIENT",
+            "accountRestricted, POLICY_VIOLATION",
+            "tokenExpiredWithSecrets, AUTHENTICATION",
+            "permissionMissing, AUTHENTICATION"})
+    void definitiveRefusalsArePermanentWithANormalizedCategory(String fixture, FailureCategory category) {
+        replay(fixture);
+
+        assertThat(send()).isEqualTo(new RejectedPermanently(category));
+        assertThat(requests).as("never retried").hasValue(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "throughputLimit, RATE_LIMITED",
+            "appRateLimit, RATE_LIMITED",
+            "serviceUnavailable, PROVIDER_UNAVAILABLE",
+            "temporaryDowntime, PROVIDER_UNAVAILABLE",
+            "unknownErrorRefused, PROVIDER_UNAVAILABLE"})
+    void refusalsThatProveNothingWasSentAreTransient(String fixture, FailureCategory category) {
+        replay(fixture);
+
+        assertThat(send()).isEqualTo(new FailedTransiently(category));
+        assertThat(requests).as("never retried").hasValue(1);
+    }
+
+    @Test
+    void statusesWithoutAMetaErrorFallBackOnTheStatusAlone() {
+        body = new byte[0];
+        status = 401;
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
+        status = 429;
+        assertThat(send()).isEqualTo(new FailedTransiently(FailureCategory.RATE_LIMITED));
+        status = 418;
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.UNKNOWN));
+    }
+
+    @Test
+    void aServerErrorWithoutAnExplicitlyTransientCodeIsUncertainAndNeverRetried() {
+        replay("unknownServerError");
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+
+        body = "<html>Bad gateway</html>".getBytes(StandardCharsets.UTF_8);
+        for (int gatewayStatus : new int[] {500, 502, 503, 504}) {
+            status = gatewayStatus;
+            assertThat(send()).as("status %s", gatewayStatus).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        }
+        assertThat(requests).hasValue(5);
+    }
+
+    @Test
+    void aRedirectIsNotFollowedAndIsUncertainBecauseThePostAlreadyLeft() {
+        status = 302;
+        body = new byte[0];
+        location = "https://attacker.example/steal";
+
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
+    void aTimeoutAfterSubmissionIsUncertainAndBounded() {
+        replay("accepted");
+        delayMillis = 2_000;
+
+        long started = System.nanoTime();
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(1_500));
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
+    void anUnreachableProviderIsTransientBecauseNothingLeft() throws IOException {
+        int port;
+        try (ServerSocket closed = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            port = closed.getLocalPort();
+        }
+
+        assertThat(providerFor(port).send(command(List.of("Ana"))))
+                .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "50600000001        | repeat_purchase_v1 | es_MX  | Ana          | INVALID_RECIPIENT",
+            "+50600000001       | Repeat-Purchase    | es_MX  | Ana          | TEMPLATE_REJECTED",
+            "+50600000001       | repeat_purchase_v1 | es-419 | Ana          | TEMPLATE_REJECTED",
+            "+50600000001       | repeat_purchase_v1 | es_MX  | '   '        | TEMPLATE_REJECTED",
+            "+50600000001       | repeat_purchase_v1 | es_MX  | 'a\tb'       | TEMPLATE_REJECTED",
+            "+50600000001       | repeat_purchase_v1 | es_MX  | 'a     b'    | TEMPLATE_REJECTED"})
+    void anInvalidCommandIsRefusedWithoutCallingTheProvider(String recipient, String template, String language,
+            String parameter, FailureCategory category) {
+        OutboundSendCommand invalid = new OutboundSendCommand(recipient, template, language, List.of(parameter),
+                "es-419", UUID.randomUUID());
+
+        assertThat(provider.send(invalid)).isEqualTo(new RejectedPermanently(category));
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void tooManyOrOverlongOrMultilineParametersAreRefusedWithoutCallingTheProvider() {
+        List<List<String>> invalid = List.of(
+                java.util.Collections.nCopies(11, "x"),
+                List.of("x".repeat(GraphApiMessagingProvider.MAX_PARAMETER_LENGTH + 1)),
+                List.of("line\nbreak"));
+        for (List<String> parameters : invalid) {
+            assertThat(provider.send(command(parameters)))
+                    .isEqualTo(new RejectedPermanently(FailureCategory.TEMPLATE_REJECTED));
+        }
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void failsClosedWithoutCallingTheProviderWhenTheSenderIsNotUsable() {
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.empty());
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(false, false)));
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, false)));
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, true)));
+        when(secrets.getIfAvailable()).thenReturn(null);
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
+
+        when(secrets.getIfAvailable()).thenReturn(resolver);
+        when(resolver.resolve(any(), any())).thenThrow(new IllegalStateException("no secret " + TOKEN));
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
+
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void anExceptionBeforeSendingNeverCrossesThePort() {
+        when(contexts.requireCurrent()).thenThrow(new IllegalStateException("No tenant context"));
+
+        assertThat(send()).isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs(CapturedOutput output) {
+        replay("tokenExpiredWithSecrets");
+
+        ProviderSendResult result = provider.send(command(List.of("Hola Ana, tu pedido")));
+
+        assertThat(result).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
+        for (String leaked : List.of(TOKEN, RECIPIENT, "50600000001", "Hola Ana", "Bearer", "SYNTHETIC-TRACE")) {
+            assertThat(result.toString()).doesNotContain(leaked);
+            assertThat(output.getAll()).doesNotContain(leaked);
+        }
+    }
+
+    private ProviderSendResult send() {
+        return provider.send(command(List.of("Ana")));
+    }
+
+    private OutboundSendCommand command(List<String> parameters) {
+        return new OutboundSendCommand(RECIPIENT, "repeat_purchase_v1", "es_MX", parameters, "es-419",
+                UUID.randomUUID());
+    }
+
+    private GraphApiMessagingProvider providerFor(int port) {
+        return new GraphApiMessagingProvider(integrations, secrets, contexts, new GraphApiProperties(
+                URI.create("http://127.0.0.1:" + port + "/v23.0"), Duration.ofMillis(500), List.of()));
+    }
+
+    private WhatsAppIntegration integration(boolean enabled, boolean verified) {
+        WhatsAppIntegration created = WhatsAppIntegration.create(tenantId, PHONE_NUMBER_ID, "400000000000001", null,
+                true, "synthetic-wa-token", Instant.now());
+        WhatsAppIntegration proven = verified ? created.verifyOwnership(Instant.now()) : created;
+        return enabled ? proven : proven.update(PHONE_NUMBER_ID, "400000000000001", null, false,
+                "synthetic-wa-token", Instant.now());
+    }
+
+    private void replay(String fixture) {
+        JsonNode entry = FIXTURES.path(fixture);
+        assertThat(entry.isMissingNode()).as("fixture %s", fixture).isFalse();
+        status = entry.path("status").intValue();
+        body = JSON.writeValueAsBytes(entry.path("body"));
+    }
+
+    private static JsonNode loadFixtures() {
+        try (InputStream in = GraphApiMessagingProviderTest.class
+                .getResourceAsStream("/contracts/whatsapp/graph-send-responses.json")) {
+            return JSON.readTree(in);
+        } catch (IOException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+}
