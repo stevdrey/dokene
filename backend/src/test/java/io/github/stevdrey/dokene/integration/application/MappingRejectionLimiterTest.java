@@ -1,9 +1,9 @@
 package io.github.stevdrey.dokene.integration.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.integration.application.MappingRejectionLimiter.MappingAttempt;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -11,6 +11,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -25,13 +27,13 @@ class MappingRejectionLimiterTest {
 
     @Test
     void availableUntilTheActorBudgetIsExhaustedAndReportsTheExhaustingRejection() {
-        assertThatCode(() -> limiter.requireAvailable(tenant, actor)).doesNotThrowAnyException();
-        assertThat(limiter.recordRejection(tenant, actor)).isFalse();
-        assertThatCode(() -> limiter.requireAvailable(tenant, actor)).doesNotThrowAnyException();
+        assertThat(available(tenant, actor)).isTrue();
+        assertThat(rejected(tenant, actor)).isFalse();
+        assertThat(available(tenant, actor)).isTrue();
 
-        assertThat(limiter.recordRejection(tenant, actor)).isTrue();
+        assertThat(rejected(tenant, actor)).isTrue();
 
-        assertThatThrownBy(() -> limiter.requireAvailable(tenant, actor))
+        assertThatThrownBy(() -> limiter.begin(tenant, actor))
                 .isInstanceOfSatisfying(IntegrationRateLimitedException.class,
                         throttled -> assertThat(throttled.code()).isEqualTo(MessagingErrorCode.RATE_LIMITED));
     }
@@ -39,34 +41,71 @@ class MappingRejectionLimiterTest {
     @Test
     void anotherActorKeepsItsBudgetUntilTheTenantBudgetIsExhausted() {
         IdentityId other = identity();
-        limiter.recordRejection(tenant, actor);
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
+        rejected(tenant, actor);
 
-        assertThatCode(() -> limiter.requireAvailable(tenant, other)).doesNotThrowAnyException();
-        assertThat(limiter.recordRejection(tenant, other)).isTrue();
+        assertThat(available(tenant, other)).isTrue();
+        assertThat(rejected(tenant, other)).isTrue();
 
-        assertThatThrownBy(() -> limiter.requireAvailable(tenant, other))
+        assertThatThrownBy(() -> limiter.begin(tenant, other))
                 .isInstanceOf(IntegrationRateLimitedException.class);
-        assertThatThrownBy(() -> limiter.requireAvailable(tenant, identity()))
+        assertThatThrownBy(() -> limiter.begin(tenant, identity()))
                 .isInstanceOf(IntegrationRateLimitedException.class);
     }
 
     @Test
     void otherTenantsAreIsolatedEvenForTheSameIdentity() {
-        limiter.recordRejection(tenant, actor);
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
+        rejected(tenant, actor);
 
-        assertThatCode(() -> limiter.requireAvailable(TenantId.random(), actor)).doesNotThrowAnyException();
+        assertThat(available(TenantId.random(), actor)).isTrue();
+    }
+
+    @Test
+    void concurrentAttemptsReserveTheBudgetBeforeTheirOutcomeIsKnown() {
+        rejected(tenant, actor);
+        MappingAttempt inFlight = limiter.begin(tenant, actor);
+
+        // The last unit is reserved, so a parallel probe cannot run until the first outcome is known.
+        assertThatThrownBy(() -> limiter.begin(tenant, actor))
+                .isInstanceOfSatisfying(IntegrationRateLimitedException.class,
+                        throttled -> assertThat(throttled.retryAfterSeconds()).isEqualTo(1));
+        assertThat(inFlight.reject()).isTrue();
+        inFlight.close();
+
+        assertThatThrownBy(() -> limiter.begin(tenant, actor)).isInstanceOf(IntegrationRateLimitedException.class);
+    }
+
+    @Test
+    void closingAnAttemptThatWasNotRejectedReleasesItsReservation() {
+        rejected(tenant, actor);
+        MappingAttempt succeeded = limiter.begin(tenant, actor);
+        succeeded.close();
+        succeeded.close();
+
+        assertThat(rejected(tenant, actor)).isTrue();
+        assertThat(succeeded.reject()).isFalse();
+    }
+
+    @Test
+    void parallelAttemptsAcrossActorsNeverExceedTheTenantBudget() {
+        List<MappingAttempt> attempts = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            attempts.add(limiter.begin(tenant, identity()));
+        }
+        assertThatThrownBy(() -> limiter.begin(tenant, identity()))
+                .isInstanceOf(IntegrationRateLimitedException.class);
+        assertThat(attempts.stream().filter(MappingAttempt::reject).count()).isEqualTo(1);
     }
 
     @Test
     void retryAfterIsTheTimeUntilTheOldestRejectionLeavesTheWindow() {
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
         clock.advance(Duration.ofMinutes(5));
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
         clock.advance(Duration.ofSeconds(30));
 
-        assertThatThrownBy(() -> limiter.requireAvailable(tenant, actor))
+        assertThatThrownBy(() -> limiter.begin(tenant, actor))
                 .isInstanceOfSatisfying(IntegrationRateLimitedException.class,
                         throttled -> assertThat(throttled.retryAfterSeconds()).isEqualTo(Duration.ofMinutes(9)
                                 .plusSeconds(30).toSeconds()));
@@ -74,18 +113,18 @@ class MappingRejectionLimiterTest {
 
     @Test
     void theBudgetIsRestoredOnceRejectionsLeaveTheWindow() {
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
         clock.advance(Duration.ofMinutes(1));
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
 
         clock.advance(WINDOW.minusMinutes(1));
-        assertThatCode(() -> limiter.requireAvailable(tenant, actor)).doesNotThrowAnyException();
-        assertThat(limiter.recordRejection(tenant, actor)).isTrue();
+        assertThat(available(tenant, actor)).isTrue();
+        assertThat(rejected(tenant, actor)).isTrue();
     }
 
     @Test
     void expiredBucketsAreEvicted() {
-        limiter.recordRejection(tenant, actor);
+        rejected(tenant, actor);
         assertThat(limiter.hasTenantBucket(tenant)).isTrue();
         assertThat(limiter.hasActorBucket(tenant, actor)).isTrue();
 
@@ -116,6 +155,20 @@ class MappingRejectionLimiterTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new MappingRejectionLimitProperties(1, 1, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** Begins and releases an attempt, as a successful write does. */
+    private boolean available(TenantId tenantId, IdentityId identityId) {
+        try (MappingAttempt ignored = limiter.begin(tenantId, identityId)) {
+            return true;
+        }
+    }
+
+    /** Begins an attempt and rejects it, as a write onto a number another tenant owns does. */
+    private boolean rejected(TenantId tenantId, IdentityId identityId) {
+        try (MappingAttempt attempt = limiter.begin(tenantId, identityId)) {
+            return attempt.reject();
+        }
     }
 
     private static IdentityId identity() {

@@ -7,17 +7,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Thread-safe in-memory sliding window over rejected phone-number-id mappings, per tenant and per actor within the
- * tenant. Only rejections are counted, so successful writes never consume budget. Keys are tenant and identity ids
- * only: the candidate phone number id never reaches this class. State is per instance and lost on restart.
+ * In-memory sliding window over rejected phone-number-id mappings, per tenant and per actor within the tenant. Only
+ * rejections are counted, so successful writes never consume budget. Every mapping change first reserves one unit of
+ * both budgets until its outcome is known, so concurrent attempts can never reveal more conflicts than the budget
+ * allows. Keys are tenant and identity ids only: the candidate phone number id never reaches this class. State is per
+ * instance and lost on restart. Admin writes are rare, so one monitor guards both budgets and keeps them atomic.
  */
 @Component
 @EnableConfigurationProperties(MappingRejectionLimitProperties.class)
@@ -27,9 +29,9 @@ public class MappingRejectionLimiter {
     private final Duration window;
     private final Clock clock;
 
-    private final ConcurrentHashMap<TenantId, Deque<Instant>> tenantBuckets = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<ActorKey, Deque<Instant>> actorBuckets = new ConcurrentHashMap<>();
-    private final AtomicReference<Instant> lastEviction = new AtomicReference<>(Instant.EPOCH);
+    private final Map<TenantId, Budget> tenantBudgets = new HashMap<>();
+    private final Map<ActorKey, Budget> actorBudgets = new HashMap<>();
+    private Instant lastEviction = Instant.EPOCH;
 
     public MappingRejectionLimiter(MappingRejectionLimitProperties properties, Clock clock) {
         Objects.requireNonNull(properties, "Properties are required");
@@ -42,96 +44,143 @@ public class MappingRejectionLimiter {
     private record ActorKey(TenantId tenantId, IdentityId identityId) {
     }
 
-    /** Throws {@link IntegrationRateLimitedException} while the tenant or the actor has exhausted its budget. */
-    public void requireAvailable(TenantId tenantId, IdentityId identityId) {
-        Instant now = clock.instant();
-        maybeEvictExpired(now);
-        Duration delay = longest(blockedFor(tenantBuckets, Objects.requireNonNull(tenantId, "Tenant ID is required"),
-                tenantRejections, now), blockedFor(actorBuckets, actorKey(tenantId, identityId), actorRejections, now));
-        if (delay != null) {
-            throw new IntegrationRateLimitedException(delay);
+    /** Rejections still inside the window plus attempts whose outcome is not known yet. */
+    private static final class Budget {
+        private final Deque<Instant> rejections = new ArrayDeque<>();
+        private int inFlight;
+
+        boolean idle() {
+            return rejections.isEmpty() && inFlight == 0;
         }
     }
 
-    /** Records one rejected mapping; returns true when this rejection exhausted the tenant or the actor budget. */
-    public boolean recordRejection(TenantId tenantId, IdentityId identityId) {
+    /**
+     * Reserves one unit of the tenant and actor budgets for a mapping change, or throws
+     * {@link IntegrationRateLimitedException} when either has no unit left. Close the attempt once the write finished;
+     * call {@link MappingAttempt#reject()} first when the number was already mapped by another tenant.
+     */
+    public synchronized MappingAttempt begin(TenantId tenantId, IdentityId identityId) {
         Instant now = clock.instant();
         maybeEvictExpired(now);
-        boolean tenantExhausted = record(tenantBuckets, Objects.requireNonNull(tenantId, "Tenant ID is required"),
-                tenantRejections, now);
-        boolean actorExhausted = record(actorBuckets, actorKey(tenantId, identityId), actorRejections, now);
-        return tenantExhausted || actorExhausted;
+        Budget tenant = tenantBudgets.computeIfAbsent(Objects.requireNonNull(tenantId, "Tenant ID is required"),
+                key -> new Budget());
+        Budget actor = actorBudgets.computeIfAbsent(actorKey(tenantId, identityId), key -> new Budget());
+        Duration delay = longest(blockedFor(tenant, tenantRejections, now), blockedFor(actor, actorRejections, now));
+        if (delay != null) {
+            evictIdle();
+            throw new IntegrationRateLimitedException(delay);
+        }
+        tenant.inFlight++;
+        actor.inFlight++;
+        return new MappingAttempt(tenant, actor);
     }
 
-    void evictExpired(Instant now) {
+    /** A reservation held by one mapping change until it is rejected or closed. */
+    public final class MappingAttempt implements AutoCloseable {
+        private final Budget tenant;
+        private final Budget actor;
+        private boolean settled;
+
+        private MappingAttempt(Budget tenant, Budget actor) {
+            this.tenant = tenant;
+            this.actor = actor;
+        }
+
+        /** Turns the reservation into a rejection; returns true when it exhausted the tenant or actor budget. */
+        public boolean reject() {
+            synchronized (MappingRejectionLimiter.this) {
+                if (settled) {
+                    return false;
+                }
+                settle();
+                Instant now = clock.instant();
+                boolean tenantExhausted = record(tenant, tenantRejections, now);
+                boolean actorExhausted = record(actor, actorRejections, now);
+                return tenantExhausted || actorExhausted;
+            }
+        }
+
+        /** Releases the reservation of an attempt that was not rejected; does nothing after {@link #reject()}. */
+        @Override
+        public void close() {
+            synchronized (MappingRejectionLimiter.this) {
+                if (!settled) {
+                    settle();
+                    evictIdle();
+                }
+            }
+        }
+
+        private void settle() {
+            settled = true;
+            tenant.inFlight--;
+            actor.inFlight--;
+        }
+    }
+
+    synchronized void evictExpired(Instant now) {
         Instant windowStart = now.minus(window);
-        evict(tenantBuckets, windowStart);
-        evict(actorBuckets, windowStart);
+        tenantBudgets.values().forEach(budget -> prune(budget, windowStart));
+        actorBudgets.values().forEach(budget -> prune(budget, windowStart));
+        evictIdle();
     }
 
-    boolean hasTenantBucket(TenantId tenantId) {
-        return tenantBuckets.containsKey(tenantId);
+    synchronized boolean hasTenantBucket(TenantId tenantId) {
+        return tenantBudgets.containsKey(tenantId);
     }
 
-    boolean hasActorBucket(TenantId tenantId, IdentityId identityId) {
-        return actorBuckets.containsKey(actorKey(tenantId, identityId));
+    synchronized boolean hasActorBucket(TenantId tenantId, IdentityId identityId) {
+        return actorBudgets.containsKey(actorKey(tenantId, identityId));
     }
 
     private static ActorKey actorKey(TenantId tenantId, IdentityId identityId) {
         return new ActorKey(tenantId, Objects.requireNonNull(identityId, "Identity ID is required"));
     }
 
-    /** Null when available; otherwise how long until enough rejections leave the window to fall below the limit. */
-    private <K> Duration blockedFor(ConcurrentHashMap<K, Deque<Instant>> buckets, K key, int limit, Instant now) {
-        Instant[] releasedAt = new Instant[1];
-        buckets.computeIfPresent(key, (k, bucket) -> {
-            prune(bucket, now.minus(window));
-            if (bucket.size() >= limit) {
-                Iterator<Instant> oldestFirst = bucket.iterator();
-                Instant releasing = oldestFirst.next();
-                for (int skip = bucket.size() - limit; skip > 0; skip--) {
-                    releasing = oldestFirst.next();
-                }
-                releasedAt[0] = releasing.plus(window);
-            }
-            return bucket.isEmpty() ? null : bucket;
-        });
-        if (releasedAt[0] == null) {
+    /**
+     * Null while a unit is left; otherwise how long until one frees up. An in-flight attempt that succeeds frees its
+     * unit as soon as it finishes, so while any is pending the wait is one second; otherwise it lasts until enough
+     * rejections leave the window.
+     */
+    private Duration blockedFor(Budget budget, int limit, Instant now) {
+        prune(budget, now.minus(window));
+        int overLimit = budget.rejections.size() + budget.inFlight - limit;
+        if (overLimit < 0) {
             return null;
         }
-        Duration delay = Duration.between(now, releasedAt[0]);
+        if (budget.inFlight > 0) {
+            return Duration.ofSeconds(1);
+        }
+        Iterator<Instant> oldestFirst = budget.rejections.iterator();
+        Instant releasing = oldestFirst.next();
+        for (int skip = overLimit; skip > 0; skip--) {
+            releasing = oldestFirst.next();
+        }
+        Duration delay = Duration.between(now, releasing.plus(window));
         return delay.isNegative() || delay.isZero() ? Duration.ofSeconds(1) : delay;
     }
 
-    private <K> boolean record(ConcurrentHashMap<K, Deque<Instant>> buckets, K key, int limit, Instant now) {
-        boolean[] exhausted = new boolean[1];
-        buckets.compute(key, (k, bucket) -> {
-            Deque<Instant> current = bucket == null ? new ArrayDeque<>() : bucket;
-            prune(current, now.minus(window));
-            current.addLast(now);
-            exhausted[0] = current.size() == limit;
-            return current;
-        });
-        return exhausted[0];
+    private boolean record(Budget budget, int limit, Instant now) {
+        prune(budget, now.minus(window));
+        budget.rejections.addLast(now);
+        return budget.rejections.size() == limit;
     }
 
     private void maybeEvictExpired(Instant now) {
-        Instant last = lastEviction.get();
-        if (now.isAfter(last.plus(window)) && lastEviction.compareAndSet(last, now)) {
+        if (now.isAfter(lastEviction.plus(window))) {
+            lastEviction = now;
             evictExpired(now);
         }
     }
 
-    private static <K> void evict(ConcurrentHashMap<K, Deque<Instant>> buckets, Instant windowStart) {
-        buckets.forEach((key, ignored) -> buckets.computeIfPresent(key, (k, bucket) -> {
-            prune(bucket, windowStart);
-            return bucket.isEmpty() ? null : bucket;
-        }));
+    private void evictIdle() {
+        tenantBudgets.values().removeIf(Budget::idle);
+        actorBudgets.values().removeIf(Budget::idle);
     }
 
-    private static void prune(Deque<Instant> bucket, Instant windowStart) {
-        while (!bucket.isEmpty() && !bucket.peekFirst().isAfter(windowStart)) {
-            bucket.pollFirst();
+    private static void prune(Budget budget, Instant windowStart) {
+        while (!budget.rejections.isEmpty() && !budget.rejections.peekFirst().isAfter(windowStart)) {
+            budget.rejections.pollFirst();
         }
     }
 

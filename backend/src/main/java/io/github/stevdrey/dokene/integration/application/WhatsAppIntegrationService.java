@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.integration.application;
 
+import io.github.stevdrey.dokene.integration.application.MappingRejectionLimiter.MappingAttempt;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
@@ -78,34 +79,34 @@ public class WhatsAppIntegrationService {
         TenantId tenantId = context.tenantId();
         Optional<WhatsAppIntegration> existing = repository.findByTenant(tenantId);
         boolean changesMapping = existing.map(current -> !current.phoneNumberId().equals(phoneNumberId)).orElse(true);
-        if (changesMapping) {
-            requireMappingBudget(context);
-        }
-        WhatsAppIntegration saved;
-        if (existing.isEmpty()) {
-            if (!(precondition instanceof Create)) {
-                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+        // A null attempt (the stored number is kept) is allowed by try-with-resources and never closed.
+        try (MappingAttempt attempt = changesMapping ? beginMappingAttempt(context) : null) {
+            WhatsAppIntegration saved;
+            if (existing.isEmpty()) {
+                if (!(precondition instanceof Create)) {
+                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+                }
+                WhatsAppIntegration created = validated(() -> WhatsAppIntegration.create(tenantId, phoneNumberId,
+                        businessAccountId, displayPhoneNumber, enabled, secretRef, clock.instant()));
+                saved = countingRejections(attempt, () -> {
+                    repository.insert(created);
+                    return created;
+                });
+            } else {
+                WhatsAppIntegration current = existing.get();
+                if (!(precondition instanceof Version(long expectedVersion))
+                        || current.version() != expectedVersion) {
+                    throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
+                }
+                WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
+                        displayPhoneNumber, enabled, secretRef, clock.instant()));
+                long storedVersion = countingRejections(attempt, () -> repository.update(next, expectedVersion))
+                        .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
+                saved = next.withVersion(storedVersion);
             }
-            WhatsAppIntegration created = validated(() -> WhatsAppIntegration.create(tenantId, phoneNumberId,
-                    businessAccountId, displayPhoneNumber, enabled, secretRef, clock.instant()));
-            saved = countingRejections(context, () -> {
-                repository.insert(created);
-                return created;
-            });
-        } else {
-            WhatsAppIntegration current = existing.get();
-            if (!(precondition instanceof Version(long expectedVersion))
-                    || current.version() != expectedVersion) {
-                throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-            }
-            WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
-                    displayPhoneNumber, enabled, secretRef, clock.instant()));
-            long storedVersion = countingRejections(context, () -> repository.update(next, expectedVersion))
-                    .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-            saved = next.withVersion(storedVersion);
+            audit.updated(saved.id(), saved.enabled());
+            return view(saved);
         }
-        audit.updated(saved.id(), saved.enabled());
-        return view(saved);
     }
 
     /**
@@ -129,10 +130,13 @@ public class WhatsAppIntegrationService {
         return view(saved);
     }
 
-    /** Every throttled attempt is a denied action, audited in its own transaction before the refusal propagates. */
-    private void requireMappingBudget(TenantContext context) {
+    /**
+     * Reserves budget before the write, so concurrent attempts cannot reveal more conflicts than allowed. Every
+     * throttled attempt is a denied action, audited in its own transaction before the refusal propagates.
+     */
+    private MappingAttempt beginMappingAttempt(TenantContext context) {
         try {
-            rejections.requireAvailable(context.tenantId(), context.identityId());
+            return rejections.begin(context.tenantId(), context.identityId());
         } catch (IntegrationRateLimitedException throttled) {
             audit.mappingThrottled();
             throw throttled;
@@ -143,11 +147,11 @@ public class WhatsAppIntegrationService {
      * A phone number mapped by another tenant still answers as plain invalid input; it only consumes budget, and the
      * rejection that exhausts it is audited. The candidate id is never recorded.
      */
-    private <T> T countingRejections(TenantContext context, Supplier<T> write) {
+    private <T> T countingRejections(MappingAttempt attempt, Supplier<T> write) {
         try {
             return write.get();
         } catch (PhoneNumberMappingConflictException conflict) {
-            if (rejections.recordRejection(context.tenantId(), context.identityId())) {
+            if (attempt != null && attempt.reject()) {
                 audit.mappingThrottled();
             }
             throw conflict;
