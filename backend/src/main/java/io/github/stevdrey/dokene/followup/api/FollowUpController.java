@@ -205,7 +205,7 @@ public class FollowUpController {
         if (recommendations == null) {
             throw new IllegalStateException("Recommendation service is not configured");
         }
-        Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
+        Long expectedVersion = ifMatch != null ? version(ifMatch) : null;
         Duration timeout = null;
         if (request != null && request.timeoutMs() != null) {
             if (request.timeoutMs() <= 0) {
@@ -350,7 +350,7 @@ public class FollowUpController {
         if (drafts == null) {
             throw new IllegalStateException("Draft service is not configured");
         }
-        Long expectedVersion = (ifMatch != null && !ifMatch.isBlank()) ? version(ifMatch) : null;
+        Long expectedVersion = ifMatch != null ? version(ifMatch) : null;
         Duration timeout = null;
         SemanticAction requestedAction = null;
         SemanticTemplateIntent requestedTemplateIntent = null;

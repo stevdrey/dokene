@@ -275,6 +275,20 @@ class CustomerControllerTest {
     }
 
     @Test
+    void updateRefusesAPresentButBlankIfMatchInsteadOfFallingBackToBodyVersion() throws Exception {
+        for (String blank : List.of("", " ")) {
+            mvc.perform(put("/api/customers/{id}", customer.id().value()).header("If-Match", blank)
+                    .contentType(MediaType.APPLICATION_JSON).content("""
+                    {"displayName":"Ana","version":0,"phones":[{"number":"8888 7777","region":"CR","primary":true}]}
+                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.field").value("If-Match"))
+                    .andExpect(jsonPath("$.message").value(CustomerValidationMessages.IF_MATCH_REQUIRED));
+        }
+        verify(service, never()).update(any(), anyLong(), any(), any(), any());
+    }
+
+    @Test
     void mapsTenantAccessDeniedExceptionToForbidden() throws Exception {
         when(service.get(any())).thenThrow(new io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException());
 

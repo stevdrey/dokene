@@ -66,7 +66,7 @@ public class CustomerController {
             @RequestBody CustomerWriteRequest request
     ) {
         long version;
-        if (ifMatch != null && !ifMatch.isBlank()) {
+        if (ifMatch != null) {
             version = parseVersion(ifMatch);
         } else if (request.version() != null) {
             version = request.version();

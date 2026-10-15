@@ -43,6 +43,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -279,6 +280,21 @@ class FollowUpControllerTest {
                 .andExpect(jsonPath("$.recommendation.action").value("REPEAT_PURCHASE_FOLLOW_UP"))
                 .andExpect(jsonPath("$.recommendation.rationale").value("Cadence reached"))
                 .andExpect(jsonPath("$.evaluation.reasons[0]").value("DUE_TODAY"));
+    }
+
+    /** A present but empty or blank If-Match is malformed, never the absent optional precondition. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/api/customers/{id}/recommendation|''", "/api/customers/{id}/recommendation|' '",
+            "/api/customers/{id}/follow-up-recommendation|''", "/api/customers/{id}/follow-up-recommendation|' '",
+            "/api/customers/{id}/draft|''", "/api/customers/{id}/draft|' '",
+            "/api/customers/{id}/follow-up-draft|''", "/api/customers/{id}/follow-up-draft|' '"
+    })
+    void aiRequestsRefuseAPresentButBlankIfMatchWithoutCallingTheService(String route, String ifMatch)
+            throws Exception {
+        mvc.perform(post(route, customerId).header("If-Match", ifMatch))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(recommendations, drafts);
     }
 
     @Test
