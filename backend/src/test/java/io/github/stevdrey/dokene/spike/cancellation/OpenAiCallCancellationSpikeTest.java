@@ -100,6 +100,9 @@ class OpenAiCallCancellationSpikeTest {
         });
 
         assertThat(provider.requestReceived.await(5, TimeUnit.SECONDS)).isTrue();
+        // OkHttp honours an interrupt at its own checkpoints (e.g. while still writing the request); the case that
+        // matters is a thread already blocked reading the response, so let it get there first.
+        Thread.sleep(BODY_READ_SETTLE.toMillis());
         long cancelNanos = System.nanoTime();
         worker.interrupt();
 
@@ -368,6 +371,55 @@ class OpenAiCallCancellationSpikeTest {
             }
         }
         System.out.printf("[spike-180] worker cancel/completion race: %d iterations, cancelled %d, completed %d%n",
+                RACE_ITERATIONS, cancelled, RACE_ITERATIONS - cancelled);
+    }
+
+    @Test
+    void aWorkerCancelRacingAFailedCompletionNeverRelabelsIt() throws Exception {
+        int cancelled = 0;
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            for (int i = 0; i < RACE_ITERATIONS; i++) {
+                CountDownLatch go = new CountDownLatch(1);
+                VirtualThreadCancellableProvider cancellable = new VirtualThreadCancellableProvider(attempt -> {
+                    try {
+                        go.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    // Fails with a real provider outcome whether or not the interrupt arrived.
+                    throw new AiProviderException(AiFailureCategory.UNAVAILABLE, new AiInvocationMetadata(
+                            "fake", "fake-model", null, Duration.ZERO, null, AiCompletionStatus.FAILED));
+                });
+                AiCancellationHandle handle = new AiCancellationHandle();
+                CountDownLatch started = new CountDownLatch(1);
+                Future<AiProviderException> caller = pool.submit(() -> {
+                    try {
+                        ScopedValue.where(CancellableHttpClient.HANDLE, handle).call(() -> {
+                            started.countDown();
+                            return cancellable.recommend(request);
+                        });
+                        throw new AssertionError("the delegate always fails");
+                    } catch (AiProviderException e) {
+                        return e;
+                    }
+                });
+                assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+                Future<?> canceller = pool.submit(handle::cancel);
+                go.countDown();
+                canceller.get(5, TimeUnit.SECONDS);
+                AiProviderException failure = caller.get(5, TimeUnit.SECONDS);
+
+                if (failure.category() == AiFailureCategory.CANCELLED) {
+                    cancelled++;
+                    assertThat(handle.aborted()).isTrue();
+                } else {
+                    assertThat(failure.category()).isEqualTo(AiFailureCategory.UNAVAILABLE);
+                    assertThat(handle.aborted()).as("a real failure is never relabelled as cancelled").isFalse();
+                }
+                assertThat(failure.metadata().providerId()).isIn("fake", "none");
+            }
+        }
+        System.out.printf("[spike-180] worker cancel/failure race: %d iterations, cancelled %d, real failure %d%n",
                 RACE_ITERATIONS, cancelled, RACE_ITERATIONS - cancelled);
     }
 

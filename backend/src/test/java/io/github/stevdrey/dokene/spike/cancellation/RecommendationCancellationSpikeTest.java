@@ -13,6 +13,7 @@ import io.github.stevdrey.dokene.ai.application.AiResilience;
 import io.github.stevdrey.dokene.ai.application.AiRetryProperties;
 import io.github.stevdrey.dokene.ai.application.AiTelemetry;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
+import io.github.stevdrey.dokene.ai.application.RetryGuard;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.DraftVariables;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
@@ -217,6 +218,73 @@ class RecommendationCancellationSpikeTest {
         assertThat(audit.events).containsExactly("failed:NEXT_BEST_ACTION:CANCELLED");
         assertThat(lastOutcome.get()).isEqualTo(AiInvocationCancellationRegistry.Outcome.CANCELLED);
         assertThat(requestThreadInterrupted.get()).as("the request thread is never interrupted").isFalse();
+    }
+
+    @Test
+    void aCancelDuringBackoffIsStoppedByTheRetryGuardWithoutCountingARetryOrAnAttempt() {
+        AiCancellationHandle handle = new AiCancellationHandle();
+        AtomicInteger providerCalls = new AtomicInteger();
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger retries = new AtomicInteger();
+        AiTelemetry telemetry = new AiTelemetry() {
+            @Override
+            public void attemptCompleted(AiOperation operation, AiInvocationMetadata metadata,
+                    AiFailureCategory category) {
+                attempts.incrementAndGet();
+            }
+
+            @Override
+            public void outcome(AiOperation operation, AiInvocationMetadata metadata, Outcome outcome) {
+            }
+
+            @Override
+            public void retryScheduled(AiOperation operation, String providerId, AiFailureCategory category) {
+                retries.incrementAndGet();
+            }
+
+            @Override
+            public void modelRefusal(AiOperation operation) {
+            }
+
+            @Override
+            public void gateRejected(AiOperation operation, String reason) {
+            }
+        };
+        AiProvider worker = new VirtualThreadCancellableProvider(request -> {
+            providerCalls.incrementAndGet();
+            throw new AiProviderException(AiFailureCategory.UNAVAILABLE, new AiInvocationMetadata(
+                    "fake", "fake-model", "req-1", Duration.ofMillis(3), null, AiCompletionStatus.FAILED));
+        });
+        // The cancel lands after the failed attempt finished, i.e. during the retry backoff.
+        AiProvider cancelAfterAttempt = request -> {
+            try {
+                return worker.recommend(request);
+            } finally {
+                handle.cancel();
+            }
+        };
+        // Production would add this check to the RetryGuard FollowUpRecommendationService already builds.
+        RetryGuard cancellationGuard = previous -> {
+            if (handle.isCancelled()) {
+                throw new AiProviderException(AiFailureCategory.CANCELLED, new AiInvocationMetadata(
+                        previous.providerId(), previous.modelId(), previous.providerRequestId(), previous.latency(),
+                        previous.usage(), AiCompletionStatus.CANCELLED));
+            }
+        };
+        AiProvider resilient = new AiResilience(new AiRetryProperties(2, Duration.ofMillis(1), Duration.ofMillis(2),
+                Duration.ofMillis(10)), telemetry).wrap(cancelAfterAttempt, cancellationGuard);
+
+        assertThatThrownBy(() -> ScopedValue.where(CancellableHttpClient.HANDLE, handle)
+                .call(() -> resilient.recommend(new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION, context(),
+                        Duration.ofSeconds(3)))))
+                .isInstanceOfSatisfying(AiProviderException.class, e -> {
+                    assertThat(e.category()).isEqualTo(AiFailureCategory.CANCELLED);
+                    assertThat(e.metadata().providerId()).isEqualTo("fake");
+                    assertThat(e.metadata().modelId()).isEqualTo("fake-model");
+                });
+        assertThat(providerCalls.get()).isEqualTo(1);
+        assertThat(attempts.get()).as("only the attempt that really ran is recorded").isEqualTo(1);
+        assertThat(retries.get()).as("no retry is counted").isZero();
     }
 
     @Test

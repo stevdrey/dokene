@@ -18,7 +18,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Spike prototype (Issue #180), test sources only. Runs each provider attempt on its own virtual thread, started
@@ -77,7 +77,7 @@ final class VirtualThreadCancellableProvider implements AiProvider {
             Thread.currentThread().interrupt();
             throw notStarted();
         } catch (ExecutionException e) {
-            if (worker.cancelRequested.get()) {
+            if (worker.cancelWon()) {
                 throw asCancelled(e.getCause());
             }
             if (e.getCause() instanceof RuntimeException runtime) {
@@ -128,18 +128,34 @@ final class VirtualThreadCancellableProvider implements AiProvider {
      * normally despite a late cancel is a completion.
      */
     static final class WorkerAttempt<T> implements Future<T> {
+        private enum State { RUNNING, CANCEL_REQUESTED, FINISHED }
+
         private final CompletableFuture<T> result = new CompletableFuture<>();
-        private final AtomicBoolean cancelRequested = new AtomicBoolean();
+        /**
+         * The single point that decides the race: the worker publishing its outcome (RUNNING to FINISHED) and a
+         * cancel (RUNNING to CANCEL_REQUESTED) are one CAS on the same state, so exactly one of them wins.
+         */
+        private final AtomicReference<State> state = new AtomicReference<>(State.RUNNING);
         private final Thread worker;
 
         private WorkerAttempt(Callable<T> attempt) {
             worker = Thread.ofVirtual().unstarted(() -> {
+                T value;
                 try {
-                    result.complete(attempt.call());
+                    value = attempt.call();
                 } catch (Throwable t) {
+                    state.compareAndSet(State.RUNNING, State.FINISHED);
                     result.completeExceptionally(t);
+                    return;
                 }
+                state.compareAndSet(State.RUNNING, State.FINISHED);
+                result.complete(value);
             });
+        }
+
+        /** The cancel won the race against the attempt publishing its outcome. */
+        boolean cancelWon() {
+            return state.get() == State.CANCEL_REQUESTED;
         }
 
         static <T> WorkerAttempt<T> start(Callable<T> attempt) {
@@ -150,18 +166,17 @@ final class VirtualThreadCancellableProvider implements AiProvider {
 
         @Override
         public boolean cancel(boolean mayInterruptIfRunning) {
-            if (result.isDone()) {
+            if (!state.compareAndSet(State.RUNNING, State.CANCEL_REQUESTED)) {
                 return false;
             }
-            cancelRequested.set(true);
             worker.interrupt();
             return true;
         }
 
-        /** A cancel requested before the attempt finished, which then did not complete normally. */
+        /** The cancel won the race and the attempt then did not complete normally. */
         @Override
         public boolean isCancelled() {
-            return cancelRequested.get() && result.isCompletedExceptionally();
+            return cancelWon() && result.isCompletedExceptionally();
         }
 
         @Override

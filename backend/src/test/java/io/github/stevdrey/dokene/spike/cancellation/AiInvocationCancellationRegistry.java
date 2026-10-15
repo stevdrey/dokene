@@ -7,8 +7,10 @@ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -76,8 +78,18 @@ final class AiInvocationCancellationRegistry {
         }
     }
 
-    private record Tombstone(Set<TenantPermission> callerPermissions, Instant expiresAt) {
+    /**
+     * One permission snapshot per cancel request. The tombstone applies only if a single snapshot covers the
+     * operation: a later, weaker cancel never removes an earlier authorized one, and separately insufficient cancels
+     * never combine into an authorized one.
+     */
+    private record Tombstone(List<Set<TenantPermission>> snapshots, Instant expiresAt) {
+        boolean authorizes(Set<TenantPermission> required) {
+            return snapshots.stream().anyMatch(snapshot -> snapshot.containsAll(required));
+        }
     }
+
+    private static final int MAX_SNAPSHOTS_PER_TOMBSTONE = 4;
 
     private final Object lock = new Object();
     private final Map<Key, Registration> entries = new HashMap<>();
@@ -115,7 +127,7 @@ final class AiInvocationCancellationRegistry {
             entries.put(key, registration);
             Tombstone tombstone = tombstones.remove(key);
             if (tombstone != null && tombstone.expiresAt().isAfter(clock.instant())
-                    && tombstone.callerPermissions().containsAll(requiredPermissions(operation))) {
+                    && tombstone.authorizes(requiredPermissions(operation))) {
                 registration.handle.cancel();
             }
             return registration;
@@ -138,15 +150,16 @@ final class AiInvocationCancellationRegistry {
             } else {
                 Instant now = clock.instant();
                 tombstones.values().removeIf(tombstone -> !tombstone.expiresAt().isAfter(now));
+                Set<TenantPermission> snapshot = Set.copyOf(callerPermissions);
                 Tombstone existing = tombstones.get(key);
                 if (existing != null) {
-                    // A later, weaker cancel never downgrades an earlier authorized one.
-                    Set<TenantPermission> merged = EnumSet.noneOf(TenantPermission.class);
-                    merged.addAll(existing.callerPermissions());
-                    merged.addAll(callerPermissions);
-                    tombstones.put(key, new Tombstone(Set.copyOf(merged), now.plus(tombstoneTtl)));
+                    List<Set<TenantPermission>> snapshots = new ArrayList<>(existing.snapshots());
+                    if (!snapshots.contains(snapshot) && snapshots.size() < MAX_SNAPSHOTS_PER_TOMBSTONE) {
+                        snapshots.add(snapshot);
+                    }
+                    tombstones.put(key, new Tombstone(List.copyOf(snapshots), now.plus(tombstoneTtl)));
                 } else if (tombstones.size() < maxTombstones) {
-                    tombstones.put(key, new Tombstone(Set.copyOf(callerPermissions), now.plus(tombstoneTtl)));
+                    tombstones.put(key, new Tombstone(List.of(snapshot), now.plus(tombstoneTtl)));
                 }
             }
         }

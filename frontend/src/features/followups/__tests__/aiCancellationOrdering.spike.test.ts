@@ -17,7 +17,15 @@ const invocationId = '6f1c2a52-6a3e-4f0c-9d55-0d3f6f6b7a10';
 type TrackedInvocation = { tenantId: string; invocationId: string; operation: 'NEXT_BEST_ACTION' | 'MESSAGE_DRAFT' };
 
 function createAiInvocationTracker() {
-  const active = new Map<string, TrackedInvocation>();
+  // Two owners per entry: the request (track/untrack) and a pending supersede cancel. It is deleted only when
+  // neither still needs it, so a switch or logout meanwhile can resend the cancel.
+  const active = new Map<string, TrackedInvocation & { requestDone: boolean; cancelPending: boolean }>();
+  // Tenants whose cancels are being awaited by a transition; invocations tracked meanwhile join the drain.
+  const drains = new Map<string, Promise<void>[]>();
+  const release = (invocationId: string) => {
+    const entry = active.get(invocationId);
+    if (entry && entry.requestDone && !entry.cancelPending) active.delete(invocationId);
+  };
   const sendCancel = (invocation: TrackedInvocation) =>
     httpClient
       .request<void>(`/api/ai-invocations/${invocation.invocationId}/cancel`, { method: 'POST' })
@@ -25,33 +33,53 @@ function createAiInvocationTracker() {
       .catch(() => undefined);
   return {
     track(invocation: TrackedInvocation): () => void {
-      active.set(invocation.invocationId, invocation);
+      active.set(invocation.invocationId, { ...invocation, requestDone: false, cancelPending: false });
+      drains.get(invocation.tenantId)?.push(sendCancel(invocation));
       return () => {
-        active.delete(invocation.invocationId);
+        const entry = active.get(invocation.invocationId);
+        if (entry) entry.requestDone = true;
+        release(invocation.invocationId);
       };
     },
     /**
      * Local supersession (a new recommendation or draft replaces an older one): cancel on the server first, and
-     * keep tracking until that cancel settles, so a workspace switch or logout meanwhile sends it again.
+     * keep tracking until that cancel settles, even if the aborted request untracks first.
      */
     supersede(invocationId: string): Promise<void> {
-      const invocation = active.get(invocationId);
-      if (!invocation) return Promise.resolve();
-      return sendCancel(invocation).finally(() => {
-        active.delete(invocationId);
+      const entry = active.get(invocationId);
+      if (!entry) return Promise.resolve();
+      entry.cancelPending = true;
+      return sendCancel(entry).finally(() => {
+        entry.cancelPending = false;
+        release(invocationId);
       });
     },
-    /** Awaits the cancels for one tenant, bounded by timeoutMs; failures never block the switch or logout. */
+    /**
+     * Awaits the cancels for one tenant, bounded by timeoutMs; failures never block the switch or logout. While it
+     * drains, newly tracked invocations of that tenant are cancelled too, until no new cancel appears.
+     */
     async cancelTenant(tenantId: string, timeoutMs: number): Promise<void> {
-      const cancels = [...active.values()]
+      const pending = [...active.values()]
         .filter((invocation) => invocation.tenantId === tenantId)
         .map(sendCancel);
+      drains.set(tenantId, pending);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<void>((resolve) => {
         timer = setTimeout(resolve, timeoutMs);
       });
-      await Promise.race([Promise.all(cancels).then(() => undefined), timeout]);
-      clearTimeout(timer);
+      const drained = (async () => {
+        let settled = -1;
+        while (settled !== pending.length) {
+          settled = pending.length;
+          await Promise.all(pending.slice());
+        }
+      })();
+      try {
+        await Promise.race([drained, timeout]);
+      } finally {
+        clearTimeout(timer);
+        drains.delete(tenantId);
+      }
     }
   };
 }
@@ -77,10 +105,14 @@ function createWorkspaceTransitions(tracker: AiInvocationTracker) {
     switchTo(next: string): Promise<boolean> {
       return apply(++generation, next);
     },
-    /** Like TenantContext.provisionWorkspace: create first, then the same cancel-then-apply path as a switch. */
+    /**
+     * Like TenantContext.provisionWorkspace: create first, then cancel and apply. A provisioning superseded while
+     * create() was pending stops before cancelling anything, so it can never cancel another tenant's invocations.
+     */
     async provision(create: () => Promise<{ tenantId: string }>): Promise<boolean> {
       const mine = ++generation;
       const created = await create();
+      if (mine !== generation || loggedOut) return false;
       return apply(mine, created.tenantId);
     },
     async logout(): Promise<void> {
@@ -368,6 +400,68 @@ describe('AI cancellation ordering (Issue #180 spike)', () => {
       expect(apiClient.getCurrentTenantId()).toBe('tenant-a');
 
       expect(await transitions.switchTo('tenant-b')).toBe(true);
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-b');
+    });
+  });
+
+  describe('fifth review: stale provisioning, two owners, drain', () => {
+    it('a provisioning superseded while create() is pending never cancels the newer tenant', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      const calls = controllableFetch();
+      tracker.track({ tenantId: 'tenant-c', invocationId: 'c-invocation', operation: 'NEXT_BEST_ACTION' });
+      let finishCreate: (value: { tenantId: string }) => void = () => undefined;
+
+      const provisioned = transitions.provision(
+        () => new Promise<{ tenantId: string }>((resolve) => (finishCreate = resolve))
+      );
+      expect(await transitions.switchTo('tenant-c')).toBe(true);
+      finishCreate({ tenantId: 'tenant-new' });
+
+      expect(await provisioned).toBe(false);
+      expect(calls.filter((call) => call.url.includes('c-invocation'))).toHaveLength(0);
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-c');
+    });
+
+    it('an aborted request that untracks first never drops its pending supersede cancel', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      const calls = controllableFetch();
+      const untrack = tracker.track({ tenantId: 'tenant-a', invocationId: 'rec-1', operation: 'NEXT_BEST_ACTION' });
+
+      void tracker.supersede('rec-1');
+      untrack(); // the aborted request settles before the server cancel does
+      const toB = transitions.switchTo('tenant-b');
+      await flush();
+
+      expect(calls.map((call) => [call.url, call.tenant])).toEqual([
+        ['/api/ai-invocations/rec-1/cancel', 'tenant-a'],
+        ['/api/ai-invocations/rec-1/cancel', 'tenant-a']
+      ]);
+      calls[1].release();
+      expect(await toB).toBe(true);
+    });
+
+    it('an invocation tracked while the switch drains is cancelled before the switch applies', async () => {
+      const tracker = createAiInvocationTracker();
+      const transitions = createWorkspaceTransitions(tracker);
+      const calls = controllableFetch();
+      tracker.track({ tenantId: 'tenant-a', invocationId: 'rec-1', operation: 'NEXT_BEST_ACTION' });
+
+      const toB = transitions.switchTo('tenant-b');
+      await flush();
+      tracker.track({ tenantId: 'tenant-a', invocationId: 'draft-2', operation: 'MESSAGE_DRAFT' });
+      await flush();
+      calls[0].release();
+      await flush();
+      expect(apiClient.getCurrentTenantId()).toBe('tenant-a');
+
+      expect(calls.map((call) => [call.url, call.tenant])).toEqual([
+        ['/api/ai-invocations/rec-1/cancel', 'tenant-a'],
+        ['/api/ai-invocations/draft-2/cancel', 'tenant-a']
+      ]);
+      calls[1].release();
+      expect(await toB).toBe(true);
       expect(apiClient.getCurrentTenantId()).toBe('tenant-b');
     });
   });
