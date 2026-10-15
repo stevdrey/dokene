@@ -4,17 +4,12 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.stereotype.Component;
 
-/** Fail closed: neither sending nor webhook readiness is reported until the owning features exist. */
+/** Fail closed: sending is not reported as enabled until the kill-switch policy (#144) exists. */
 @Component
 @ConditionalOnMissingBean(value = IntegrationReadiness.class, ignored = DefaultIntegrationReadiness.class)
 class DefaultIntegrationReadiness implements IntegrationReadiness {
     @Override
     public boolean outboundEnabled(TenantId tenantId) {
-        return false;
-    }
-
-    @Override
-    public boolean webhookVerified(TenantId tenantId) {
         return false;
     }
 }
