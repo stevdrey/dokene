@@ -86,6 +86,18 @@ class TemplateMappingTest {
     }
 
     @Test
+    void theSingleValueRuleIsTheOneValidateApplies() {
+        String emoji = "\uD83C\uDF81";
+        assertThat(TemplateParameterValues.acceptable("Café")).isTrue();
+        assertThat(TemplateParameterValues.acceptable("   ")).isTrue();
+        assertThat(TemplateParameterValues.acceptable(emoji.repeat(TemplateParameterValues.MAX_LENGTH))).isTrue();
+        for (String invalid : java.util.Arrays.asList(null, "", "a     b", "a\tb", "a\u2028b", "a\u202Eb",
+                emoji.repeat(TemplateParameterValues.MAX_LENGTH + 1))) {
+            assertThat(TemplateParameterValues.acceptable(invalid)).as("%s", invalid).isFalse();
+        }
+    }
+
+    @Test
     void parameterValuesMustMatchTheSchemaExactly() {
         TemplateMapping two = mapping("t", "es", List.of("customer_name", "product"));
         assertThat(TemplateParameterValues.validate(two, List.of("Ana", "Café"))).containsExactly("Ana", "Café");

@@ -21,6 +21,7 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.FailedTrans
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.OutcomeUnknown;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.RejectedPermanently;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.Objects;
@@ -42,10 +43,6 @@ import tools.jackson.databind.node.ObjectNode;
 @EnableConfigurationProperties(GraphApiProperties.class)
 public class GraphApiMessagingProvider implements MessagingProvider {
     private static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
-    /** Meta rejects template variables with new lines, tabs or more than four consecutive spaces. */
-    private static final Pattern FORBIDDEN_IN_PARAMETER = Pattern.compile("[\\r\\n\\t]| {5,}");
-    /** A template body is at most 1024 characters, so no single variable can be longer. */
-    static final int MAX_PARAMETER_LENGTH = 1024;
     /** Meta message ids ({@code wamid.…}) are base64-like; anything else is not trusted as an id. */
     private static final Pattern MESSAGE_ID = Pattern.compile("^[A-Za-z0-9._:=+/-]{1,128}$");
     /** Statuses that mean Meta took the message; acceptance is never delivery, which only a webhook reports. */
@@ -107,7 +104,7 @@ public class GraphApiMessagingProvider implements MessagingProvider {
         }
     }
 
-    /** Re-checks the shape Meta accepts, so a malformed command is refused here rather than sent. */
+    /** Re-checks the shape Meta accepts with the contract's own rules, so a malformed command is refused, not sent. */
     private Optional<FailureCategory> validate(OutboundSendCommand command) {
         if (!E164.matcher(command.recipientPhone()).matches()) {
             return Optional.of(FailureCategory.INVALID_RECIPIENT);
@@ -115,13 +112,8 @@ public class GraphApiMessagingProvider implements MessagingProvider {
         boolean templateValid = TemplateMapping.PROVIDER_TEMPLATE_NAME.matcher(command.providerTemplateName()).matches()
                 && TemplateMapping.LANGUAGE.matcher(command.language()).matches()
                 && command.parameters().size() <= TemplateMapping.MAX_PARAMETERS
-                && command.parameters().stream().allMatch(GraphApiMessagingProvider::validParameter);
+                && command.parameters().stream().allMatch(TemplateParameterValues::acceptable);
         return templateValid ? Optional.empty() : Optional.of(FailureCategory.TEMPLATE_REJECTED);
-    }
-
-    private static boolean validParameter(String value) {
-        return value != null && !value.isBlank() && value.length() <= MAX_PARAMETER_LENGTH
-                && value.indexOf('\0') < 0 && !FORBIDDEN_IN_PARAMETER.matcher(value).find();
     }
 
     /** The only request this adapter sends: an approved template with its bound parameters, in order. */

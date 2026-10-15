@@ -49,11 +49,19 @@ public final class TemplateParameterValues {
             throw new IllegalArgumentException("Parameter count does not match the template");
         }
         for (String value : values) {
-            if (value == null || value.isEmpty() || value.codePointCount(0, value.length()) > MAX_LENGTH || value.contains(FIVE_SPACES)
-                    || value.codePoints().anyMatch(TemplateParameterValues::forbidden)) {
+            if (!acceptable(value)) {
                 throw new IllegalArgumentException("Parameter value is not acceptable");
             }
         }
         return List.copyOf(values);
+    }
+
+    /**
+     * The per-value rule on its own: non-empty, at most {@code MAX_LENGTH} code points, no run of five spaces and no
+     * forbidden character. Provider adapters re-check bound values with exactly this rule before sending.
+     */
+    public static boolean acceptable(String value) {
+        return value != null && !value.isEmpty() && value.codePointCount(0, value.length()) <= MAX_LENGTH
+                && !value.contains(FIVE_SPACES) && value.codePoints().noneMatch(TemplateParameterValues::forbidden);
     }
 }

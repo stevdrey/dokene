@@ -22,6 +22,7 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.Accepted;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.FailedTransiently;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.OutcomeUnknown;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.RejectedPermanently;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -33,6 +34,7 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -59,6 +61,8 @@ class GraphApiMessagingProviderTest {
     private static final String PHONE_NUMBER_ID = "100000000000001";
     private static final String TOKEN = "SYNTHETIC-NOT-A-REAL-TOKEN";
     private static final String RECIPIENT = "+50600000001";
+    /** One code point, two UTF-16 units. */
+    private static final String EMOJI = "\uD83C\uDF81";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final JsonNode FIXTURES = loadFixtures();
 
@@ -267,7 +271,8 @@ class GraphApiMessagingProviderTest {
             "50600000001        | repeat_purchase_v1 | es_MX  | Ana          | INVALID_RECIPIENT",
             "+50600000001       | Repeat-Purchase    | es_MX  | Ana          | TEMPLATE_REJECTED",
             "+50600000001       | repeat_purchase_v1 | es-419 | Ana          | TEMPLATE_REJECTED",
-            "+50600000001       | repeat_purchase_v1 | es_MX  | '   '        | TEMPLATE_REJECTED",
+            "+50600000001       | repeat_purchase_v1 | es_MX  | ''           | TEMPLATE_REJECTED",
+            "+50600000001       | repeat_purchase_v1 | es_MX  | 'a\u202Eb'  | TEMPLATE_REJECTED",
             "+50600000001       | repeat_purchase_v1 | es_MX  | 'a\tb'       | TEMPLATE_REJECTED",
             "+50600000001       | repeat_purchase_v1 | es_MX  | 'a     b'    | TEMPLATE_REJECTED"})
     void anInvalidCommandIsRefusedWithoutCallingTheProvider(String recipient, String template, String language,
@@ -283,13 +288,59 @@ class GraphApiMessagingProviderTest {
     void tooManyOrOverlongOrMultilineParametersAreRefusedWithoutCallingTheProvider() {
         List<List<String>> invalid = List.of(
                 java.util.Collections.nCopies(11, "x"),
-                List.of("x".repeat(GraphApiMessagingProvider.MAX_PARAMETER_LENGTH + 1)),
+                List.of("x".repeat(TemplateParameterValues.MAX_LENGTH + 1)),
+                List.of(EMOJI.repeat(TemplateParameterValues.MAX_LENGTH + 1)),
                 List.of("line\nbreak"));
         for (List<String> parameters : invalid) {
             assertThat(provider.send(command(parameters)))
                     .isEqualTo(new RejectedPermanently(FailureCategory.TEMPLATE_REJECTED));
         }
         assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void parameterLengthIsCountedInCodePointsLikeTheApprovalContract() throws Exception {
+        replay("accepted");
+        String emoji = EMOJI.repeat(1000);
+        assertThat(emoji.length()).isGreaterThan(TemplateParameterValues.MAX_LENGTH);
+
+        assertThat(provider.send(command(List.of(emoji)))).isEqualTo(new Accepted("wamid.SYNTHETIC-0001"));
+        assertThat(JSON.readTree(requestBody.get()).at("/template/components/0/parameters/0/text").asString())
+                .isEqualTo(emoji);
+    }
+
+    @Test
+    void aMalformedResponseHeaderAfterThePostLeftIsUncertainNotRetryable() throws Exception {
+        try (ServerSocket raw = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            AtomicInteger received = new AtomicInteger();
+            Thread.ofVirtual().start(() -> {
+                try (Socket client = raw.accept()) {
+                    InputStream in = client.getInputStream();
+                    byte[] buffer = new byte[8192];
+                    StringBuilder seen = new StringBuilder();
+                    // Read the headers and the whole JSON body, so the request has provably left.
+                    while (!seen.toString().contains("\r\n\r\n{") || !seen.toString().endsWith("}")) {
+                        int read = in.read(buffer);
+                        if (read < 0) {
+                            break;
+                        }
+                        seen.append(new String(buffer, 0, read, StandardCharsets.UTF_8));
+                    }
+                    received.incrementAndGet();
+                    client.getOutputStream().write(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: abc\r\n\r\n{}"
+                                    .getBytes(StandardCharsets.UTF_8));
+                    client.getOutputStream().flush();
+                    Thread.sleep(1_000);
+                } catch (IOException | InterruptedException ignored) {
+                    // The adapter gave up on the exchange.
+                }
+            });
+
+            assertThat(providerFor(raw.getLocalPort()).send(command(List.of("Ana"))))
+                    .isEqualTo(new OutcomeUnknown(Optional.empty()));
+            assertThat(received).hasValue(1);
+        }
     }
 
     @Test

@@ -101,11 +101,17 @@ final class GraphApiHttp {
         if (remaining <= 0) {
             return new NotSent();
         }
+        HttpRequest request;
         try {
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
+            request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
                     .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(json)).build();
+        } catch (IllegalArgumentException unusable) {
+            // Building the request writes nothing, so an unusable one provably never left.
+            return new NotSent();
+        }
+        try {
             HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
             InputStream stream = response.body();
             try {
@@ -115,10 +121,10 @@ final class GraphApiHttp {
             } finally {
                 stream.close(); // also cancels the exchange when the body was not fully read
             }
-        } catch (HttpConnectTimeoutException | ConnectException | IllegalArgumentException notConnected) {
-            // An unusable request is refused by the client before anything is written.
+        } catch (HttpConnectTimeoutException | ConnectException notConnected) {
             return new NotSent();
-        } catch (IOException afterSending) {
+        } catch (IOException | RuntimeException afterSending) {
+            // Anything else, including a malformed response header, may follow a transmitted request.
             return new Unknown();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
