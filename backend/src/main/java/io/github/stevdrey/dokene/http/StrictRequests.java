@@ -1,6 +1,6 @@
-// ABOUTME: Shared transport strictness for the APIs: one strict JSON request reader and one strong numeric ETag
-// ABOUTME: grammar (ADR 0023 §4.1, ADR 0024 §1), parsed and formatted here so every controller agrees on it.
-package io.github.stevdrey.dokene.tenant.api;
+// ABOUTME: Module-neutral transport strictness for every API: one strict JSON request reader and one strong numeric
+// ABOUTME: ETag grammar (ADR 0023 §4.1, ADR 0024 §1), parsed and formatted here so every controller agrees on it.
+package io.github.stevdrey.dokene.http;
 
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -17,8 +17,8 @@ import tools.jackson.databind.type.LogicalType;
 /** Callers map an empty answer to their own closed {@code INVALID_INPUT} refusal; nothing here echoes input. */
 public final class StrictRequests {
     /**
-     * Exactly one strong canonical numeric ETag; weak, list, wildcard and zero-padded forms are refused. Nineteen digits
-     * admit every non-negative {@code long}; a value above {@link Long#MAX_VALUE} is refused when parsed.
+     * Exactly one strong canonical numeric ETag; weak, list, wildcard and zero-padded forms are refused. Nineteen
+     * digits admit every non-negative {@code long}; a value above {@link Long#MAX_VALUE} is refused when parsed.
      */
     private static final Pattern STRONG_NUMERIC_ETAG = Pattern.compile("^\"(0|[1-9][0-9]{0,18})\"$");
 
@@ -74,8 +74,14 @@ public final class StrictRequests {
         }
     }
 
-    /** The strong ETag such as {@code "3"} for a version, the only form {@link #strongNumericVersion} accepts. */
+    /**
+     * The strong ETag such as {@code "3"} for a version, the only form {@link #strongNumericVersion} accepts. Versions
+     * are never negative; one would emit an ETag no client could send back, so it is refused here.
+     */
     public static String strongEtag(long version) {
+        if (version < 0) {
+            throw new IllegalArgumentException("version must be non-negative");
+        }
         return "\"" + version + "\"";
     }
 }

@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.purchase.api;
 
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.purchase.application.PurchaseCursor;
 import io.github.stevdrey.dokene.purchase.application.PurchaseEventCursor;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
@@ -8,7 +9,6 @@ import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseEvent;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.net.URI;
@@ -43,7 +43,8 @@ public class PurchaseController {
         var response = response(result.purchase());
         if (!result.created()) return response;
         return ResponseEntity.created(URI.create("/api/customers/" + customerId + "/purchases/"
-                        + result.purchase().id().value())).eTag(etag(result.purchase())).body(response.getBody());
+                        + result.purchase().id().value()))
+                .eTag(StrictRequests.strongEtag(result.purchase().version())).body(response.getBody());
     }
 
     @GetMapping("/{purchaseId}")
@@ -92,7 +93,7 @@ public class PurchaseController {
     }
 
     private ResponseEntity<PurchaseResponse> response(Purchase purchase) {
-        return ResponseEntity.ok().eTag(etag(purchase)).body(body(purchase));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(purchase.version())).body(body(purchase));
     }
     private PurchaseResponse body(Purchase p) {
         return new PurchaseResponse(p.id().value(), p.customerId().value(), p.purchasedAt(), p.description(),
@@ -102,7 +103,6 @@ public class PurchaseController {
         return new EventResponse(event.id(), event.type(), event.purchasedAt(), event.description(), event.occurredAt(),
                 event.actorId().value(), event.membershipId().value(), event.purchaseVersion());
     }
-    private static String etag(Purchase purchase) { return StrictRequests.strongEtag(purchase.version()); }
     private static void requireRequest(PurchaseRequest request) {
         if (request == null || request.purchasedAt() == null || request.description() == null) {
             throw new IllegalArgumentException("Purchase timestamp and description are required");

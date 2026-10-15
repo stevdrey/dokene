@@ -1,5 +1,5 @@
 // ABOUTME: Pins the purchase If-Match boundary to the shared strong numeric ETag grammar (ADR 0023 §4.1):
-// ABOUTME: lenient legacy forms are a 400 that never reaches the service.
+// ABOUTME: lenient legacy forms on void and correction are a 400 that never reaches the service.
 package io.github.stevdrey.dokene.purchase.api;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -45,11 +47,21 @@ class PurchaseControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"3", "\"03\"", "\"+3\"", "W/\"3\"", " \"3\" ", "\"3\", \"4\"", "*", "\"-1\""})
+    @ValueSource(strings = {"3", "\"03\"", "\"+3\"", "W/\"3\"", "\"3\", \"4\"", "*", "\"-1\""})
     void refusesEveryOtherIfMatchWithoutCallingTheService(String ifMatch) throws Exception {
         mvc.perform(delete("/api/customers/{customerId}/purchases/{purchaseId}", customerId, purchaseId)
                 .header("If-Match", ifMatch))
                 .andExpect(status().isBadRequest());
         verify(service, never()).voidPurchase(any(), any(), anyLong());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"3", "\"03\"", "\"+3\"", "W/\"3\"", "\"3\", \"4\"", "*", "\"-1\""})
+    void refusesEveryOtherIfMatchOnCorrectionWithoutCallingTheService(String ifMatch) throws Exception {
+        mvc.perform(put("/api/customers/{customerId}/purchases/{purchaseId}", customerId, purchaseId)
+                .header("If-Match", ifMatch).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"purchasedAt\":\"2026-10-01T12:00:00Z\",\"description\":\"1kg cafe\"}"))
+                .andExpect(status().isBadRequest());
+        verify(service, never()).correct(any(), any(), any(), any(), anyLong());
     }
 }

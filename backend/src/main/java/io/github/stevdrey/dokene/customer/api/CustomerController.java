@@ -10,7 +10,7 @@ import io.github.stevdrey.dokene.customer.application.PhoneNormalizer;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
@@ -117,7 +117,7 @@ public class CustomerController {
     /** Exactly one strong canonical numeric ETag such as {@code "3"} (ADR 0023 §4.1). */
     private long parseVersion(String value) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("If-Match is required");
+            throw new CustomerValidationException("If-Match", CustomerValidationMessages.IF_MATCH_REQUIRED);
         }
         return StrictRequests.strongNumericVersion(value).orElseThrow(
                 () -> new CustomerValidationException("If-Match", CustomerValidationMessages.VERSION_INVALID));

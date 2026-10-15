@@ -12,7 +12,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactPolicy;
 import io.github.stevdrey.dokene.customer.domain.ContactPolicyEvent;
 import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;

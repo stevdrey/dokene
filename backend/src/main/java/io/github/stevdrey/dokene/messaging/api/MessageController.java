@@ -2,6 +2,7 @@
 // ABOUTME: Thin transport layer over the frozen v1 contract; every rule and re-check lives in the messaging services.
 package io.github.stevdrey.dokene.messaging.api;
 
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalSummary;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.AttemptSummary;
@@ -27,7 +28,6 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;

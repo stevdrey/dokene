@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.integration.api;
 
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationRequest;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationResponse;
@@ -8,7 +9,6 @@ import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationServ
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.IntegrationView;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.Precondition;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.Version;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;

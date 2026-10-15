@@ -98,7 +98,7 @@ shaped as `{ "number": "8888 7777", "region": "CR", "primary": true }`; exactly 
 validated with its explicit two-letter country region and responses contain only normalized E.164 values.
 
 Every `If-Match` in the API (customers, contact policies, purchases, follow-ups, messages, templates and
-integrations) is parsed by the shared `StrictRequests` helper: it must be exactly one strong canonical numeric ETag
+integrations) is parsed by the shared `http.StrictRequests` helper: it must be exactly one strong canonical numeric ETag
 such as `"3"`. Unquoted (`3`), zero-padded (`"03"`), signed (`"+3"`), weak (`W/"3"`), list and `*` values are
 `400`, as ADR 0023 §4.1 requires.
 

@@ -1,8 +1,9 @@
 // ABOUTME: Pins the one If-Match grammar every controller shares (ADR 0023 §4.1): exactly one strong canonical
 // ABOUTME: numeric ETag is accepted, and every other header value, including lenient legacy forms, is refused.
-package io.github.stevdrey.dokene.tenant.api;
+package io.github.stevdrey.dokene.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,6 +26,7 @@ class StrictRequestsTest {
         assertThat(StrictRequests.strongNumericVersion(header)).hasValue(version);
     }
 
+    /** Padded values are refused here; in a real request the servlet container already trims header whitespace. */
     @ParameterizedTest
     @NullSource
     @ValueSource(strings = {
@@ -43,5 +45,10 @@ class StrictRequestsTest {
         assertThat(StrictRequests.strongNumericVersion(StrictRequests.strongEtag(123_456_789L))).hasValue(123_456_789L);
         assertThat(StrictRequests.strongNumericVersion(StrictRequests.strongEtag(Long.MAX_VALUE)))
                 .hasValue(Long.MAX_VALUE);
+    }
+
+    @Test
+    void refusesToFormatANegativeVersionItCouldNotParseBack() {
+        assertThatThrownBy(() -> StrictRequests.strongEtag(-1)).isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -8,8 +8,8 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpReason;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.followup.domain.FollowUpTimingSource;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -95,7 +95,7 @@ public class FollowUpController {
     @GetMapping("/follow-up-policy")
     public ResponseEntity<TenantPolicyResponse> tenantPolicy() {
         var policy = followUps.tenantPolicy();
-        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(policy.version())).body(response(policy));
     }
 
     @RequiredPermission(TenantPermission.TENANT_UPDATE)
@@ -106,13 +106,13 @@ public class FollowUpController {
             throw new IllegalArgumentException("Cadence and time zone are required");
         }
         var policy = followUps.configureTenant(request.cadenceDays(), ZoneId.of(request.timeZone()), version(ifMatch));
-        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(policy.version())).body(response(policy));
     }
 
     @GetMapping("/customers/{customerId}/follow-up-policy")
     public ResponseEntity<CustomerPolicyResponse> customerPolicy(@PathVariable UUID customerId) {
         var policy = followUps.customerPolicy(new CustomerId(customerId));
-        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(policy.version())).body(response(policy));
     }
 
     @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
@@ -123,7 +123,7 @@ public class FollowUpController {
         if (request == null) throw new IllegalArgumentException("Customer policy is required");
         var policy = followUps.configureCustomer(new CustomerId(customerId), request.cadenceDays(),
                 request.explicitNextDate(), version(ifMatch));
-        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(policy.version())).body(response(policy));
     }
 
     @GetMapping("/follow-up-queue")
@@ -166,7 +166,7 @@ public class FollowUpController {
         var response = new ManualFollowUpResponse(completion.id(), completion.customerId().value(),
                 completion.completedOn(), completion.policyVersion(), completion.notes());
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
-                .eTag(etag(completion.policyVersion())).body(response);
+                .eTag(StrictRequests.strongEtag(completion.policyVersion())).body(response);
     }
 
     @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
@@ -184,7 +184,7 @@ public class FollowUpController {
         var response = new DismissalResponse(dismissal.id(), dismissal.customerId().value(),
                 dismissal.dismissedOn(), dismissal.policyVersion(), dismissal.notes());
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
-                .eTag(etag(dismissal.policyVersion())).body(response);
+                .eTag(StrictRequests.strongEtag(dismissal.policyVersion())).body(response);
     }
 
     @RequiredPermission(TenantPermission.FOLLOWUP_WRITE)
@@ -193,7 +193,7 @@ public class FollowUpController {
             @RequestHeader("If-Match") String ifMatch, @RequestBody SnoozeRequest request) {
         if (request == null || request.until() == null) throw new IllegalArgumentException("Snooze date is required");
         var policy = followUps.snooze(new CustomerId(customerId), request.until(), version(ifMatch));
-        return ResponseEntity.ok().eTag(etag(policy.version())).body(response(policy));
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(policy.version())).body(response(policy));
     }
 
     @RequiredPermission(TenantPermission.FOLLOWUP_EVALUATE)
@@ -215,7 +215,7 @@ public class FollowUpController {
         }
         var result = recommendations.recommendSafe(new CustomerId(customerId), timeout, expectedVersion);
         return ResponseEntity.ok()
-                .eTag(etag(result.policyVersion()))
+                .eTag(StrictRequests.strongEtag(result.policyVersion()))
                 .body(response(result));
     }
 
@@ -293,8 +293,6 @@ public class FollowUpController {
         return notes;
     }
 
-    private String etag(long version) { return StrictRequests.strongEtag(version); }
-
     public record TenantPolicyRequest(Integer cadenceDays, String timeZone) { }
     public record CustomerPolicyRequest(Integer cadenceDays, LocalDate explicitNextDate) { }
     public record SnoozeRequest(LocalDate until) { }
@@ -368,7 +366,7 @@ public class FollowUpController {
         }
         var result = drafts.draftSafe(new CustomerId(customerId), requestedAction, requestedTemplateIntent, timeout, expectedVersion);
         return ResponseEntity.ok()
-                .eTag(etag(result.policyVersion()))
+                .eTag(StrictRequests.strongEtag(result.policyVersion()))
                 .body(response(result));
     }
 
