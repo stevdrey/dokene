@@ -2,10 +2,14 @@
 // ABOUTME: re-reads the member, requires the same membership, evaluates the permission and audits any denial.
 package io.github.stevdrey.dokene.tenant.application;
 
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantScopedResource;
 import java.time.Clock;
 import java.util.Objects;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 
 /**
@@ -46,20 +50,37 @@ public class CurrentMembershipAuthorizer {
         if (request == null) {
             throw denied(null, permission, resource, "No active tenant context");
         }
-        TenantContext member;
-        try {
-            member = memberships.resolve(request.identityId(), request.tenantId());
-        } catch (TenantContextAuthorizationException exception) {
-            throw denied(request, permission, resource, MEMBERSHIP_GONE);
-        }
-        if (!member.membershipId().equals(request.membershipId())) {
-            throw denied(request, permission, resource, MEMBERSHIP_GONE);
-        }
+        TenantContext member = sameMembership(request.identityId(), request.tenantId(), request.membershipId())
+                .orElseThrow(() -> denied(request, permission, resource, MEMBERSHIP_GONE));
         AuthorizationDecision decision = authorization.evaluate(member, permission, resource);
         if (!decision.isAllowed()) {
             throw denied(request, permission, resource, decision.rejectionReason().orElse("Denied"));
         }
         return member;
+    }
+
+    /**
+     * The member's fresh context while {@code membershipId} is still its active membership in {@code tenantId} and
+     * its role holds {@code permission}; empty otherwise. Nothing is audited: this is for a background check that
+     * repeats on every run (dispatch recovery) and is followed by {@link #requireResourceAccess} in the transaction.
+     */
+    public Optional<TenantContext> currentMember(IdentityId identityId, TenantId tenantId,
+            TenantMembershipId membershipId, TenantPermission permission) {
+        Objects.requireNonNull(permission, "Permission is required");
+        return sameMembership(identityId, tenantId, membershipId)
+                .filter(member -> authorization.evaluate(member, permission, tenantId).isAllowed());
+    }
+
+    /** A removed and re-invited member holds a new membership and does not count as the expected one. */
+    private Optional<TenantContext> sameMembership(IdentityId identityId, TenantId tenantId,
+            TenantMembershipId expected) {
+        TenantContext member;
+        try {
+            member = memberships.resolve(identityId, tenantId);
+        } catch (TenantContextAuthorizationException exception) {
+            return Optional.empty();
+        }
+        return member.membershipId().equals(expected) ? Optional.of(member) : Optional.empty();
     }
 
     private TenantAccessDeniedException denied(TenantContext request, TenantPermission permission,

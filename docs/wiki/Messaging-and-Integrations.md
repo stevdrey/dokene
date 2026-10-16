@@ -130,6 +130,16 @@ What each case produces:
 - The same key again replays the current state (`200`). The same key for another message or version is `409 IDEMPOTENCY_KEY_REUSED`.
 - A concurrent click with another key loses the lock race (`STALE_VERSION` or `INVALID_TRANSITION`).
 - If the outcome cannot be recorded, for example during an audit outage, the claim stays and the message stays `SENDING`: sending halts instead of risking a duplicate.
+- **Recovery.** A scheduled processor finds claims still `STARTED` after `dokene.messaging.recovery.claim-timeout` and records them as unknown outcomes (T11) for a human to resolve (T12). It never calls the provider. It records as the member who authorized the send, and only while that membership is still active and still holds `MESSAGE_SEND`, checked again inside the transaction; otherwise, or if the outcome still cannot be recorded, it leaves the claim in place and logs ids only.
+
+Recovery settings:
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `dokene.messaging.recovery.enabled` | `true` | Runs the scheduled processor; only one instance runs it at a time. Every Gradle test task sets it to `false` and drives the processor directly. |
+| `dokene.messaging.recovery.claim-timeout` | 10m | Age after which a `STARTED` claim counts as abandoned. Must be at least `dokene.messaging.send-timeout` (10s) plus 1m, or startup fails while recovery is enabled. |
+| `dokene.messaging.recovery.batch-size` | 50 | Claims handled per run (1 to 500). Runs page through the expired claims by attempt id and wrap around, so claims that must be left alone never block the others. |
+| `dokene.messaging.recovery.interval` | 1m | Delay between runs. |
 
 Send policy bounds:
 
