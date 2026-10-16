@@ -2,6 +2,12 @@
 
 Dokene is an open-source, security-first customer follow-up SaaS for small businesses. It is inspired by the Bribri verb `dö̀knẽ`, meaning “to return”.
 
+## Project status
+
+**Active development — not production-ready.** Dokene is still being built. Some features and workflows are incomplete, and APIs, configuration, and documentation may change as development continues. The setup below is intended for local development and testing, not for use with real customer data or live messaging in production.
+
+Follow progress through [Issues](https://github.com/stevdrey/dokene/issues) and [Pull Requests](https://github.com/stevdrey/dokene/pulls).
+
 ## Repository structure
 
 - `backend/` — Spring Boot backend
