@@ -36,8 +36,7 @@ class GraphApiSendErrorsTest {
             "400, 4, RATE_LIMITED", "400, 80007, RATE_LIMITED", "400, 130429, RATE_LIMITED",
             "400, 131048, RATE_LIMITED", "400, 131056, RATE_LIMITED", "429, 132000, RATE_LIMITED",
             "400, 1, PROVIDER_UNAVAILABLE", "400, 2, PROVIDER_UNAVAILABLE", "400, 131000, PROVIDER_UNAVAILABLE",
-            "400, 131016, PROVIDER_UNAVAILABLE", "400, 131057, PROVIDER_UNAVAILABLE",
-            "500, 1, PROVIDER_UNAVAILABLE", "503, 2, PROVIDER_UNAVAILABLE", "503, 131016, PROVIDER_UNAVAILABLE"})
+            "400, 131016, PROVIDER_UNAVAILABLE", "400, 131057, PROVIDER_UNAVAILABLE"})
     void refusalsThatProveNothingWasTakenAreTransient(int status, int code, FailureCategory category) {
         assertThat(GraphApiSendErrors.classify(status, OptionalInt.of(code)))
                 .isEqualTo(new FailedTransiently(category));
@@ -51,8 +50,9 @@ class GraphApiSendErrorsTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"500, 131000", "500, 4", "502, 190", "503, 132000", "504, 131057"})
-    void otherServerErrorsWithACodeAreUncertain(int status, int code) {
+    @CsvSource({"500, 1", "503, 2", "503, 131016", "502, 2", "504, 1", "500, 131000", "500, 4", "502, 190",
+            "503, 132000", "504, 131057"})
+    void everyServerErrorIsUncertainWhateverMetaCodeItCarries(int status, int code) {
         assertThat(GraphApiSendErrors.classify(status, OptionalInt.of(code)))
                 .isEqualTo(new OutcomeUnknown(Optional.empty()));
     }

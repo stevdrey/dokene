@@ -236,8 +236,8 @@ The Meta adapter reports four result classes (ADR 0027 §4):
 
 - `Accepted`: Meta returned a message id. Acceptance is not delivery.
 - `RejectedPermanently`: a definitive refusal, normalized to a `FailureCategory`.
-- `FailedTransiently`: a definitive refusal that proves nothing was taken, such as throttling, an unreachable provider, or a 5xx carrying an explicit Meta "service unavailable" code.
-- `OutcomeUnknown`: a timeout after sending, a redirect, any other 5xx, or an unusable success body.
+- `FailedTransiently`: a definitive refusal that proves nothing was taken, such as throttling, a 4xx "service unavailable" code, an unreachable provider or a failed TLS handshake.
+- `OutcomeUnknown`: a timeout after sending, a redirect, any 5xx (whatever Meta code it carries), or an unusable success body.
 
 `OutcomeUnknown` is never retried automatically. Only the integer Meta error code is read; error text, trace ids and bodies are discarded.
 

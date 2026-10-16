@@ -203,8 +203,6 @@ class GraphApiMessagingProviderTest {
     @CsvSource({
             "throughputLimit, RATE_LIMITED",
             "appRateLimit, RATE_LIMITED",
-            "serviceUnavailable, PROVIDER_UNAVAILABLE",
-            "temporaryDowntime, PROVIDER_UNAVAILABLE",
             "unknownErrorRefused, PROVIDER_UNAVAILABLE"})
     void refusalsThatProveNothingWasSentAreTransient(String fixture, FailureCategory category) {
         replay(fixture);
@@ -226,8 +224,35 @@ class GraphApiMessagingProviderTest {
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.UNKNOWN));
     }
 
+    @ParameterizedTest
+    @CsvSource({"genericServerError", "temporaryDowntime", "serviceUnavailable"})
+    void aServerErrorIsUncertainWhateverMetaCodeItCarriesSoItIsNeverResent(String fixture) {
+        replay(fixture);
+
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        assertThat(requests).as("exactly one POST, never a second send").hasValue(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"wamid.HBgLMTY1MDM4Nzk0MzkVAgARGBI3MTE5MjVBOTE3MDk5QUVFM0YA", "invalid-id"})
+    void theProviderMessageIdIsOpaqueAndNotRequiredToCarryAPrefix(String id) {
+        status = 200;
+        body = messageWithId(id);
+
+        assertThat(send()).isEqualTo(new Accepted(id));
+    }
+
     @Test
-    void aServerErrorWithoutAnExplicitlyTransientCodeIsUncertainAndNeverRetried() {
+    void aMessageIdThatCannotBeStoredOrMatchedSafelyIsNotAcceptance() {
+        for (String id : List.of("", "wamid. bad", "wamid.\u0001bad", "w".repeat(129))) {
+            status = 200;
+            body = messageWithId(id);
+            assertThat(send()).as("id %s", id).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        }
+    }
+
+    @Test
+    void anOpaqueServerErrorOrGatewayPageIsUncertainAndNeverRetried() {
         replay("unknownServerError");
         assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
 
@@ -493,6 +518,11 @@ class GraphApiMessagingProviderTest {
         WhatsAppIntegration proven = verified ? created.verifyOwnership(Instant.now()) : created;
         return enabled ? proven : proven.update(PHONE_NUMBER_ID, "400000000000001", null, false,
                 "synthetic-wa-token", Instant.now());
+    }
+
+    private static byte[] messageWithId(String id) {
+        return JSON.writeValueAsBytes(JSON.createObjectNode().set("messages",
+                JSON.createArrayNode().add(JSON.createObjectNode().put("id", id).put("message_status", "accepted"))));
     }
 
     private void replay(String fixture) {

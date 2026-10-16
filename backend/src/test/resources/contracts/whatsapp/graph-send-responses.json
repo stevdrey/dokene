@@ -64,8 +64,12 @@
     "body": {"error": {"message": "(#131016) Service unavailable", "type": "OAuthException", "code": 131016, "fbtrace_id": "SYNTHETIC-TRACE"}}
   },
   "temporaryDowntime": {
-    "status": 500,
+    "status": 503,
     "body": {"error": {"message": "(#2) Service temporarily unavailable", "type": "OAuthException", "code": 2, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "genericServerError": {
+    "status": 500,
+    "body": {"error": {"message": "(#1) An unknown error occurred", "type": "OAuthException", "code": 1, "fbtrace_id": "SYNTHETIC-TRACE"}}
   },
   "unknownServerError": {
     "status": 500,

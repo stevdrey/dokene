@@ -1,5 +1,5 @@
 // ABOUTME: Maps a non-2xx Graph API answer to a send result from its status and Meta error code only (ADR 0027).
-// ABOUTME: A 4xx is a definitive refusal; a 5xx is uncertain unless Meta names an explicitly transient code.
+// ABOUTME: A 4xx is a definitive refusal; every 5xx is uncertain, whatever Meta code it carries.
 package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
@@ -14,8 +14,6 @@ import java.util.Set;
 final class GraphApiSendErrors {
     /** Meta throttling codes: the request was refused before sending, so another attempt later is safe. */
     private static final Set<Integer> RATE_LIMITED = Set.of(4, 80007, 130429, 131048, 131056);
-    /** Meta "service unavailable" codes that, in a 5xx, still state the message was not taken (agreed in #137). */
-    private static final Set<Integer> TRANSIENT_IN_5XX = Set.of(1, 2, 131016);
     /** Meta "service unavailable" codes; in a 4xx the refusal is definitive, so retrying is safe. */
     private static final Set<Integer> UNAVAILABLE = Set.of(1, 2, 131000, 131016, 131057);
     private static final Set<Integer> AUTHENTICATION = Set.of(0, 3, 10, 190, 131005);
@@ -31,10 +29,8 @@ final class GraphApiSendErrors {
         if (status >= 400 && status < 500) {
             return refused(status, code);
         }
-        if (status >= 500 && status < 600 && code.isPresent() && TRANSIENT_IN_5XX.contains(code.getAsInt())) {
-            return new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE);
-        }
-        // Any other 5xx, a redirect or an unexpected status: Meta may already have accepted the message.
+        // A 5xx, a redirect or an unexpected status: Meta may already have accepted the message. No Meta error code
+        // documents that a 5xx send was not taken, and there is no idempotency key, so a retry could send twice.
         return new OutcomeUnknown(Optional.empty());
     }
 

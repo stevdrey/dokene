@@ -42,7 +42,11 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Component
 public class GraphApiMessagingProvider implements MessagingProvider {
-    /** Meta message ids ({@code wamid.…}) are base64-like; anything else is not trusted as an id. */
+    /**
+     * Meta documents the send response id only as a string ("WhatsApp message ID" in status webhooks); the
+     * {@code wamid.} prefix appears in examples, not in the contract. The id is therefore treated as opaque: this
+     * pattern only guarantees it can be stored and matched by exact equality, never its provider format (ADR 0027).
+     */
     private static final Pattern MESSAGE_ID = Pattern.compile("^[A-Za-z0-9._:=+/-]{1,128}$");
     /** Statuses that mean Meta took the message; acceptance is never delivery, which only a webhook reports. */
     private static final Set<String> ACCEPTED_STATUSES = Set.of("accepted", "held_for_quality_assessment");

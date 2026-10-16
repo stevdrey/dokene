@@ -43,7 +43,7 @@ The adapter reads only the HTTP status, `messages[0].id`, `messages[0].message_s
 
 | Answer | Result | Why |
 | --- | --- | --- |
-| 2xx with a safe `wamid` (`[A-Za-z0-9._:=+/-]{1,128}`) and `message_status` absent, `accepted` or `held_for_quality_assessment` | `Accepted(id)` | Acceptance is not delivery. Delivery comes only from verified webhooks. |
+| 2xx with a safe string id (`[A-Za-z0-9._:=+/-]{1,128}`, see §4.1) and `message_status` absent, `accepted` or `held_for_quality_assessment` | `Accepted(id)` | Acceptance is not delivery. Delivery comes only from verified webhooks. |
 | 2xx with a safe id and any other status (for example `paused`) | `OutcomeUnknown(id)` | Meta assigned an id but did not accept it outright. A webhook may still settle it (T13). |
 | 2xx that is malformed, has no id or a usable one, or is oversized | `OutcomeUnknown()` | Meta may have taken the message. |
 | Deadline already passed, request could not be built, connection refused, connect timeout or failed TLS handshake (`SSLHandshakeException`) | `FailedTransiently(PROVIDER_UNAVAILABLE)` | The request provably never left: HTTP bytes are written only after the connection and the handshake complete. |
@@ -56,10 +56,26 @@ The adapter reads only the HTTP status, `messages[0].id`, `messages[0].message_s
 | 4xx, template or parameter (`100`, `131008`, `131009`, `131051`, `132000`–`132999`, `135000`) | `RejectedPermanently(TEMPLATE_REJECTED)` | |
 | `408` or `425` without a Meta code | `FailedTransiently(PROVIDER_UNAVAILABLE)` | An intermediary did not take the whole request. |
 | Any other 4xx | `RejectedPermanently(UNKNOWN)` | |
-| 5xx with Meta code `1`, `2` or `131016` | `FailedTransiently(PROVIDER_UNAVAILABLE)` | Meta explicitly states the service was unavailable, so the message was not taken. |
-| Any other 5xx, including gateway errors without a Meta body | `OutcomeUnknown()` | Acceptance cannot be ruled out, and a retry could send twice. |
+| Any 5xx, with or without a Meta code (including `1`, `2` and `131016`), and gateway errors without a Meta body | `OutcomeUnknown()` | Acceptance cannot be ruled out, and a retry could send twice. See below. |
 
 Nothing thrown, whether an exception or an `Error`, crosses the port. A 2xx `messages[0].id` that is not a JSON string is not an id, so the result is `OutcomeUnknown()`. An unexpected fault before the `POST` is `FailedTransiently(PROVIDER_UNAVAILABLE)`, and one after it is `OutcomeUnknown()`. A missing resolver or an unresolvable credential is `RejectedPermanently(AUTHENTICATION)`. A missing, disabled or unverified integration is `RejectedPermanently(POLICY_VIOLATION)`.
+
+**Why every 5xx is uncertain.** Meta's [error code reference](https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes) describes code `1` as an invalid request or possible server error, code `2` as temporary downtime or overload, and `131016` as the service being temporarily unavailable. None of them states that a send answered with a 5xx was not accepted or queued, including when the error is produced after processing. The Cloud API also offers no idempotency key (ADR 0023 §4.2). Without such a guarantee, a 5xx is never classified as retryable. This replaces the earlier rule, which treated 5xx with codes `1`, `2` and `131016` as transient (follow-up review on PR #227). A 4xx remains a definitive refusal, so its throttling and service-unavailable codes stay safely retryable, as do the provably pre-send failures above.
+
+#### 4.1 Provider message id
+
+Meta does not document a format for the id:
+- the [Messages reference](https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages) lists the send response's `messages[].id` only as a `string`;
+- the [status webhook reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/status) describes `statuses[].id` only as a "WhatsApp message ID";
+- the `wamid.` prefix appears in examples, not in either contract.
+
+The adapter therefore treats the id as **opaque**. The pattern above guarantees only that the id is a JSON string that can be stored (`VARCHAR(128)`, V18) and matched safely. No prefix is required until Meta documents one.
+
+This is safe because the id is used only for exact, tenant-scoped equality:
+- `OutboundMessageRepository.findIdsByProviderMessageId(tenantId, id)`, backed by the V18 index on `(tenant_id, provider_message_id)`;
+- the equality check in `DefaultDeliveryStatusSink`.
+
+An unexpected but well-formed id can never trigger a send, and it can never match another tenant's message. The worst case is that no verified webhook matches it: the message stays `SENT` without a delivery update, which is visible, and no duplicate is sent. Tests pin both a realistic `wamid.…` id and a prefix-less opaque id as accepted. Empty, whitespace, control-character, over-long and non-string ids are `OutcomeUnknown`.
 
 ### 5. Verification
 
@@ -68,7 +84,8 @@ Tests are offline only. `GraphApiMessagingProviderTest` replays the synthetic Me
 ## Alternatives considered
 
 - **Treat every 5xx as transient.** This is simpler, but a 5xx after Meta accepted the message would lead to a second send.
-- **Treat every 5xx as uncertain.** This never risks a duplicate, but it leaves explicit Meta "service unavailable" answers stuck for manual reconciliation. The mixed rule keeps the conservative default and honours only codes that state the message was not taken.
+- **Retry 5xx answers with Meta codes `1`, `2` or `131016` (the original rule).** This was rejected in the follow-up review: Meta's documentation does not guarantee that those answers mean the message was not taken, and an internal product decision cannot establish transport safety. The chosen rule, every 5xx is uncertain, accepts more manual reconciliation in exchange for never sending twice.
+- **Require the `wamid.` prefix on provider message ids.** This was rejected because the prefix is not part of Meta's documented contract (§4.1).
 - **Carry the secret reference in `OutboundSendCommand`.** This would put integration data into a `messaging` type. The adapter reads the integration and secret reference from the trusted tenant context, and the command carries only the non-secret `SenderRevision` it must match (ADR 0024, issue 137 addendum).
 - **Upgrade to the newest Graph version now.** This was deferred. v23.0 is supported until 2027-10-08 and is already exercised by the other Graph adapters, and a bump should move all three together.
 
