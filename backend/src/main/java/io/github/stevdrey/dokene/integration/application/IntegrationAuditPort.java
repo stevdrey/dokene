@@ -7,11 +7,11 @@ public interface IntegrationAuditPort {
     void updated(UUID integrationId, boolean enabled);
 
     /**
-     * A phone number already mapped by another tenant was refused. Durable in its own transaction, so it survives the
-     * rejected write's rollback. Attributed to the current member; never carries the candidate phone number id.
+     * An ownership proof was refused: not proven by the provider, or the number is verified by another tenant. Durable in
+     * its own transaction, so it survives the rejected write's rollback. Attributed to the current member; never carries the candidate phone number id.
      */
     void mappingRejected();
 
-    /** A mapping change was refused because the rejection budget is spent; same durability and privacy. */
+    /** An ownership verification was refused because the rejection budget is spent; same durability and privacy. */
     void mappingThrottled();
 }

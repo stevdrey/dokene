@@ -1,8 +1,12 @@
 package io.github.stevdrey.dokene.customer.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -69,7 +73,7 @@ class ContactPolicyControllerTest {
                 .andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""));
 
         mvc.perform(put("/api/customers/{customerId}/contacts/{contactId}/consents/WHATSAPP", customerId, contactId)
-                .header("If-Match", "1").contentType(MediaType.APPLICATION_JSON)
+                .header("If-Match", "\"1\"").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"UNKNOWN\",\"source\":\"CUSTOMER_WRITTEN\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.field").value("status"))
@@ -80,7 +84,7 @@ class ContactPolicyControllerTest {
     void changesDoNotContactAndMapsStaleVersion() throws Exception {
         when(service.changeDoNotContact(any(), eq(true), eq(ContactIntentSource.CUSTOMER_VERBAL), eq(0L)))
                 .thenThrow(new CustomerConflictException());
-        mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).header("If-Match", "0")
+        mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).header("If-Match", "\"0\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
                 .andExpect(status().isConflict());
@@ -89,6 +93,19 @@ class ContactPolicyControllerTest {
                 .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(CustomerValidationMessages.REQUEST_INVALID));
+    }
+
+    @Test
+    void refusesEveryIfMatchThatIsNotOneStrongCanonicalNumericEtag() throws Exception {
+        for (String lenient : List.of("0", "\"00\"", "\"+0\"", "W/\"0\"", "\"0\", \"1\"", "*")) {
+            mvc.perform(put("/api/customers/{id}/do-not-contact", customerId).header("If-Match", lenient)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"enabled\":true,\"source\":\"CUSTOMER_VERBAL\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.field").value("If-Match"))
+                    .andExpect(jsonPath("$.message").value(CustomerValidationMessages.CONTACT_POLICY_VERSION_INVALID));
+        }
+        verify(service, never()).changeDoNotContact(any(), anyBoolean(), any(), anyLong());
     }
 
     @Test

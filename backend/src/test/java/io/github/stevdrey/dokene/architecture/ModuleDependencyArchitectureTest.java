@@ -70,6 +70,15 @@ class ModuleDependencyArchitectureTest {
                                     && !javaClass.getPackageName().startsWith(ROOT + ".ratelimit")))
             .because("issue 208: the shared sliding window is used by followup and integration, so it depends on neither");
 
+    private static final ArchRule HTTP_PRIMITIVES_STAY_NEUTRAL = noClasses().that()
+            .resideInAPackage(ROOT + ".http..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "another Dokene module",
+                            javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".http")))
+            .because("issue 209: every module's controllers share the If-Match grammar, so it depends on none of them");
+
     private static final ArchRule MESSAGING_DOMAIN_IS_PURE = noClasses().that()
             .resideInAPackage(ROOT + ".messaging.domain..")
             .should().dependOnClassesThat(
@@ -83,6 +92,11 @@ class ModuleDependencyArchitectureTest {
     @Test
     void rateLimitPrimitivesDependOnNoModule() {
         RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL.check(production);
+    }
+
+    @Test
+    void httpPrimitivesDependOnNoModule() {
+        HTTP_PRIMITIVES_STAY_NEUTRAL.check(production);
     }
 
     @Test

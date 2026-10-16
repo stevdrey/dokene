@@ -13,10 +13,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Component;
 
 /**
- * In-memory sliding window over rejected phone-number-id mappings, per tenant and per actor within the tenant. Only
- * rejections are counted, so successful writes never consume budget. Every mapping change first reserves one unit of
- * both budgets until its outcome is known, so concurrent attempts can never reveal more conflicts than the budget
- * allows. Keys are tenant and identity ids only: the candidate phone number id never reaches this class. State is per
+ * In-memory sliding window over rejected phone-number ownership proofs, per tenant and per actor within the tenant.
+ * Only rejections are counted, so successful proofs never consume budget. Every ownership verification first reserves
+ * one unit of both budgets until its outcome is known, so concurrent attempts can never reveal more rejections than the
+ * budget allows. Keys are tenant and identity ids only: the candidate phone number id never reaches this class. State is per
  * instance and lost on restart. Admin writes are rare, so one monitor guards both budgets and keeps them atomic.
  */
 @Component

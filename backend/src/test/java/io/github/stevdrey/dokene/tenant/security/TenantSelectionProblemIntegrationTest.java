@@ -106,6 +106,7 @@ class TenantSelectionProblemIntegrationTest {
                 "POST /api/customers/" + UUID.randomUUID() + "/messages",
                 "GET /api/integrations/whatsapp",
                 "POST /api/integrations/whatsapp/credential-rotations",
+                "POST /api/integrations/whatsapp/ownership-verifications",
                 "GET /api/templates",
                 "POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh");
     }
