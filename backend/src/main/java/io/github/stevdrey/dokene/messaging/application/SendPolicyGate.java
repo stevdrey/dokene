@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
+import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
@@ -46,6 +47,11 @@ public class SendPolicyGate {
 
     public int maxSendAttempts() {
         return properties.maxSendAttempts();
+    }
+
+    /** The bound on one provider call, from preparation to answer. */
+    public Duration sendTimeout() {
+        return properties.sendTimeout();
     }
 
     /**
@@ -92,9 +98,13 @@ public class SendPolicyGate {
             throw refuse(MessagingErrorCode.CONTACT_FREQUENCY_EXCEEDED);
         }
         messages.acquireSendBudgetLock(message.tenantId());
-        if (messages.countAttemptsStartedSince(message.tenantId(), now.minus(RATE_WINDOW))
+        Instant windowStart = now.minus(RATE_WINDOW);
+        if (messages.countAttemptsStartedSince(message.tenantId(), windowStart)
                 >= properties.sendRatePerTenantPerMinute()) {
-            throw refuse(MessagingErrorCode.RATE_LIMITED);
+            // A slot frees when the oldest counted attempt leaves the sliding window.
+            Instant frees = messages.oldestAttemptStartedSince(message.tenantId(), windowStart)
+                    .map(oldest -> oldest.plus(RATE_WINDOW)).orElse(now.plus(RATE_WINDOW));
+            throw new MessagingRateLimitedException(Duration.between(now, frees));
         }
 
         // Steps 9 and 5b: re-resolve and render the template now, then require the approval to cover that binding.

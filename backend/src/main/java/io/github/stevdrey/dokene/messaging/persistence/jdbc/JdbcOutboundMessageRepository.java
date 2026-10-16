@@ -287,6 +287,14 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     }
 
     @Override
+    public Optional<Instant> oldestAttemptStartedSince(UUID tenantId, Instant since) {
+        Timestamp oldest = jdbc.queryForObject("""
+                SELECT min(started_at) FROM dokene.outbound_send_attempts WHERE tenant_id = ? AND started_at >= ?
+                """, Timestamp.class, tenantId, Timestamp.from(since));
+        return Optional.ofNullable(oldest).map(Timestamp::toInstant);
+    }
+
+    @Override
     public boolean sentToCustomerSince(UUID tenantId, UUID customerId, Instant since) {
         Boolean sent = jdbc.queryForObject("""
                 SELECT EXISTS (SELECT 1 FROM dokene.outbound_messages

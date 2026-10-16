@@ -18,7 +18,9 @@ import io.github.stevdrey.dokene.messaging.domain.Transition;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
+import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.application.TenantContextUnavailableException;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
@@ -27,6 +29,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +60,7 @@ public class OutboundDispatchService {
     private final FollowUpTouchRecorder touches;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
+    private final TenantContextResolver memberships;
     private final MessageAuditPort audit;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -61,7 +68,8 @@ public class OutboundDispatchService {
     public OutboundDispatchService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, SendPolicyGate gate, MessagingProvider provider,
             FollowUpTouchRecorder touches, TenantAuthorizationService authorization, TenantContextProvider contexts,
-            MessageAuditPort audit, PlatformTransactionManager transactionManager, Clock clock) {
+            TenantContextResolver memberships, MessageAuditPort audit, PlatformTransactionManager transactionManager,
+            Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -70,6 +78,7 @@ public class OutboundDispatchService {
         this.touches = Objects.requireNonNull(touches);
         this.authorization = Objects.requireNonNull(authorization);
         this.contexts = Objects.requireNonNull(contexts);
+        this.memberships = Objects.requireNonNull(memberships);
         this.audit = Objects.requireNonNull(audit);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.clock = Objects.requireNonNull(clock);
@@ -95,7 +104,7 @@ public class OutboundDispatchService {
             return replayed;
         }
         Claim.Started started = (Claim.Started) claim;
-        ProviderSendResult result = call(started);
+        ProviderSendResult result = call(context, started);
         try {
             return transactions.execute(status -> record(context, started, result));
         } catch (RuntimeException exception) {
@@ -130,11 +139,7 @@ public class OutboundDispatchService {
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(unlocked.customerId()))
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        try {
-            authorization.requireResourceAccess(TenantPermission.MESSAGE_SEND, customer);
-        } catch (TenantAccessDeniedException exception) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
-        }
+        TenantContext member = currentMember(context, customer);
         OutboundMessage message = messages.findByIdForUpdate(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         if (message.version() != ifMatch) {
@@ -142,15 +147,15 @@ public class OutboundDispatchService {
         }
 
         Instant now = clock.instant();
-        OutboundSendCommand send = gate.evaluate(context, customer, message, now);
-        Transition requested = message.requestSend(context.membershipId().value(), now);
+        OutboundSendCommand send = gate.evaluate(member, customer, message, now);
+        Transition requested = message.requestSend(member.membershipId().value(), now);
         OutboundMessage queued = messages.update(message, requested.next());
         messages.appendEvent(requested.event());
         Transition started = queued.startAttempt(now);
         OutboundMessage sending = messages.update(queued, started.next());
         messages.appendEvent(started.event());
-        SendAttempt attempt = messages.insertAttempt(SendAttempt.started(sending, context.membershipId().value(),
-                context.identityId().value(), now));
+        SendAttempt attempt = messages.insertAttempt(SendAttempt.started(sending, member.membershipId().value(),
+                member.identityId().value(), now));
         idempotency.record(new MessageIdempotencyStore.IdempotencyRecord(UUID.randomUUID(), tenantId,
                 MessageOperation.SEND, key, fingerprint, message.id(), attempt.id(), now));
         audit.sendRequested(requested.event());
@@ -159,16 +164,57 @@ public class OutboundDispatchService {
         return new Claim.Started(sending, attempt, send);
     }
 
-    /** The port promises never to throw; anything that still escapes happened at an unknown point of the call. */
-    private ProviderSendResult call(Claim.Started started) {
+    /**
+     * The request context was resolved before this transaction, and authorization trusts its cached role. Re-read the
+     * membership under the customer lock, so a revocation or demotion committed before the claim stops the send. A
+     * re-invited member has a new membership and does not count as the one who made this request.
+     */
+    private TenantContext currentMember(TenantContext context, Customer customer) {
+        TenantContext member;
         try {
-            ProviderSendResult result = provider.send(started.command());
+            member = memberships.resolve(context.identityId(), context.tenantId());
+        } catch (TenantContextAuthorizationException exception) {
+            throw refuse(MessagingErrorCode.FORBIDDEN);
+        }
+        if (!member.membershipId().equals(context.membershipId())
+                || !authorization.evaluate(member, TenantPermission.MESSAGE_SEND, customer).isAllowed()) {
+            throw refuse(MessagingErrorCode.FORBIDDEN);
+        }
+        return member;
+    }
+
+    /**
+     * One provider call under the dispatch deadline ({@code dokene.messaging.send-timeout}, ADR 0023 §4.3), covering
+     * the adapter's preparation, secret resolution and HTTP exchange. It runs on a virtual thread that binds the
+     * member's context explicitly, because scoped context is never inherited. A call that misses the deadline is
+     * interrupted and its outcome is unknown: a late answer is never recorded, since the send may still have landed.
+     * The port promises never to throw; anything that escapes happened at an unknown point of the call too.
+     */
+    private ProviderSendResult call(TenantContext context, Claim.Started started) {
+        UUID messageId = started.message().id();
+        CompletableFuture<ProviderSendResult> answer = new CompletableFuture<>();
+        Thread caller = Thread.ofVirtual().name("dokene-send-" + messageId).start(() -> {
+            try {
+                answer.complete(contexts.callWithContext(context, () -> provider.send(started.command())));
+            } catch (RuntimeException failure) {
+                answer.completeExceptionally(failure);
+            }
+        });
+        try {
+            ProviderSendResult result = answer.get(gate.sendTimeout().toNanos(), TimeUnit.NANOSECONDS);
             if (result != null) {
                 return result;
             }
-        } catch (RuntimeException exception) {
-            log.warn("Provider send raised; outcome unknown; messageId={}, errorType={}", started.message().id(),
-                    exception.getClass().getSimpleName());
+        } catch (TimeoutException timeout) {
+            caller.interrupt();
+            log.warn("Provider send missed the dispatch deadline; outcome unknown; messageId={}", messageId);
+        } catch (ExecutionException failure) {
+            log.warn("Provider send raised; outcome unknown; messageId={}, errorType={}", messageId,
+                    failure.getCause().getClass().getSimpleName());
+        } catch (InterruptedException interrupted) {
+            caller.interrupt();
+            Thread.currentThread().interrupt();
+            log.warn("Dispatch interrupted while the provider call ran; outcome unknown; messageId={}", messageId);
         }
         return new ProviderSendResult.OutcomeUnknown(Optional.empty());
     }

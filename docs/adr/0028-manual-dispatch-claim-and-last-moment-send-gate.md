@@ -14,6 +14,8 @@ An approved message has to reach the provider at most once per human send comman
 
 ### 1. The STARTED attempt row is the durable intent and claim
 
+The route has no request body. Any payload, even `{}`, is refused with `400 INVALID_INPUT` before anything happens, so a client can never believe that conditions it sent were applied.
+
 No separate outbox table. One transaction, under the customer lock and then the message lock, does all of the following:
 
 - takes the `(tenant, SEND, key)` idempotency lock;
@@ -38,13 +40,13 @@ Duplicate suppression is layered:
 
 `SendPolicyGate` runs inside the claim transaction, under both locks, immediately before T6. The provider call follows that commit with no further decision in between. Checks run in ADR 0023 §4.3 order and fail closed:
 
-1. The trusted tenant context and `MESSAGE_SEND`, including resource access to the customer. A request context exists only for an active membership.
+1. The trusted tenant context and `MESSAGE_SEND`, including resource access to the customer. The request context was resolved before the claim, and authorization trusts its cached role. So the claim re-reads the membership through `TenantContextResolver` under the customer lock. It refuses with `FORBIDDEN` if the membership is no longer active, is no longer the same membership (a member who was removed and re-invited does not count), or its role no longer holds `MESSAGE_SEND`. The fresh context then authorizes and attributes the rest of the claim.
 2. `OutboundSafetyControl.evaluate`: the global switch, the tenant switch, then an enabled, ownership-verified integration. This yields the current sender.
 3. The message is `APPROVED`, and its approval bound a fingerprint.
 4. The contact still belongs to the customer. The customer is active, has no do-not-contact flag, has WhatsApp consent granted for that contact, is `DUE` or `OVERDUE`, and the body still passes `DraftSafetyValidator`. These are the T1/T2 guards, now in `MessageSendGuards` and shared by all three steps.
 5. The documented abuse bounds (ADR 0024 §5), configured under `dokene.messaging`:
    - `CONTACT_FREQUENCY_EXCEEDED` when another message to the same customer has `sent_at` within `min-contact-interval` (default 24h);
-   - `RATE_LIMITED` (`429`) when the tenant has started `send-rate-per-tenant-per-minute` attempts (default 30) in the last minute, counted under a per-tenant advisory lock so concurrent sends cannot all pass the count.
+   - `RATE_LIMITED` (`429`) when the tenant has started `send-rate-per-tenant-per-minute` attempts (default 30) in the last minute, counted under a per-tenant advisory lock so concurrent sends cannot all pass the count. The response carries `Retry-After`: the whole seconds, rounded up, until the oldest counted attempt leaves the window.
 6. `ApprovalBindingAssembler.bind`. It re-resolves the template through `TemplateMappingResolver` (`Resolved` only: enabled, provider-approved for the current mapping version and business account, not older than `dokene.template.approval-max-age`). It re-renders the parameters, validates them with `TemplateParameterValues.validate` and reads the current consent revision.
 7. Step 5b: the stored approval fingerprint must cover that binding, otherwise `APPROVAL_INVALIDATED`. A later mapping edit, disable, rejection, expiry, credential rotation or consent re-grant therefore voids the approval.
 8. `attemptCount < max-send-attempts` (default 3), otherwise `SEND_ATTEMPTS_EXHAUSTED`.
@@ -60,7 +62,7 @@ The call runs outside any transaction, so no connection or row lock is held acro
 - `FailedTransiently` → back to `APPROVED`, or `FAILED` at the attempt cap;
 - `OutcomeUnknown` → stays `SENDING` with `outcomeUnknown`.
 
-An exception or a `null` that escapes the port despite its contract is treated as `OutcomeUnknown(empty)`, because the failure point is unknown. A second transaction then takes the customer lock and then the message lock, applies T8 to T11, completes the attempt row and records `MESSAGE_SENT`, `MESSAGE_SEND_FAILED` or `MESSAGE_SEND_OUTCOME_UNKNOWN`.
+The call runs under a dispatch deadline, `dokene.messaging.send-timeout` (default 10s, ADR 0023 §7), that covers the adapter's preparation, secret resolution and HTTP exchange. The call runs on a virtual thread that binds the member's context explicitly. If it misses the deadline, it is interrupted and the result is `OutcomeUnknown(empty)`. A late answer is ignored, never recorded as success, because the send may still have landed. An exception or a `null` that escapes the port despite its contract is also treated as `OutcomeUnknown(empty)`, because the failure point is unknown. A second transaction then takes the customer lock and then the message lock, applies T8 to T11, completes the attempt row and records `MESSAGE_SENT`, `MESSAGE_SEND_FAILED` or `MESSAGE_SEND_OUTCOME_UNKNOWN`.
 
 A transiently failed message is back in `APPROVED`. Only a new operator command with a new key sends it again, and that command passes the whole gate again. Nothing retries automatically.
 

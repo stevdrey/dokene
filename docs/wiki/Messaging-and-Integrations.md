@@ -126,7 +126,7 @@ Manual dispatch (`POST /api/messages/{messageId}/sends`, `MESSAGE_SEND`, `Idempo
 
 What each case produces:
 
-- A refusal before the claim writes nothing and makes no provider call.
+- A refusal before the claim writes nothing and makes no provider call. That includes a membership that was revoked or demoted after the request began, because the claim re-reads it, and any request body.
 - The same key again replays the current state (`200`). The same key for another message or version is `409 IDEMPOTENCY_KEY_REUSED`.
 - A concurrent click with another key loses the lock race (`STALE_VERSION` or `INVALID_TRANSITION`).
 - If the outcome cannot be recorded, for example during an audit outage, the claim stays and the message stays `SENDING`: sending halts instead of risking a duplicate.
@@ -137,7 +137,8 @@ Send policy bounds:
 | --- | --- | --- |
 | `dokene.messaging.max-send-attempts` | 3 | `SEND_ATTEMPTS_EXHAUSTED` |
 | `dokene.messaging.min-contact-interval` | 24h | `CONTACT_FREQUENCY_EXCEEDED` |
-| `dokene.messaging.send-rate-per-tenant-per-minute` | 30 | `429 RATE_LIMITED` |
+| `dokene.messaging.send-rate-per-tenant-per-minute` | 30 | `429 RATE_LIMITED` with `Retry-After` |
+| `dokene.messaging.send-timeout` | 10s | Past the deadline the provider call is interrupted and its outcome is unknown |
 
 A disable or revocation that commits after the claim cannot retract a call already in flight; it stops later sends only. Application duplicate suppression is not proof of exactly-once delivery by the provider. Live sending stays off until the kill switch work (#144) and the template schema check (#218) land.
 

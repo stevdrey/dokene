@@ -48,11 +48,13 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubSafetyControl;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubTemplateResolver;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -76,7 +78,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-@SpringBootTest(properties = "dokene.ai.provider=fake")
+// A short dispatch deadline so the deadline test is fast; every scripted call answers well within it.
+@SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.send-timeout=2s"})
 @Import({MappedGeneralFollowUpGateConfiguration.class, ScriptedMessagingProvider.Configuration.class})
 class OutboundDispatchIntegrationTest {
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra. Quedamos atentos.";
@@ -397,8 +400,13 @@ class OutboundDispatchIntegrationTest {
     }
 
     private void assertDeniedWithoutEffects(OutboundMessage approved, MessagingErrorCode code) throws Exception {
+        assertDeniedWithoutEffects(ownerA, approved, code);
+    }
+
+    private void assertDeniedWithoutEffects(TenantContext sender, OutboundMessage approved, MessagingErrorCode code)
+            throws Exception {
         OutboundMessage before = current(approved);
-        assertThatRefused(() -> inContext(ownerA, () -> dispatch.send(send(before, "deny-" + UUID.randomUUID()))),
+        assertThatRefused(() -> inContext(sender, () -> dispatch.send(send(before, "deny-" + UUID.randomUUID()))),
                 code);
         OutboundMessage after = current(approved);
         assertThat(after.status()).as(code.name()).isEqualTo(MessageStatus.APPROVED);
@@ -406,6 +414,52 @@ class OutboundDispatchIntegrationTest {
         assertThat(attempts(approved)).as(code.name()).isEmpty();
         assertThat(idempotencyRows(approved)).as(code.name()).isZero();
         assertThat(provider.calls()).as(code.name()).isEmpty();
+    }
+
+    @Test
+    void aMembershipRevokedOrDemotedAfterTheRequestStartedCannotClaimTheSend() throws Exception {
+        Instant now = Instant.now();
+        TenantMembership revoked = seedMembership(memberships, contexts, ownerA.tenantId(),
+                new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, now);
+        TenantMembership demoted = seedMembership(memberships, contexts, ownerA.tenantId(),
+                new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, now);
+        // Contexts as a request filter resolved them, before the membership changes below commit.
+        TenantContext staleRevoked = context(revoked);
+        TenantContext staleDemoted = context(demoted);
+        revoked.revoke(Instant.now());
+        demoted.changeRole(TenantRole.VIEWER, Instant.now());
+        contexts.runWithTenantId(ownerA.tenantId(), () -> {
+            memberships.save(revoked);
+            memberships.save(demoted);
+        });
+
+        OutboundMessage approved = approvedMessage();
+        assertDeniedWithoutEffects(staleRevoked, approved, MessagingErrorCode.FORBIDDEN);
+        assertDeniedWithoutEffects(staleDemoted, approved, MessagingErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    void aProviderCallThatMissesTheDispatchDeadlineIsAnUnknownOutcome() throws Exception {
+        OutboundMessage approved = approvedMessage();
+        provider.duringSend = () -> {
+            try {
+                Thread.sleep(30_000);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        };
+
+        long started = System.nanoTime();
+        OutboundMessage unknown = inContext(ownerA, () -> dispatch.send(send(approved, "slow-" + UUID.randomUUID())))
+                .message();
+
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(15));
+        assertThat(unknown.status()).isEqualTo(MessageStatus.SENDING);
+        assertThat(unknown.outcomeUnknown()).isTrue();
+        assertThat(provider.calls()).hasSize(1);
+        assertThatRefused(() -> inContext(ownerA, () -> dispatch.send(send(unknown, "again-" + UUID.randomUUID()))),
+                MessagingErrorCode.INVALID_TRANSITION);
+        assertThat(provider.calls()).hasSize(1);
     }
 
     private OutboundMessage approvedMessage() throws Exception {

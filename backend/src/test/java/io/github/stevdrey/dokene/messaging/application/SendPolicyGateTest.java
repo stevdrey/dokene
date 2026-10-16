@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -24,6 +25,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageChannel;
 import io.github.stevdrey.dokene.messaging.domain.MessageOrigin;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
@@ -95,9 +97,15 @@ class SendPolicyGateTest {
         approvedWith(ApprovalFingerprint.of(binding));
         when(messages.countAttemptsStartedSince(approved.tenantId(), NOW.minus(Duration.ofMinutes(1))))
                 .thenReturn(30);
+        when(messages.oldestAttemptStartedSince(approved.tenantId(), NOW.minus(Duration.ofMinutes(1))))
+                .thenReturn(Optional.of(NOW.minusSeconds(45)));
 
         assertRefused(gate(defaults()), approved, MessagingErrorCode.RATE_LIMITED);
-        verify(messages).acquireSendBudgetLock(approved.tenantId());
+        // The oldest counted attempt leaves the one-minute window in 15 seconds.
+        assertThatThrownBy(() -> gate(defaults()).evaluate(context, customer, approved, NOW))
+                .isInstanceOfSatisfying(MessagingRateLimitedException.class,
+                        throttled -> assertThat(throttled.retryAfter()).isEqualTo(Duration.ofSeconds(15)));
+        verify(messages, atLeastOnce()).acquireSendBudgetLock(approved.tenantId());
         verifyNoInteractions(bindings);
     }
 
@@ -127,7 +135,7 @@ class SendPolicyGateTest {
         approvedWith(ApprovalFingerprint.of(retriedBinding));
         when(bindings.bind(retried, customer, sender)).thenReturn(retriedBinding);
 
-        assertRefused(gate(new MessagingDispatchProperties(1, null, null)), retried,
+        assertRefused(gate(new MessagingDispatchProperties(1, null, null, null)), retried,
                 MessagingErrorCode.SEND_ATTEMPTS_EXHAUSTED);
     }
 
@@ -168,7 +176,7 @@ class SendPolicyGateTest {
     }
 
     private static MessagingDispatchProperties defaults() {
-        return new MessagingDispatchProperties(null, null, null);
+        return new MessagingDispatchProperties(null, null, null, null);
     }
 
     private void permitted() {

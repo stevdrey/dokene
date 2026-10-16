@@ -39,9 +39,11 @@ import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryServi
 import io.github.stevdrey.dokene.messaging.application.MessageAuditPort;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
+import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -83,8 +85,8 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(properties = "dokene.ai.provider=fake")
-@Import(MappedGeneralFollowUpGateConfiguration.class)
+@SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.send-rate-per-tenant-per-minute=1"})
+@Import({MappedGeneralFollowUpGateConfiguration.class, ScriptedMessagingProvider.Configuration.class})
 class MessageApiIntegrationTest {
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra. Quedamos atentos.";
     private static final String PROBLEM = "application/problem+json";
@@ -112,6 +114,7 @@ class MessageApiIntegrationTest {
     @Autowired ApprovalBindingAssembler bindings;
     @Autowired StubTemplateResolver templates;
     @Autowired StubSafetyControl safety;
+    @Autowired ScriptedMessagingProvider provider;
     @Autowired JdbcTemplate jdbc;
     @MockitoSpyBean MessageAuditPort audit;
 
@@ -134,6 +137,7 @@ class MessageApiIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         MappedGeneralFollowUpGateConfiguration.reset(templates, safety);
+        provider.reset();
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         Instant now = Instant.now();
@@ -246,8 +250,40 @@ class MessageApiIntegrationTest {
                 .andExpect(status().isConflict()).andExpect(content().contentType(PROBLEM))
                 .andExpect(jsonPath("$.code").value("OUTBOUND_DISABLED_GLOBALLY"));
 
+        // The command has no body: any payload is refused before anything happens.
+        safety.blockedWith = null;
+        for (String payload : List.of("{}", "{\"force\":true}")) {
+            mvc.perform(command(post("/api/messages/" + messageId + "/sends"), operatorA, "b-" + UUID.randomUUID(),
+                            "\"2\"", payload))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+
         assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.APPROVED);
         assertThat(sendAttempts()).isZero();
+        assertThat(provider.calls()).isEmpty();
+    }
+
+    /** ADR 0023 §4.4: the tenant send rate answers 429 with Retry-After (this class allows 1 attempt a minute). */
+    @Test
+    void theTenantSendRateAnswersTooManyRequestsWithRetryAfter() throws Exception {
+        safety.blockedWith = null;
+        provider.next = () -> new ProviderSendResult.RejectedPermanently(FailureCategory.TEMPLATE_REJECTED);
+        String first = submittedMessageId();
+        approve(operatorA, first, "approve-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated());
+        send(operatorA, first, "s-" + UUID.randomUUID(), "\"2\"")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("FAILED"));
+
+        String second = submittedMessageId();
+        approve(operatorA, second, "approve-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated());
+        var refused = send(operatorA, second, "s-" + UUID.randomUUID(), "\"2\"")
+                .andExpect(status().isTooManyRequests()).andExpect(content().contentType(PROBLEM))
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                .andReturn().getResponse();
+        assertThat(Long.parseLong(refused.getHeader("Retry-After"))).isBetween(1L, 60L);
+        assertThat(messageStatus(second)).isEqualTo(MessageStatus.APPROVED);
+        assertThat(provider.calls()).hasSize(1);
     }
 
     @Test

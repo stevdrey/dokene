@@ -80,6 +80,9 @@ public interface OutboundMessageRepository {
     /** Attempts started at or after {@code since}, whatever their outcome: every one may have reached the provider. */
     int countAttemptsStartedSince(UUID tenantId, Instant since);
 
+    /** The earliest start among the attempts counted above; it bounds when the window frees a slot. */
+    Optional<Instant> oldestAttemptStartedSince(UUID tenantId, Instant since);
+
     /** True when another message to this customer was sent ({@code sent_at} set) at or after {@code since}. */
     boolean sentToCustomerSince(UUID tenantId, UUID customerId, Instant since);
 

@@ -156,14 +156,20 @@ public class MessageController {
 
     /**
      * T6 onwards: re-checks the full send policy, commits the attempt, calls the provider once and records the outcome
-     * (issue 138). There is no body. A provider refusal or an unknown outcome is still {@code 201}, with the state in
-     * the representation; only a refusal before the attempt row exists is an error (ADR 0023 §4.4).
+     * (issue 138). The command has no body, and any payload is refused as invalid input before anything happens, so a
+     * client can never believe extra conditions it sent were applied. A provider refusal or an unknown outcome is still
+     * {@code 201}, with the state in the representation; only a refusal before the attempt row exists is an error
+     * (ADR 0023 §4.4).
      */
     @RequiredPermission(TenantPermission.MESSAGE_SEND)
     @PostMapping("/messages/{messageId}/sends")
     public ResponseEntity<MessageResponse> send(@PathVariable UUID messageId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-            @RequestHeader(value = "If-Match", required = false) String ifMatch) {
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody(required = false) JsonNode body) {
+        if (body != null) {
+            throw invalid();
+        }
         String version = version(ifMatch);
         return respond(dispatch.send(new SendMessageCommand(messageId, version, idempotencyKey)), false);
     }
