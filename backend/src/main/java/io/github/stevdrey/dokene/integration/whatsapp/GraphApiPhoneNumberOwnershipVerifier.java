@@ -15,14 +15,12 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
-@EnableConfigurationProperties(GraphApiProperties.class)
 public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershipVerifier {
     /** Most pages one proof may read; a longer list is unavailable rather than assumed to lack the number. */
     private static final int MAX_PAGES = 5;
@@ -34,10 +32,10 @@ public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershi
     private final JsonMapper json = JsonMapper.builder().build();
 
     public GraphApiPhoneNumberOwnershipVerifier(ObjectProvider<IntegrationSecretResolver> secrets,
-            TenantContextProvider contexts, GraphApiProperties properties) {
+            TenantContextProvider contexts, GraphApiHttp http) {
         this.secrets = Objects.requireNonNull(secrets, "Secrets are required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
-        this.http = new GraphApiHttp(properties);
+        this.http = Objects.requireNonNull(http, "Graph API HTTP is required");
     }
 
     @Override

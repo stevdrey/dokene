@@ -20,14 +20,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
-@EnableConfigurationProperties(GraphApiProperties.class)
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
     /** Most pages one lookup may read; a longer list is unavailable rather than assumed to lack the template. */
     private static final int MAX_PAGES = 5;
@@ -40,11 +38,11 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
 
     public GraphApiTemplateProviderGateway(WhatsAppIntegrationRepository integrations,
             ObjectProvider<IntegrationSecretResolver> secrets, TenantContextProvider contexts,
-            GraphApiProperties properties) {
+            GraphApiHttp http) {
         this.integrations = Objects.requireNonNull(integrations, "Integrations are required");
         this.secrets = Objects.requireNonNull(secrets, "Secrets are required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
-        this.http = new GraphApiHttp(properties);
+        this.http = Objects.requireNonNull(http, "Graph API HTTP is required");
     }
 
     /** The sender as this adapter returns it: the identity plus what is needed to call Meta, never exposed further. */

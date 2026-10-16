@@ -113,9 +113,10 @@ class GraphApiTemplateProviderGatewayTest {
                 new TenantMembershipId(UUID.randomUUID()), TenantRole.ADMIN));
         when(secrets.getIfAvailable()).thenReturn(resolver);
         when(resolver.resolve(any(), any())).thenAnswer(call -> new ResolvedSecret("EAAG-secret".toCharArray()));
-        gateway = new GraphApiTemplateProviderGateway(integrations, secrets, contexts, new GraphApiProperties(
-                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v23.0"),
-                Duration.ofMillis(500), java.util.List.of()));
+        gateway = new GraphApiTemplateProviderGateway(integrations, secrets, contexts,
+                new GraphApiHttp(new GraphApiProperties(
+                        URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v23.0"),
+                        Duration.ofMillis(500), java.util.List.of())));
     }
 
     @AfterEach

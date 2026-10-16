@@ -14,7 +14,7 @@ Core application logic should depend on a narrow contract such as:
 MessagingProvider
 ```
 
-An initial adapter can integrate with Meta WhatsApp Cloud API. Future adapters may target other providers or channels without changing follow-up policy.
+The initial adapter, `GraphApiMessagingProvider` ([ADR 0027](../adr/0027-meta-whatsapp-send-adapter.md)), sends approved templates through the Meta WhatsApp Cloud API (Graph API v23.0, available until 2027-10-08). It is a transport only: one bounded `POST` to the allow-listed Graph host with the tenant's own credential, and no retry. Future adapters may target other providers or channels without changing follow-up policy.
 
 The provider abstraction should expose application-level semantics, not leak arbitrary provider JSON into the domain.
 
@@ -231,6 +231,15 @@ Provider errors should be normalized into useful application categories while pr
 Do not expose raw secret-bearing provider payloads in logs or UI errors.
 
 Retries should distinguish transient from permanent failures.
+
+The Meta adapter reports four result classes (ADR 0027 §4):
+
+- `Accepted`: Meta returned a message id. Acceptance is not delivery.
+- `RejectedPermanently`: a definitive refusal, normalized to a `FailureCategory`.
+- `FailedTransiently`: a definitive refusal that proves nothing was taken, such as throttling, a 4xx "service unavailable" code, an unreachable provider or a failed TLS handshake.
+- `OutcomeUnknown`: a timeout after sending, a redirect, any 5xx (whatever Meta code it carries), or an unusable success body.
+
+`OutcomeUnknown` is never retried automatically. Only the integer Meta error code is read; error text, trace ids and bodies are discarded.
 
 ## Future channels
 

@@ -118,7 +118,7 @@ How each kind of change is handled:
 
 | Port | Owner (package) | Consumer | Fail-closed rule |
 | --- | --- | --- | --- |
-| `MessagingProvider.send(OutboundSendCommand) -> ProviderSendResult` (existing) | `messaging.application`, implemented in `integration.whatsapp` | dispatch (T7 to T11) | Exceptions never cross; a timeout after the request left is `OutcomeUnknown`, never a retry. |
+| `MessagingProvider.send(OutboundSendCommand) -> ProviderSendResult` (existing) | `messaging.application`, implemented in `integration.whatsapp` by `GraphApiMessagingProvider` ([ADR 0027](0027-meta-whatsapp-send-adapter.md)) | dispatch (T7 to T11) | Exceptions never cross; a timeout after the request left is `OutcomeUnknown`, never a retry. |
 | `DeliveryStatusSink.apply(DeliveryStatusReport)` (existing) | `messaging.application` | webhook boundary | Applied only under a `ProviderContext`. |
 | `OutboundSafetyControl.configuredSender(TenantId) -> Optional<SenderRevision>` | `messaging.application`, implemented by `integration` | T2 fingerprint | Returns the configured sender regardless of kill switches and the enabled flag; empty only when no integration exists, which refuses T2 with `INTEGRATION_DISABLED`. |
 | `OutboundSafetyControl.evaluate(TenantId) -> Permitted(SenderRevision) \| Blocked(code)` | `messaging.application`, implemented by `integration` | send policy steps 3 and 4, plus the T6 fingerprint sender identity | Read at send time, never cached. `Blocked` admits only `OUTBOUND_DISABLED_GLOBALLY`, `OUTBOUND_DISABLED_FOR_TENANT` and `INTEGRATION_DISABLED`. Missing configuration throws. |
@@ -230,6 +230,10 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 - **Location.** `StrictRequests` moves from `tenant.api` to the module-neutral `http` package. It depends on no Dokene module, and `ModuleDependencyArchitectureTest` enforces this, as it does for `ratelimit`.
 - **Every `If-Match`.** The customer, contact-policy, purchase and follow-up controllers parse `If-Match` with `StrictRequests.strongNumericVersion`, as the message, template and integration controllers already did. Unquoted, zero-padded, signed, weak, list and `*` values are `400` everywhere (ADR 0023 §4.1). A present but empty or blank header is malformed, not absent: only an absent optional header keeps the optional precondition (follow-up recommendation and draft) or the body `version` fallback (customer update). Each module keeps its own error body. The SPA always sends the quoted form.
 - **Range.** The grammar accepts every non-negative `long` (up to 19 digits) and refuses a value above `Long.MAX_VALUE`. Every ETag is formatted with `StrictRequests.strongEtag`, which refuses a negative version, so every emitted ETag parses back.
+
+## Addendum (issue 137): the send command binds the approved sender
+
+`OutboundSendCommand` gains `expectedSender`, the `ApprovalFingerprint.SenderRevision` recorded at approval. The dispatcher (#142) builds it from the same approval binding as the parameters (§2 step 5b). The Meta adapter ([ADR 0027](0027-meta-whatsapp-send-adapter.md)) re-reads the tenant's integration at send time and refuses with `RejectedPermanently(POLICY_VIOLATION)`, without calling Meta, unless `WhatsAppOutboundSafetyControl.senderRevision(integration)` equals it. The check closes the window between the dispatcher's sender check and the provider call, in which a reconfigured and re-proven integration could otherwise send under an identity the operator never approved. The field is non-secret, the record is internal to the backend (no HTTP fixture changes), and no caller existed before this change.
 
 ## Addendum (issue 210): proof of phone number ownership and reclaim
 
