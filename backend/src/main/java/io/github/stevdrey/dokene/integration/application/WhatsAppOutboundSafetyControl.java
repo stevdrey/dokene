@@ -29,7 +29,7 @@ public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
     @Override
     public Optional<SenderRevision> configuredSender(TenantId tenantId) {
         Objects.requireNonNull(tenantId, "Tenant id is required");
-        return integrations.findByTenant(tenantId).map(WhatsAppOutboundSafetyControl::sender);
+        return integrations.findByTenant(tenantId).map(WhatsAppOutboundSafetyControl::senderRevision);
     }
 
     /**
@@ -73,7 +73,8 @@ public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
                 : Optional.of(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
     }
 
-    private static SenderRevision sender(WhatsAppIntegration integration) {
+    /** The sending identity an approval binds; the send adapter compares it with the one approval recorded. */
+    public static SenderRevision senderRevision(WhatsAppIntegration integration) {
         return new SenderRevision(integration.id(), integration.phoneNumberId(), integration.businessAccountId(),
                 integration.credentialRevision());
     }

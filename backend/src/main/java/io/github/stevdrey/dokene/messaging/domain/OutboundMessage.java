@@ -17,7 +17,8 @@ public record OutboundMessage(UUID id, UUID tenantId, UUID customerId, UUID cont
         UUID createdByMembershipId, UUID createdByActorId, Instant createdAt, Instant updatedAt, long version) {
 
     public static final int MAX_BODY_LENGTH = 1000;
-    private static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
+    /** The recipient format every send uses: E.164 with a leading plus. The provider adapter re-checks with it. */
+    public static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
 
     public OutboundMessage {
         Objects.requireNonNull(id, "Message id is required");

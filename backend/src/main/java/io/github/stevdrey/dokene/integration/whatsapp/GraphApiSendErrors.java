@@ -43,6 +43,8 @@ final class GraphApiSendErrors {
             return switch (status) {
                 case 401, 403 -> new RejectedPermanently(FailureCategory.AUTHENTICATION);
                 case 429 -> new FailedTransiently(FailureCategory.RATE_LIMITED);
+                // An intermediary that did not receive the whole request (or refused early data) took nothing.
+                case 408, 425 -> new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE);
                 default -> new RejectedPermanently(FailureCategory.UNKNOWN);
             };
         }

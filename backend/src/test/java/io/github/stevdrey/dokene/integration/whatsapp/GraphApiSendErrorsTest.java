@@ -44,6 +44,13 @@ class GraphApiSendErrorsTest {
     }
 
     @ParameterizedTest
+    @ValueSource(ints = {408, 425})
+    void anIntermediaryThatTookNothingIsTransient(int status) {
+        assertThat(GraphApiSendErrors.classify(status, OptionalInt.empty()))
+                .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+    }
+
+    @ParameterizedTest
     @CsvSource({"500, 131000", "500, 4", "502, 190", "503, 132000", "504, 131057"})
     void otherServerErrorsWithACodeAreUncertain(int status, int code) {
         assertThat(GraphApiSendErrors.classify(status, OptionalInt.of(code)))

@@ -2,6 +2,7 @@
 // ABOUTME: Holds Meta ids, the human display number, a secret reference and when ownership was proven; never secrets.
 package io.github.stevdrey.dokene.integration.domain;
 
+import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TimestampPrecision;
 import java.time.Instant;
@@ -14,7 +15,6 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
         Instant updatedAt, long version, Instant ownershipVerifiedAt) {
     /** Meta ids are numeric strings; they are identifiers, not phone numbers. */
     private static final Pattern META_ID = Pattern.compile("^[0-9]{5,32}$");
-    private static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
     private static final Pattern SECRET_REF = Pattern.compile("^[A-Za-z0-9_-]{1,128}$");
 
     public WhatsAppIntegration {
@@ -22,7 +22,7 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
         Objects.requireNonNull(tenantId, "Tenant id is required");
         requireMatch(phoneNumberId, META_ID, "Phone number id is invalid");
         requireMatch(businessAccountId, META_ID, "Business account id is invalid");
-        if (displayPhoneNumber != null && !E164.matcher(displayPhoneNumber).matches()) {
+        if (displayPhoneNumber != null && !OutboundMessage.E164.matcher(displayPhoneNumber).matches()) {
             throw new IllegalArgumentException("Display phone number is invalid");
         }
         requireMatch(secretRef, SECRET_REF, "Secret reference is invalid");

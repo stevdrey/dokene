@@ -14,6 +14,7 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
+import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
@@ -84,6 +85,7 @@ class GraphApiMessagingProviderTest {
     private final ObjectProvider<IntegrationSecretResolver> secrets = mock(ObjectProvider.class);
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private GraphApiMessagingProvider provider;
+    private WhatsAppIntegration configured;
 
     @BeforeEach
     void start() throws IOException {
@@ -113,7 +115,8 @@ class GraphApiMessagingProviderTest {
             }
         });
         server.start();
-        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, true)));
+        configured = integration(true, true);
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(configured));
         when(contexts.requireCurrent()).thenReturn(new TenantContext(tenantId, new IdentityId(UUID.randomUUID()),
                 new TenantMembershipId(UUID.randomUUID()), TenantRole.ADMIN));
         when(secrets.getIfAvailable()).thenReturn(resolver);
@@ -217,6 +220,8 @@ class GraphApiMessagingProviderTest {
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
         status = 429;
         assertThat(send()).isEqualTo(new FailedTransiently(FailureCategory.RATE_LIMITED));
+        status = 408;
+        assertThat(send()).isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
         status = 418;
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.UNKNOWN));
     }
@@ -278,7 +283,7 @@ class GraphApiMessagingProviderTest {
     void anInvalidCommandIsRefusedWithoutCallingTheProvider(String recipient, String template, String language,
             String parameter, FailureCategory category) {
         OutboundSendCommand invalid = new OutboundSendCommand(recipient, template, language, List.of(parameter),
-                "es-419", UUID.randomUUID());
+                "es-419", UUID.randomUUID(), WhatsAppOutboundSafetyControl.senderRevision(configured));
 
         assertThat(provider.send(invalid)).isEqualTo(new RejectedPermanently(category));
         assertThat(requests).hasValue(0);
@@ -354,7 +359,7 @@ class GraphApiMessagingProviderTest {
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, false)));
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
 
-        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, true)));
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(configured));
         when(secrets.getIfAvailable()).thenReturn(null);
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
 
@@ -362,6 +367,84 @@ class GraphApiMessagingProviderTest {
         when(resolver.resolve(any(), any())).thenThrow(new IllegalStateException("no secret " + TOKEN));
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
 
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void neverSendsFromASenderOtherThanTheOneTheApprovalBound() {
+        OutboundSendCommand approved = command(List.of("Ana"));
+        WhatsAppIntegration rotated = configured.rotateCredential(Instant.now()).verifyOwnership(Instant.now());
+        WhatsAppIntegration otherNumber = configured
+                .update("100000000000002", "400000000000001", null, true, "synthetic-wa-token", Instant.now())
+                .verifyOwnership(Instant.now());
+
+        for (WhatsAppIntegration current : List.of(rotated, otherNumber)) {
+            when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(current));
+            assertThat(provider.send(approved)).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+        }
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void aNonStringMessageIdIsNotAcceptance() {
+        status = 200;
+        body = "{\"messages\":[{\"id\":12345,\"message_status\":\"accepted\"}]}".getBytes(StandardCharsets.UTF_8);
+
+        assertThat(send()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+    }
+
+    @Test
+    void aFailedTlsHandshakeIsTransientBecauseNoRequestWasWritten() throws Exception {
+        try (ServerSocket raw = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread.ofVirtual().start(() -> {
+                try (Socket client = raw.accept()) {
+                    client.getInputStream().read(new byte[8192]); // the ClientHello
+                    // A TLS fatal alert record: handshake_failure.
+                    client.getOutputStream().write(new byte[] {0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28});
+                    client.getOutputStream().flush();
+                    Thread.sleep(500);
+                } catch (IOException | InterruptedException ignored) {
+                    // The adapter gave up on the exchange.
+                }
+            });
+
+            assertThat(providerFor(URI.create("https://127.0.0.1:" + raw.getLocalPort() + "/v23.0"))
+                    .send(command(List.of("Ana")))).isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+        }
+    }
+
+    @Test
+    void aConnectThatHangsIsTransientBecauseNothingLeft() throws Exception {
+        // A full accept queue makes Linux drop further SYNs, so the next connect hangs instead of being refused.
+        try (ServerSocket full = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            List<Socket> fillers = new java.util.ArrayList<>();
+            try {
+                for (int i = 0; i < 4; i++) {
+                    Socket filler = new Socket();
+                    fillers.add(filler);
+                    try {
+                        filler.connect(full.getLocalSocketAddress(), 100);
+                    } catch (IOException queueAlreadyFull) {
+                        break;
+                    }
+                }
+                long started = System.nanoTime();
+                assertThat(providerFor(full.getLocalPort()).send(command(List.of("Ana"))))
+                        .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+                assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(500));
+            } finally {
+                for (Socket filler : fillers) {
+                    filler.close();
+                }
+            }
+        }
+    }
+
+    @Test
+    void anErrorBeforeSendingNeverCrossesThePort() {
+        when(secrets.getIfAvailable()).thenThrow(new StackOverflowError());
+
+        assertThat(send()).isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
         assertThat(requests).hasValue(0);
     }
 
@@ -392,12 +475,16 @@ class GraphApiMessagingProviderTest {
 
     private OutboundSendCommand command(List<String> parameters) {
         return new OutboundSendCommand(RECIPIENT, "repeat_purchase_v1", "es_MX", parameters, "es-419",
-                UUID.randomUUID());
+                UUID.randomUUID(), WhatsAppOutboundSafetyControl.senderRevision(configured));
     }
 
     private GraphApiMessagingProvider providerFor(int port) {
-        return new GraphApiMessagingProvider(integrations, secrets, contexts, new GraphApiProperties(
-                URI.create("http://127.0.0.1:" + port + "/v23.0"), Duration.ofMillis(500), List.of()));
+        return providerFor(URI.create("http://127.0.0.1:" + port + "/v23.0"));
+    }
+
+    private GraphApiMessagingProvider providerFor(URI baseUrl) {
+        return new GraphApiMessagingProvider(integrations, secrets, contexts,
+                new GraphApiHttp(new GraphApiProperties(baseUrl, Duration.ofMillis(500), List.of())));
     }
 
     private WhatsAppIntegration integration(boolean enabled, boolean verified) {

@@ -231,6 +231,10 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 - **Every `If-Match`.** The customer, contact-policy, purchase and follow-up controllers parse `If-Match` with `StrictRequests.strongNumericVersion`, as the message, template and integration controllers already did. Unquoted, zero-padded, signed, weak, list and `*` values are `400` everywhere (ADR 0023 §4.1). A present but empty or blank header is malformed, not absent: only an absent optional header keeps the optional precondition (follow-up recommendation and draft) or the body `version` fallback (customer update). Each module keeps its own error body. The SPA always sends the quoted form.
 - **Range.** The grammar accepts every non-negative `long` (up to 19 digits) and refuses a value above `Long.MAX_VALUE`. Every ETag is formatted with `StrictRequests.strongEtag`, which refuses a negative version, so every emitted ETag parses back.
 
+## Addendum (issue 137): the send command binds the approved sender
+
+`OutboundSendCommand` gains `expectedSender`, the `ApprovalFingerprint.SenderRevision` recorded at approval. The dispatcher (#142) builds it from the same approval binding as the parameters (§2 step 5b). The Meta adapter ([ADR 0027](0027-meta-whatsapp-send-adapter.md)) re-reads the tenant's integration at send time and refuses with `RejectedPermanently(POLICY_VIOLATION)`, without calling Meta, unless `WhatsAppOutboundSafetyControl.senderRevision(integration)` equals it. The check closes the window between the dispatcher's sender check and the provider call, in which a reconfigured and re-proven integration could otherwise send under an identity the operator never approved. The field is non-secret, the record is internal to the backend (no HTTP fixture changes), and no caller existed before this change.
+
 ## Addendum (issue 210): proof of phone number ownership and reclaim
 
 [#210](https://github.com/stevdrey/dokene/issues/210) implements the ownership gate the issue 134 follow-up review left open. It replaces the out-of-band operator release.

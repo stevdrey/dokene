@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
+import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.NotSent;
 import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.PostOutcome;
@@ -15,6 +16,7 @@ import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.Unknown;
 import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
+import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.Accepted;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.FailedTransiently;
@@ -24,14 +26,13 @@ import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import java.net.URI;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -40,9 +41,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 @Component
-@EnableConfigurationProperties(GraphApiProperties.class)
 public class GraphApiMessagingProvider implements MessagingProvider {
-    private static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
     /** Meta message ids ({@code wamid.…}) are base64-like; anything else is not trusted as an id. */
     private static final Pattern MESSAGE_ID = Pattern.compile("^[A-Za-z0-9._:=+/-]{1,128}$");
     /** Statuses that mean Meta took the message; acceptance is never delivery, which only a webhook reports. */
@@ -56,57 +55,82 @@ public class GraphApiMessagingProvider implements MessagingProvider {
 
     public GraphApiMessagingProvider(WhatsAppIntegrationRepository integrations,
             ObjectProvider<IntegrationSecretResolver> secrets, TenantContextProvider contexts,
-            GraphApiProperties properties) {
+            GraphApiHttp http) {
         this.integrations = Objects.requireNonNull(integrations, "Integrations are required");
         this.secrets = Objects.requireNonNull(secrets, "Secrets are required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
-        this.http = new GraphApiHttp(properties);
+        this.http = Objects.requireNonNull(http, "Graph API HTTP is required");
+    }
+
+    /** The outcome of everything done before the POST: a refusal, or what the single POST needs. */
+    private sealed interface Preparation {
+    }
+
+    private record Refused(ProviderSendResult result) implements Preparation {
+    }
+
+    /** The open secret is owned by {@link #dispatch}, which closes it. */
+    private record Prepared(URI uri, byte[] payload, long deadline, ResolvedSecret secret) implements Preparation {
     }
 
     @Override
     public ProviderSendResult send(OutboundSendCommand command) {
-        AtomicBoolean dispatched = new AtomicBoolean();
+        Preparation preparation;
         try {
-            Optional<FailureCategory> invalid = validate(command);
-            if (invalid.isPresent()) {
-                return new RejectedPermanently(invalid.get());
-            }
-            TenantId tenantId = contexts.requireCurrent().tenantId();
-            Optional<WhatsAppIntegration> found = integrations.findByTenant(tenantId);
-            if (found.isEmpty() || !found.get().enabled() || !found.get().ownershipVerified()
-                    || !WhatsAppIntegration.isMetaId(found.get().phoneNumberId())) {
-                return new RejectedPermanently(FailureCategory.POLICY_VIOLATION);
-            }
-            WhatsAppIntegration integration = found.get();
-            IntegrationSecretResolver resolver = secrets.getIfAvailable();
-            if (resolver == null) {
-                return new RejectedPermanently(FailureCategory.AUTHENTICATION);
-            }
-            byte[] payload = json.writeValueAsBytes(payload(command));
-            long deadline = http.deadline();
-            ResolvedSecret secret;
-            try {
-                secret = resolver.resolve(new Tenant(tenantId), new SecretReference(integration.secretRef()));
-            } catch (RuntimeException unresolvable) {
-                return new RejectedPermanently(FailureCategory.AUTHENTICATION);
-            }
-            try (secret) {
-                PostOutcome outcome = secret.withValue(token -> {
-                    dispatched.set(true);
-                    return http.post(http.uri(integration.phoneNumberId() + "/messages"), token, payload, deadline);
-                });
-                return classify(outcome);
-            }
-        } catch (RuntimeException failure) {
-            // No provider text or exception detail crosses the port; only whether the POST may have left matters.
-            return dispatched.get() ? new OutcomeUnknown(Optional.empty())
-                    : new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE);
+            preparation = prepare(command);
+        } catch (RuntimeException | Error failure) {
+            // Nothing can have left yet. No exception detail crosses the port.
+            return new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE);
+        }
+        return switch (preparation) {
+            case Refused refused -> refused.result();
+            case Prepared prepared -> dispatch(prepared);
+        };
+    }
+
+    /** Checks the command, the sender and the credential; resolving the secret is the last step, so none leaks. */
+    private Preparation prepare(OutboundSendCommand command) {
+        Optional<FailureCategory> invalid = validate(command);
+        if (invalid.isPresent()) {
+            return new Refused(new RejectedPermanently(invalid.get()));
+        }
+        TenantId tenantId = contexts.requireCurrent().tenantId();
+        Optional<WhatsAppIntegration> found = integrations.findByTenant(tenantId);
+        // Never send from a sender other than the one the approval bound, even if it was re-proven since.
+        if (found.isEmpty() || !found.get().enabled() || !found.get().ownershipVerified()
+                || !WhatsAppIntegration.isMetaId(found.get().phoneNumberId())
+                || !WhatsAppOutboundSafetyControl.senderRevision(found.get()).equals(command.expectedSender())) {
+            return new Refused(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+        }
+        WhatsAppIntegration integration = found.get();
+        IntegrationSecretResolver resolver = secrets.getIfAvailable();
+        if (resolver == null) {
+            return new Refused(new RejectedPermanently(FailureCategory.AUTHENTICATION));
+        }
+        URI uri = http.uri(integration.phoneNumberId() + "/messages");
+        byte[] payload = json.writeValueAsBytes(payload(command));
+        long deadline = http.deadline();
+        try {
+            return new Prepared(uri, payload, deadline,
+                    resolver.resolve(new Tenant(tenantId), new SecretReference(integration.secretRef())));
+        } catch (RuntimeException unresolvable) {
+            return new Refused(new RejectedPermanently(FailureCategory.AUTHENTICATION));
+        }
+    }
+
+    /** The single POST; from here on any failure may follow a transmitted request, so it is uncertain. */
+    private ProviderSendResult dispatch(Prepared prepared) {
+        try (ResolvedSecret secret = prepared.secret()) {
+            return classify(secret.withValue(
+                    token -> http.post(prepared.uri(), token, prepared.payload(), prepared.deadline())));
+        } catch (RuntimeException | Error failure) {
+            return new OutcomeUnknown(Optional.empty());
         }
     }
 
     /** Re-checks the shape Meta accepts with the contract's own rules, so a malformed command is refused, not sent. */
     private Optional<FailureCategory> validate(OutboundSendCommand command) {
-        if (!E164.matcher(command.recipientPhone()).matches()) {
+        if (!OutboundMessage.E164.matcher(command.recipientPhone()).matches()) {
             return Optional.of(FailureCategory.INVALID_RECIPIENT);
         }
         boolean templateValid = TemplateMapping.PROVIDER_TEMPLATE_NAME.matcher(command.providerTemplateName()).matches()
@@ -150,7 +174,8 @@ public class GraphApiMessagingProvider implements MessagingProvider {
     /** A 2xx without a usable id is uncertain: Meta may have taken the message even though the answer is unusable. */
     private ProviderSendResult accepted(byte[] body) {
         JsonNode message = parse(body).path("messages").path(0);
-        String id = message.path("id").asString(null);
+        JsonNode idNode = message.path("id");
+        String id = idNode.isString() ? idNode.asString() : null;
         if (id == null || !MESSAGE_ID.matcher(id).matches()) {
             return new OutcomeUnknown(Optional.empty());
         }

@@ -17,7 +17,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
+import javax.net.ssl.SSLHandshakeException;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Component;
 
+/** One instance (and one {@link HttpClient}, so one connection pool) serves every Graph adapter. */
+@Component
+@EnableConfigurationProperties(GraphApiProperties.class)
 final class GraphApiHttp {
     /** Hard cap on the bytes read from the provider; enforced while streaming, never after buffering. */
     static final int MAX_BODY_BYTES = 262_144;
@@ -29,7 +35,10 @@ final class GraphApiHttp {
 
     GraphApiHttp(GraphApiProperties properties) {
         this.properties = Objects.requireNonNull(properties, "Properties are required");
-        this.http = HttpClient.newBuilder().connectTimeout(properties.timeout())
+        // Half the operation budget for connecting, so a connect that hangs fails as a connect timeout (provably not
+        // sent) before the request timeout, which cannot tell whether anything was written.
+        Duration half = properties.timeout().dividedBy(2);
+        this.http = HttpClient.newBuilder().connectTimeout(half.isZero() ? properties.timeout() : half)
                 .followRedirects(HttpClient.Redirect.NEVER).build();
     }
 
@@ -54,20 +63,10 @@ final class GraphApiHttp {
             return new Reply(0, null);
         }
         try {
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
-                    .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
-                    .GET().build();
-            HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            InputStream stream = response.body();
-            try {
-                long declared = response.headers().firstValueAsLong("Content-Length").orElse(0);
-                if (response.statusCode() != 200 || declared > MAX_BODY_BYTES) {
-                    return new Reply(response.statusCode(), null);
-                }
-                return new Reply(200, readBounded(stream, deadline));
-            } finally {
-                stream.close(); // also cancels the exchange when the body was not fully read
-            }
+            HttpResponse<InputStream> response = http.send(request(uri, token, remaining).GET().build(),
+                    HttpResponse.BodyHandlers.ofInputStream());
+            int status = response.statusCode();
+            return new Reply(status, status == 200 ? readBody(response, deadline) : discard(response));
         } catch (IOException failure) {
             throw new IllegalStateException("Provider request failed");
         } catch (InterruptedException interrupted) {
@@ -103,9 +102,7 @@ final class GraphApiHttp {
         }
         HttpRequest request;
         try {
-            request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
-                    .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
-                    .header("Content-Type", "application/json")
+            request = request(uri, token, remaining).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(json)).build();
         } catch (IllegalArgumentException unusable) {
             // Building the request writes nothing, so an unusable one provably never left.
@@ -113,15 +110,9 @@ final class GraphApiHttp {
         }
         try {
             HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            InputStream stream = response.body();
-            try {
-                long declared = response.headers().firstValueAsLong("Content-Length").orElse(0);
-                byte[] body = declared > MAX_BODY_BYTES ? null : readBounded(stream, deadline);
-                return new Responded(response.statusCode(), body);
-            } finally {
-                stream.close(); // also cancels the exchange when the body was not fully read
-            }
-        } catch (HttpConnectTimeoutException | ConnectException notConnected) {
+            return new Responded(response.statusCode(), readBody(response, deadline));
+        } catch (HttpConnectTimeoutException | ConnectException | SSLHandshakeException notConnected) {
+            // No connection, or no completed TLS handshake: the HTTP request is written only after both.
             return new NotSent();
         } catch (IOException | RuntimeException afterSending) {
             // Anything else, including a malformed response header, may follow a transmitted request.
@@ -130,6 +121,27 @@ final class GraphApiHttp {
             Thread.currentThread().interrupt();
             return new Unknown();
         }
+    }
+
+    private HttpRequest.Builder request(URI uri, char[] token, long remainingNanos) {
+        return HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remainingNanos))
+                .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json");
+    }
+
+    /** The body within the size and time bounds, or null; always closes the stream, cancelling an unread exchange. */
+    private byte[] readBody(HttpResponse<InputStream> response, long deadline) throws InterruptedException {
+        try (InputStream stream = response.body()) {
+            long declared = response.headers().firstValueAsLong("Content-Length").orElse(0);
+            return declared > MAX_BODY_BYTES ? null : readBounded(stream, deadline);
+        } catch (IOException closeFailed) {
+            return null;
+        }
+    }
+
+    /** Closes the body without reading it, which cancels the exchange. */
+    private byte[] discard(HttpResponse<InputStream> response) throws IOException {
+        response.body().close();
+        return null;
     }
 
     /**
