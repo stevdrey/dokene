@@ -26,7 +26,7 @@ Status: first PR of two (claim, last-moment gate, synchronous dispatch). The bou
 | Audit outage before the call: full rollback, no call | `anAuditOutageBeforeTheClaimRollsEverythingBackWithoutAProviderCall` |
 | Crash or audit outage after submission: claim kept, sending halted, index backstop | `anAuditOutageAfterTheCallKeepsTheClaimAndHaltsFurtherSends` |
 | Consent change during an in-flight call cannot retract it | `aRevocationDuringAnInFlightCallCannotRetractItButBlocksTheNextSend` |
-| A membership revoked or demoted after the request started cannot claim (Codex review, P1) | `aMembershipRevokedOrDemotedAfterTheRequestStartedCannotClaimTheSend` |
+| A membership revoked or demoted after the request started cannot claim, and each refusal is audited as `AUTHORIZATION_DENIED` (Codex review) | `aMembershipRevokedOrDemotedAfterTheRequestStartedCannotClaimTheSend` |
 | Dispatch deadline: a slow provider is an unknown outcome, never resent (Codex review, P2) | `aProviderCallThatMissesTheDispatchDeadlineIsAnUnknownOutcome` |
 
 `SendPolicyGateTest` (unit) covers:
@@ -34,7 +34,7 @@ Status: first PR of two (claim, last-moment gate, synchronous dispatch). The bou
 - the ADR order, with the kill switch checked before any other read;
 - an approval without a fingerprint;
 - contact frequency;
-- the tenant rate counted under the budget lock;
+- the tenant rate refusal with its remaining window (the caller holds the budget lock);
 - a fingerprint mismatch;
 - the attempt cap;
 - a contact the customer no longer owns;

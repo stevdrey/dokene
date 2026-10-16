@@ -15,7 +15,10 @@ import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.application.AuditReader;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
+import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
+import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
@@ -50,6 +53,7 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubSafetyControl;
@@ -436,6 +440,20 @@ class OutboundDispatchIntegrationTest {
         OutboundMessage approved = approvedMessage();
         assertDeniedWithoutEffects(staleRevoked, approved, MessagingErrorCode.FORBIDDEN);
         assertDeniedWithoutEffects(staleDemoted, approved, MessagingErrorCode.FORBIDDEN);
+
+        // Each T6 authorization failure is audited on its own, although the claim rolled back (ADR 0023 §4.5).
+        List<AuditEvent> denials = inContext(ownerA, () -> auditReader.read(null, 100).events()).stream()
+                .filter(event -> event.type() == AuditEventType.AUTHORIZATION_DENIED).toList();
+        assertThat(denials).anySatisfy(event -> {
+            assertThat(event.membershipId()).isEqualTo(revoked.id());
+            assertThat(event.metadata()).isEqualTo(new AuditMetadata.AuthorizationDenied(
+                    TenantPermission.MESSAGE_SEND, AuditDenialReason.INACTIVE_MEMBERSHIP));
+        });
+        assertThat(denials).anySatisfy(event -> {
+            assertThat(event.membershipId()).isEqualTo(demoted.id());
+            assertThat(event.metadata()).isEqualTo(new AuditMetadata.AuthorizationDenied(
+                    TenantPermission.MESSAGE_SEND, AuditDenialReason.INSUFFICIENT_PERMISSION));
+        });
     }
 
     @Test

@@ -56,7 +56,9 @@ public class SendPolicyGate {
 
     /**
      * Steps 3 to 11 in ADR order; steps 1 and 2 (context and {@code MESSAGE_SEND}) are the caller's, which resolved
-     * {@code context} from an active membership. The caller holds the customer then the message row lock.
+     * {@code context} from an active membership. The caller holds the customer row lock, the message row lock and the
+     * tenant send budget lock ({@link OutboundMessageRepository#acquireSendBudgetLock}), and read {@code now} after
+     * taking the last one, so the rate window is counted from when this claim actually holds the budget.
      */
     public OutboundSendCommand evaluate(TenantContext context, Customer customer, OutboundMessage message,
             Instant now) {
@@ -91,13 +93,13 @@ public class SendPolicyGate {
         guards.check(customer, message.contactId(), message.action(), message.templateIntent(), message.body(),
                 message.locale(), Optional.empty());
 
-        // Step 8 and the ADR 0024 §5 abuse bounds: contact frequency, then the tenant's rate of started attempts.
+        // Step 8 and the ADR 0024 §5 abuse bounds: contact frequency, then the tenant's rate of started attempts,
+        // counted under the budget lock the caller holds.
         Duration interval = properties.minContactInterval();
         if (!interval.isZero()
                 && messages.sentToCustomerSince(message.tenantId(), message.customerId(), now.minus(interval))) {
             throw refuse(MessagingErrorCode.CONTACT_FREQUENCY_EXCEEDED);
         }
-        messages.acquireSendBudgetLock(message.tenantId());
         Instant windowStart = now.minus(RATE_WINDOW);
         if (messages.countAttemptsStartedSince(message.tenantId(), windowStart)
                 >= properties.sendRatePerTenantPerMinute()) {

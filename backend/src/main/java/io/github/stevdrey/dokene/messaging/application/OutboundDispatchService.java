@@ -15,6 +15,9 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.messaging.domain.RequestFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.Transition;
+import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
+import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
+import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
@@ -51,6 +54,8 @@ public class OutboundDispatchService {
     private static final Logger log = LoggerFactory.getLogger(OutboundDispatchService.class);
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("^[A-Za-z0-9._:-]{1,128}$");
     private static final Pattern IF_MATCH = Pattern.compile("^[0-9]{1,19}$");
+    /** The denial phrase the authorization audit maps to INACTIVE_MEMBERSHIP. */
+    private static final String MEMBERSHIP_GONE = "Tenant membership not found";
 
     private final OutboundMessageRepository messages;
     private final MessageIdempotencyStore idempotency;
@@ -61,6 +66,7 @@ public class OutboundDispatchService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final TenantContextResolver memberships;
+    private final AuthorizationAuditListener audits;
     private final MessageAuditPort audit;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -68,8 +74,8 @@ public class OutboundDispatchService {
     public OutboundDispatchService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, SendPolicyGate gate, MessagingProvider provider,
             FollowUpTouchRecorder touches, TenantAuthorizationService authorization, TenantContextProvider contexts,
-            TenantContextResolver memberships, MessageAuditPort audit, PlatformTransactionManager transactionManager,
-            Clock clock) {
+            TenantContextResolver memberships, AuthorizationAuditListener audits, MessageAuditPort audit,
+            PlatformTransactionManager transactionManager, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -79,6 +85,7 @@ public class OutboundDispatchService {
         this.authorization = Objects.requireNonNull(authorization);
         this.contexts = Objects.requireNonNull(contexts);
         this.memberships = Objects.requireNonNull(memberships);
+        this.audits = Objects.requireNonNull(audits);
         this.audit = Objects.requireNonNull(audit);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.clock = Objects.requireNonNull(clock);
@@ -146,6 +153,9 @@ public class OutboundDispatchService {
             throw refuse(MessagingErrorCode.STALE_VERSION);
         }
 
+        // The tenant rate bound's lock comes before the clock read: a claim that waited behind another one counts
+        // the window and dates its attempt from when it actually holds the budget (ADR 0024 §5).
+        messages.acquireSendBudgetLock(tenantId);
         Instant now = clock.instant();
         OutboundSendCommand send = gate.evaluate(member, customer, message, now);
         Transition requested = message.requestSend(member.membershipId().value(), now);
@@ -174,13 +184,27 @@ public class OutboundDispatchService {
         try {
             member = memberships.resolve(context.identityId(), context.tenantId());
         } catch (TenantContextAuthorizationException exception) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
+            throw denied(context, MEMBERSHIP_GONE);
         }
-        if (!member.membershipId().equals(context.membershipId())
-                || !authorization.evaluate(member, TenantPermission.MESSAGE_SEND, customer).isAllowed()) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
+        if (!member.membershipId().equals(context.membershipId())) {
+            throw denied(context, MEMBERSHIP_GONE);
+        }
+        AuthorizationDecision decision = authorization.evaluate(member, TenantPermission.MESSAGE_SEND, customer);
+        if (!decision.isAllowed()) {
+            throw denied(context, decision.rejectionReason().orElse("Denied"));
         }
         return member;
+    }
+
+    /**
+     * A T6 authorization failure is audited as AUTHORIZATION_DENIED (ADR 0023 §4.5), like every other denied check,
+     * through the same listener the authorization service uses. That record commits independently of the rolled
+     * back claim. The reason is one of the listener's closed phrases, never free text.
+     */
+    private MessagingRefusedException denied(TenantContext context, String reason) {
+        audits.onAuthorizationDenied(AuthorizationDeniedEvent.of(context, TenantPermission.MESSAGE_SEND,
+                context.tenantId(), reason, clock.instant()));
+        return refuse(MessagingErrorCode.FORBIDDEN);
     }
 
     /**

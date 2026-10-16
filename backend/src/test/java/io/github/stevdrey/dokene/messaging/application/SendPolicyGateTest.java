@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -92,7 +91,7 @@ class SendPolicyGateTest {
     }
 
     @Test
-    void theTenantRateIsCountedUnderTheBudgetLock() {
+    void theTenantRateRefusalCarriesTheRemainingWindow() {
         permitted();
         approvedWith(ApprovalFingerprint.of(binding));
         when(messages.countAttemptsStartedSince(approved.tenantId(), NOW.minus(Duration.ofMinutes(1))))
@@ -105,7 +104,8 @@ class SendPolicyGateTest {
         assertThatThrownBy(() -> gate(defaults()).evaluate(context, customer, approved, NOW))
                 .isInstanceOfSatisfying(MessagingRateLimitedException.class,
                         throttled -> assertThat(throttled.retryAfter()).isEqualTo(Duration.ofSeconds(15)));
-        verify(messages, atLeastOnce()).acquireSendBudgetLock(approved.tenantId());
+        // The budget lock is the caller's, taken before it reads the clock it passes in.
+        verify(messages, never()).acquireSendBudgetLock(any());
         verifyNoInteractions(bindings);
     }
 
