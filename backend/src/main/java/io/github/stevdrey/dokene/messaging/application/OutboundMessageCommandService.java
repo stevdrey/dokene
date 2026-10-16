@@ -2,25 +2,12 @@
 // ABOUTME: Order: validate, permission, idempotency lock, customer lock, message lock, guards, domain, persist, audit.
 package io.github.stevdrey.dokene.messaging.application;
 
-import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
-import io.github.stevdrey.dokene.ai.domain.DraftVariables;
-import io.github.stevdrey.dokene.ai.domain.MessageDraft;
-import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
-import io.github.stevdrey.dokene.ai.domain.RecommendationValidationException;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
-import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
-import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
-import io.github.stevdrey.dokene.customer.domain.ContactChannel;
-import io.github.stevdrey.dokene.customer.domain.ContactPolicy;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
-import io.github.stevdrey.dokene.customer.domain.CustomerStatus;
-import io.github.stevdrey.dokene.followup.application.DraftGroundingAssembler;
-import io.github.stevdrey.dokene.followup.application.FollowUpService;
-import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
@@ -43,7 +30,6 @@ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,15 +45,11 @@ public class OutboundMessageCommandService {
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("^[A-Za-z0-9._:-]{1,128}$");
     private static final Pattern IF_MATCH = Pattern.compile("^[0-9]{1,19}$");
     private static final int MAX_NOTE_LENGTH = 500;
-    // Fixed, context free rationale: the validator checks it with the body and it must never fabricate facts.
-    private static final String OPERATOR_RATIONALE = "Mensaje enviado por el operador.";
 
     private final OutboundMessageRepository messages;
     private final MessageIdempotencyStore idempotency;
     private final CustomerRepository customers;
-    private final ContactPolicyRepository contactPolicies;
-    private final FollowUpService followUps;
-    private final DraftGroundingAssembler grounding;
+    private final MessageSendGuards guards;
     private final ApprovalBindingAssembler bindings;
     private final OutboundSafetyControl safety;
     private final TenantAuthorizationService authorization;
@@ -76,16 +58,13 @@ public class OutboundMessageCommandService {
     private final Clock clock;
 
     public OutboundMessageCommandService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
-            CustomerRepository customers, ContactPolicyRepository contactPolicies, FollowUpService followUps,
-            DraftGroundingAssembler grounding, ApprovalBindingAssembler bindings,
+            CustomerRepository customers, MessageSendGuards guards, ApprovalBindingAssembler bindings,
             OutboundSafetyControl safety, TenantAuthorizationService authorization, TenantContextProvider contexts,
             MessageAuditPort audit, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
-        this.contactPolicies = Objects.requireNonNull(contactPolicies);
-        this.followUps = Objects.requireNonNull(followUps);
-        this.grounding = Objects.requireNonNull(grounding);
+        this.guards = Objects.requireNonNull(guards);
         this.bindings = Objects.requireNonNull(bindings);
         this.safety = Objects.requireNonNull(safety);
         this.authorization = Objects.requireNonNull(authorization);
@@ -115,7 +94,7 @@ public class OutboundMessageCommandService {
         CustomerPhone contact = customer.phones().stream()
                 .filter(phone -> phone.id().equals(command.contactId())).findFirst()
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        runSharedGuards(customer, contact.id(), input.action(), input.templateIntent(), input.body(),
+        guards.check(customer, contact.id(), input.action(), input.templateIntent(), input.body(),
                 input.locale(), Optional.of(input.ifMatch()));
         // The same template, language and parameter checks approval binds, so an unapprovable message is never stored.
         bindings.requireRenderable(input.templateIntent(), input.locale(), input.body(), customer);
@@ -219,7 +198,7 @@ public class OutboundMessageCommandService {
             if (customer.phones().stream().noneMatch(phone -> phone.id().equals(message.contactId()))) {
                 throw refuse(MessagingErrorCode.CONTACT_NOT_OWNED);
             }
-            runSharedGuards(customer, message.contactId(), message.action(), message.templateIntent(),
+            guards.check(customer, message.contactId(), message.action(), message.templateIntent(),
                     message.body(), message.locale(), Optional.empty());
             if (messages.findOpenByCustomer(tenantId, message.customerId(), Optional.of(message.id())).isPresent()) {
                 throw refuse(MessagingErrorCode.MESSAGE_ALREADY_OPEN);
@@ -250,47 +229,6 @@ public class OutboundMessageCommandService {
         log.info("Message decided; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(), tenantId,
                 message.status(), stored.status());
         return result(tenantId, stored.id(), Optional.of(approval), true);
-    }
-
-    /**
-     * T1 guard steps 3 to 8 (customer, contact policy, eligibility, policy version when given, body), shared with T2
-     * which skips the policy version check. The template step is the binding's: submit checks it with
-     * {@link ApprovalBindingAssembler#requireRenderable} and approval while binding.
-     */
-    private void runSharedGuards(Customer customer, UUID contactId, SemanticAction action,
-            SemanticTemplateIntent intent, String body, String locale, Optional<Long> policyVersionIfMatch) {
-        if (customer.status() != CustomerStatus.ACTIVE) {
-            throw refuse(MessagingErrorCode.CUSTOMER_ARCHIVED);
-        }
-        ContactPolicy policy = contactPolicies.find(customer);
-        if (policy.doNotContact()) {
-            throw refuse(MessagingErrorCode.DO_NOT_CONTACT);
-        }
-        boolean granted = policy.consents().stream().anyMatch(consent -> consent.contactId().equals(contactId)
-                && consent.channel() == ContactChannel.WHATSAPP && consent.status() == ConsentStatus.GRANTED);
-        if (!granted) {
-            throw refuse(MessagingErrorCode.NO_CONTACT_CONSENT);
-        }
-        var snapshot = followUps.evaluateSnapshot(customer.id());
-        FollowUpStatus status = snapshot.evaluation().status();
-        if (status != FollowUpStatus.DUE && status != FollowUpStatus.OVERDUE) {
-            throw refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE);
-        }
-        if (policyVersionIfMatch.isPresent() && policyVersionIfMatch.get() != snapshot.policyVersion()) {
-            throw refuse(MessagingErrorCode.STALE_VERSION);
-        }
-        var context = grounding.assemble(customer.id())
-                .orElseThrow(() -> refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE));
-        MessageDraft draft;
-        try {
-            draft = new MessageDraft(action, intent, body, DraftVariables.empty(), locale, List.of(), List.of(),
-                    OPERATOR_RATIONALE, RecommendationConfidence.of(1.0));
-        } catch (RecommendationValidationException exception) {
-            throw refuse(MessagingErrorCode.BODY_REJECTED);
-        }
-        if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding()).isPresent()) {
-            throw refuse(MessagingErrorCode.BODY_REJECTED);
-        }
     }
 
     private Customer lockCustomer(TenantContext context, UUID customerId, TenantPermission permission) {

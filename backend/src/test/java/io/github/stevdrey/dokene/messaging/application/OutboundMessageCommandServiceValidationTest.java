@@ -41,8 +41,8 @@ class OutboundMessageCommandServiceValidationTest {
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
     private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
-            customers, contactPolicies, followUps, grounding, bindings, safety, authorization, contexts, audit,
-            Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
+            customers, new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety, authorization,
+            contexts, audit, Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
 
     @Test
     void refusesMissingOrOversizedBodyBeforeTouchingAnything() {

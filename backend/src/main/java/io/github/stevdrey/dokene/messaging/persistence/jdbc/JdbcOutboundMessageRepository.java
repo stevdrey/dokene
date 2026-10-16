@@ -38,6 +38,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JdbcOutboundMessageRepository implements OutboundMessageRepository {
     private static final String OPEN_MESSAGE_INDEX = "one_open_message_per_customer";
+    private static final String STARTED_ATTEMPT_INDEX = "one_started_attempt_per_message";
     private static final String UNIQUE_VIOLATION = "23505";
     /** The message plus whether the customer still owns the snapshotted contact (no foreign key, spec 0001). */
     private static final String LISTED_SELECT = """
@@ -219,6 +220,19 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
 
     @Override
     public SendAttempt insertAttempt(SendAttempt a) {
+        try {
+            insertAttemptRow(a);
+        } catch (DataIntegrityViolationException exception) {
+            // The durable claim (issue 138): a second STARTED attempt for one message is a lost race, not a fault.
+            if (violatesIndex(exception, STARTED_ATTEMPT_INDEX)) {
+                throw new MessagingRefusedException(MessagingErrorCode.INVALID_TRANSITION);
+            }
+            throw exception;
+        }
+        return a;
+    }
+
+    private void insertAttemptRow(SendAttempt a) {
         jdbc.update("""
                 INSERT INTO dokene.outbound_send_attempts
                     (id, tenant_id, message_id, attempt_number, send_key, outcome, failure_category,
@@ -227,7 +241,6 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
                 """, a.id(), a.tenantId(), a.messageId(), a.attemptNumber(), a.sendKey(), a.outcome().name(),
                 name(a.failureCategory()), a.providerMessageId(), Timestamp.from(a.startedAt()),
                 timestamp(a.finishedAt()), a.requestedByMembershipId(), a.requestedByActorId());
-        return a;
     }
 
     @Override
@@ -257,6 +270,29 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
                         row.getTimestamp("started_at").toInstant(), instant(row.getTimestamp("finished_at")),
                         row.getObject("requested_by_membership_id", UUID.class),
                         row.getObject("requested_by_actor_id", UUID.class)), tenantId, messageId);
+    }
+
+    @Override
+    public void acquireSendBudgetLock(UUID tenantId) {
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))", tenantId + ":SEND_BUDGET",
+                tenantId.toString());
+    }
+
+    @Override
+    public int countAttemptsStartedSince(UUID tenantId, Instant since) {
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM dokene.outbound_send_attempts WHERE tenant_id = ? AND started_at >= ?
+                """, Integer.class, tenantId, Timestamp.from(since));
+        return count == null ? 0 : count;
+    }
+
+    @Override
+    public boolean sentToCustomerSince(UUID tenantId, UUID customerId, Instant since) {
+        Boolean sent = jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM dokene.outbound_messages
+                               WHERE tenant_id = ? AND customer_id = ? AND sent_at >= ?)
+                """, Boolean.class, tenantId, customerId, Timestamp.from(since));
+        return Boolean.TRUE.equals(sent);
     }
 
     @Override
@@ -320,10 +356,14 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     }
 
     private static boolean violatesOpenMessageIndex(DataIntegrityViolationException exception) {
+        return violatesIndex(exception, OPEN_MESSAGE_INDEX);
+    }
+
+    private static boolean violatesIndex(DataIntegrityViolationException exception, String index) {
         Throwable cause = exception;
         while (cause != null) {
             if (cause instanceof SQLException sql && UNIQUE_VIOLATION.equals(sql.getSQLState())) {
-                return sql.getMessage() != null && sql.getMessage().contains(OPEN_MESSAGE_INDEX);
+                return sql.getMessage() != null && sql.getMessage().contains(index);
             }
             cause = cause.getCause();
         }

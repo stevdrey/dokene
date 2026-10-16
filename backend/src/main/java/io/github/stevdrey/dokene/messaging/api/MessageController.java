@@ -1,4 +1,4 @@
-// ABOUTME: /api/messages/** and /api/customers/{id}/messages: submit, read, approve or reject, cancel (ADR 0023 §3.1).
+// ABOUTME: /api/messages/** and /api/customers/{id}/messages: submit, read, decide, cancel and send (ADR 0023 §3.1).
 // ABOUTME: Thin transport layer over the frozen v1 contract; every rule and re-check lives in the messaging services.
 package io.github.stevdrey.dokene.messaging.api;
 
@@ -16,10 +16,12 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.SubmitMessag
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
 import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.CommandResult;
+import io.github.stevdrey.dokene.messaging.application.OutboundDispatchService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryService;
 import io.github.stevdrey.dokene.messaging.application.MessageDetail;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository.ListedMessage;
+import io.github.stevdrey.dokene.messaging.application.SendMessageCommand;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
@@ -60,10 +62,13 @@ import tools.jackson.databind.JsonNode;
 public class MessageController {
     private final OutboundMessageCommandService commands;
     private final OutboundMessageQueryService queries;
+    private final OutboundDispatchService dispatch;
 
-    public MessageController(OutboundMessageCommandService commands, OutboundMessageQueryService queries) {
+    public MessageController(OutboundMessageCommandService commands, OutboundMessageQueryService queries,
+            OutboundDispatchService dispatch) {
         this.commands = commands;
         this.queries = queries;
+        this.dispatch = dispatch;
     }
 
     /** T1. {@code If-Match} is the customer's follow-up policy version the operator's draft was made against. */
@@ -147,6 +152,20 @@ public class MessageController {
                 : read(body, CancellationRequest.class);
         return respond(commands.cancel(new CancellationCommand(messageId, request.note(), version, idempotencyKey)),
                 false);
+    }
+
+    /**
+     * T6 onwards: re-checks the full send policy, commits the attempt, calls the provider once and records the outcome
+     * (issue 138). There is no body. A provider refusal or an unknown outcome is still {@code 201}, with the state in
+     * the representation; only a refusal before the attempt row exists is an error (ADR 0023 §4.4).
+     */
+    @RequiredPermission(TenantPermission.MESSAGE_SEND)
+    @PostMapping("/messages/{messageId}/sends")
+    public ResponseEntity<MessageResponse> send(@PathVariable UUID messageId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch) {
+        String version = version(ifMatch);
+        return respond(dispatch.send(new SendMessageCommand(messageId, version, idempotencyKey)), false);
     }
 
     /**

@@ -223,6 +223,33 @@ class MessageApiIntegrationTest {
                 .andExpect(jsonPath("$.nextCursor").isEmpty());
     }
 
+    /** Issue 138: the send route exists, enforces its preconditions, and stays off while the kill switch is. */
+    @Test
+    void theSendRouteIsDefaultOffAndRefusesBeforeAnyAttempt() throws Exception {
+        String messageId = submittedMessageId();
+        approve(operatorA, messageId, "approve-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated());
+
+        send(viewerA, messageId, "v-" + UUID.randomUUID(), "\"2\"")
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        send(operatorA, messageId, null, "\"2\"")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        send(operatorA, messageId, "k-" + UUID.randomUUID(), null)
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        send(operatorA, messageId, "k-" + UUID.randomUUID(), "W/\"2\"")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        send(operatorA, messageId, "k-" + UUID.randomUUID(), "\"1\"")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        send(ownerB, messageId, "k-" + UUID.randomUUID(), "\"2\"")
+                .andExpect(status().isNotFound());
+        send(operatorA, messageId, "k-" + UUID.randomUUID(), "\"2\"")
+                .andExpect(status().isConflict()).andExpect(content().contentType(PROBLEM))
+                .andExpect(jsonPath("$.code").value("OUTBOUND_DISABLED_GLOBALLY"));
+
+        assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.APPROVED);
+        assertThat(sendAttempts()).isZero();
+    }
+
     @Test
     void viewersAreDeniedEveryCommandBeforeTheirInputIsValidated() throws Exception {
         String messageId = submittedMessageId();
@@ -549,6 +576,10 @@ class MessageApiIntegrationTest {
             throws Exception {
         return mvc.perform(command(post("/api/messages/" + messageId + "/cancellations"), who, key, ifMatch,
                 content));
+    }
+
+    private ResultActions send(Member who, String messageId, String key, String ifMatch) throws Exception {
+        return mvc.perform(command(post("/api/messages/" + messageId + "/sends"), who, key, ifMatch, null));
     }
 
     private MockHttpServletRequestBuilder command(MockHttpServletRequestBuilder request, Member who, String key,

@@ -118,6 +118,29 @@ External sends must remain safe under:
 
 A logical message/follow-up should have a durable idempotency identity so retrying the operation does not accidentally contact the customer twice.
 
+Manual dispatch (`POST /api/messages/{messageId}/sends`, `MESSAGE_SEND`, `Idempotency-Key` and strong `If-Match` required, no body; [ADR 0028](../adr/0028-manual-dispatch-claim-and-last-moment-send-gate.md), issue 138) works like this:
+
+1. **Claim.** One transaction runs the full last-moment send policy under the customer and message locks: kill switches, integration, consent, do-not-contact, archive, cadence, contact frequency, tenant rate, re-resolved template and approval fingerprint. In the same transaction it applies T6 and T7, commits a `STARTED` attempt row naming the authorizing member, and records the idempotency key. That row is the durable claim; a partial unique index allows only one per message.
+2. **Call.** The provider is called once, outside any transaction.
+3. **Record.** A second transaction records the outcome (T8 to T11) and its audit row.
+
+What each case produces:
+
+- A refusal before the claim writes nothing and makes no provider call.
+- The same key again replays the current state (`200`). The same key for another message or version is `409 IDEMPOTENCY_KEY_REUSED`.
+- A concurrent click with another key loses the lock race (`STALE_VERSION` or `INVALID_TRANSITION`).
+- If the outcome cannot be recorded, for example during an audit outage, the claim stays and the message stays `SENDING`: sending halts instead of risking a duplicate.
+
+Send policy bounds:
+
+| Property | Default | Refusal |
+| --- | --- | --- |
+| `dokene.messaging.max-send-attempts` | 3 | `SEND_ATTEMPTS_EXHAUSTED` |
+| `dokene.messaging.min-contact-interval` | 24h | `CONTACT_FREQUENCY_EXCEEDED` |
+| `dokene.messaging.send-rate-per-tenant-per-minute` | 30 | `429 RATE_LIMITED` |
+
+A disable or revocation that commits after the claim cannot retract a call already in flight; it stops later sends only. Application duplicate suppression is not proof of exactly-once delivery by the provider. Live sending stays off until the kill switch work (#144) and the template schema check (#218) land.
+
 ## WhatsApp templates
 
 Business-initiated WhatsApp messaging may require approved provider templates depending on Meta policy and the conversation window.
@@ -134,7 +157,7 @@ DORMANT_CUSTOMER
 
 Application code maps allowed semantic templates to tenant/provider template configuration.
 
-The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dispatch-policy.md)) stores one mapping per semantic intent and tenant: provider template name, language, ordered parameter names and an `enabled` flag, behind `GET /api/templates`, `PUT /api/templates/{templateIntent}` and `POST /api/templates/{templateIntent}/approval-refresh`. Approval is provider evidence, never operator input: the refresh asks Meta's Graph API with the tenant's own credential and records the status, check time, business account and mapping revision. A mapping is sendable only when it is enabled, `APPROVED` for its current revision and business account, and the evidence is younger than `dokene.template.approval-max-age` (24 hours by default). Editing a mapping drops the evidence and voids open approvals; a failed refresh drops it too. Phase 3 never sends free-form text: with no trusted customer-service-window evidence it sends only a verified template. The Graph API host is allow-listed (`graph.facebook.com`, loopback test servers, or hosts explicitly listed in `dokene.integration.whatsapp.graph.additional-trusted-hosts`) because tenant credentials are sent to it. Approval evidence does not yet prove the template's placeholders match the stored parameters; that check is a required gate before live dispatch (#138).
+The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dispatch-policy.md)) stores one mapping per semantic intent and tenant: provider template name, language, ordered parameter names and an `enabled` flag, behind `GET /api/templates`, `PUT /api/templates/{templateIntent}` and `POST /api/templates/{templateIntent}/approval-refresh`. Approval is provider evidence, never operator input: the refresh asks Meta's Graph API with the tenant's own credential and records the status, check time, business account and mapping revision. A mapping is sendable only when it is enabled, `APPROVED` for its current revision and business account, and the evidence is younger than `dokene.template.approval-max-age` (24 hours by default). Editing a mapping drops the evidence and voids open approvals; a failed refresh drops it too. Phase 3 never sends free-form text: with no trusted customer-service-window evidence it sends only a verified template. The Graph API host is allow-listed (`graph.facebook.com`, loopback test servers, or hosts explicitly listed in `dokene.integration.whatsapp.graph.additional-trusted-hosts`) because tenant credentials are sent to it. Approval evidence does not yet prove the template's placeholders match the stored parameters; that check (#218) is a required gate before live dispatch is enabled.
 
 The AI must not invent provider template IDs.
 
@@ -240,6 +263,8 @@ The Meta adapter reports four result classes (ADR 0027 §4):
 - `OutcomeUnknown`: a timeout after sending, a redirect, any 5xx (whatever Meta code it carries), or an unusable success body.
 
 `OutcomeUnknown` is never retried automatically. Only the integer Meta error code is read; error text, trace ids and bodies are discarded.
+
+The dispatcher maps these results through the message state machine. An exception that escapes the port counts as `OutcomeUnknown`. A transient failure returns the message to `APPROVED`, where only a new operator send, which passes the whole policy again, can try once more, up to the attempt cap. An unknown outcome keeps the message `SENDING` until a human resolves it (T12). A claim whose outcome was never recorded is turned into an unknown outcome by the recovery processor (ADR 0028 §5), never resent.
 
 ## Future channels
 
