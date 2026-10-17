@@ -25,12 +25,14 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,10 +41,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.json.JsonCompareMode;
@@ -67,7 +71,9 @@ class TenantSelectionProblemIntegrationTest {
     private static final List<String> PHASE_3_MODULES = List.of(
             "io.github.stevdrey.dokene.messaging.", "io.github.stevdrey.dokene.integration.",
             "io.github.stevdrey.dokene.template.");
-    private static final Pattern PATH_VARIABLE = Pattern.compile("\\{[^/}]+}");
+    private static final Pattern PATH_VARIABLE = Pattern.compile("\\{([^/}:]+)(?::([^/}]+))?}");
+    private static final String UUID_SAMPLE = "00000000-0000-4000-8000-000000000000";
+    private static final List<String> PATH_SAMPLES = List.of("sample", UUID_SAMPLE, "0");
     private static final String INVALID_INPUT =
             "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"code\":\"INVALID_INPUT\"}";
     private static final String FORBIDDEN =
@@ -140,19 +146,34 @@ class TenantSelectionProblemIntegrationTest {
         assertThat(ownership.claimedOther()).as("non-Phase 3 routes claimed by a tenant-selection responder").isEmpty();
     }
 
-    /** The exclusivity check reports both a duplicated wildcard and a specific path nested under another owner. */
+    /**
+     * The exclusivity check reports a duplicated wildcard, a specific path nested under another owner, an owner
+     * limited to the implicit HEAD of a GET route, and an owner limited to UUID-shaped path variables.
+     */
     @Test
     void overlappingResponderOwnershipIsReported() {
         Map<String, TenantSelectionRejectionResponder> responders = new TreeMap<>(registeredResponders());
         responders.put("overlappingWildcard", new OverlappingResponder("/api/messages/**"));
         responders.put("overlappingSpecific", new OverlappingResponder("/api/templates"));
+        responders.put("overlappingHead",
+                new OverlappingResponder(PathPatternRequestMatcher.pathPattern(HttpMethod.HEAD, "/api/templates/**")));
+        responders.put("overlappingConstrained",
+                new OverlappingResponder("/api/customers/{customerId:[0-9a-f-]{36}}/messages"));
 
         RouteOwnership ownership = routeOwnership(responders);
 
         assertThat(ownership.overlappingPhase3())
-                .contains("GET /api/messages claimed by [messageRoutesTenantSelectionResponder, overlappingWildcard]")
-                .contains("GET /api/templates claimed by [overlappingSpecific, templateTenantSelectionResponder]")
-                .allSatisfy(overlap -> assertThat(overlap).containsAnyOf("overlappingWildcard", "overlappingSpecific"));
+                .contains("GET /api/messages at /api/messages claimed by "
+                        + "[messageRoutesTenantSelectionResponder, overlappingWildcard]")
+                .contains("GET /api/templates at /api/templates claimed by "
+                        + "[overlappingSpecific, templateTenantSelectionResponder]")
+                .contains("HEAD /api/templates at /api/templates claimed by "
+                        + "[overlappingHead, overlappingSpecific, templateTenantSelectionResponder]")
+                .contains("POST /api/customers/{customerId}/messages at /api/customers/" + UUID_SAMPLE
+                        + "/messages claimed by [messageRoutesTenantSelectionResponder, overlappingConstrained]")
+                .noneMatch(overlap -> overlap.contains("/api/customers/sample/messages"))
+                .allSatisfy(overlap -> assertThat(overlap).containsAnyOf(
+                        "overlappingWildcard", "overlappingSpecific", "overlappingHead", "overlappingConstrained"));
         assertThat(ownership.unclaimedPhase3()).isEmpty();
         assertThat(ownership.claimedOther()).isEmpty();
     }
@@ -202,7 +223,10 @@ class TenantSelectionProblemIntegrationTest {
         return webApplicationContext.getBeansOfType(TenantSelectionRejectionResponder.class);
     }
 
-    /** Names the responders claiming each registered {@code /api} handler route, for every declared method. */
+    /**
+     * Names the responders claiming each registered {@code /api} handler route, for every method Spring routes to it
+     * and several sample values per path variable. Ownership is sampled, not proven over every matcher's domain.
+     */
     private RouteOwnership routeOwnership(Map<String, TenantSelectionRejectionResponder> responders) {
         RequestMappingHandlerMapping handlerMappings = webApplicationContext
                 .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
@@ -212,34 +236,66 @@ class TenantSelectionProblemIntegrationTest {
         int phase3Handlers = 0;
         for (Map.Entry<RequestMappingInfo, HandlerMethod> handler : handlerMappings.getHandlerMethods().entrySet()) {
             boolean phase3 = isPhase3Module(handler.getValue().getBeanType());
-            Set<RequestMethod> declared = handler.getKey().getMethodsCondition().getMethods();
-            List<String> methods = declared.isEmpty()
-                    ? List.of("GET") : declared.stream().map(RequestMethod::name).sorted().toList();
+            List<String> methods = effectiveMethods(handler.getKey());
             for (String pattern : handler.getKey().getPatternValues()) {
                 if (!pattern.startsWith("/api/")) {
                     continue;
                 }
-                String path = PATH_VARIABLE.matcher(pattern).replaceAll("sample");
+                List<String> paths = samplePaths(pattern);
                 for (String method : methods) {
-                    MockHttpServletRequest request = new MockHttpServletRequest(method, path);
-                    List<String> owners = responders.entrySet().stream()
-                            .filter(responder -> responder.getValue().handles(request))
-                            .map(Map.Entry::getKey).sorted().toList();
-                    String route = method + " " + pattern;
                     if (phase3) {
                         phase3Handlers++;
-                        if (owners.isEmpty()) {
-                            unclaimedPhase3.add(route);
-                        } else if (owners.size() > 1) {
-                            overlappingPhase3.add(route + " claimed by " + owners);
+                    }
+                    for (String path : paths) {
+                        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+                        List<String> owners = responders.entrySet().stream()
+                                .filter(responder -> responder.getValue().handles(request))
+                                .map(Map.Entry::getKey).sorted().toList();
+                        String route = method + " " + pattern + " at " + path;
+                        if (phase3) {
+                            if (owners.isEmpty()) {
+                                unclaimedPhase3.add(route);
+                            } else if (owners.size() > 1) {
+                                overlappingPhase3.add(route + " claimed by " + owners);
+                            }
+                        } else if (!owners.isEmpty()) {
+                            claimedOther.add(route + " claimed by " + owners);
                         }
-                    } else if (!owners.isEmpty()) {
-                        claimedOther.add(route + " claimed by " + owners);
                     }
                 }
             }
         }
         return new RouteOwnership(phase3Handlers, unclaimedPhase3, overlappingPhase3, claimedOther);
+    }
+
+    /** An unrestricted mapping accepts every method and a GET mapping also answers HEAD. */
+    private static List<String> effectiveMethods(RequestMappingInfo mapping) {
+        Set<RequestMethod> declared = mapping.getMethodsCondition().getMethods();
+        Set<RequestMethod> methods = declared.isEmpty()
+                ? EnumSet.allOf(RequestMethod.class) : EnumSet.copyOf(declared);
+        if (methods.contains(RequestMethod.GET)) {
+            methods.add(RequestMethod.HEAD);
+        }
+        return methods.stream().map(RequestMethod::name).toList();
+    }
+
+    /** Expands every path variable into each sample its own constraint accepts, in all combinations. */
+    private static List<String> samplePaths(String pattern) {
+        List<String> paths = List.of("");
+        Matcher variable = PATH_VARIABLE.matcher(pattern);
+        int literalStart = 0;
+        while (variable.find()) {
+            String literal = pattern.substring(literalStart, variable.start());
+            Pattern constraint = variable.group(2) == null ? null : Pattern.compile(variable.group(2));
+            List<String> values = PATH_SAMPLES.stream()
+                    .filter(value -> constraint == null || constraint.matcher(value).matches()).toList();
+            assertThat(values).as("path samples accepted by %s in %s; add one", variable.group(), pattern)
+                    .isNotEmpty();
+            paths = paths.stream().flatMap(path -> values.stream().map(value -> path + literal + value)).toList();
+            literalStart = variable.end();
+        }
+        String tail = pattern.substring(literalStart);
+        return paths.stream().map(path -> path + tail).toList();
     }
 
     private record RouteOwnership(int phase3Handlers, List<String> unclaimedPhase3, List<String> overlappingPhase3,
@@ -250,7 +306,11 @@ class TenantSelectionProblemIntegrationTest {
         private record Echo(TenantSelectionRejection rejection) { }
 
         OverlappingResponder(String pattern) {
-            super(PathPatternRequestMatcher.pathPattern(pattern), Echo::new, echo -> echo.rejection().status());
+            this(PathPatternRequestMatcher.pathPattern(pattern));
+        }
+
+        OverlappingResponder(RequestMatcher ownedRoutes) {
+            super(ownedRoutes, Echo::new, echo -> echo.rejection().status());
         }
     }
 
