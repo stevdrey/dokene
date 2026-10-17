@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -41,6 +42,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.json.JsonCompareMode;
@@ -124,42 +126,35 @@ class TenantSelectionProblemIntegrationTest {
     }
 
     /**
-     * Every {@code /api} handler of a Phase 3 module is claimed by a responder and no other handler is, so a new
-     * Phase 3 route cannot silently fall back to the empty body and an existing endpoint cannot gain one.
+     * Every {@code /api} handler of a Phase 3 module is claimed by exactly one responder and no other handler is, so a
+     * new Phase 3 route cannot silently fall back to the empty body, an existing endpoint cannot gain one, and the
+     * filter's first-match selection never depends on bean order (Issue #222).
      */
     @Test
     void responderOwnershipMatchesThePhase3ControllerRoutesExactly() {
-        List<TenantSelectionRejectionResponder> responders = webApplicationContext
-                .getBeansOfType(TenantSelectionRejectionResponder.class).values().stream().toList();
-        RequestMappingHandlerMapping handlerMappings = webApplicationContext
-                .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
-        List<String> unclaimedPhase3 = new ArrayList<>();
-        List<String> claimedOther = new ArrayList<>();
-        int phase3Handlers = 0;
-        for (Map.Entry<RequestMappingInfo, HandlerMethod> handler : handlerMappings.getHandlerMethods().entrySet()) {
-            boolean phase3 = isPhase3Module(handler.getValue().getBeanType());
-            Set<RequestMethod> methods = handler.getKey().getMethodsCondition().getMethods();
-            String method = methods.isEmpty() ? "GET" : methods.iterator().next().name();
-            for (String pattern : handler.getKey().getPatternValues()) {
-                if (!pattern.startsWith("/api/")) {
-                    continue;
-                }
-                String path = PATH_VARIABLE.matcher(pattern).replaceAll("sample");
-                MockHttpServletRequest request = new MockHttpServletRequest(method, path);
-                boolean claimed = responders.stream().anyMatch(responder -> responder.handles(request));
-                if (phase3) {
-                    phase3Handlers++;
-                    if (!claimed) {
-                        unclaimedPhase3.add(method + " " + pattern);
-                    }
-                } else if (claimed) {
-                    claimedOther.add(method + " " + pattern);
-                }
-            }
-        }
-        assertThat(phase3Handlers).as("scanned Phase 3 handlers").isGreaterThanOrEqualTo(12);
-        assertThat(unclaimedPhase3).as("Phase 3 routes without a tenant-selection responder").isEmpty();
-        assertThat(claimedOther).as("non-Phase 3 routes claimed by a tenant-selection responder").isEmpty();
+        RouteOwnership ownership = routeOwnership(registeredResponders());
+        assertThat(ownership.phase3Handlers()).as("scanned Phase 3 handlers").isGreaterThanOrEqualTo(12);
+        assertThat(ownership.unclaimedPhase3()).as("Phase 3 routes without a tenant-selection responder").isEmpty();
+        assertThat(ownership.overlappingPhase3())
+                .as("Phase 3 routes claimed by more than one tenant-selection responder").isEmpty();
+        assertThat(ownership.claimedOther()).as("non-Phase 3 routes claimed by a tenant-selection responder").isEmpty();
+    }
+
+    /** The exclusivity check reports both a duplicated wildcard and a specific path nested under another owner. */
+    @Test
+    void overlappingResponderOwnershipIsReported() {
+        Map<String, TenantSelectionRejectionResponder> responders = new TreeMap<>(registeredResponders());
+        responders.put("overlappingWildcard", new OverlappingResponder("/api/messages/**"));
+        responders.put("overlappingSpecific", new OverlappingResponder("/api/templates"));
+
+        RouteOwnership ownership = routeOwnership(responders);
+
+        assertThat(ownership.overlappingPhase3())
+                .contains("GET /api/messages claimed by [messageRoutesTenantSelectionResponder, overlappingWildcard]")
+                .contains("GET /api/templates claimed by [overlappingSpecific, templateTenantSelectionResponder]")
+                .allSatisfy(overlap -> assertThat(overlap).containsAnyOf("overlappingWildcard", "overlappingSpecific"));
+        assertThat(ownership.unclaimedPhase3()).isEmpty();
+        assertThat(ownership.claimedOther()).isEmpty();
     }
 
     @Test
@@ -200,6 +195,62 @@ class TenantSelectionProblemIntegrationTest {
             assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE correlation_id = ? "
                     + "AND event_type = 'AUTHORIZATION_DENIED' AND denial_reason = 'NO_TENANT_CONTEXT'", correlation))
                     .as("audited tenant-selection denial").isEqualTo(1);
+        }
+    }
+
+    private Map<String, TenantSelectionRejectionResponder> registeredResponders() {
+        return webApplicationContext.getBeansOfType(TenantSelectionRejectionResponder.class);
+    }
+
+    /** Names the responders claiming each registered {@code /api} handler route, for every declared method. */
+    private RouteOwnership routeOwnership(Map<String, TenantSelectionRejectionResponder> responders) {
+        RequestMappingHandlerMapping handlerMappings = webApplicationContext
+                .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
+        List<String> unclaimedPhase3 = new ArrayList<>();
+        List<String> overlappingPhase3 = new ArrayList<>();
+        List<String> claimedOther = new ArrayList<>();
+        int phase3Handlers = 0;
+        for (Map.Entry<RequestMappingInfo, HandlerMethod> handler : handlerMappings.getHandlerMethods().entrySet()) {
+            boolean phase3 = isPhase3Module(handler.getValue().getBeanType());
+            Set<RequestMethod> declared = handler.getKey().getMethodsCondition().getMethods();
+            List<String> methods = declared.isEmpty()
+                    ? List.of("GET") : declared.stream().map(RequestMethod::name).sorted().toList();
+            for (String pattern : handler.getKey().getPatternValues()) {
+                if (!pattern.startsWith("/api/")) {
+                    continue;
+                }
+                String path = PATH_VARIABLE.matcher(pattern).replaceAll("sample");
+                for (String method : methods) {
+                    MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+                    List<String> owners = responders.entrySet().stream()
+                            .filter(responder -> responder.getValue().handles(request))
+                            .map(Map.Entry::getKey).sorted().toList();
+                    String route = method + " " + pattern;
+                    if (phase3) {
+                        phase3Handlers++;
+                        if (owners.isEmpty()) {
+                            unclaimedPhase3.add(route);
+                        } else if (owners.size() > 1) {
+                            overlappingPhase3.add(route + " claimed by " + owners);
+                        }
+                    } else if (!owners.isEmpty()) {
+                        claimedOther.add(route + " claimed by " + owners);
+                    }
+                }
+            }
+        }
+        return new RouteOwnership(phase3Handlers, unclaimedPhase3, overlappingPhase3, claimedOther);
+    }
+
+    private record RouteOwnership(int phase3Handlers, List<String> unclaimedPhase3, List<String> overlappingPhase3,
+            List<String> claimedOther) { }
+
+    /** Claims {@code pattern} on top of the registered owners, to prove an overlap cannot pass unnoticed. */
+    private static final class OverlappingResponder extends ProblemJsonTenantSelectionResponder {
+        private record Echo(TenantSelectionRejection rejection) { }
+
+        OverlappingResponder(String pattern) {
+            super(PathPatternRequestMatcher.pathPattern(pattern), Echo::new, echo -> echo.rejection().status());
         }
     }
 
