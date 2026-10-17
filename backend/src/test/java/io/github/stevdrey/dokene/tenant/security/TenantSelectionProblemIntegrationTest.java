@@ -179,11 +179,16 @@ class TenantSelectionProblemIntegrationTest {
         assertThat(ownership.claimedOther()).isEmpty();
     }
 
-    /** A quantified constraint is parsed as one variable, and a constraint no sample satisfies fails loudly. */
+    /**
+     * A constraint with quantifier or escaped braces is parsed as one variable, and a constraint no sample satisfies
+     * fails loudly.
+     */
     @Test
-    void pathSamplesHonourQuantifiedConstraints() {
+    void pathSamplesHonourConstraintsWithBraces() {
         assertThat(samplePaths("/api/messages/{messageId:[0-9a-f-]{36}}/events"))
                 .containsExactly("/api/messages/" + UUID_SAMPLE + "/events");
+        assertThat(samplePaths("/api/messages/{messageId:[^\\}]+}/events")).containsExactly(
+                "/api/messages/sample/events", "/api/messages/" + UUID_SAMPLE + "/events", "/api/messages/0/events");
         assertThat(samplePaths("/api/templates/{templateIntent}"))
                 .containsExactly("/api/templates/sample", "/api/templates/" + UUID_SAMPLE, "/api/templates/0");
         assertThatThrownBy(() -> samplePaths("/api/messages/{messageId:[x-z]{3}}"))
@@ -254,10 +259,10 @@ class TenantSelectionProblemIntegrationTest {
                     continue;
                 }
                 List<String> paths = samplePaths(pattern);
+                if (phase3) {
+                    phase3Handlers++;
+                }
                 for (String method : methods) {
-                    if (phase3) {
-                        phase3Handlers++;
-                    }
                     for (String path : paths) {
                         MockHttpServletRequest request = new MockHttpServletRequest(method, path);
                         List<String> owners = responders.entrySet().stream()
@@ -311,12 +316,17 @@ class TenantSelectionProblemIntegrationTest {
         return accepted;
     }
 
-    /** Finds the brace closing the variable opened at {@code open}, past any braces inside its constraint. */
+    /**
+     * Finds the brace closing the variable opened at {@code open}, past any braces inside its constraint, escaped
+     * ones included.
+     */
     private static int closingBrace(String pattern, int open) {
         int depth = 0;
         for (int index = open; index < pattern.length(); index++) {
             char character = pattern.charAt(index);
-            if (character == '{') {
+            if (character == '\\') {
+                index++;
+            } else if (character == '{') {
                 depth++;
             } else if (character == '}' && --depth == 0) {
                 return index;
