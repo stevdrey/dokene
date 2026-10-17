@@ -21,11 +21,9 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.RequestFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.Transition;
+import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
-import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
-import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
-import io.github.stevdrey.dokene.tenant.application.TenantContextUnavailableException;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
@@ -33,7 +31,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -42,8 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class OutboundMessageCommandService {
     private static final Logger log = LoggerFactory.getLogger(OutboundMessageCommandService.class);
-    private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("^[A-Za-z0-9._:-]{1,128}$");
-    private static final Pattern IF_MATCH = Pattern.compile("^[0-9]{1,19}$");
     private static final int MAX_NOTE_LENGTH = 500;
 
     private final OutboundMessageRepository messages;
@@ -52,14 +47,14 @@ public class OutboundMessageCommandService {
     private final MessageSendGuards guards;
     private final ApprovalBindingAssembler bindings;
     private final OutboundSafetyControl safety;
-    private final TenantAuthorizationService authorization;
-    private final TenantContextProvider contexts;
+    private final MessageCommandSupport support;
+    private final CurrentMembershipAuthorizer members;
     private final MessageAuditPort audit;
     private final Clock clock;
 
     public OutboundMessageCommandService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, MessageSendGuards guards, ApprovalBindingAssembler bindings,
-            OutboundSafetyControl safety, TenantAuthorizationService authorization, TenantContextProvider contexts,
+            OutboundSafetyControl safety, MessageCommandSupport support, CurrentMembershipAuthorizer members,
             MessageAuditPort audit, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
@@ -67,8 +62,8 @@ public class OutboundMessageCommandService {
         this.guards = Objects.requireNonNull(guards);
         this.bindings = Objects.requireNonNull(bindings);
         this.safety = Objects.requireNonNull(safety);
-        this.authorization = Objects.requireNonNull(authorization);
-        this.contexts = Objects.requireNonNull(contexts);
+        this.support = Objects.requireNonNull(support);
+        this.members = Objects.requireNonNull(members);
         this.audit = Objects.requireNonNull(audit);
         this.clock = Objects.requireNonNull(clock);
     }
@@ -77,8 +72,8 @@ public class OutboundMessageCommandService {
     @Transactional
     public CommandResult submit(SubmitMessageCommand command) {
         var input = validate(command);
-        require(TenantPermission.MESSAGE_DRAFT);
-        TenantContext context = currentContext();
+        support.require(TenantPermission.MESSAGE_DRAFT);
+        TenantContext context = support.currentContext();
         UUID tenantId = context.tenantId().value();
         String fingerprint = RequestFingerprint.of(MessageOperation.SUBMIT, Arrays.asList(
                 command.customerId().toString(), command.contactId().toString(), input.action().name(),
@@ -90,7 +85,9 @@ public class OutboundMessageCommandService {
             return replay(replay.get(), fingerprint, null);
         }
 
-        Customer customer = lockCustomer(context, command.customerId(), TenantPermission.MESSAGE_DRAFT);
+        Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(command.customerId()))
+                .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
+        context = currentMember(TenantPermission.MESSAGE_DRAFT, customer);
         CustomerPhone contact = customer.phones().stream()
                 .filter(phone -> phone.id().equals(command.contactId())).findFirst()
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
@@ -113,7 +110,7 @@ public class OutboundMessageCommandService {
                 MessageOperation.SUBMIT, input.idempotencyKey(), fingerprint, stored.id(), null, now));
         audit.submitted(transition.event());
         log.info("Message submitted; messageId={}, tenantId={}, status={}", stored.id(), tenantId, stored.status());
-        return result(tenantId, stored.id(), Optional.empty(), true);
+        return support.result(tenantId, stored.id(), Optional.empty(), true);
     }
 
     /** T2. */
@@ -134,11 +131,10 @@ public class OutboundMessageCommandService {
         Objects.requireNonNull(command, "Command is required");
         var input = validateChild(command.messageId(), command.note(), command.ifMatch(), command.idempotencyKey());
         // Either permission admits the request; the state specific one is enforced after the message lock.
-        if (!authorization.evaluate(TenantPermission.MESSAGE_DRAFT).isAllowed()
-                && !authorization.evaluate(TenantPermission.MESSAGE_APPROVE).isAllowed()) {
-            require(TenantPermission.MESSAGE_APPROVE);
+        if (!support.allows(TenantPermission.MESSAGE_DRAFT) && !support.allows(TenantPermission.MESSAGE_APPROVE)) {
+            support.require(TenantPermission.MESSAGE_APPROVE);
         }
-        TenantContext context = currentContext();
+        TenantContext context = support.currentContext();
         UUID tenantId = context.tenantId().value();
         String fingerprint = RequestFingerprint.of(MessageOperation.CANCELLATION, Arrays.asList(
                 command.messageId().toString(), input.note(), Long.toString(input.ifMatch())));
@@ -148,12 +144,13 @@ public class OutboundMessageCommandService {
             return replay(replay.get(), fingerprint, command.messageId());
         }
 
-        OutboundMessage message = lockMessage(context, command.messageId(), input.ifMatch());
-        switch (message.status()) {
-            case PENDING_APPROVAL -> require(TenantPermission.MESSAGE_DRAFT);
-            case APPROVED -> require(TenantPermission.MESSAGE_APPROVE);
+        Locked locked = lockMessage(context, command.messageId(), input.ifMatch());
+        OutboundMessage message = locked.message();
+        context = switch (message.status()) {
+            case PENDING_APPROVAL -> currentMember(TenantPermission.MESSAGE_DRAFT, locked.customer());
+            case APPROVED -> currentMember(TenantPermission.MESSAGE_APPROVE, locked.customer());
             default -> throw refuse(MessagingErrorCode.INVALID_TRANSITION);
-        }
+        };
         Instant now = clock.instant();
         Transition transition = message.cancel(context.membershipId().value(), now);
         OutboundMessage stored = messages.update(message, transition.next());
@@ -167,14 +164,14 @@ public class OutboundMessageCommandService {
         audit.cancelled(transition.event());
         log.info("Message cancelled; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(), tenantId,
                 message.status(), stored.status());
-        return result(tenantId, stored.id(), Optional.of(cancellation), true);
+        return support.result(tenantId, stored.id(), Optional.of(cancellation), true);
     }
 
     private CommandResult decide(ApprovalCommand command, ApprovalDecision decision) {
         Objects.requireNonNull(command, "Command is required");
         var input = validateChild(command.messageId(), command.note(), command.ifMatch(), command.idempotencyKey());
-        require(TenantPermission.MESSAGE_APPROVE);
-        TenantContext context = currentContext();
+        support.require(TenantPermission.MESSAGE_APPROVE);
+        TenantContext context = support.currentContext();
         UUID tenantId = context.tenantId().value();
         String fingerprint = RequestFingerprint.of(MessageOperation.APPROVAL, Arrays.asList(
                 command.messageId().toString(), decision.name(), input.note(), Long.toString(input.ifMatch())));
@@ -184,7 +181,9 @@ public class OutboundMessageCommandService {
             return replay(replay.get(), fingerprint, command.messageId());
         }
 
-        OutboundMessage message = lockMessage(context, command.messageId(), input.ifMatch());
+        Locked locked = lockMessage(context, command.messageId(), input.ifMatch());
+        OutboundMessage message = locked.message();
+        context = currentMember(TenantPermission.MESSAGE_APPROVE, locked.customer());
         if (message.status() != MessageStatus.PENDING_APPROVAL) {
             throw refuse(MessagingErrorCode.INVALID_TRANSITION);
         }
@@ -192,8 +191,7 @@ public class OutboundMessageCommandService {
         Transition transition;
         MessageApproval approval;
         if (decision == ApprovalDecision.APPROVE) {
-            Customer customer = customers.findById(context.tenantId(), new CustomerId(message.customerId()))
-                    .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
+            Customer customer = locked.customer();
             // T2 step 4 (AC-13): the contact has no foreign key, so a phone correction may have removed it.
             if (customer.phones().stream().noneMatch(phone -> phone.id().equals(message.contactId()))) {
                 throw refuse(MessagingErrorCode.CONTACT_NOT_OWNED);
@@ -228,33 +226,38 @@ public class OutboundMessageCommandService {
         }
         log.info("Message decided; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(), tenantId,
                 message.status(), stored.status());
-        return result(tenantId, stored.id(), Optional.of(approval), true);
+        return support.result(tenantId, stored.id(), Optional.of(approval), true);
     }
 
-    private Customer lockCustomer(TenantContext context, UUID customerId, TenantPermission permission) {
-        Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(customerId))
-                .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
+    /**
+     * The member as the membership is now, allowed {@code permission} on the locked customer. Called under the
+     * customer lock, so a revocation or demotion committed before it refuses the command (audited); the returned
+     * context attributes everything the command writes.
+     */
+    private TenantContext currentMember(TenantPermission permission, Customer customer) {
         try {
-            authorization.requireResourceAccess(permission, customer);
+            return members.requireResourceAccess(permission, customer);
         } catch (TenantAccessDeniedException exception) {
             throw refuse(MessagingErrorCode.FORBIDDEN);
         }
-        return customer;
+    }
+
+    private record Locked(Customer customer, OutboundMessage message) {
     }
 
     /** Customer lock, then message lock, then the If-Match check (T2 to T5 guard steps 1 and 2). */
-    private OutboundMessage lockMessage(TenantContext context, UUID messageId, long ifMatch) {
+    private Locked lockMessage(TenantContext context, UUID messageId, long ifMatch) {
         UUID tenantId = context.tenantId().value();
         OutboundMessage unlocked = messages.findById(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        customers.findByIdForUpdate(context.tenantId(), new CustomerId(unlocked.customerId()))
+        Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(unlocked.customerId()))
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         OutboundMessage message = messages.findByIdForUpdate(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         if (message.version() != ifMatch) {
             throw refuse(MessagingErrorCode.STALE_VERSION);
         }
-        return message;
+        return new Locked(customer, message);
     }
 
     private CommandResult replay(MessageIdempotencyStore.IdempotencyRecord record, String fingerprint,
@@ -273,19 +276,7 @@ public class OutboundMessageCommandService {
                     .map(Object.class::cast);
             case SEND, RESOLUTION -> Optional.empty();
         };
-        return result(record.tenantId(), record.messageId(), child, false);
-    }
-
-    /**
-     * The response detail, read inside the command's transaction while this transaction holds the message row lock,
-     * so it cannot mix versions and needs no second authorization after commit.
-     */
-    private CommandResult result(UUID tenantId, UUID messageId, Optional<Object> record, boolean created) {
-        var listed = messages.findListedById(tenantId, messageId)
-                .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        return new CommandResult(new MessageDetail(listed.message(), listed.contactRemoved(),
-                messages.findApprovalByMessage(tenantId, messageId), messages.findAttempts(tenantId, messageId)),
-                record, created);
+        return support.result(record.tenantId(), record.messageId(), child, false);
     }
 
     private record SubmitInput(SemanticAction action, SemanticTemplateIntent templateIntent, String body,
@@ -307,14 +298,14 @@ public class OutboundMessageCommandService {
         SemanticTemplateIntent intent = parse(SemanticTemplateIntent.class, command.templateIntent());
         MessageOrigin origin = parse(MessageOrigin.class, command.origin());
         return new SubmitInput(action, intent, command.body(), command.locale(), origin,
-                ifMatch(command.ifMatch()), idempotencyKey(command.idempotencyKey()));
+                support.ifMatch(command.ifMatch()), support.idempotencyKey(command.idempotencyKey()));
     }
 
     private ChildInput validateChild(UUID messageId, String note, String ifMatch, String idempotencyKey) {
         if (messageId == null || (note != null && (note.length() > MAX_NOTE_LENGTH || containsNul(note)))) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);
         }
-        return new ChildInput(note, ifMatch(ifMatch), idempotencyKey(idempotencyKey));
+        return new ChildInput(note, support.ifMatch(ifMatch), support.idempotencyKey(idempotencyKey));
     }
 
     /** Postgres cannot store U+0000 in text columns; refuse it as input rather than fail at the insert. */
@@ -330,40 +321,6 @@ public class OutboundMessageCommandService {
             return Enum.valueOf(type, value);
         } catch (IllegalArgumentException exception) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-    }
-
-    private static long ifMatch(String value) {
-        if (value == null || !IF_MATCH.matcher(value.strip()).matches()) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-        try {
-            return Long.parseLong(value.strip());
-        } catch (NumberFormatException exception) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-    }
-
-    private static String idempotencyKey(String value) {
-        if (value == null || !IDEMPOTENCY_KEY.matcher(value).matches()) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-        return value;
-    }
-
-    private void require(TenantPermission permission) {
-        try {
-            authorization.requirePermission(permission);
-        } catch (TenantAccessDeniedException exception) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
-        }
-    }
-
-    private TenantContext currentContext() {
-        try {
-            return contexts.requireCurrent();
-        } catch (TenantContextUnavailableException exception) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
         }
     }
 

@@ -15,16 +15,10 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.messaging.domain.RequestFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.Transition;
-import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
-import io.github.stevdrey.dokene.tenant.application.AuthorizationDecision;
-import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
+import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
-import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
-import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
-import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
-import io.github.stevdrey.dokene.tenant.application.TenantContextUnavailableException;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
@@ -36,7 +30,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -52,10 +45,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class OutboundDispatchService {
     private static final Logger log = LoggerFactory.getLogger(OutboundDispatchService.class);
-    private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("^[A-Za-z0-9._:-]{1,128}$");
-    private static final Pattern IF_MATCH = Pattern.compile("^[0-9]{1,19}$");
-    /** The denial phrase the authorization audit maps to INACTIVE_MEMBERSHIP. */
-    private static final String MEMBERSHIP_GONE = "Tenant membership not found";
 
     private final OutboundMessageRepository messages;
     private final MessageIdempotencyStore idempotency;
@@ -63,29 +52,27 @@ public class OutboundDispatchService {
     private final SendPolicyGate gate;
     private final MessagingProvider provider;
     private final FollowUpTouchRecorder touches;
-    private final TenantAuthorizationService authorization;
+    private final MessageCommandSupport support;
+    private final CurrentMembershipAuthorizer members;
     private final TenantContextProvider contexts;
-    private final TenantContextResolver memberships;
-    private final AuthorizationAuditListener audits;
     private final MessageAuditPort audit;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
     public OutboundDispatchService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, SendPolicyGate gate, MessagingProvider provider,
-            FollowUpTouchRecorder touches, TenantAuthorizationService authorization, TenantContextProvider contexts,
-            TenantContextResolver memberships, AuthorizationAuditListener audits, MessageAuditPort audit,
-            PlatformTransactionManager transactionManager, Clock clock) {
+            FollowUpTouchRecorder touches, MessageCommandSupport support, CurrentMembershipAuthorizer members,
+            TenantContextProvider contexts, MessageAuditPort audit, PlatformTransactionManager transactionManager,
+            Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
         this.gate = Objects.requireNonNull(gate);
         this.provider = Objects.requireNonNull(provider);
         this.touches = Objects.requireNonNull(touches);
-        this.authorization = Objects.requireNonNull(authorization);
+        this.support = Objects.requireNonNull(support);
+        this.members = Objects.requireNonNull(members);
         this.contexts = Objects.requireNonNull(contexts);
-        this.memberships = Objects.requireNonNull(memberships);
-        this.audits = Objects.requireNonNull(audits);
         this.audit = Objects.requireNonNull(audit);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.clock = Objects.requireNonNull(clock);
@@ -101,25 +88,30 @@ public class OutboundDispatchService {
         if (command.messageId() == null) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);
         }
-        long ifMatch = ifMatch(command.ifMatch());
-        String key = idempotencyKey(command.idempotencyKey());
-        require(TenantPermission.MESSAGE_SEND);
-        TenantContext context = currentContext();
+        long ifMatch = support.ifMatch(command.ifMatch());
+        String key = support.idempotencyKey(command.idempotencyKey());
+        support.require(TenantPermission.MESSAGE_SEND);
+        TenantContext context = support.currentContext();
 
         Claim claim = transactions.execute(status -> claim(context, command.messageId(), ifMatch, key));
         if (claim instanceof Claim.Replayed(CommandResult replayed)) {
             return replayed;
         }
         Claim.Started started = (Claim.Started) claim;
-        ProviderSendResult result = call(context, started);
+        ProviderCall call = call(started);
         try {
-            return transactions.execute(status -> record(context, started, result));
+            return transactions.execute(status -> record(started, call.result()));
         } catch (RuntimeException exception) {
             // The provider may have accepted; the STARTED attempt stays as the record of that, blocking any resend.
             log.error("Send outcome not recorded; sending halted for the message; messageId={}, tenantId={}, "
                     + "attempt={}", started.message().id(), started.message().tenantId(),
                     started.attempt().attemptNumber());
             throw exception;
+        } finally {
+            // Restored only now: JDBC and the pool refuse an interrupted thread, which would lose the outcome.
+            if (call.interrupted()) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -127,8 +119,14 @@ public class OutboundDispatchService {
         record Replayed(CommandResult result) implements Claim {
         }
 
-        record Started(OutboundMessage message, SendAttempt attempt, OutboundSendCommand command) implements Claim {
+        /** {@code member} is the membership as re-read under the lock; it authorized and is attributed the send. */
+        record Started(TenantContext member, OutboundMessage message, SendAttempt attempt,
+                OutboundSendCommand command) implements Claim {
         }
+    }
+
+    /** The provider's answer, and whether the waiting thread was interrupted (restored after recording). */
+    private record ProviderCall(ProviderSendResult result, boolean interrupted) {
     }
 
     /** One transaction: idempotency, customer then message lock, the full send policy, T6, T7 and the attempt row. */
@@ -146,18 +144,25 @@ public class OutboundDispatchService {
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(unlocked.customerId()))
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        TenantContext member = currentMember(context, customer);
+        TenantContext member;
+        try {
+            member = members.requireResourceAccess(TenantPermission.MESSAGE_SEND, customer);
+        } catch (TenantAccessDeniedException exception) {
+            throw refuse(MessagingErrorCode.FORBIDDEN);
+        }
         OutboundMessage message = messages.findByIdForUpdate(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         if (message.version() != ifMatch) {
             throw refuse(MessagingErrorCode.STALE_VERSION);
         }
 
-        // The tenant rate bound's lock comes before the clock read: a claim that waited behind another one counts
-        // the window and dates its attempt from when it actually holds the budget (ADR 0024 §5).
+        OutboundSendCommand send = gate.evaluate(member, customer, message, clock.instant());
+        // The tenant rate bound is checked last and alone under its lock, and the clock is read after taking it: a
+        // claim that waited behind another one counts the window and dates its attempt from when it actually holds
+        // the budget, while the rest of the policy never serializes a tenant's sends (ADR 0024 §5).
         messages.acquireSendBudgetLock(tenantId);
         Instant now = clock.instant();
-        OutboundSendCommand send = gate.evaluate(member, customer, message, now);
+        gate.requireRateBudget(tenantId, now);
         Transition requested = message.requestSend(member.membershipId().value(), now);
         OutboundMessage queued = messages.update(message, requested.next());
         messages.appendEvent(requested.event());
@@ -171,40 +176,7 @@ public class OutboundDispatchService {
         audit.sendRequested(requested.event());
         log.info("Send claimed; messageId={}, tenantId={}, attempt={}", message.id(), tenantId,
                 attempt.attemptNumber());
-        return new Claim.Started(sending, attempt, send);
-    }
-
-    /**
-     * The request context was resolved before this transaction, and authorization trusts its cached role. Re-read the
-     * membership under the customer lock, so a revocation or demotion committed before the claim stops the send. A
-     * re-invited member has a new membership and does not count as the one who made this request.
-     */
-    private TenantContext currentMember(TenantContext context, Customer customer) {
-        TenantContext member;
-        try {
-            member = memberships.resolve(context.identityId(), context.tenantId());
-        } catch (TenantContextAuthorizationException exception) {
-            throw denied(context, MEMBERSHIP_GONE);
-        }
-        if (!member.membershipId().equals(context.membershipId())) {
-            throw denied(context, MEMBERSHIP_GONE);
-        }
-        AuthorizationDecision decision = authorization.evaluate(member, TenantPermission.MESSAGE_SEND, customer);
-        if (!decision.isAllowed()) {
-            throw denied(context, decision.rejectionReason().orElse("Denied"));
-        }
-        return member;
-    }
-
-    /**
-     * A T6 authorization failure is audited as AUTHORIZATION_DENIED (ADR 0023 §4.5), like every other denied check,
-     * through the same listener the authorization service uses. That record commits independently of the rolled
-     * back claim. The reason is one of the listener's closed phrases, never free text.
-     */
-    private MessagingRefusedException denied(TenantContext context, String reason) {
-        audits.onAuthorizationDenied(AuthorizationDeniedEvent.of(context, TenantPermission.MESSAGE_SEND,
-                context.tenantId(), reason, clock.instant()));
-        return refuse(MessagingErrorCode.FORBIDDEN);
+        return new Claim.Started(member, sending, attempt, send);
     }
 
     /**
@@ -214,20 +186,21 @@ public class OutboundDispatchService {
      * interrupted and its outcome is unknown: a late answer is never recorded, since the send may still have landed.
      * The port promises never to throw; anything that escapes happened at an unknown point of the call too.
      */
-    private ProviderSendResult call(TenantContext context, Claim.Started started) {
+    private ProviderCall call(Claim.Started started) {
         UUID messageId = started.message().id();
         CompletableFuture<ProviderSendResult> answer = new CompletableFuture<>();
         Thread caller = Thread.ofVirtual().name("dokene-send-" + messageId).start(() -> {
             try {
-                answer.complete(contexts.callWithContext(context, () -> provider.send(started.command())));
-            } catch (RuntimeException failure) {
+                answer.complete(contexts.callWithContext(started.member(), () -> provider.send(started.command())));
+            } catch (Throwable failure) {
+                // Errors too: otherwise the future never completes and the request waits out the whole deadline.
                 answer.completeExceptionally(failure);
             }
         });
         try {
             ProviderSendResult result = answer.get(gate.sendTimeout().toNanos(), TimeUnit.NANOSECONDS);
             if (result != null) {
-                return result;
+                return new ProviderCall(result, false);
             }
         } catch (TimeoutException timeout) {
             caller.interrupt();
@@ -237,17 +210,17 @@ public class OutboundDispatchService {
                     failure.getCause().getClass().getSimpleName());
         } catch (InterruptedException interrupted) {
             caller.interrupt();
-            Thread.currentThread().interrupt();
             log.warn("Dispatch interrupted while the provider call ran; outcome unknown; messageId={}", messageId);
+            return new ProviderCall(new ProviderSendResult.OutcomeUnknown(Optional.empty()), true);
         }
-        return new ProviderSendResult.OutcomeUnknown(Optional.empty());
+        return new ProviderCall(new ProviderSendResult.OutcomeUnknown(Optional.empty()), false);
     }
 
     /** T8 to T11 under the customer then message locks, the same order delivery reports use. */
-    private CommandResult record(TenantContext context, Claim.Started started, ProviderSendResult result) {
-        UUID tenantId = context.tenantId().value();
+    private CommandResult record(Claim.Started started, ProviderSendResult result) {
+        UUID tenantId = started.member().tenantId().value();
         UUID messageId = started.message().id();
-        customers.findByIdForUpdate(context.tenantId(), new CustomerId(started.message().customerId()))
+        customers.findByIdForUpdate(started.member().tenantId(), new CustomerId(started.message().customerId()))
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         OutboundMessage current = messages.findByIdForUpdate(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
@@ -268,7 +241,7 @@ public class OutboundDispatchService {
         }
         log.info("Send outcome recorded; messageId={}, tenantId={}, attempt={}, outcome={}, status={}", messageId,
                 tenantId, attempt.attemptNumber(), attempt.outcome(), next.status());
-        return result(tenantId, messageId, Optional.of(attempt), true);
+        return support.result(tenantId, messageId, Optional.of(attempt), true);
     }
 
     private CommandResult replay(MessageIdempotencyStore.IdempotencyRecord record, String fingerprint,
@@ -279,51 +252,10 @@ public class OutboundDispatchService {
         // Lock the message so the detail below is read from one state: every transition holds this row lock.
         messages.findByIdForUpdate(record.tenantId(), record.messageId())
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        Optional<Object> attempt = messages.findAttempts(record.tenantId(), record.messageId()).stream()
+        MessageDetail detail = support.detail(record.tenantId(), record.messageId());
+        Optional<Object> attempt = detail.attempts().stream()
                 .filter(candidate -> candidate.id().equals(record.recordId())).findFirst().map(Object.class::cast);
-        return result(record.tenantId(), record.messageId(), attempt, false);
-    }
-
-    private CommandResult result(UUID tenantId, UUID messageId, Optional<Object> record, boolean created) {
-        var listed = messages.findListedById(tenantId, messageId)
-                .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
-        return new CommandResult(new MessageDetail(listed.message(), listed.contactRemoved(),
-                messages.findApprovalByMessage(tenantId, messageId), messages.findAttempts(tenantId, messageId)),
-                record, created);
-    }
-
-    private static long ifMatch(String value) {
-        if (value == null || !IF_MATCH.matcher(value.strip()).matches()) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-        try {
-            return Long.parseLong(value.strip());
-        } catch (NumberFormatException exception) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-    }
-
-    private static String idempotencyKey(String value) {
-        if (value == null || !IDEMPOTENCY_KEY.matcher(value).matches()) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
-        return value;
-    }
-
-    private void require(TenantPermission permission) {
-        try {
-            authorization.requirePermission(permission);
-        } catch (TenantAccessDeniedException exception) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
-        }
-    }
-
-    private TenantContext currentContext() {
-        try {
-            return contexts.requireCurrent();
-        } catch (TenantContextUnavailableException exception) {
-            throw refuse(MessagingErrorCode.FORBIDDEN);
-        }
+        return new CommandResult(detail, attempt, false);
     }
 
     private static MessagingRefusedException refuse(MessagingErrorCode code) {

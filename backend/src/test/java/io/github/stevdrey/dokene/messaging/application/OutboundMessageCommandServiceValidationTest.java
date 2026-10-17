@@ -14,6 +14,7 @@ import io.github.stevdrey.dokene.followup.application.DraftGroundingAssembler;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -41,8 +42,9 @@ class OutboundMessageCommandServiceValidationTest {
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
     private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
-            customers, new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety, authorization,
-            contexts, audit, Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
+            customers, new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
+            new MessageCommandSupport(messages, authorization, contexts), mock(CurrentMembershipAuthorizer.class),
+            audit, Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
 
     @Test
     void refusesMissingOrOversizedBodyBeforeTouchingAnything() {

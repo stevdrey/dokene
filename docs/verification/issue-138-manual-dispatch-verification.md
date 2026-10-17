@@ -28,6 +28,10 @@ Status: first PR of two (claim, last-moment gate, synchronous dispatch). The bou
 | Consent change during an in-flight call cannot retract it | `aRevocationDuringAnInFlightCallCannotRetractItButBlocksTheNextSend` |
 | A membership revoked or demoted after the request started cannot claim, and each refusal is audited as `AUTHORIZATION_DENIED` (Codex review) | `aMembershipRevokedOrDemotedAfterTheRequestStartedCannotClaimTheSend` |
 | Dispatch deadline: a slow provider is an unknown outcome, never resent (Codex review, P2) | `aProviderCallThatMissesTheDispatchDeadlineIsAnUnknownOutcome` |
+| An interrupted request still records the unknown outcome, then keeps its interrupt (code review) | `anInterruptedRequestStillRecordsTheUnknownOutcomeThenKeepsItsInterrupt` |
+| An `Error` in the provider is an immediate unknown outcome (code review) | `anErrorInTheProviderIsAnImmediateUnknownOutcome` |
+| The provider runs under the membership as re-read for the claim (code review) | `theProviderRunsUnderTheMembershipAsReReadForTheClaim` |
+| A revoked member cannot approve either, and the denial is audited (code review) | `OutboundMessagingGuardIntegrationTest.aMembershipRevokedAfterTheRequestStartedCannotApproveAndTheDenialIsAudited` |
 
 `SendPolicyGateTest` (unit) covers:
 
@@ -48,14 +52,16 @@ Status: first PR of two (claim, last-moment gate, synchronous dispatch). The bou
 - `409 OUTBOUND_DISABLED_GLOBALLY` with no attempt row while the kill switch is off;
 - `400 INVALID_INPUT` for any request body (`{}`, `{"force":true}`).
 
+`CurrentMembershipAuthorizerTest` (unit) covers the shared re-check: allowed, gone, re-invited, demoted, and no context, each denial audited. `DispatchDeadlineCheckTest` (unit) covers the startup refusal of a Graph timeout that does not fit inside `send-timeout`.
+
 `theTenantSendRateAnswersTooManyRequestsWithRetryAfter` covers `429 RATE_LIMITED` with a `Retry-After` header between 1 and 60 seconds.
 
 ## Results
 
-- `./gradlew test --tests '*OutboundDispatchIntegrationTest'`: 16 passed.
-- `./gradlew test --tests '*SendPolicyGateTest'`: 8 passed. The rate test also checks the `Retry-After` delay.
+- `./gradlew test --tests '*OutboundDispatchIntegrationTest'`: 19 passed.
+- `./gradlew test --tests '*SendPolicyGateTest'`: 9 passed. The rate test also checks the `Retry-After` delay.
 - `./gradlew test --tests '*MessageApiIntegrationTest'`: 15 passed.
-- `./gradlew check`: passed, 1797 tests, 0 failures, 0 skipped (after the Codex review fixes). `TenantPersistenceIntegrationTest` now expects Flyway version 25.
+- `./gradlew check`: passed, 1809 tests, 0 failures, 0 skipped (after the Codex and code review fixes). `TenantPersistenceIntegrationTest` now expects Flyway version 25.
 
 ## Not verified here
 

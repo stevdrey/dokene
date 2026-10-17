@@ -92,21 +92,27 @@ class SendPolicyGateTest {
 
     @Test
     void theTenantRateRefusalCarriesTheRemainingWindow() {
-        permitted();
-        approvedWith(ApprovalFingerprint.of(binding));
-        when(messages.countAttemptsStartedSince(approved.tenantId(), NOW.minus(Duration.ofMinutes(1))))
-                .thenReturn(30);
-        when(messages.oldestAttemptStartedSince(approved.tenantId(), NOW.minus(Duration.ofMinutes(1))))
+        UUID tenant = approved.tenantId();
+        when(messages.countAttemptsStartedSince(tenant, NOW.minus(Duration.ofMinutes(1)))).thenReturn(30);
+        when(messages.oldestAttemptStartedSince(tenant, NOW.minus(Duration.ofMinutes(1))))
                 .thenReturn(Optional.of(NOW.minusSeconds(45)));
 
-        assertRefused(gate(defaults()), approved, MessagingErrorCode.RATE_LIMITED);
         // The oldest counted attempt leaves the one-minute window in 15 seconds.
-        assertThatThrownBy(() -> gate(defaults()).evaluate(context, customer, approved, NOW))
-                .isInstanceOfSatisfying(MessagingRateLimitedException.class,
-                        throttled -> assertThat(throttled.retryAfter()).isEqualTo(Duration.ofSeconds(15)));
+        assertThatThrownBy(() -> gate(defaults()).requireRateBudget(tenant, NOW))
+                .isInstanceOfSatisfying(MessagingRateLimitedException.class, throttled -> {
+                    assertThat(throttled.code()).isEqualTo(MessagingErrorCode.RATE_LIMITED);
+                    assertThat(throttled.retryAfter()).isEqualTo(Duration.ofSeconds(15));
+                });
         // The budget lock is the caller's, taken before it reads the clock it passes in.
         verify(messages, never()).acquireSendBudgetLock(any());
-        verifyNoInteractions(bindings);
+    }
+
+    @Test
+    void aTenantBelowTheRateIsAdmitted() {
+        when(messages.countAttemptsStartedSince(approved.tenantId(), NOW.minus(Duration.ofMinutes(1))))
+                .thenReturn(29);
+
+        gate(defaults()).requireRateBudget(approved.tenantId(), NOW);
     }
 
     @Test
@@ -155,6 +161,8 @@ class SendPolicyGateTest {
         assertThat(command.recipientPhone()).isEqualTo(approved.recipientPhone());
         verify(guards).check(customer, approved.contactId(), approved.action(), approved.templateIntent(),
                 approved.body(), approved.locale(), Optional.empty());
+        // The tenant rate is the caller's last step, under its lock; the policy evaluation never counts it.
+        verify(messages, never()).countAttemptsStartedSince(any(), any());
     }
 
     @Test

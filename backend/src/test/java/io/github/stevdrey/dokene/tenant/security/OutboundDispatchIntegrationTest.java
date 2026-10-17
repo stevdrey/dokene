@@ -72,6 +72,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,8 +84,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-// A short dispatch deadline so the deadline test is fast; every scripted call answers well within it.
-@SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.send-timeout=2s"})
+// A short dispatch deadline so the deadline test is fast; every scripted call answers well within it. The Graph
+// timeout must stay below it (DispatchDeadlineCheck), although no test here reaches Graph.
+@SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.send-timeout=2s",
+        "dokene.integration.whatsapp.graph.timeout=1s"})
 @Import({MappedGeneralFollowUpGateConfiguration.class, ScriptedMessagingProvider.Configuration.class})
 class OutboundDispatchIntegrationTest {
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra. Quedamos atentos.";
@@ -478,6 +482,82 @@ class OutboundDispatchIntegrationTest {
         assertThatRefused(() -> inContext(ownerA, () -> dispatch.send(send(unknown, "again-" + UUID.randomUUID()))),
                 MessagingErrorCode.INVALID_TRANSITION);
         assertThat(provider.calls()).hasSize(1);
+    }
+
+    @Test
+    void anInterruptedRequestStillRecordsTheUnknownOutcomeThenKeepsItsInterrupt() throws Exception {
+        OutboundMessage approved = approvedMessage();
+        CountDownLatch inCall = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        provider.duringSend = () -> {
+            inCall.countDown();
+            try {
+                release.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        AtomicReference<OutboundMessage> recorded = new AtomicReference<>();
+        AtomicBoolean interruptKept = new AtomicBoolean();
+        Thread request = Thread.ofPlatform().start(() -> {
+            try {
+                recorded.set(inContext(ownerA, () -> dispatch.send(send(approved, "intr-" + UUID.randomUUID())))
+                        .message());
+            } catch (Exception exception) {
+                throw new IllegalStateException(exception);
+            } finally {
+                interruptKept.set(Thread.currentThread().isInterrupted());
+            }
+        });
+        try {
+            assertThat(inCall.await(10, TimeUnit.SECONDS)).isTrue();
+            request.interrupt();
+            request.join(TimeUnit.SECONDS.toMillis(30));
+        } finally {
+            release.countDown();
+        }
+
+        assertThat(recorded.get()).isNotNull();
+        assertThat(recorded.get().status()).isEqualTo(MessageStatus.SENDING);
+        assertThat(recorded.get().outcomeUnknown()).isTrue();
+        assertThat(attempts(approved)).singleElement()
+                .satisfies(attempt -> assertThat(attempt.outcome()).isEqualTo(SendAttemptOutcome.OUTCOME_UNKNOWN));
+        assertThat(interruptKept).isTrue();
+    }
+
+    @Test
+    void anErrorInTheProviderIsAnImmediateUnknownOutcome() throws Exception {
+        OutboundMessage approved = approvedMessage();
+        provider.duringSend = () -> {
+            throw new AssertionError("adapter bug");
+        };
+
+        long started = System.nanoTime();
+        OutboundMessage unknown = inContext(ownerA, () -> dispatch.send(send(approved, "err-" + UUID.randomUUID())))
+                .message();
+
+        // Well inside this class's 2s dispatch deadline: the error completed the call instead of timing it out.
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(1500));
+        assertThat(unknown.status()).isEqualTo(MessageStatus.SENDING);
+        assertThat(unknown.outcomeUnknown()).isTrue();
+    }
+
+    @Test
+    void theProviderRunsUnderTheMembershipAsReReadForTheClaim() throws Exception {
+        TenantMembership member = seedMembership(memberships, contexts, ownerA.tenantId(),
+                new IdentityId(UUID.randomUUID()), TenantRole.OWNER, Instant.now());
+        TenantContext stale = context(member);
+        member.changeRole(TenantRole.OPERATOR, Instant.now());
+        contexts.runWithTenantId(ownerA.tenantId(), () -> memberships.save(member));
+        OutboundMessage approved = approvedMessage();
+        AtomicReference<TenantRole> seen = new AtomicReference<>();
+        provider.duringSend = () -> seen.set(contexts.requireCurrent().role());
+
+        OutboundMessage sent = inContext(stale, () -> dispatch.send(send(approved, "fresh-" + UUID.randomUUID())))
+                .message();
+
+        assertThat(sent.status()).isEqualTo(MessageStatus.SENT);
+        assertThat(seen.get()).isEqualTo(TenantRole.OPERATOR);
     }
 
     private OutboundMessage approvedMessage() throws Exception {

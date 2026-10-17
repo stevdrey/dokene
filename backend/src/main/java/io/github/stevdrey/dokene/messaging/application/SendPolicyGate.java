@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -56,9 +57,8 @@ public class SendPolicyGate {
 
     /**
      * Steps 3 to 11 in ADR order; steps 1 and 2 (context and {@code MESSAGE_SEND}) are the caller's, which resolved
-     * {@code context} from an active membership. The caller holds the customer row lock, the message row lock and the
-     * tenant send budget lock ({@link OutboundMessageRepository#acquireSendBudgetLock}), and read {@code now} after
-     * taking the last one, so the rate window is counted from when this claim actually holds the budget.
+     * {@code context} from the membership as it is under the customer lock. The caller holds the customer then the
+     * message row lock. The tenant send rate is not part of this: see {@link #requireRateBudget}.
      */
     public OutboundSendCommand evaluate(TenantContext context, Customer customer, OutboundMessage message,
             Instant now) {
@@ -93,20 +93,11 @@ public class SendPolicyGate {
         guards.check(customer, message.contactId(), message.action(), message.templateIntent(), message.body(),
                 message.locale(), Optional.empty());
 
-        // Step 8 and the ADR 0024 §5 abuse bounds: contact frequency, then the tenant's rate of started attempts,
-        // counted under the budget lock the caller holds.
+        // Step 8 and the ADR 0024 §5 contact frequency bound; the tenant rate is requireRateBudget, checked last.
         Duration interval = properties.minContactInterval();
         if (!interval.isZero()
                 && messages.sentToCustomerSince(message.tenantId(), message.customerId(), now.minus(interval))) {
             throw refuse(MessagingErrorCode.CONTACT_FREQUENCY_EXCEEDED);
-        }
-        Instant windowStart = now.minus(RATE_WINDOW);
-        if (messages.countAttemptsStartedSince(message.tenantId(), windowStart)
-                >= properties.sendRatePerTenantPerMinute()) {
-            // A slot frees when the oldest counted attempt leaves the sliding window.
-            Instant frees = messages.oldestAttemptStartedSince(message.tenantId(), windowStart)
-                    .map(oldest -> oldest.plus(RATE_WINDOW)).orElse(now.plus(RATE_WINDOW));
-            throw new MessagingRateLimitedException(Duration.between(now, frees));
         }
 
         // Steps 9 and 5b: re-resolve and render the template now, then require the approval to cover that binding.
@@ -122,6 +113,24 @@ public class SendPolicyGate {
         return new OutboundSendCommand(message.recipientPhone(), binding.template().providerTemplateName(),
                 binding.template().language(), binding.parameterValues(), message.locale(), message.sendKey(),
                 sender);
+    }
+
+    /**
+     * The ADR 0024 §5 tenant rate bound, the last policy step before the claim writes. The caller holds the tenant send
+     * budget lock ({@link OutboundMessageRepository#acquireSendBudgetLock}) and read {@code now} after taking it, and
+     * dates its attempt with that same {@code now}, so concurrent sends cannot all pass the count and a claim that
+     * waited counts the window from when it actually holds the budget. Refuses with {@code RATE_LIMITED} and the
+     * delay until the oldest counted attempt leaves the sliding window.
+     */
+    public void requireRateBudget(UUID tenantId, Instant now) {
+        Objects.requireNonNull(tenantId, "Tenant id is required");
+        Objects.requireNonNull(now, "Time is required");
+        Instant windowStart = now.minus(RATE_WINDOW);
+        if (messages.countAttemptsStartedSince(tenantId, windowStart) >= properties.sendRatePerTenantPerMinute()) {
+            Instant frees = messages.oldestAttemptStartedSince(tenantId, windowStart)
+                    .map(oldest -> oldest.plus(RATE_WINDOW)).orElse(now.plus(RATE_WINDOW));
+            throw new MessagingRateLimitedException(Duration.between(now, frees));
+        }
     }
 
     private static MessagingRefusedException refuse(MessagingErrorCode code) {
