@@ -1,4 +1,4 @@
-// ABOUTME: Reads a template's approval status from Meta's Graph API with the tenant's own credential (ADR 0025).
+// ABOUTME: Reads a template's approval status and parameter schema from Meta's Graph API with the tenant's credential.
 // ABOUTME: Fails closed: any problem is Unavailable with no provider text; the secret never leaves this class.
 package io.github.stevdrey.dokene.integration.whatsapp;
 
@@ -29,6 +29,8 @@ import tools.jackson.databind.json.JsonMapper;
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
     /** Most pages one lookup may read; a longer list is unavailable rather than assumed to lack the template. */
     private static final int MAX_PAGES = 5;
+    /** Requested explicitly so the schema check never depends on Graph's default field set. */
+    private static final String FIELDS = "name,language,status,parameter_format,components";
 
     private final WhatsAppIntegrationRepository integrations;
     private final ObjectProvider<IntegrationSecretResolver> secrets;
@@ -100,7 +102,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
             for (JsonNode template : data) {
                 if (name.equals(template.path("name").asString(null))
                         && language.equals(template.path("language").asString(null))) {
-                    return map(template.path("status").asString(null), graph.businessAccountId());
+                    return map(template, graph.businessAccountId());
                 }
             }
             if (root.path("paging").path("next").isMissingNode() || root.path("paging").path("next").isNull()) {
@@ -117,12 +119,17 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
     private URI pageUri(GraphSender graph, String name, String language, String cursor) {
         String path = graph.businessAccountId() + "/message_templates?name="
                 + URLEncoder.encode(name, StandardCharsets.UTF_8) + "&language="
-                + URLEncoder.encode(language, StandardCharsets.UTF_8);
+                + URLEncoder.encode(language, StandardCharsets.UTF_8) + "&fields="
+                + URLEncoder.encode(FIELDS, StandardCharsets.UTF_8);
         return http.uri(cursor == null ? path : path + "&after=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
     }
 
-    /** Unknown or non-sendable-by-policy states (for example LIMIT_EXCEEDED) are not evidence. */
-    private static Lookup map(String status, String businessAccountId) {
+    /**
+     * Unknown or non-sendable-by-policy states (for example LIMIT_EXCEEDED) are not evidence. Only an approval reads
+     * the component schema, which the template module checks against the mapping.
+     */
+    private static Lookup map(JsonNode template, String businessAccountId) {
+        String status = template.path("status").asString(null);
         if (status == null) {
             return new Unavailable();
         }
@@ -135,6 +142,9 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
             case "DELETED", "PENDING_DELETION", "ARCHIVED" -> TemplateApprovalStatus.DELETED;
             default -> null;
         };
+        if (mapped == TemplateApprovalStatus.APPROVED) {
+            return new Reported(mapped, businessAccountId, GraphApiTemplateSchemaReader.read(template));
+        }
         return mapped == null ? new Unavailable() : new Reported(mapped, businessAccountId);
     }
 }

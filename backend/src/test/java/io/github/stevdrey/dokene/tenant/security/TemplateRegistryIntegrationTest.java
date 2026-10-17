@@ -40,7 +40,9 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.template.application.TemplateAuditPort;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -214,7 +216,7 @@ class TemplateRegistryIntegrationTest {
         assertThat(resolve(tenantA, SemanticTemplateIntent.RELATED_PRODUCT))
                 .isInstanceOf(TemplateMappingResolver.NotMapped.class);
 
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        gateway.next = approved(WABA_ID);
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(header().string("ETag", "\"0\""))
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
@@ -261,9 +263,107 @@ class TemplateRegistryIntegrationTest {
     }
 
     @Test
+    void anApprovalWhoseSchemaDoesNotMatchIsRecordedButNeverSendable() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        var cases = List.of(
+                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")),
+                        TemplateApprovalStatus.SCHEMA_MISMATCH),
+                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED, List.of("1", "2")),
+                        TemplateApprovalStatus.SCHEMA_MISMATCH),
+                List.of(new ProviderTemplateSchema.Unsupported(), TemplateApprovalStatus.SCHEMA_UNSUPPORTED),
+                List.of(new ProviderTemplateSchema.Unreadable(), TemplateApprovalStatus.SCHEMA_UNREADABLE));
+        int audits = auditCount(tenantA);
+        TemplateApprovalStatus previous = TemplateApprovalStatus.UNVERIFIED;
+        for (List<?> entry : cases) {
+            TemplateApprovalStatus expected = (TemplateApprovalStatus) entry.get(1);
+            gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                    (ProviderTemplateSchema) entry.get(0));
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                    .andExpect(jsonPath("$.approvalStatus").value(expected.name()))
+                    .andExpect(jsonPath("$.sendable").value(false));
+            assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                    .isInstanceOf(TemplateMappingResolver.Disabled.class);
+            if (expected != previous) {
+                audits++;
+            }
+            assertThat(auditCount(tenantA)).isEqualTo(audits);
+            previous = expected;
+        }
+        assertThat(parameterFormat(tenantA)).isNull();
+    }
+
+    @Test
+    void aNamedApprovalIsRecordedWithItsFormatButNotSendableYetAndEditsClearIt() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
+                        List.of("product", "customer_name")));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.sendable").value(false));
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        assertThat(parameterFormat(tenantA)).isEqualTo("NAMED");
+
+        replace(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"", TEMPLATE.replace("_v1", "_v2")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("UNVERIFIED"));
+        assertThat(parameterFormat(tenantA)).isNull();
+    }
+
+    @Test
+    void evidenceRewrittenByAnOlderReleaseNeverInheritsTheVerifiedFormat() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = approved(WABA_ID);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.sendable").value(true));
+
+        // An older instance's status-only refresh rewrites the evidence but not the format columns.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = now() WHERE tenant_id = ?",
+                tenantA.id().value());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        list(adminA, tenantA).andExpect(jsonPath("$.items[?(@.templateIntent=='REPEAT_PURCHASE')].sendable")
+                .value(false));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.sendable").value(true));
+
+        // An older instance's edit drops the status but leaves the stale format behind; a refresh still succeeds.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_status = 'UNVERIFIED', "
+                + "approval_checked_at = NULL, approval_checked_business_account_id = NULL, "
+                + "approval_checked_version = NULL, version = version + 1 WHERE tenant_id = ?", tenantA.id().value());
+        list(adminA, tenantA).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.templateIntent=='REPEAT_PURCHASE')].approvalStatus")
+                        .value("UNVERIFIED"));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"1\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.sendable").value(true));
+    }
+
+    @Test
+    void aRefreshThatOnlyChangesTheVerifiedFormatIsAudited() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = approved(WABA_ID);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+        int audits = auditCount(tenantA);
+
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
+                        List.of("customer_name", "product")));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED"));
+        assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
+
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
+                        List.of("product", "customer_name")));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+        assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
+    }
+
+    @Test
     void aFailedRefreshDowngradesEarlierEvidenceAndExposesOnlyAClosedCode() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        gateway.next = approved(WABA_ID);
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
 
         gateway.next = new TemplateProviderGateway.Unavailable();
@@ -282,7 +382,7 @@ class TemplateRegistryIntegrationTest {
     @Test
     void aSlowerOlderRefreshCannotOverwriteNewerEvidence() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        gateway.next = approved(WABA_ID);
         // While the first refresh waits on the provider, a second one lands and stores REJECTED.
         gateway.duringLookup = () -> {
             gateway.duringLookup = () -> { };
@@ -305,10 +405,10 @@ class TemplateRegistryIntegrationTest {
     @Test
     void evidenceForAnotherBusinessAccountIsNeverStored() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        gateway.next = approved(WABA_ID);
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
 
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, "999999999999999");
+        gateway.next = approved("999999999999999");
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));
         gateway.next = new TemplateProviderGateway.Absent("999999999999999");
@@ -337,7 +437,7 @@ class TemplateRegistryIntegrationTest {
     @Test
     void staleEvidenceAndAChangedBusinessAccountFailClosed() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        gateway.next = approved(WABA_ID);
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                 .isInstanceOf(TemplateMappingResolver.Resolved.class);
@@ -359,7 +459,7 @@ class TemplateRegistryIntegrationTest {
     @Test
     void tenantsCannotSeeOrUseEachOthersMappingsAndRowLevelSecurityHolds() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
-        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        gateway.next = approved(WABA_ID);
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
 
         list(adminB, tenantB).andExpect(jsonPath("$.items[?(@.mapped==true)]").isEmpty());
@@ -386,6 +486,17 @@ class TemplateRegistryIntegrationTest {
             // An approved status can never be kept without complete provider evidence.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = NULL "
                     + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            // A format is only ever stored together with the time of the schema check that produced it.
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
+                    + "= NULL WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                    .isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
+                    + "= 'MIXED' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            // Expand phase: an older instance's approval without any format stays writable (and is never sendable).
+            execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format = NULL, "
+                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value());
         }
     }
 
@@ -507,6 +618,24 @@ class TemplateRegistryIntegrationTest {
                         + "dokene.tenant_provider_templates WHERE tenant_id = ? AND semantic_intent = ?")) {
             statement.setObject(1, tenant.id().value());
             statement.setString(2, intent);
+            try (var rs = statement.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    /** Approval for the shared TEMPLATE fixture, whose two parameters match a positional {{1}} and {{2}} body. */
+    private static TemplateProviderGateway.Reported approved(String businessAccountId) {
+        return new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, businessAccountId,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")));
+    }
+
+    private String parameterFormat(Tenant tenant) throws SQLException {
+        try (Connection migration = migrationConnection();
+                var statement = migration.prepareStatement(
+                        "SELECT approval_parameter_format FROM dokene.tenant_provider_templates WHERE tenant_id = ?")) {
+            statement.setObject(1, tenant.id().value());
             try (var rs = statement.executeQuery()) {
                 rs.next();
                 return rs.getString(1);

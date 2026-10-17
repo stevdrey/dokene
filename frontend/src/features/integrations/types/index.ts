@@ -32,7 +32,10 @@ export const TEMPLATE_APPROVAL_STATUSES = [
   'PAUSED',
   'DISABLED',
   'DELETED',
-  'NOT_FOUND'
+  'NOT_FOUND',
+  'SCHEMA_MISMATCH',
+  'SCHEMA_UNSUPPORTED',
+  'SCHEMA_UNREADABLE'
 ] as const;
 export type TemplateApprovalStatus = (typeof TEMPLATE_APPROVAL_STATUSES)[number];
 

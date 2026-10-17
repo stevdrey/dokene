@@ -67,6 +67,20 @@
         "sendable": false,
         "version": 0
       },
+      "approvalSchemaMismatch": {
+        "templateIntent": "DORMANT_CUSTOMER",
+        "mapped": true,
+        "enabled": true,
+        "providerTemplateName": "synthetic_dormant_customer",
+        "language": "es",
+        "parameterNames": [
+          "customer_name"
+        ],
+        "approvalStatus": "SCHEMA_MISMATCH",
+        "approvalCheckedAt": "2026-10-13T12:00:00Z",
+        "sendable": false,
+        "version": 1
+      },
       "unmapped": {
         "templateIntent": "SEASONAL_EVENT",
         "mapped": false,

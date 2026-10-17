@@ -25,7 +25,9 @@ import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService;
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Create;
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Version;
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -106,6 +108,21 @@ class RegistryBackedTemplateGateIntegrationTest {
     }
 
     @Test
+    void aProviderApprovalWhoseParametersDoNotMatchIsNeverMapped() {
+        put(adminA, new Create(), "repeat_purchase_v1");
+        for (ProviderTemplateSchema schema : List.of(
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")),
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of()),
+                new ProviderTemplateSchema.Unsupported(), new ProviderTemplateSchema.Unreadable())) {
+            provider.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID, schema);
+            call(adminA, () -> registry.refreshApproval(INTENT, 0));
+            assertThat(check(adminA)).isFalse();
+        }
+        approve(adminA, 0);
+        assertThat(check(adminA)).isTrue();
+    }
+
+    @Test
     void editingAnApprovedMappingMakesItNotMappedUntilVerifiedAgain() {
         put(adminA, new Create(), "repeat_purchase_v1");
         approve(adminA, 0);
@@ -135,7 +152,8 @@ class RegistryBackedTemplateGateIntegrationTest {
     }
 
     private void approve(TenantContext context, long version) {
-        provider.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID);
+        provider.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")));
         call(context, () -> registry.refreshApproval(INTENT, version));
     }
 

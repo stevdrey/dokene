@@ -1,4 +1,4 @@
-// ABOUTME: Pins mapping validation, the eligibility rule and the parameter schema check (issue 135).
+// ABOUTME: Pins mapping validation, the eligibility rule and the parameter schema check (issues 135 and 218).
 // ABOUTME: Each sendable() condition is flipped alone so none can silently stop mattering.
 package io.github.stevdrey.dokene.template.domain;
 
@@ -20,6 +20,8 @@ class TemplateMappingTest {
     private static final Duration MAX_AGE = Duration.ofHours(24);
     private static final String WABA = "400000000000001";
     private static final UUID INTEGRATION = UUID.randomUUID();
+    private static final ProviderTemplateSchema POSITIONAL_ONE =
+            new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"));
 
     private static TemplateMapping mapping(String name, String language, List<String> parameters) {
         return TemplateMapping.create(new TenantId(UUID.randomUUID()), INTEGRATION,
@@ -28,7 +30,7 @@ class TemplateMappingTest {
 
     private static TemplateMapping approved() {
         return mapping("repeat_purchase_v1", "es_MX", List.of("customer_name"))
-                .verified(TemplateApprovalStatus.APPROVED, WABA, NOW);
+                .verifiedApproval(POSITIONAL_ONE, WABA, NOW);
     }
 
     @ParameterizedTest
@@ -67,10 +69,11 @@ class TemplateMappingTest {
         assertThat(base.edit(INTEGRATION, "repeat_purchase_v1", "es_MX", List.of("customer_name"), true, NOW)
                 .sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
         assertThat(base.edit(INTEGRATION, "repeat_purchase_v1", "es_MX", List.of("customer_name"), false, NOW)
-                .verified(TemplateApprovalStatus.APPROVED, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE))
+                .verifiedApproval(POSITIONAL_ONE, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE))
                 .isFalse();
         for (TemplateApprovalStatus status : TemplateApprovalStatus.values()) {
-            if (status != TemplateApprovalStatus.APPROVED && status != TemplateApprovalStatus.UNVERIFIED) {
+            if (status != TemplateApprovalStatus.APPROVED && status != TemplateApprovalStatus.UNVERIFIED
+                    && !status.derivedFromSchema()) {
                 assertThat(base.verified(status, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
             }
         }
@@ -79,10 +82,61 @@ class TemplateMappingTest {
 
     @Test
     void evidenceIsCompleteOrAbsent() {
-        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, null, null, null))
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, null, null, null,
+                TemplateParameterFormat.POSITIONAL)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED, NOW, WABA, 0L,
+                null)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void onlyApprovedEvidenceCarriesAParameterFormat() {
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.SCHEMA_MISMATCH, NOW,
+                WABA, 0L, TemplateParameterFormat.NAMED)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(approved().approval().parameterFormat()).isEqualTo(TemplateParameterFormat.POSITIONAL);
+    }
+
+    @Test
+    void anApprovalWhoseSchemaWasNeverCheckedIsKeptButNeverSendable() {
+        TemplateMapping base = mapping("t", "es", List.of("customer_name"));
+        TemplateMapping unchecked = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
+                base.providerTemplateName(), base.language(), base.parameterNames(), true,
+                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L, null),
+                base.createdAt(), base.updatedAt(), 0);
+        assertThat(unchecked.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+    }
+
+    @Test
+    void approvalIsOnlyRecordedThroughTheSchemaCheck() {
+        TemplateMapping base = mapping("t", "es", List.of("customer_name"));
+        assertThatThrownBy(() -> base.verified(TemplateApprovalStatus.APPROVED, WABA, NOW))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED, NOW, WABA, 0L))
-                .isInstanceOf(IllegalArgumentException.class);
+        for (TemplateApprovalStatus status : TemplateApprovalStatus.values()) {
+            if (status.derivedFromSchema()) {
+                assertThatThrownBy(() -> base.verified(status, WABA, NOW)).isInstanceOf(IllegalArgumentException.class);
+            }
+        }
+    }
+
+    @Test
+    void aMismatchedUnsupportedOrUnreadableSchemaIsRecordedButNeverSendable() {
+        TemplateMapping base = mapping("t", "es", List.of("customer_name"));
+        var cases = java.util.Map.of(
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")),
+                TemplateApprovalStatus.SCHEMA_MISMATCH,
+                new ProviderTemplateSchema.Unsupported(), TemplateApprovalStatus.SCHEMA_UNSUPPORTED,
+                new ProviderTemplateSchema.Unreadable(), TemplateApprovalStatus.SCHEMA_UNREADABLE);
+        cases.forEach((schema, status) -> {
+            TemplateMapping verified = base.verifiedApproval(schema, WABA, NOW);
+            assertThat(verified.approval()).isEqualTo(
+                    new TemplateMapping.ApprovalEvidence(status, NOW, WABA, 0L, null));
+            assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        });
+        TemplateMapping named = base.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
+                TemplateParameterFormat.NAMED, List.of("customer_name")), WABA, NOW);
+        assertThat(named.approval().status()).isEqualTo(TemplateApprovalStatus.APPROVED);
+        assertThat(named.approval().parameterFormat()).isEqualTo(TemplateParameterFormat.NAMED);
+        // Not sendable until the send adapter can build named parameters.
+        assertThat(named.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
     }
 
     @Test

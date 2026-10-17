@@ -6,6 +6,7 @@ import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateMappingRepository;
 import io.github.stevdrey.dokene.template.application.TemplateRefusedException;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping.ApprovalEvidence;
 import java.sql.Array;
@@ -83,7 +84,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                         SET integration_id = ?, provider_template_name = ?, language = ?, parameter_names = ?,
                             enabled = ?, approval_status = 'UNVERIFIED', approval_checked_at = NULL,
                             approval_checked_business_account_id = NULL, approval_checked_version = NULL,
-                            updated_at = ?, version = version + 1
+                            approval_parameter_format = NULL, approval_parameter_checked_at = NULL, updated_at = ?, version = version + 1
                         WHERE tenant_id = ? AND id = ? AND version = ?
                         RETURNING version
                         """);
@@ -109,19 +110,37 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         return jdbc.update("""
                 UPDATE dokene.tenant_provider_templates
                 SET approval_status = ?, approval_checked_at = ?, approval_checked_business_account_id = ?,
-                    approval_checked_version = ?, updated_at = ?
+                    approval_checked_version = ?, approval_parameter_format = ?, approval_parameter_checked_at = ?,
+                    updated_at = ?
                 WHERE tenant_id = ? AND id = ? AND version = ?
                     AND approval_status = ? AND approval_checked_at IS NOT DISTINCT FROM ?
                     AND approval_checked_business_account_id IS NOT DISTINCT FROM ?
                     AND approval_checked_version IS NOT DISTINCT FROM ?
                 """, evidence.status().name(), timestamp(evidence), evidence.checkedBusinessAccountId(),
-                evidence.checkedVersion(), Timestamp.from(mapping.updatedAt()), mapping.tenantId().value(),
-                mapping.id(), expectedVersion, expected.status().name(), timestamp(expected),
-                expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
+                evidence.checkedVersion(), format(evidence),
+                evidence.parameterFormat() == null ? null : timestamp(evidence), Timestamp.from(mapping.updatedAt()),
+                mapping.tenantId().value(), mapping.id(), expectedVersion, expected.status().name(),
+                timestamp(expected), expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
+    }
+
+    private static String format(ApprovalEvidence evidence) {
+        return evidence.parameterFormat() == null ? null : evidence.parameterFormat().name();
     }
 
     private static Timestamp timestamp(ApprovalEvidence evidence) {
         return evidence.checkedAt() == null ? null : Timestamp.from(evidence.checkedAt());
+    }
+
+    /**
+     * A stored format counts only for approval evidence written together with it. An instance of an earlier release
+     * rewrites the evidence without touching the format columns, so its check time no longer matches and the format
+     * (verified for other evidence) is ignored: that approval is not sendable until it is refreshed again.
+     */
+    private static String trustedFormat(ResultSet rs, Timestamp checkedAt) throws SQLException {
+        Timestamp formatCheckedAt = rs.getTimestamp("approval_parameter_checked_at");
+        boolean current = TemplateApprovalStatus.APPROVED.name().equals(rs.getString("approval_status"))
+                && checkedAt != null && checkedAt.equals(formatCheckedAt);
+        return current ? rs.getString("approval_parameter_format") : null;
     }
 
     private static TemplateMapping map(ResultSet rs) throws SQLException {
@@ -129,10 +148,12 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         List<String> parameterNames = List.of((String[]) names.getArray());
         Timestamp checkedAt = rs.getTimestamp("approval_checked_at");
         Long checkedVersion = rs.getObject("approval_checked_version", Long.class);
+        String format = trustedFormat(rs, checkedAt);
         ApprovalEvidence evidence = new ApprovalEvidence(
                 TemplateApprovalStatus.valueOf(rs.getString("approval_status")),
                 checkedAt == null ? null : checkedAt.toInstant(),
-                rs.getString("approval_checked_business_account_id"), checkedVersion);
+                rs.getString("approval_checked_business_account_id"), checkedVersion,
+                format == null ? null : TemplateParameterFormat.valueOf(format));
         return new TemplateMapping(rs.getObject("id", UUID.class),
                 new TenantId(rs.getObject("tenant_id", UUID.class)), rs.getObject("integration_id", UUID.class),
                 SemanticTemplateIntent.valueOf(rs.getString("semantic_intent")), rs.getString("provider_template_name"),
