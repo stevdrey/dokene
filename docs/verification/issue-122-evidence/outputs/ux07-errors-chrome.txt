@@ -1,0 +1,60 @@
+== UX-07 loading and error states (Chrome 155; provider is the FAULT-INJECTION stub except where stated; Dokene HTTP failures are injected by wrapping window.fetch)
+-- A slow provider (8 s) then success
+   at 2.5 s: status: Consultando al asistente… | buttons ["Obtener recomendación[disabled]","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]
+PASS  loading is announced and manual actions stay usable while waiting
+   panel: auto_awesome Asistente IA  Recomendación lista Recomendación de la IA ACCIÓN SUGERIDA Reactivación de cliente inactivo · Cliente inactivo POR QUÉ LO SUGIERE LA IA La última compra fue hace meses; conviene retomar el contacto. Confianza del modelo: 80 % Consultar de nuevo Generar borrador
+   buttons: ["Consultar de nuevo","Generar borrador","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: Recomendación lista"]
+PASS  after the slow response the result is shown (no endless spinner)
+-- B provider timeout (20 s > 15 s)
+   panel: auto_awesome Asistente IA  El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   buttons: ["Reintentar","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento ma"]
+PASS  timeout ends in an unavailable message (no spinner left)  -- ual y la decisión es tuya. El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+PASS  retry is offered for a retryable failure
+-- C no recommendation (valid refusal)
+   panel: auto_awesome Asistente IA  Sin recomendación de la IA Recomendación de la IA La IA no recomienda una acción por ahora: la intención del cliente no es clara. No hay datos suficientes para sugerir una acción segura. Consultar de nuevo
+   buttons: ["Consultar de nuevo","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: Sin recomendación de la IA"]
+PASS  no-recommendation is shown as an informational outcome with the reason, not as an error  -- ecomendación de la IA Recomendación de la IA La IA no recomienda una acción por ahora: la intención del cliente no es clara. No hay datos suficientes para sugerir una acción segura. Consultar de nuevo
+-- D no draft (valid refusal)
+   panel: auto_awesome Asistente IA  Borrador no disponible Recomendación de la IA ACCIÓN SUGERIDA Reactivación de cliente inactivo · Cliente inactivo POR QUÉ LO SUGIERE LA IA La última compra fue hace meses; conviene retomar el contacto. Confianza del modelo: 80 % Consultar de nuevo La IA no pudo redactar un borrador: esta acción no admi
+   buttons: ["Consultar de nuevo","Regenerar borrador","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: Borrador no disponible"]
+PASS  no-draft outcome is explained and manual actions remain
+-- E provider unavailable 503 (retryable)
+   panel: auto_awesome Asistente IA  El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   buttons: ["Reintentar","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento ma"]
+PASS  503: message is generic, in Spanish, without provider text  -- anal habitual y la decisión es tuya. El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   retry action offered: true
+PASS  503: manual actions remain usable
+-- F provider rejects the request 401 (not retryable)
+   panel: auto_awesome Asistente IA  El asistente IA no pudo generar una sugerencia utilizable. Puedes continuar con el seguimiento manual.
+   buttons: ["edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no pudo generar una sugerencia utilizable. Puedes continuar con el seguimi"]
+FAIL  401: message is generic, in Spanish, without provider text  -- da. El envío es manual por tu canal habitual y la decisión es tuya. El asistente IA no pudo generar una sugerencia utilizable. Puedes continuar con el seguimiento manual.
+   retry action offered: false
+PASS  401: manual actions remain usable
+-- G provider throttled 429 (retryable)
+   panel: auto_awesome Asistente IA  El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   buttons: ["Reintentar","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento ma"]
+PASS  429: message is generic, in Spanish, without provider text  -- anal habitual y la decisión es tuya. El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   retry action offered: true
+PASS  429: manual actions remain usable
+-- H Dokene API 500 (injected)
+   panel: auto_awesome Asistente IA  No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual."]
+PASS  500: generic error, manual actions usable, retry offered  -- a. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+-- I Dokene API 429 with Retry-After (injected)
+   panel: auto_awesome Asistente IA  Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo."]
+PASS  429: tells the operator to wait/retry later (per-app limit), not a generic failure  -- A · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+-- J malformed 200 response (injected)
+   panel: auto_awesome Asistente IA  No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual."]
+PASS  malformed/untrusted response is rejected with a generic error (no content shown)  -- a. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+-- K permission revoked mid-session (403)
+   panel: auto_awesome Asistente IA  Tu rol no permite usar el asistente IA en este espacio de trabajo. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: Tu rol no permite usar el asistente IA en este espacio de trabajo."]
+PASS  403: clear role message  --  ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Tu rol no permite usar el asistente IA en este espacio de trabajo. Obtener recomendación
+-- L real Dokene rate limit (20/min per actor)
+   burst from another tab: 200,200,200,200,200,200,200,200,200,200,200,200,200,200,200,200,200,429,429,429,429,429,429,429
+   panel: auto_awesome Asistente IA  Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo."]
+PASS  429 from Dokene: understandable wait/retry message  -- A · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+PASS=16 FAIL=1

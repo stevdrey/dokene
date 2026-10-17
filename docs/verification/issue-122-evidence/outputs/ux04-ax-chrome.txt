@@ -1,0 +1,77 @@
+== UX-04 accessibility-tree audit (Chrome 155 accessibility tree; NOT a screen-reader session)
+login page: title="Dokene" lang=es landmarks/headings: ["h1:Dokene"]
+-- queue + detail (before AI): landmarks and headings
+{
+ "lm": [
+  "aside aria-label=\"Barra lateral de navegación\"",
+  "nav aria-label=\"Navegación principal\"",
+  "nav aria-label=\"Ajustes\"",
+  "header",
+  "header",
+  "main",
+  "section",
+  "nav aria-label=\"Navegación móvil inferior\""
+ ],
+ "hs": [
+  "h1: Seguimientos",
+  "h3: Dormant Té QA",
+  "h2: Dormant Té QA",
+  "h3: ¿Por qué contactar hoy?",
+  "h3: Asistente IA",
+  "h3: Historial reciente de compras"
+ ],
+ "inputs": [
+  {
+   "type": "search",
+   "name": "Buscar seguimientos por nombre o teléfono",
+   "placeholderOnly": false,
+   "describedby": ""
+  }
+ ],
+ "roleBtn": 1,
+ "iconBtns": [],
+ "iconsWithoutAriaHidden": 0,
+ "lang": "es",
+ "title": "Dokene"
+}
+-- keyboard activation of role=button cards: Space and Enter
+   Space on card "Dormant Té QAcheck_c" -> detail text present: true
+-- AI panel state announcements (live regions) while loading, result, error
+   during loading: ["status/polite \"Consultando al asistente…\""]
+   after result: ["status/polite \"Recomendación lista\""]
+   after draft: ["status/polite \"Borrador listo para revisar\""]
+   editor: {"label":"Borrador del mensaje (editable)","describedby":null,"desc":[null],"maxlength":null,"counterLive":true}
+-- AX tree of the AI panel (roles/names as exposed to assistive technology)
+          heading "Dormant Té QA"
+          button "Ver cliente"
+          button "Copiar número de teléfono"
+      heading "¿Por qué contactar hoy?"
+    paragraph
+  region "Asistente IA"
+      heading "Asistente IA"
+    paragraph
+    status
+    region "Recomendación de la IA"
+      heading "Recomendación de la IA"
+        paragraph
+        paragraph
+      paragraph
+        button "Consultar de nuevo"
+      LabelText
+      textbox "Borrador del mensaje (editable)"
+        list
+          listitem
+            ListMarker "• "
+          listitem
+            ListMarker "• "
+          listitem
+            ListMarker "• "
+        button "Copiar borrador"
+        button "Regenerar borrador"
+        heading "Historial reciente de compras"
+    paragraph
+    button "Registrar seguimiento"
+      button "Posponer"
+      button "Descartar"
+-- Spanish copy check: strings on screen that look English/untranslated
+   ["Estado de seguimiento: OVERDUE"]

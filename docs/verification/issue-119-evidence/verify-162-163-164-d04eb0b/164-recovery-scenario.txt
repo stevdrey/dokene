@@ -1,0 +1,4 @@
+#164 recovery (main @ d04eb0b; temporary QA-only override of the bridge healthcheck because of #171, applied through COMPOSE_FILE)
+1. raw "docker compose up -d" while another container holds 127.0.0.1:8080 -> "Bind for 127.0.0.1:8080 failed: port is already allocated"; oidc-bridge: Created, 0 networks (the original bug state).
+2. port freed; ./scripts/dev-env.sh up -> bridge recreated (container age ~20 s), "[ok] All requested containers are healthy", bridge networks: 1, BFF 401, all five services healthy.
+Without the override the same "up" cannot succeed on a host with a DNS search domain (#171).

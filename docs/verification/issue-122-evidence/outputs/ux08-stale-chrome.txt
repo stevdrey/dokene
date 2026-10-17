@@ -1,0 +1,27 @@
+== UX-08 stale edited draft (Chrome 155, live OpenAI for recommendation/draft; queue-refresh failure is FAULT-INJECTED by wrapping window.fetch)
+original draft: "Hola, Dormant Té QA. Hace un tiempo compraste Té verde 500 g y queríamos saber cómo te fue. Si podemos ayudarte con algo"
+PASS  operator edit is in the editor
+other tab: policy etag 4, changing cadence
+PASS  policy changed in the other tab  -- status 200
+-- arm ONE queue refresh failure (FAULT INJECTION), then regenerate the draft in the first tab (stale ETag)
+inline confirm text: Regenerar reemplazará tus cambios en el borrador.
+panel text after the stale event: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos actualizar la lista de seguimientos. Tu borrador editado (la recomendación ya no está actualizada) Edición local: no se guarda ni se envía. 186 / 1000 Copiar borrador Reintentar actualizar lista
+injected failures: 1
+dialog open: false
+PASS  stale: previous recommendation text is hidden
+PASS  stale: edited text remains in an editable area  -- [" QA Café Norte! EDICIÓN-QA-122"]
+PASS  stale: panel says the list refresh failed
+PASS  stale: offers "Reintentar actualizar lista" instead of "Actualizar recomendación"
+PASS  copy works while stale and copies the edited text
+buttons: ["Copiar borrador","Reintentar actualizar lista","closeDescartar"]
+panel after retry: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Borrador copiado El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación. Tu borrador editado (la recomendación ya no está actualizada) Edición local: no se guarda ni se envía. 186 / 1000 Copiar borrador Actualizar recomendación
+PASS  retry succeeded: panel offers "Actualizar recomendación"
+PASS  edited text still present after the successful refresh
+-- explicit confirmation before discarding edits
+after "Actualizar recomendación": dialog=false | spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(a) logout Cerrar sesión Dokene chevron_right Seguimientos person GESTIÓN DE RELACIONES Ciclo de atención Seguimientos Ten presente a quién c
+confirmation buttons: ["Descartar y consultar","Cancelar","closeDescartar"]
+PASS  discarding edits requires an explicit inline confirmation ("Descartar y consultar" / "Cancelar") before any new request
+PASS  cancelling the confirmation keeps the edited text
+confirm button used: Descartar y consultar
+PASS  after confirming, a NEW live recommendation is shown and the edited text is gone
+PASS=12 FAIL=0

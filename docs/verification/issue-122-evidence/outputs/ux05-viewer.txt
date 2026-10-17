@@ -1,0 +1,7 @@
+== UX-05 VIEWER (testviewer) experience
+role label in the sidebar: Lector
+buttons visible: ["storeQA Café Norteunfold_more","assignment_turned_inSeguimient","groupClientes","settingsConfiguración","logoutCerrar sesión","Pendientes50","Vencidos50","Cargar más páginas","Cargar más páginas y seguir bu","Ver clientearrow_forward","content_copy","Obtener recomendación [disabled]","edit_calendarRegistrar seguimi [disabled]","schedulePosponer [disabled]","closeDescartar [disabled]"]
+AI panel text for the viewer: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Tu rol no permite usar el asistente IA en este espacio de trabajo. Obtener recomendación
+permission explanation anywhere: ["Tu rol no permite usar el asistente IA en este espacio de trabajo","Tu rol en este espacio es de sólo lectura"]
+tooltips/aria-disabled controls: ["Obtener recomendación title=","edit_calendarRegistrar seguimi title=","schedulePosponer title=","closeDescartar title="]
+customers screen for viewer, create/edit buttons: []

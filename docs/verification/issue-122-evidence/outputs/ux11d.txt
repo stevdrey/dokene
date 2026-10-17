@@ -1,0 +1,4 @@
+recommendation visible at 1440; page marker set (a reload would clear it)
+width 1100: marker=12345 (same document: true); recommendation still shown: true; detail header node preserved: true; selected: Dormant Té QA
+width 1023: marker=12345 (same document: true); recommendation still shown: false; detail header node preserved: false; selected: Dormant Té QA
+width 1024: marker=12345 (same document: true); recommendation still shown: false; detail header node preserved: false; selected: Dormant Té QA

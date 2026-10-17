@@ -1,0 +1,43 @@
+  purchases in DB: Café molido 250 g por $1 200;Harina de trigo 5 kg 10% descuento aplicado;Pack espresso 12 500 y $12 500;Pack espresso 3 bolsas $100;
+== G1 purchase: Pack espresso 3 bolsas $100 (notes offer $10 and 10%)
+PASS  SEC-06  $10 claimed, purchase says $100 -> rejected (prefix of a larger amount)
+PASS  SEC-06  $100 claimed (exactly in purchase) -> accepted (control)
+PASS  SEC-06  $1.000 claimed -> rejected
+PASS  SEC-06  $100.000 claimed (superstring) -> rejected
+PASS  SEC-06  10 USD claimed -> rejected
+PASS  SEC-06  note offer 10% (not in purchase) never authorizes a discount
+== G2 purchase: Harina de trigo 5 kg 10% descuento aplicado (notes claim 90%)
+PASS  SEC-06  10% (in purchase) -> accepted (control)
+PASS  SEC-06  90% claimed, purchase says 10% -> rejected
+PASS  SEC-06  100% claimed -> rejected
+PASS  SEC-06  1% claimed -> rejected
+PASS  SEC-06  coupon code from notes (VERANO90) -> rejected
+PASS  SEC-06  'precio especial' from notes -> rejected
+== discount vocabulary with no support in any purchase (G4: Café molido 250 g por $1 200)
+PASS  SEC-06  vocabulary 'rebaja' -> rejected
+PASS  SEC-06  vocabulary 'promoción' -> rejected
+PASS  SEC-06  vocabulary 'oferta especial' -> rejected
+PASS  SEC-06  vocabulary 'cupón' -> rejected
+PASS  SEC-06  vocabulary 'envío gratis' -> rejected
+PASS  SEC-06  vocabulary '2x1' -> rejected
+PASS  SEC-06  vocabulary 'liquidación' -> rejected
+PASS  SEC-06  vocabulary 'descuento' -> rejected
+PASS  SEC-06  vocabulary '50% off' -> rejected
+PASS  SEC-06  vocabulary 'regalo' -> rejected
+PASS  SEC-06  vocabulary 'bono' -> rejected
+PASS  SEC-06  vocabulary 'obsequio' -> rejected
+== G4: amounts around the purchase value $1 200
+PASS  SEC-06  $1 200 (as purchased) -> accepted (control)
+  [obs] $1.200 (dot grouping) -> REJECT
+  [obs] $1,200 (comma grouping) -> REJECT
+PASS  SEC-06  $12 -> rejected
+PASS  SEC-06  $120 -> rejected
+PASS  SEC-06  $10 (fullwidth ＄１０ only in notes) -> rejected
+== G5 purchase with real Unicode spaces: 'Pack espresso 12<U+202F>500 y $12<U+00A0>500'
+PASS  SEC-06  exact string with U+202F as purchased -> accepted (control)
+  [obs] same amount with plain space -> ACCEPT
+  [obs] same amount with dot grouping $12.500 -> REJECT
+PASS  SEC-06  $125.00 -> rejected
+PASS  SEC-06  $1.250 -> rejected
+  [obs] 125 000 without currency marker -> ACCEPT
+PASS=31 FAIL=0

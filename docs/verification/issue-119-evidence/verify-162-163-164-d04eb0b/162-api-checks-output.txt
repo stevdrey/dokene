@@ -1,0 +1,65 @@
+== unauthorized (VIEWER) + malformed requests: expect 403 and one denial audit row each ==
+PASS  T162  VIEWER POST customer, invalid body -> 403
+PASS  T162    denial audited (POST customer, invalid body)
+PASS  T162  VIEWER PUT customer without If-Match -> 403
+PASS  T162    denial audited (PUT customer without If-Match)
+PASS  T162  VIEWER DELETE customer without If-Match -> 403
+PASS  T162    denial audited (DELETE customer without If-Match)
+PASS  T162  VIEWER PUT consent without If-Match -> 403
+PASS  T162    denial audited (PUT consent without If-Match)
+PASS  T162  VIEWER PUT consent with garbage body -> 403
+PASS  T162    denial audited (PUT consent with garbage body)
+PASS  T162  VIEWER PUT do-not-contact without If-Match -> 403
+PASS  T162    denial audited (PUT do-not-contact without If-Match)
+PASS  T162  VIEWER POST purchase without Idempotency-Key -> 403
+PASS  T162    denial audited (POST purchase without Idempotency-Key)
+PASS  T162  VIEWER POST purchase invalid body -> 403
+PASS  T162    denial audited (POST purchase invalid body)
+PASS  T162  VIEWER PUT purchase without If-Match -> 403
+PASS  T162    denial audited (PUT purchase without If-Match)
+PASS  T162  VIEWER DELETE purchase without If-Match -> 403
+PASS  T162    denial audited (DELETE purchase without If-Match)
+PASS  T162  VIEWER PUT tenant policy without If-Match -> 403
+PASS  T162    denial audited (PUT tenant policy without If-Match)
+PASS  T162  VIEWER PUT tenant policy invalid body -> 403
+PASS  T162    denial audited (PUT tenant policy invalid body)
+PASS  T162  VIEWER PUT customer follow-up policy without If-Match -> 403
+PASS  T162    denial audited (PUT customer follow-up policy without If-Match)
+PASS  T162  VIEWER PUT snooze without If-Match -> 403
+PASS  T162    denial audited (PUT snooze without If-Match)
+PASS  T162  VIEWER POST manual follow-up without headers -> 403
+PASS  T162    denial audited (POST manual follow-up without headers)
+PASS  T162  VIEWER POST dismissal without headers -> 403
+PASS  T162    denial audited (POST dismissal without headers)
+== OPERATOR on administration endpoints, malformed ==
+PASS  T162  OPERATOR POST membership with invalid body -> 403
+PASS  T162    denial audited
+PASS  T162  OPERATOR change role with invalid body -> 403
+PASS  T162    denial audited
+PASS  T162  OPERATOR tenant policy invalid body -> 403 (not 400)
+PASS  T162    denial audited
+== unauthenticated ==
+PASS  T162  no session, malformed -> 401
+== authorized callers keep validation errors (400) after authorization ==
+PASS  T162  OPERATOR PUT customer without If-Match -> 400 field version
+PASS  T162  OPERATOR POST purchase without Idempotency-Key -> 400
+PASS  T162  OPERATOR POST customer blank name -> 400
+PASS  T162  OWNER tenant policy cadence 0 -> 400
+PASS  T162  OWNER tenant policy invalid time zone -> 400
+PASS  T162  OWNER tenant policy without If-Match -> 400
+== valid requests still work ==
+PASS  T162  OWNER valid tenant policy -> 200
+PASS  T162  OPERATOR valid customer update -> 200
+PASS  T162  OPERATOR valid purchase -> 201
+PASS  T162  VIEWER read -> 200
+
+-- denial audit rows by permission:
+CUSTOMER_DELETE|INSUFFICIENT_PERMISSION|1
+CUSTOMER_WRITE|INSUFFICIENT_PERMISSION|12
+FOLLOWUP_WRITE|INSUFFICIENT_PERMISSION|5
+MEMBERSHIP_INVITE|INSUFFICIENT_PERMISSION|11
+MEMBERSHIP_ROLE_UPDATE|INSUFFICIENT_PERMISSION|1
+PURCHASE_WRITE|INSUFFICIENT_PERMISSION|4
+TENANT_UPDATE|INSUFFICIENT_PERMISSION|6
+
+SUMMARY pass=49 fail=0

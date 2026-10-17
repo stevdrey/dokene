@@ -1,0 +1,42 @@
+== SEC-09a consent revoked during a recommendation call (provider delayed 4 s)
+PASS  SEC-09  rec: consent revoke applied during the call
+  result during revoke (rec): 200 INELIGIBLE -  audit=NEXT_BEST_ACTION/GATE_REJECTED/NO_CONTACT_CONSENT
+PASS  SEC-09  rec: in-flight result is NOT delivered as AVAILABLE after consent revoke
+PASS  SEC-09  draft: consent revoke applied during the call
+  result during revoke (draft): 200 INELIGIBLE -  audit=MESSAGE_DRAFT/GATE_REJECTED/NO_CONTACT_CONSENT
+PASS  SEC-09  draft: in-flight result is NOT delivered as AVAILABLE after consent revoke
+== SEC-09b consent revoked during the backoff between two attempts (first attempt 503 after 2.5 s)
+  result (rec): 200 INELIGIBLE -  provider requests=2  audit=NEXT_BEST_ACTION/GATE_REJECTED/NO_CONTACT_CONSENT
+PASS  SEC-09  rec: not delivered as AVAILABLE
+FAIL  SEC-09  rec: revoked authority prevents the second attempt from transmitting context (1 provider request)  (expected '1', got '2')
+  result (draft): 200 INELIGIBLE -  provider requests=2  audit=MESSAGE_DRAFT/GATE_REJECTED/NO_CONTACT_CONSENT
+PASS  SEC-09  draft: not delivered as AVAILABLE
+FAIL  SEC-09  draft: revoked authority prevents the second attempt from transmitting context (1 provider request)  (expected '1', got '2')
+== SEC-09c membership revoked during the call (operator in tenant C)
+PASS  SEC-09  operator membership in C revoked during the call
+  result: 200 INELIGIBLE -  provider requests=0
+PASS  SEC-09  in-flight result is not delivered as AVAILABLE after membership revoke
+PASS  SEC-09  revoked operator now denied on C
+== SEC-09d customer archived during the call
+PASS  SEC-09  customer archived during the call
+  result: 200 INELIGIBLE - audit=NEXT_BEST_ACTION/GATE_REJECTED/CUSTOMER_ARCHIVED
+PASS  SEC-09  in-flight result is not delivered as AVAILABLE after archive
+== SEC-09e do-not-contact enabled during the call
+PASS  SEC-09  DNC applied during the call
+  result: 200 INELIGIBLE -
+PASS  SEC-09  in-flight result is not delivered as AVAILABLE after DNC
+== SEC-10 abuse limits (actor 20/min, tenant 60/min, Retry-After 5 s); provider = instant stub
+  25 rapid calls by testoperator: 200=20 429=5 Retry-After=59  provider requests=20  429 body: 
+PASS  SEC-10  calls beyond the actor limit get 429
+PASS  SEC-10  at most 20 calls pass in the window
+PASS  SEC-10  429 carries Retry-After
+PASS  SEC-10  429 responses made no provider request
+PASS  SEC-10  429 body does not leak internals
+PASS  SEC-10  independent actor (owner, same tenant) is not throttled by the operator's burst
+  same actor in tenant B right after: 200
+PASS  SEC-10  same actor in another tenant (B): observe (actor limit is per actor or per actor+tenant)
+PASS  SEC-10  still throttled immediately after (same window)
+  waiting 70 s for the window to reset
+PASS  SEC-10  after the window the actor can call again
+PASS  SEC-10  denied (403) calls by VIEWER create no provider request
+PASS=23 FAIL=2

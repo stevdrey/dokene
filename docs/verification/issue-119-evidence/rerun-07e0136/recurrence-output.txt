@@ -1,0 +1,18 @@
+PASS  REC  cycle 1: overdue from the old purchase
+PASS  REC  cycle 1: completion recorded today
+PASS  REC  cycle 1: NOT_YET_DUE, next = today+30 (LAST_MANUAL_FOLLOW_UP)
+PASS  REC  cycle 1: customer left the queue
+PASS  REC  after +31 days: OVERDUE by one day, still anchored on the manual follow-up
+PASS  REC  after +31 days: back in the queue as OVERDUE
+PASS  REC  replaying the cycle-1 key returns the first record, not a new completion
+PASS  REC  cycle 2: second completion recorded today
+PASS  REC  cycle 2: NOT_YET_DUE, next = today+30
+PASS  REC  two completions stored (history kept)
+PASS  REC  cycle 3 due again (+31 days)
+PASS  REC  cycle 3: dismissal recorded
+PASS  REC  after the dismissal the anchor is the dismissal (latest of the anchors)
+PASS  REC  cycle 4 due again (+31 days)
+PASS  REC  cycle 4: completion after a dismissal re-anchors on the completion
+PASS  REC  history: 3 completions + 1 dismissal
+
+SUMMARY pass=16 fail=0

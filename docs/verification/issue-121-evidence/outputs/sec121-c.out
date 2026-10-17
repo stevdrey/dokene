@@ -1,0 +1,42 @@
+== role attributes (actual runtime role)
+PASS  SEC-04  runtime role is not superuser / bypassrls / createrole / createdb
+PASS  SEC-04  runtime role owns no table in schema dokene
+PASS  SEC-04  every table has RLS enabled+forced except keys/flyway/oidc mappings and (see #183) tenants, workspace_provisioning_records
+PASS  SEC-04  oidc_identity_mappings: runtime has no direct privilege (SECURITY DEFINER function only)
+PASS  SEC-04  runtime role cannot read signing keys
+PASS  SEC-04  runtime role cannot ALTER TABLE / disable RLS
+PASS  SEC-04  runtime role cannot create objects in schema dokene
+PASS  SEC-04  runtime role cannot SET ROLE dokene_migration
+== fail closed without / with bad context
+PASS  SEC-04  no context: SELECT customers returns 0 rows
+PASS  SEC-04  no context: INSERT customer rejected by RLS
+  (superuser view: tenant A customers=56, tenant B customers=1)
+PASS  SEC-04  tenant A context sees exactly A's customers
+PASS  SEC-04  A context sees 0 of B's customers (tenant_id filter / primary key / purchases)
+PASS  SEC-04  tenant B context sees exactly B's customers
+PASS  SEC-04  A context UPDATE of B's customer affects 0 rows
+PASS  SEC-04  A context DELETE of B's customer denied (runtime has no DELETE on customers; archive-only)
+PASS  SEC-04  A context INSERT of a row for tenant B rejected
+PASS  SEC-04  A context UPDATE moving an A row to tenant B rejected
+PASS  SEC-04  B customer unchanged in the database
+PASS  SEC-04  forged: tampered signature -> 0 rows
+PASS  SEC-04  forged: A payload re-targeted to B with A's signature -> 0 rows
+PASS  SEC-04  wrong scope (identity-signed) used as tenant context -> 0 rows
+PASS  SEC-04  expired context -> 0 rows
+PASS  SEC-04  context valid for >70 s refused -> 0 rows
+PASS  SEC-04  context with no signature -> 0 rows
+== audit append-only + tenant-scoped reads
+  audit rows total=703, tenant A=532
+PASS  SEC-04  no context: runtime sees 0 audit rows
+PASS  SEC-04  tenant A context sees only tenant A audit rows
+PASS  SEC-04  tenant A context sees no audit row of tenant B
+PASS  SEC-04  runtime 'update' on audit_events denied
+PASS  SEC-04  runtime 'delete from' on audit_events denied
+PASS  SEC-04  runtime 'truncate' on audit_events denied
+PASS  SEC-04  audit row count unchanged by the attempts
+PASS  SEC-04  SET row_security=off does not expose rows (forced RLS)
+== tenants / workspace_provisioning_records (no RLS, see #183) -- expected FAIL until fixed
+FAIL  SEC-04  tenants: runtime without context sees 0 tenants  (expected '0', got '26')
+FAIL  SEC-04  tenants: runtime without context cannot update another tenant  (expected '0', got '1')
+FAIL  SEC-04  workspace_provisioning_records: runtime without context sees 0 rows  (expected '0', got '26')
+PASS=32 FAIL=3

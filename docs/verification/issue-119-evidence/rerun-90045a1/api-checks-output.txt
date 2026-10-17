@@ -1,0 +1,81 @@
+PASS  REG-01  flyway migrations all successful (15 versions)
+ERROR:  trailing junk after numeric literal at or near "228dokene_runtime228"
+LINE 1: ...rolsuper,rolbypassrls from pg_roles where rolname=228dokene_...
+                                                             ^
+FAIL  REG-01  runtime role is not superuser and does not bypass RLS  (harness quoting error; re-verified directly: dokene_runtime|f|f)
+PASS  REG-01  BFF returns 401 without a session
+PASS  REG-01  operator sees Norte as OPERATOR
+PASS  REG-01  viewer sees Norte as VIEWER
+PASS  REG-01  second tenant provisioned (owner)
+PASS  REG-01  owner has OWNER in both tenants
+PASS  REG-01  operator has no access to tenant Sur
+PASS  REG-03  create CL customer
+PASS  REG-03  create CR customer (region added in #153)
+PASS  REG-03  CR number normalized to E.164
+PASS  REG-03  create international (US) customer
+PASS  REG-03  duplicate phone in same tenant
+PASS  REG-03  invalid CL phone -> 400 field phones[0].number (#72)
+PASS  REG-03  invalid CR phone -> 400 field phones[0].number
+PASS  REG-03  missing region -> 400 field phones[0].region
+PASS  REG-03  blank name -> 400 field displayName (#127)
+PASS  REG-03  161-char name rejected (#127)
+PASS  REG-03  160-char name accepted
+PASS  REG-03  update without If-Match -> 400 field version
+PASS  REG-03  update with current version
+PASS  REG-03  stale If-Match -> 409
+PASS  REG-03  OPERATOR cannot archive (CUSTOMER_DELETE is OWNER/ADMIN)
+PASS  REG-03  VIEWER cannot create
+PASS  REG-03  OWNER archives customer
+PASS  REG-03  phone of an archived customer stays reserved
+PASS  REG-03  archived customer listed with status filter
+PASS  REG-03  same phone allowed in another tenant
+PASS  REG-03  search by phone finds the customer
+PASS  REG-03  search by name
+PASS  REG-04  initial consent is UNKNOWN / not eligible
+PASS  REG-04  grant consent
+PASS  REG-04  granted -> eligible
+PASS  REG-04  do-not-contact on
+PASS  REG-04  DNC overrides granted consent
+PASS  REG-04  revoke consent while DNC on
+PASS  REG-04  clear DNC
+PASS  REG-04  cleared DNC with revoked consent stays not eligible
+PASS  REG-04  stale policy If-Match -> 409
+PASS  REG-04  VIEWER cannot change policy
+PASS  REG-04  change contact identity
+PASS  REG-04  consent not transferred to the new contact
+PASS  REG-05  record purchase
+PASS  REG-05  record backdated purchase
+PASS  REG-05  last purchase = latest valid by date
+PASS  REG-05  idempotent replay returns 200
+PASS  REG-05  same key + different body -> 409
+PASS  REG-05  future date rejected
+PASS  REG-05  correct purchase date
+PASS  REG-05  last purchase after correction
+PASS  REG-05  void latest purchase
+PASS  REG-05  last purchase after voiding the latest
+PASS  REG-05  history keeps RECORDED and VOIDED
+PASS  REG-05  list shows VOID and VALID statuses
+PASS  REG-06  overdue from last valid purchase + tenant cadence
+PASS  REG-06  queue lists the overdue customer
+PASS  REG-06  set explicit next date = tenant today
+PASS  REG-06  explicit date today -> DUE
+PASS  REG-06  tenant timezone Pacific/Kiritimati accepted
+PASS  REG-06  date boundary: UTC+14 tenant date moves forward -> OVERDUE
+PASS  REG-06  date boundary: UTC-11 tenant date -> DUE or earlier
+PASS  REG-06  invalid timezone -> 400
+PASS  REG-06  restore UTC
+PASS  REG-06  cadence 0 rejected
+PASS  REG-06  snooze to the past -> 400
+PASS  REG-06  snooze a DUE customer
+PASS  REG-06  snoozed customer is NOT_YET_DUE and leaves the queue
+PASS  REG-06  dismiss a NOT_YET_DUE customer -> 409
+PASS  REG-06  dismiss a DUE/OVERDUE customer (201)
+PASS  REG-06  dismissal replay (same key) -> 200, same record
+PASS  REG-06  dismissed customer advances to NOT_YET_DUE with LAST_DISMISSAL anchor
+PASS  REG-06  manual completion (201)
+PASS  REG-06  completion replay returns original record (200)
+PASS  REG-06  stale If-Match on disposition -> 409
+PASS  REG-06  invalid idempotency key -> 400
+PASS  REG-06  single completion recorded (no duplicate on replay)
+
+SUMMARY pass=75 fail=1

@@ -1,0 +1,14 @@
+== SEC-10 tenant-wide limit (25/min tenant, 20/min actor): operator 20 + owner 5 pass, the 26th tenant call is throttled for BOTH actors
+PASS  SEC-10  operator 20/20 and owner 5/5 pass (25 tenant permits)
+PASS  SEC-10  26th call of the tenant (owner, who is within his own actor limit) -> 429
+PASS  SEC-10  429 carries Retry-After
+PASS  SEC-10  operator is also throttled (tenant bucket shared; his actor bucket is exhausted too)
+PASS  SEC-10  throttled calls made no provider request
+PASS  SEC-10  another tenant (B) is not throttled by A's tenant bucket
+== SEC-01 idle-session expiry (session timeout 1 min)
+  fresh session -> 200
+PASS  SEC-01  fresh session works
+PASS  SEC-01  activity within the window keeps the session alive (sliding)
+PASS  SEC-01  after 75 s idle the session is expired -> 401 (not a redirect to HTML)
+PASS  SEC-01  expired session on an AI POST -> 401 and no provider request
+PASS=10 FAIL=0

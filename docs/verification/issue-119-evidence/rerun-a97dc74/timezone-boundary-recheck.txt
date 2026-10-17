@@ -1,0 +1,9 @@
+REG-06 timezone date boundary, re-check with expected values computed from the real zone
+(the first automated check hard-coded the expected status for the time of day of the previous run;
+at 06:07 UTC the UTC-11 tenant is still on the previous calendar day, so NOT_YET_DUE is the correct result)
+
+UTC now: 2026-10-09 06:07:17
+explicit next follow-up date = UTC date (2026-10-09)
+Pacific/Kiritimati: expected tenantDate=2026-10-09 status=DUE         | got: 2026-10-09 DUE
+Pacific/Pago_Pago : expected tenantDate=2026-10-08 status=NOT_YET_DUE | got: 2026-10-08 NOT_YET_DUE
+UTC               : expected tenantDate=2026-10-09 status=DUE         | got: 2026-10-09 DUE

@@ -1,0 +1,4 @@
+PASS  SEC-04  provisioning: create 201, replay of the same idempotency key 200 with the same tenant
+PASS  SEC-04  same idempotency key by another identity creates its own tenant (no disclosure of the first)
+PASS  SEC-04  membership of the new tenant is visible through the workspace list
+PASS=3 FAIL=0

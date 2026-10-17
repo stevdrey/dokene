@@ -1,0 +1,12 @@
+import { launchChrome, Browser, login, sleep } from './cdp.mjs';
+const c = await launchChrome(); const b = await new Browser(c.ws).open(); const p = await (await b.newPage()).init();
+await p.viewport(1440, 900); await login(p); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000);
+await p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'Wolfeschlegel');i.dispatchEvent(new Event('input',{bubbles:true}))})()`); await sleep(1300);
+await p.clickText('Wolfeschlegelsteinhausenberger', '*'); await sleep(1200);
+const q = `(()=>{const w=innerWidth;return [...document.querySelectorAll('main *')].filter(e=>e.children.length===0&&e.getBoundingClientRect().right>w+0.5&&e.getBoundingClientRect().width>0).map(e=>e.tagName+' w='+Math.round(e.getBoundingClientRect().width)+' "'+e.textContent.trim().slice(0,28)+'" ws='+getComputedStyle(e).whiteSpace+' ow='+getComputedStyle(e).overflowWrap).slice(0,10)})()`;
+console.log('detail:', JSON.stringify(await p.ev(q), null, 1));
+await p.ev(`document.querySelector('textarea')||0`); 
+console.log('purchase history/notes visible? ', await p.ev(`document.body.innerText.includes('Descripción sin espacios')`), 'notes visible?', await p.ev(`document.body.innerText.includes('Nota larga')`));
+await p.clickText('Ver cliente', 'button'); await sleep(1500); console.log('profile:', JSON.stringify(await p.ev(q), null, 1)); await p.shot('/home/stevdrey/qa122/shots/ux06-profile-longname.png');
+console.log('profile overflow', await p.ev('document.documentElement.scrollWidth+"/"+innerWidth'));
+c.proc.kill(); process.exit(0);

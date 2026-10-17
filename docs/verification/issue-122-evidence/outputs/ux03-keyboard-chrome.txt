@@ -1,0 +1,56 @@
+== UX-03 keyboard, Chrome, 1440x900, user testoperator
+-- A. from page start: tab order of the shell and first cards (12 stops)
+  Tab 1: button "Seleccionar espacio de trabajo" fv=true outline=solid 2px
+  Tab 2: button "assignment_turned_inSeguimientos" fv=true outline=solid 2px
+  Tab 3: button "groupClientes" fv=true outline=solid 2px
+  Tab 4: button "settingsConfiguración" fv=true outline=solid 2px
+  Tab 5: button "logoutCerrar sesión" fv=true outline=solid 2px
+  Tab 6: button "Pendientes50" fv=true outline=solid 2px
+  Tab 7: button "Vencidos50" fv=true outline=solid 2px
+  Tab 8: input "Buscar seguimientos por nombre o teléfono" fv=true outline=none 3px
+  Tab 9: div[button] "Dormant Té QAcheck_circleverifiedContacto autori" fv=true outline=solid 2px +shadow
+  Tab 10: div[button] "Probe NoOffers QAverifiedContacto autorizado (Wh" fv=true outline=solid 2px
+  Tab 11: div[button] "Probe Nonsense QAverifiedContacto autorizado (Wh" fv=true outline=solid 2px
+  Tab 12: div[button] "Probe Return QAverifiedContacto autorizado (What" fv=true outline=solid 2px
+-- B. focus search box by tabbing, filter with the keyboard
+-- C. Tab from search to the first card, Enter selects it
+  Tab 1: button "Cargar más páginas" fv=true outline=solid 2px
+  Tab 2: div[button] "Dormant Té QAcheck_circleverifiedContacto autori" fv=true outline=solid 2px +shadow
+  Tab 3: button "Cargar más páginas y seguir buscando" fv=true outline=solid 2px
+   focused: button "Cargar más páginas y seguir buscando" fv=true outline=solid 2px
+   after Enter on card -> BODY "undefined" fv=undefined outline=undefined (off-screen) | detail shown: true
+-- D. Tab to "Obtener recomendación" (up to 25 stops), Enter
+   reached after 3 Tabs: button "Obtener recomendación" fv=true outline=solid 2px
+   Enter pressed; waiting for result
+   focus after the live result arrives: BODY "undefined" fv=undefined outline=undefined (off-screen)
+   live region(s) present: ["status/polite \"Recomendación lista\""]
+-- E. Tab to "Generar borrador", Enter
+   reached after 2 Tabs: button "Generar borrador" fv=true outline=solid 2px
+   focus after the draft arrives: textarea "Borrador del mensaje (editable)" fv=true outline=solid 2px  (focus moved to the editor)
+-- F. edit with the keyboard (type 12 chars at the caret), then Tab to Copiar / Regenerar
+   counter text now: 162 / 1000
+  Tab after-editor 1: button "Copiar borrador" fv=true outline=solid 2px
+  Tab after-editor 1: button "Regenerar borrador" fv=true outline=solid 2px
+  Tab after-editor 1: button "edit_calendarRegistrar seguimiento" fv=true outline=solid 2px
+-- G. Shift+Tab back to the editor
+  Shift+Tab back 1: button "Regenerar borrador" fv=true outline=solid 2px
+  Shift+Tab back 2: button "Copiar borrador" fv=true outline=solid 2px
+  Shift+Tab back 3: textarea "Borrador del mensaje (editable)" fv=true outline=solid 2px
+-- H. Regenerar with the keyboard: expect either regenerate directly or a discard confirmation when edited
+   after Enter on Regenerar -> BODY "undefined" fv=undefined outline=undefined (off-screen) | dialog open: false | body has confirm text: true
+-- I. modal dialogs from the keyboard: Posponer, Descartar, Registrar seguimiento (open with Enter, Tab cycle, Escape, focus return)
+   Posponer: dialog open=true; initial focus: button "Cerrar modal" fv=true outline=solid 2px (in dialog)
+     9 Tabs: button:"Mañana" > button:"En 3 días" > button:"En 1 semana" > button:"En 2 semanas" > input:"O elige una fech" > input:"O elige una fech" > input:"O elige una fech" > input:"O elige una fech" > button:"Cancelar"
+     2 Shift+Tabs: input:"O elige una fech" > input:"O elige una fech"
+     Escape closes: true; focus returns to: button "schedulePosponer" fv=true outline=solid 2px
+   Descartar: dialog open=true; initial focus: button "Cerrar modal" fv=true outline=solid 2px (in dialog)
+     9 Tabs: textarea:"Motivo o nota in" > button:"Cancelar" > button:"Descartar seguim" > button:"Cerrar modal" > textarea:"Motivo o nota in" > button:"Cancelar" > button:"Descartar seguim" > button:"Cerrar modal" > textarea:"Motivo o nota in"
+     2 Shift+Tabs: button:"Cerrar modal" > button:"Descartar seguim"
+     Escape closes: true; focus returns to: button "closeDescartar" fv=true outline=solid 2px
+   Registrar seguimiento: dialog open=true; initial focus: button "Cerrar modal" fv=true outline=solid 2px (in dialog)
+     9 Tabs: textarea:"Notas de la conv" > button:"Cancelar" > button:"Guardar seguimie" > button:"Cerrar modal" > textarea:"Notas de la conv" > button:"Cancelar" > button:"Guardar seguimie" > button:"Cerrar modal" > textarea:"Notas de la conv"
+     2 Shift+Tabs: button:"Cerrar modal" > button:"Guardar seguimie"
+     Escape closes: true; focus returns to: button "edit_calendarRegistrar seguimiento" fv=true outline=solid 2px
+-- J. logout with the keyboard
+   found logout button: true
+   after Enter: url=http://localhost:5173/ | text: spa Dokene Gestión de relaciones y seguimiento a clientes para pequeños negocio
