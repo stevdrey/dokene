@@ -2,6 +2,8 @@
 // ABOUTME: command it permits carries exactly the approved binding's values and sender.
 package io.github.stevdrey.dokene.messaging.application;
 
+import static io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat.NAMED;
+import static io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat.POSITIONAL;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.customer.domain.CustomerPhone;
@@ -28,6 +31,9 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
+import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
+import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -37,6 +43,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -123,12 +130,49 @@ class SendPolicyGateTest {
                 binding.customerId(), binding.contactId(), binding.recipientPhone(), binding.channel(),
                 binding.action(), binding.templateIntent(), binding.locale(), binding.body(),
                 binding.sourcePolicyVersion(), binding.consentRevision(),
-                new ApprovalFingerprint.TemplateRevision(2, "general_follow_up", "es",
+                new ApprovalFingerprint.TemplateRevision(2, "general_follow_up", "es", POSITIONAL,
                         List.of("customer_name", "message_body")),
                 binding.parameterValues(), sender);
         when(bindings.bind(approved, customer, sender)).thenReturn(edited);
 
         assertRefused(gate(defaults()), approved, MessagingErrorCode.APPROVAL_INVALIDATED);
+    }
+
+    @Test
+    void anApprovalTakenUnderPositionalIsInvalidatedOnceTheTemplateResolvesAsNamed() {
+        TemplateMappingResolver resolver = mock(TemplateMappingResolver.class);
+        ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
+        when(contactPolicies.whatsAppConsentRevision(customer, approved.contactId())).thenReturn(OptionalLong.of(1));
+        ApprovalBindingAssembler real = new ApprovalBindingAssembler(resolver, contactPolicies);
+        resolvesAs(resolver, TemplateParameterFormat.POSITIONAL);
+        ApprovalFingerprint atApproval = ApprovalFingerprint.of(real.bind(approved, customer, sender));
+        permitted();
+        approvedWith(atApproval);
+        // The template was re-verified with named placeholders after the approval.
+        resolvesAs(resolver, TemplateParameterFormat.NAMED);
+
+        assertRefused(new SendPolicyGate(messages, guards, real, safety, defaults()), approved,
+                MessagingErrorCode.APPROVAL_INVALIDATED);
+    }
+
+    @Test
+    void aNamedTemplateSendCarriesTheApprovedFormatAndNames() {
+        ApprovalFingerprint.Binding named = new ApprovalFingerprint.Binding(binding.tenantId(), binding.messageId(),
+                binding.customerId(), binding.contactId(), binding.recipientPhone(), binding.channel(),
+                binding.action(), binding.templateIntent(), binding.locale(), binding.body(),
+                binding.sourcePolicyVersion(), binding.consentRevision(),
+                new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es", NAMED,
+                        List.of("customer_name", "message_body")),
+                binding.parameterValues(), sender);
+        permitted();
+        approvedWith(ApprovalFingerprint.of(named));
+        when(bindings.bind(approved, customer, sender)).thenReturn(named);
+
+        OutboundSendCommand command = gate(defaults()).evaluate(context, customer, approved, NOW);
+
+        assertThat(command.parameterFormat()).isEqualTo(NAMED);
+        assertThat(command.parameterNames()).containsExactly("customer_name", "message_body");
+        assertThat(command.parameters()).containsExactly("Ana", BODY);
     }
 
     @Test
@@ -154,6 +198,8 @@ class SendPolicyGateTest {
         OutboundSendCommand command = gate(defaults()).evaluate(context, customer, approved, NOW);
 
         assertThat(command.parameters()).containsExactly("Ana", BODY);
+        assertThat(command.parameterFormat()).isEqualTo(POSITIONAL);
+        assertThat(command.parameterNames()).containsExactly("customer_name", "message_body");
         assertThat(command.providerTemplateName()).isEqualTo("general_follow_up");
         assertThat(command.language()).isEqualTo("es");
         assertThat(command.sendKey()).isEqualTo(approved.sendKey());
@@ -185,6 +231,12 @@ class SendPolicyGateTest {
 
     private static MessagingDispatchProperties defaults() {
         return new MessagingDispatchProperties(null, null, null, null);
+    }
+
+    private static void resolvesAs(TemplateMappingResolver resolver, TemplateParameterFormat format) {
+        when(resolver.resolve(SemanticTemplateIntent.GENERAL_FOLLOW_UP)).thenReturn(new TemplateMappingResolver.Resolved(
+                new ResolvedTemplateMapping(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "general_follow_up", "es",
+                        format, List.of("customer_name", "message_body"), 1)));
     }
 
     private void permitted() {
@@ -219,7 +271,7 @@ class SendPolicyGateTest {
         return new ApprovalFingerprint.Binding(message.tenantId(), message.id(), message.customerId(),
                 message.contactId(), message.recipientPhone(), MessageChannel.WHATSAPP, message.action(),
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(), 1,
-                new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es",
+                new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es", POSITIONAL,
                         List.of("customer_name", "message_body")),
                 List.of("Ana", BODY), sender);
     }

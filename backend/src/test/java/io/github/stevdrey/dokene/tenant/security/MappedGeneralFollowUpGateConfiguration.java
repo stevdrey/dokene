@@ -5,6 +5,7 @@ import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -37,6 +38,7 @@ public class MappedGeneralFollowUpGateConfiguration {
     public static void reset(StubTemplateResolver templates, StubSafetyControl safety) {
         templates.version = 1;
         templates.language = "es";
+        templates.parameterFormat = TemplateParameterFormat.POSITIONAL;
         templates.parameterNames = List.of("customer_name", "message_body");
         templates.mapped = true;
         safety.configured = true;
@@ -48,6 +50,7 @@ public class MappedGeneralFollowUpGateConfiguration {
     public static final class StubTemplateResolver implements TemplateMappingResolver {
         volatile long version = 1;
         volatile String language = "es";
+        volatile TemplateParameterFormat parameterFormat = TemplateParameterFormat.POSITIONAL;
         volatile List<String> parameterNames = List.of("customer_name", "message_body");
         volatile boolean mapped = true;
 
@@ -56,8 +59,8 @@ public class MappedGeneralFollowUpGateConfiguration {
             if (intent != SemanticTemplateIntent.GENERAL_FOLLOW_UP || !mapped) {
                 return new NotMapped();
             }
-            return new Resolved(new ResolvedTemplateMapping(intent, "general_follow_up", language, parameterNames,
-                    version));
+            return new Resolved(new ResolvedTemplateMapping(intent, "general_follow_up", language, parameterFormat,
+                    parameterNames, version));
         }
     }
 

@@ -15,6 +15,7 @@ import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.Responded;
 import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.Unknown;
 import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
@@ -140,11 +141,16 @@ public class GraphApiMessagingProvider implements MessagingProvider {
         boolean templateValid = TemplateMapping.PROVIDER_TEMPLATE_NAME.matcher(command.providerTemplateName()).matches()
                 && TemplateMapping.LANGUAGE.matcher(command.language()).matches()
                 && command.parameters().size() <= TemplateMapping.MAX_PARAMETERS
-                && command.parameters().stream().allMatch(TemplateParameterValues::acceptable);
+                && command.parameters().stream().allMatch(TemplateParameterValues::acceptable)
+                && (command.parameterFormat() != ParameterFormat.NAMED || command.parameterNames().stream()
+                        .allMatch(name -> TemplateMapping.PARAMETER_NAME.matcher(name).matches()));
         return templateValid ? Optional.empty() : Optional.of(FailureCategory.TEMPLATE_REJECTED);
     }
 
-    /** The only request this adapter sends: an approved template with its bound parameters, in order. */
+    /**
+     * The only request this adapter sends: an approved template with its bound parameters, in order. A {@code NAMED}
+     * template also names each parameter, as Meta requires for named placeholders; a positional one never does.
+     */
     private ObjectNode payload(OutboundSendCommand command) {
         ObjectNode root = json.createObjectNode();
         root.put("messaging_product", "whatsapp");
@@ -158,8 +164,12 @@ public class GraphApiMessagingProvider implements MessagingProvider {
             ObjectNode body = template.putArray("components").addObject();
             body.put("type", "body");
             ArrayNode parameters = body.putArray("parameters");
-            for (String value : command.parameters()) {
-                parameters.addObject().put("type", "text").put("text", value);
+            for (int index = 0; index < command.parameters().size(); index++) {
+                ObjectNode parameter = parameters.addObject().put("type", "text");
+                if (command.parameterFormat() == ParameterFormat.NAMED) {
+                    parameter.put("parameter_name", command.parameterNames().get(index));
+                }
+                parameter.put("text", command.parameters().get(index));
             }
         }
         return root;

@@ -130,12 +130,13 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
 
     /**
      * Sendable only when enabled, provider-approved for exactly this revision and business account, and the evidence is
-     * fresh. Everything else fails closed. The send adapter builds positional parameters only until the named send
-     * path lands (issue 218, part 2), so a template verified as {@code NAMED} is not sendable yet.
+     * fresh. Everything else fails closed. Both verified parameter formats are sendable; the format travels with the
+     * resolved mapping into the approval fingerprint and the send command. Approval without a format was never
+     * schema-checked, so it is not sendable.
      */
     public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
-                && approval.parameterFormat() == TemplateParameterFormat.POSITIONAL
+                && approval.parameterFormat() != null
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

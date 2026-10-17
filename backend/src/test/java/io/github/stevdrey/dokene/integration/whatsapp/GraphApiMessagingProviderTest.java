@@ -3,6 +3,7 @@
 package io.github.stevdrey.dokene.integration.whatsapp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,7 @@ import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepo
 import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.Accepted;
@@ -45,6 +47,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -148,6 +151,37 @@ class GraphApiMessagingProviderTest {
                 """));
         assertThat(requestBody.get()).doesNotContain(TOKEN);
         verify(resolver).resolve(new Tenant(tenantId), new SecretReference("synthetic-wa-token"));
+    }
+
+    @Test
+    void namesEachParameterOfANamedTemplateInTheBoundOrder() throws Exception {
+        replay("accepted");
+
+        assertThat(provider.send(namedCommand(List.of("customer_name", "order_ref"), List.of("Ana", "pedido 42"))))
+                .isEqualTo(new Accepted("wamid.SYNTHETIC-0001"));
+
+        assertThat(JSON.readTree(requestBody.get())).isEqualTo(JSON.readTree("""
+                {"messaging_product":"whatsapp","recipient_type":"individual","to":"+50600000001","type":"template",
+                 "template":{"name":"repeat_purchase_v1","language":{"code":"es_MX"},
+                   "components":[{"type":"body","parameters":[
+                     {"type":"text","parameter_name":"customer_name","text":"Ana"},
+                     {"type":"text","parameter_name":"order_ref","text":"pedido 42"}]}]}}
+                """));
+    }
+
+    @Test
+    void aNamedTemplateWithAnInvalidParameterNameIsRefusedWithoutCallingTheProvider() {
+        for (String name : List.of("Customer_Name", "1st", "customer-name", "", "a".repeat(33))) {
+            assertThat(provider.send(namedCommand(List.of(name), List.of("Ana"))))
+                    .as(name).isEqualTo(new RejectedPermanently(FailureCategory.TEMPLATE_REJECTED));
+        }
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void aCommandCannotLeaveAParameterUnnamed() {
+        assertThatThrownBy(() -> namedCommand(List.of("customer_name"), List.of("Ana", "pedido 42")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -307,8 +341,9 @@ class GraphApiMessagingProviderTest {
             "+50600000001       | repeat_purchase_v1 | es_MX  | 'a     b'    | TEMPLATE_REJECTED"})
     void anInvalidCommandIsRefusedWithoutCallingTheProvider(String recipient, String template, String language,
             String parameter, FailureCategory category) {
-        OutboundSendCommand invalid = new OutboundSendCommand(recipient, template, language, List.of(parameter),
-                "es-419", UUID.randomUUID(), WhatsAppOutboundSafetyControl.senderRevision(configured));
+        OutboundSendCommand invalid = new OutboundSendCommand(recipient, template, language,
+                ParameterFormat.POSITIONAL, List.of("customer_name"), List.of(parameter), "es-419", UUID.randomUUID(),
+                WhatsAppOutboundSafetyControl.senderRevision(configured));
 
         assertThat(provider.send(invalid)).isEqualTo(new RejectedPermanently(category));
         assertThat(requests).hasValue(0);
@@ -498,9 +533,16 @@ class GraphApiMessagingProviderTest {
         return provider.send(command(List.of("Ana")));
     }
 
+    /** A positional template: its names are bound but never sent. */
     private OutboundSendCommand command(List<String> parameters) {
-        return new OutboundSendCommand(RECIPIENT, "repeat_purchase_v1", "es_MX", parameters, "es-419",
-                UUID.randomUUID(), WhatsAppOutboundSafetyControl.senderRevision(configured));
+        List<String> names = IntStream.range(0, parameters.size()).mapToObj(index -> "param_" + index).toList();
+        return new OutboundSendCommand(RECIPIENT, "repeat_purchase_v1", "es_MX", ParameterFormat.POSITIONAL, names,
+                parameters, "es-419", UUID.randomUUID(), WhatsAppOutboundSafetyControl.senderRevision(configured));
+    }
+
+    private OutboundSendCommand namedCommand(List<String> names, List<String> parameters) {
+        return new OutboundSendCommand(RECIPIENT, "repeat_purchase_v1", "es_MX", ParameterFormat.NAMED, names,
+                parameters, "es-419", UUID.randomUUID(), WhatsAppOutboundSafetyControl.senderRevision(configured));
     }
 
     private GraphApiMessagingProvider providerFor(int port) {

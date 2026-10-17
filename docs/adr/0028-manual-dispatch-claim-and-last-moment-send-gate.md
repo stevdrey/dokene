@@ -4,7 +4,7 @@
 
 Accepted. Implements `POST /api/messages/{messageId}/sends` as frozen by [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) §3.1, §4.2 to §4.4 and [ADR 0024](0024-phase-3-messaging-contract-freeze.md) §2 and §5. Issue: [#138](https://github.com/stevdrey/dokene/issues/138), part of epic [#130](https://github.com/stevdrey/dokene/issues/130). Delivered in two pull requests. The first adds the claim, the gate, the synchronous dispatch and migration V25. The second adds the bounded recovery processor described in §5 and migration V26.
 
-Live sending stays off. The global kill switch is hardcoded to `OUTBOUND_DISABLED_GLOBALLY` until [#144](https://github.com/stevdrey/dokene/issues/144). Before anyone enables it, [#218](https://github.com/stevdrey/dokene/issues/218) (provider template component-schema verification) must also be merged, because the registry proves only status, name and language (ADR 0025).
+Live sending stays off. The global kill switch is hardcoded to `OUTBOUND_DISABLED_GLOBALLY` until [#144](https://github.com/stevdrey/dokene/issues/144). [#218](https://github.com/stevdrey/dokene/issues/218) added the provider template component-schema verification that had to precede it: the registry now records `APPROVED` only when the template's parameter schema matches the mapping, together with its verified parameter format (ADR 0025 §2a).
 
 ## Context
 
@@ -47,11 +47,11 @@ Duplicate suppression is layered:
 5. The documented abuse bounds (ADR 0024 §5), configured under `dokene.messaging`:
    - `CONTACT_FREQUENCY_EXCEEDED` when another message to the same customer has `sent_at` within `min-contact-interval` (default 24h);
    - `RATE_LIMITED` (`429`) when the tenant has started `send-rate-per-tenant-per-minute` attempts (default 30) in the last minute, counted under a per-tenant advisory lock so concurrent sends cannot all pass the count. This bound is checked last (`SendPolicyGate.requireRateBudget`), after every other step, just before the claim writes. The claim takes the lock only then and reads the clock after taking it, so the lock covers only the count and the inserts, never the rest of the policy. A claim that waited behind another one counts the window, and dates its attempt (`started_at`), from when it actually holds the budget. The response carries `Retry-After`: the whole seconds, rounded up, until the oldest counted attempt leaves the window.
-6. `ApprovalBindingAssembler.bind`. It re-resolves the template through `TemplateMappingResolver` (`Resolved` only: enabled, provider-approved for the current mapping version and business account, not older than `dokene.template.approval-max-age`). It re-renders the parameters, validates them with `TemplateParameterValues.validate` and reads the current consent revision.
+6. `ApprovalBindingAssembler.bind`. It re-resolves the template through `TemplateMappingResolver` (`Resolved` only: enabled, provider-approved with a matching parameter schema for the current mapping version and business account, not older than `dokene.template.approval-max-age`), together with its verified parameter format. It re-renders the parameters, validates them with `TemplateParameterValues.validate` and reads the current consent revision.
 7. Step 5b: the stored approval fingerprint must cover that binding, otherwise `APPROVAL_INVALIDATED`. A later mapping edit, disable, rejection, expiry, credential rotation or consent re-grant therefore voids the approval.
 8. `attemptCount < max-send-attempts` (default 3), otherwise `SEND_ATTEMPTS_EXHAUSTED`.
 
-The gate returns the `OutboundSendCommand` built from the binding that matched: exactly the bound parameter values, the message's `send_key` and the bound `SenderRevision`. Any refusal rolls the whole transaction back: no state change, attempt row, idempotency key or send audit row is written, and **zero provider calls** are made.
+The gate returns the `OutboundSendCommand` built from the binding that matched: exactly the bound parameter format, names and values, the message's `send_key` and the bound `SenderRevision`. Any refusal rolls the whole transaction back: no state change, attempt row, idempotency key or send audit row is written, and **zero provider calls** are made.
 
 ### 3. Provider call and outcome
 

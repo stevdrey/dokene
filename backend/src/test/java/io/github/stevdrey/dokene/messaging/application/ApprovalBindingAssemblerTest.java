@@ -24,6 +24,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Instant;
 import java.util.List;
@@ -67,6 +68,18 @@ class ApprovalBindingAssemblerTest {
         assertThat(binding.consentRevision()).isEqualTo(7);
         assertThat(binding.sender()).isEqualTo(sender);
         assertThat(binding.recipientPhone()).isEqualTo("+50688880001");
+    }
+
+    @Test
+    void bindsTheVerifiedParameterFormatAndAFormatChangeMovesTheFingerprint() {
+        ApprovalFingerprint.Binding positional = assembler.bind(message(BODY), customer, sender);
+        mapping("es", TemplateParameterFormat.NAMED, List.of("customer_name", "message_body"), 3);
+        ApprovalFingerprint.Binding named = assembler.bind(message(BODY), customer, sender);
+
+        assertThat(positional.template().parameterFormat()).isEqualTo(ApprovalFingerprint.ParameterFormat.POSITIONAL);
+        assertThat(named.template().parameterFormat()).isEqualTo(ApprovalFingerprint.ParameterFormat.NAMED);
+        assertThat(named.template().parameterNames()).containsExactly("customer_name", "message_body");
+        assertThat(ApprovalFingerprint.of(positional)).isNotEqualTo(ApprovalFingerprint.of(named));
     }
 
     @Test
@@ -159,9 +172,13 @@ class ApprovalBindingAssemblerTest {
     }
 
     private void mapping(String language, List<String> parameterNames, long version) {
+        mapping(language, TemplateParameterFormat.POSITIONAL, parameterNames, version);
+    }
+
+    private void mapping(String language, TemplateParameterFormat format, List<String> parameterNames, long version) {
         when(templates.resolve(SemanticTemplateIntent.GENERAL_FOLLOW_UP)).thenReturn(new TemplateMappingResolver.Resolved(
                 new ResolvedTemplateMapping(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "general_follow_up", language,
-                        parameterNames, version)));
+                        format, parameterNames, version)));
     }
 
     private OutboundMessage message(String body) {
