@@ -38,7 +38,7 @@ final class GraphApiTemplateSchemaReader {
             if (!component.isObject() || !component.path("type").isString()) {
                 return new Unreadable();
             }
-            Verdict verdict;
+            ComponentCheck check;
             switch (component.path("type").asString()) {
                 case "BODY" -> {
                     Optional<List<String>> tokens = tokens(component.path("text"));
@@ -46,17 +46,17 @@ final class GraphApiTemplateSchemaReader {
                         return new Unreadable();
                     }
                     body = tokens.get();
-                    verdict = Verdict.ALLOWED;
+                    check = ComponentCheck.ALLOWED;
                 }
-                case "HEADER" -> verdict = header(component);
-                case "FOOTER" -> verdict = withoutPlaceholders(component.path("text"));
-                case "BUTTONS" -> verdict = buttons(component.path("buttons"));
-                default -> verdict = Verdict.UNSUPPORTED;
+                case "HEADER" -> check = header(component);
+                case "FOOTER" -> check = withoutPlaceholders(component.path("text"));
+                case "BUTTONS" -> check = buttons(component.path("buttons"));
+                default -> check = ComponentCheck.UNSUPPORTED;
             }
-            if (verdict == Verdict.UNREADABLE) {
+            if (check == ComponentCheck.UNREADABLE) {
                 return new Unreadable();
             }
-            unsupported |= verdict == Verdict.UNSUPPORTED;
+            unsupported |= check == ComponentCheck.UNSUPPORTED;
         }
         if (body == null) {
             return new Unreadable();
@@ -64,7 +64,7 @@ final class GraphApiTemplateSchemaReader {
         return unsupported ? new Unsupported() : new BodyParameters(format.get(), body);
     }
 
-    private enum Verdict {
+    private enum ComponentCheck {
         ALLOWED, UNSUPPORTED, UNREADABLE
     }
 
@@ -84,45 +84,46 @@ final class GraphApiTemplateSchemaReader {
     }
 
     /** A media, location or any other non-text header needs a value Dokene does not send. */
-    private static Verdict header(JsonNode component) {
+    private static ComponentCheck header(JsonNode component) {
         JsonNode format = component.path("format");
         if (!format.isString()) {
-            return Verdict.UNREADABLE;
+            return ComponentCheck.UNREADABLE;
         }
-        return "TEXT".equals(format.asString()) ? withoutPlaceholders(component.path("text")) : Verdict.UNSUPPORTED;
+        return "TEXT".equals(format.asString()) ? withoutPlaceholders(component.path("text"))
+                : ComponentCheck.UNSUPPORTED;
     }
 
     /** Quick replies and phone numbers need no value; a URL needs one only when it has a placeholder. */
-    private static Verdict buttons(JsonNode buttons) {
+    private static ComponentCheck buttons(JsonNode buttons) {
         if (!buttons.isArray() || buttons.isEmpty() || buttons.size() > MAX_BUTTONS) {
-            return Verdict.UNREADABLE;
+            return ComponentCheck.UNREADABLE;
         }
-        Verdict result = Verdict.ALLOWED;
+        ComponentCheck result = ComponentCheck.ALLOWED;
         for (JsonNode button : buttons) {
             if (!button.isObject() || !button.path("type").isString()) {
-                return Verdict.UNREADABLE;
+                return ComponentCheck.UNREADABLE;
             }
-            Verdict verdict = switch (button.path("type").asString()) {
-                case "QUICK_REPLY", "PHONE_NUMBER" -> Verdict.ALLOWED;
+            ComponentCheck check = switch (button.path("type").asString()) {
+                case "QUICK_REPLY", "PHONE_NUMBER" -> ComponentCheck.ALLOWED;
                 case "URL" -> withoutPlaceholders(button.path("url"));
-                default -> Verdict.UNSUPPORTED;
+                default -> ComponentCheck.UNSUPPORTED;
             };
-            if (verdict == Verdict.UNREADABLE) {
-                return Verdict.UNREADABLE;
+            if (check == ComponentCheck.UNREADABLE) {
+                return ComponentCheck.UNREADABLE;
             }
-            if (verdict == Verdict.UNSUPPORTED) {
-                result = Verdict.UNSUPPORTED;
+            if (check == ComponentCheck.UNSUPPORTED) {
+                result = ComponentCheck.UNSUPPORTED;
             }
         }
         return result;
     }
 
-    private static Verdict withoutPlaceholders(JsonNode text) {
+    private static ComponentCheck withoutPlaceholders(JsonNode text) {
         Optional<List<String>> tokens = tokens(text);
         if (tokens.isEmpty()) {
-            return Verdict.UNREADABLE;
+            return ComponentCheck.UNREADABLE;
         }
-        return tokens.get().isEmpty() ? Verdict.ALLOWED : Verdict.UNSUPPORTED;
+        return tokens.get().isEmpty() ? ComponentCheck.ALLOWED : ComponentCheck.UNSUPPORTED;
     }
 
     private static Optional<List<String>> tokens(JsonNode text) {

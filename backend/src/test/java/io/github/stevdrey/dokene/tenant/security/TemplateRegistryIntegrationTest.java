@@ -311,6 +311,56 @@ class TemplateRegistryIntegrationTest {
     }
 
     @Test
+    void evidenceRewrittenByAnOlderReleaseNeverInheritsTheVerifiedFormat() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = approved(WABA_ID);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.sendable").value(true));
+
+        // An older instance's status-only refresh rewrites the evidence but not the format columns.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = now() WHERE tenant_id = ?",
+                tenantA.id().value());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        list(adminA, tenantA).andExpect(jsonPath("$.items[?(@.templateIntent=='REPEAT_PURCHASE')].sendable")
+                .value(false));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.sendable").value(true));
+
+        // An older instance's edit drops the status but leaves the stale format behind; a refresh still succeeds.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_status = 'UNVERIFIED', "
+                + "approval_checked_at = NULL, approval_checked_business_account_id = NULL, "
+                + "approval_checked_version = NULL, version = version + 1 WHERE tenant_id = ?", tenantA.id().value());
+        list(adminA, tenantA).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.templateIntent=='REPEAT_PURCHASE')].approvalStatus")
+                        .value("UNVERIFIED"));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"1\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.sendable").value(true));
+    }
+
+    @Test
+    void aRefreshThatOnlyChangesTheVerifiedFormatIsAudited() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = approved(WABA_ID);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+        int audits = auditCount(tenantA);
+
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
+                        List.of("customer_name", "product")));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED"));
+        assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
+
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
+                        List.of("product", "customer_name")));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+        assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
+    }
+
+    @Test
     void aFailedRefreshDowngradesEarlierEvidenceAndExposesOnlyAClosedCode() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         gateway.next = approved(WABA_ID);
@@ -436,13 +486,17 @@ class TemplateRegistryIntegrationTest {
             // An approved status can never be kept without complete provider evidence.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = NULL "
                     + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            // Only an approval carries a parameter format, and an approval always does.
+            // A format is only ever stored together with the time of the schema check that produced it.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
                     + "= NULL WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_status = "
-                    + "'SCHEMA_MISMATCH' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                    .isInstanceOf(SQLException.class);
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
                     + "= 'MIXED' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            // Expand phase: an older instance's approval without any format stays writable (and is never sendable).
+            execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format = NULL, "
+                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value());
         }
     }
 

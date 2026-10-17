@@ -50,7 +50,8 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
 
     /**
      * What the provider last reported, and for which mapping revision and business account. {@code UNVERIFIED} carries
-     * no evidence at all; only {@code APPROVED} carries the parameter format its schema was verified against.
+     * no evidence at all; only {@code APPROVED} carries the parameter format its schema was verified against, and an
+     * approval without one was never schema-checked.
      */
     public record ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
             Long checkedVersion, TemplateParameterFormat parameterFormat) {
@@ -64,7 +65,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
                     || unverified != (checkedVersion == null)) {
                 throw new IllegalArgumentException("Evidence must be complete unless unverified");
             }
-            if ((status == TemplateApprovalStatus.APPROVED) != (parameterFormat != null)) {
+            // APPROVED without a format is evidence whose schema was never checked (recorded before issue 218 or by an
+            // instance of an earlier release); it is kept as read but is never sendable.
+            if (parameterFormat != null && status != TemplateApprovalStatus.APPROVED) {
                 throw new IllegalArgumentException("Only approved evidence carries a parameter format");
             }
             if (checkedAt != null) {

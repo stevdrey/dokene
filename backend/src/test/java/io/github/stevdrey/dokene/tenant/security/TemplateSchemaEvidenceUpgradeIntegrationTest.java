@@ -19,7 +19,7 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
 
     /** covers: issue #218 (no mapping stays sendable on status, name and language alone after the upgrade). */
     @Test
-    void approvalsRecordedBeforeTheSchemaCheckReturnToUnverifiedAndOtherEvidenceIsKept() throws Exception {
+    void approvalsRecordedBeforeTheSchemaCheckReturnToUnverifiedAndOlderWritersStillWork() throws Exception {
         String url = TenantSecurityIntegrationFixture.createEmptyDatabase(
                 "upgrade_" + UUID.randomUUID().toString().replace("-", ""));
         UUID tenantId = UUID.randomUUID();
@@ -49,6 +49,13 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
                     """, tenantId)).isEqualTo(1);
             assertThat(count(migration, "SELECT count(*) FROM dokene.tenant_provider_templates WHERE tenant_id = ?",
                     tenantId)).isEqualTo(2);
+            // Expand phase: the previous release's status-only refresh still writes after the upgrade.
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates
+                    SET approval_status = 'APPROVED', approval_checked_at = now(),
+                        approval_checked_business_account_id = '400000000000001', approval_checked_version = 0
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """, tenantId)).isEqualTo(1);
         }
     }
 

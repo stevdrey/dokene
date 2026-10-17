@@ -90,8 +90,10 @@ public sealed interface ProviderTemplateSchema
     }
 
     /**
-     * Positional placeholders must be exactly the indexes 1 to {@code n}, with {@code n} equal to the number of names; named
-     * placeholders must be exactly the stored names. Repeated placeholders are not supported.
+     * Positional placeholders must be exactly the indexes 1 to {@code n}, with {@code n} equal to the number of
+     * names; named placeholders must be exactly the stored names. Repeated placeholders are not supported. A
+     * template without placeholders is approved as {@code POSITIONAL} whatever it declares, since no parameter is
+     * sent.
      */
     default Verdict check(List<String> parameterNames) {
         Objects.requireNonNull(parameterNames, "Parameter names are required");
@@ -105,10 +107,13 @@ public sealed interface ProviderTemplateSchema
                 }
                 boolean matches = switch (body.format()) {
                     case POSITIONAL -> positionalMatches(distinct, parameterNames.size());
-                    case NAMED -> distinct.stream().allMatch(t -> TemplateMapping.PARAMETER_NAME.matcher(t).matches())
-                            && distinct.equals(new HashSet<>(parameterNames));
+                    // Stored names already satisfy TemplateMapping.PARAMETER_NAME, so set equality is the whole rule.
+                    case NAMED -> distinct.equals(new HashSet<>(parameterNames));
                 };
-                yield matches ? new Verdict(TemplateApprovalStatus.APPROVED, body.format())
+                // Without placeholders no parameter is sent, so the declared format cannot matter: record POSITIONAL.
+                TemplateParameterFormat format = distinct.isEmpty() ? TemplateParameterFormat.POSITIONAL
+                        : body.format();
+                yield matches ? new Verdict(TemplateApprovalStatus.APPROVED, format)
                         : new Verdict(TemplateApprovalStatus.SCHEMA_MISMATCH, null);
             }
         };

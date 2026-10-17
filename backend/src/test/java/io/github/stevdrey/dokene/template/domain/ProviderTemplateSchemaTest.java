@@ -53,11 +53,17 @@ class ProviderTemplateSchemaTest {
     @Test
     void namedPlaceholdersMustBeExactlyTheStoredNamesInAnyOrder() {
         assertThat(named(TWO, "message_body", "customer_name")).isEqualTo(APPROVED_NAMED);
-        assertThat(named(List.of())).isEqualTo(APPROVED_NAMED);
         assertThat(named(TWO, "customer_name")).isEqualTo(MISMATCH);
         assertThat(named(TWO, "customer_name", "message_body", "product")).isEqualTo(MISMATCH);
         assertThat(named(TWO, "customer_name", "body")).isEqualTo(MISMATCH);
         assertThat(named(List.of("a"), "a".repeat(33))).isEqualTo(MISMATCH);
+    }
+
+    @Test
+    void aTemplateWithoutPlaceholdersIsApprovedAsPositionalWhateverItDeclares() {
+        assertThat(named(List.of())).isEqualTo(APPROVED_POSITIONAL);
+        assertThat(positional(List.of())).isEqualTo(APPROVED_POSITIONAL);
+        assertThat(named(List.of("customer_name"))).isEqualTo(MISMATCH);
     }
 
     @Test

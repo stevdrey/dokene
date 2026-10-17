@@ -90,11 +90,19 @@ class TemplateMappingTest {
 
     @Test
     void onlyApprovedEvidenceCarriesAParameterFormat() {
-        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
-                null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.SCHEMA_MISMATCH, NOW,
                 WABA, 0L, TemplateParameterFormat.NAMED)).isInstanceOf(IllegalArgumentException.class);
         assertThat(approved().approval().parameterFormat()).isEqualTo(TemplateParameterFormat.POSITIONAL);
+    }
+
+    @Test
+    void anApprovalWhoseSchemaWasNeverCheckedIsKeptButNeverSendable() {
+        TemplateMapping base = mapping("t", "es", List.of("customer_name"));
+        TemplateMapping unchecked = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
+                base.providerTemplateName(), base.language(), base.parameterNames(), true,
+                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L, null),
+                base.createdAt(), base.updatedAt(), 0);
+        assertThat(unchecked.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
     }
 
     @Test
