@@ -14,6 +14,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 public interface OutboundMessageRepository {
 
@@ -28,6 +29,15 @@ public interface OutboundMessageRepository {
     record ListedMessage(OutboundMessage message, boolean contactRemoved) {
         public ListedMessage {
             Objects.requireNonNull(message, "Message is required");
+        }
+    }
+
+    /** A STARTED attempt older than the recovery cutoff, identified by ids only (ADR 0028 §5). */
+    record ExpiredClaimRef(UUID tenantId, UUID messageId, UUID attemptId) {
+        public ExpiredClaimRef {
+            Objects.requireNonNull(tenantId, "Tenant id is required");
+            Objects.requireNonNull(messageId, "Message id is required");
+            Objects.requireNonNull(attemptId, "Attempt id is required");
         }
     }
 
@@ -70,6 +80,19 @@ public interface OutboundMessageRepository {
     SendAttempt updateAttempt(SendAttempt attempt);
 
     List<SendAttempt> findAttempts(UUID tenantId, UUID messageId);
+
+    /**
+     * The only cross-tenant read of attempts: STARTED claims that began before {@code startedBefore}, ordered by attempt
+     * id after {@code afterAttemptId} (from the start when empty), at most {@code limit}. Runs without a tenant context
+     * through a security-definer function that returns ids only.
+     */
+    List<ExpiredClaimRef> findExpiredClaims(Instant startedBefore, Optional<UUID> afterAttemptId, int limit);
+
+    /**
+     * Runs {@code run} only while no other application instance runs dispatch recovery: a session advisory lock is
+     * held on one dedicated connection for the whole run. Empty, without running, when another instance holds it.
+     */
+    <T> Optional<T> runAsSoleRecoveryRunner(Supplier<T> run);
 
     /**
      * Serializes the send policy's rate bound per tenant until the transaction ends, so concurrent sends cannot all

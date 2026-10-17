@@ -114,3 +114,8 @@ dependencyCheck {
         nvd.apiKey = nvdApiKey
     }
 }
+
+// Every test task (test, spikeTest, aiEvalLive) drives dispatch recovery directly; a background run would race them.
+tasks.withType(Test).configureEach {
+    systemProperty 'dokene.messaging.recovery.enabled', 'false'
+}
