@@ -370,7 +370,10 @@ describe('messaging v1 contract fixtures', () => {
         'PAUSED',
         'DISABLED',
         'DELETED',
-        'NOT_FOUND'
+        'NOT_FOUND',
+        'SCHEMA_MISMATCH',
+        'SCHEMA_UNSUPPORTED',
+        'SCHEMA_UNREADABLE'
       ]);
     });
   });

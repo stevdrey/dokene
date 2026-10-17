@@ -134,6 +134,8 @@ public class TemplateRegistryService {
             lookup = new TemplateProviderGateway.Unavailable();
         }
         TemplateMapping next = switch (lookup) {
+            case TemplateProviderGateway.Reported reported when reported.status() == TemplateApprovalStatus.APPROVED ->
+                    current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Reported reported ->
                     current.verified(reported.status(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Absent absent ->

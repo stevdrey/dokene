@@ -31,19 +31,20 @@ Approval is evidence, not configuration:
 - The request body cannot carry it.
 - Editing a mapping sets its status to `UNVERIFIED` and advances `version`.
 - Only `POST /api/templates/{templateIntent}/approval-refresh` (`TEMPLATE_WRITE`, strong `If-Match`) records it. That call asks the provider through `TemplateProviderGateway`, implemented in `integration.whatsapp` by `GraphApiTemplateProviderGateway`.
-- The gateway reads `GET {graph}/{businessAccountId}/message_templates?name=…&language=…` with the tenant's own credential, resolved through `IntegrationSecretResolver` at call time. The credential is held only for that call and goes only into the `Authorization` header.
-- Only a `200` whose `data` contains the exact name and language is evidence. Meta's `APPROVED` is the only status that can make a mapping sendable. `PENDING` and `IN_APPEAL` store `PENDING`. `REJECTED`, `PAUSED` and `DISABLED` store their own state. `DELETED`, `PENDING_DELETION` and `ARCHIVED` store `DELETED`. A response without the template stores `NOT_FOUND`.
+- The gateway reads `GET {graph}/{businessAccountId}/message_templates?name=…&language=…&fields=name,language,status,parameter_format,components` with the tenant's own credential, resolved through `IntegrationSecretResolver` at call time. The credential is held only for that call and goes only into the `Authorization` header.
+- Only a `200` whose `data` contains the exact name and language is evidence. Meta's `APPROVED` is the only status that can make a mapping sendable, and only after its parameter schema matches the mapping (§2a). `PENDING` and `IN_APPEAL` store `PENDING`. `REJECTED`, `PAUSED` and `DISABLED` store their own state. `DELETED`, `PENDING_DELETION` and `ARCHIVED` store `DELETED`. A response without the template stores `NOT_FOUND`.
 - The endpoint host is allow-listed because every tenant bearer token is sent to it: `graph.facebook.com` over HTTPS, loopback test servers, or a host listed in `dokene.integration.whatsapp.graph.additional-trusted-hosts`. That list is a trust boundary (each entry receives tenant credentials, so it is for an internal HTTPS proxy or mock the deployment controls) and is empty by default. A rejected configuration stops the application at startup, so no credentialed request is ever made. The response is read with a hard 256 KiB and timeout bound while streaming, never after buffering.
 - The lookup follows Graph cursors (`paging.cursors.after`) on the same base URL for at most five pages, never the `paging.next` URL a response supplies, and shares one deadline across all pages. Absence is concluded only when the list really ends; with pages still pending it is unavailable.
 - Anything else is *unavailable*: other status codes, redirects (not followed), timeouts, unreadable bodies, `LIMIT_EXCEEDED` or an unknown status, no secret resolver bean, an unresolvable secret. No provider text is kept or returned.
 - An unavailable answer drops earlier evidence (status `UNVERIFIED`) and the call answers `503 PROVIDER_UNAVAILABLE`, so a failure can never leave an old `APPROVED` standing.
 
-The evidence row stores the status, the check time, the business account that was asked and the mapping `version` it was checked against. A refresh does not advance `version`, so recording evidence never voids open approvals.
+The evidence row stores the status, the check time, the business account that was asked, the mapping `version` it was checked against and, for `APPROVED` only, the verified parameter format. A refresh does not advance `version`, so recording evidence never voids open approvals.
 
 `RegistryTemplateMappingResolver` implements the frozen `TemplateMappingResolver` port and answers from stored evidence only, with no network call. It returns `Resolved` only if all of these hold:
 
 - the mapping is `enabled`;
-- its status is `APPROVED`;
+- its status is `APPROVED`, which implies a matching parameter schema (§2a);
+- its verified parameter format is `POSITIONAL`, until the named send path lands (§2a);
 - the evidence was recorded for the current `version`;
 - the mapping belongs to the tenant's current integration;
 - the evidence was recorded for that integration's current business account;
@@ -52,6 +53,22 @@ The evidence row stores the status, the check time, the business account that wa
 An absent mapping is `NotMapped`. Everything else is `Disabled`. Submit already calls it through `ResolverBackedTemplateMappingGate`, which replaces the property-driven stub. Approval ([#136](https://github.com/stevdrey/dokene/issues/136)) and send ([#142](https://github.com/stevdrey/dokene/issues/142)) must call the same resolver, so that a stale, disabled, deleted, rejected or edited mapping is ineligible at every step. Refresh is explicit. There is no scheduler in this phase: an operator refreshes before use, and an expired mapping simply stops being sendable until someone does.
 
 The approval fingerprint (ADR 0024 §2) binds the mapping `version`, name, language and parameter names. An edit therefore voids open approvals with `APPROVAL_INVALIDATED`, while a refresh or an expiry makes the next step fail closed with `TEMPLATE_NOT_MAPPED`.
+
+### 2a. Parameter schema evidence (issue 218)
+
+Provider approval alone does not prove the template can receive what Dokene sends. When Meta reports `APPROVED`, `GraphApiTemplateSchemaReader` reads the matched template's `parameter_format` and `components` into a provider-neutral `ProviderTemplateSchema`, and the template domain compares it with the stored `parameterNames`. Dokene sends text parameters in the body only.
+
+- `parameter_format` absent means positional (Meta's default). `POSITIONAL` and `NAMED` are accepted; any other value is unreadable.
+- `components` must be an array of 1 to 10 objects, each with a string `type`. Exactly one `BODY` with a string `text` is required.
+- A `HEADER` is accepted only as `format: TEXT` without placeholders; a media, location or any other header is unsupported. A `FOOTER` is accepted without placeholders. `BUTTONS` are accepted only as `QUICK_REPLY`, `PHONE_NUMBER` or a `URL` without a placeholder. Any other button, any component needing a value and any unknown component type is unsupported.
+- Placeholders are scanned with fixed bounds (at most 32 tokens of at most 64 characters, text of at most 4096 characters); malformed braces are unreadable.
+- Positional placeholders must be exactly `{{1}}` to `{{n}}`, with `n` equal to the number of parameter names. Named placeholders must be exactly the stored names. Repeated placeholders are unsupported.
+
+The outcome is recorded as evidence like any provider status. Only a match stores `APPROVED`, together with the verified format. Otherwise the closed status is `SCHEMA_UNREADABLE`, `SCHEMA_UNSUPPORTED` or `SCHEMA_MISMATCH`, in that order of precedence, and is never sendable. These statuses are derived by Dokene: the provider gateway cannot report them, and the request body cannot carry them. The refresh answers `200` with `sendable: false`; a failure to obtain the template at all is still *unavailable*. Neither the provider's text nor the placeholders are stored, logged, audited or returned.
+
+Migration V27 adds the column and statuses, and returns every existing `APPROVED` row to `UNVERIFIED`, because that evidence never checked the schema. Operators refresh those mappings again. A refresh that only changes the verified format keeps the status and therefore emits no audit event (§3).
+
+The send adapter builds positional parameters only. Until the named send path lands (the second part of #218, which binds the format into the approval fingerprint and sends `parameter_name`), a mapping verified as `NAMED` is not sendable (`TemplateMapping.sendable`), so the API reports `sendable: false` and the resolver answers `Disabled`.
 
 ### 3. Precondition and audit
 
@@ -85,7 +102,7 @@ Dokene's policy:
 
 ## Consequences
 
-- **Known limit, tracked before live sending:** approved evidence proves the provider's status, name and language only. It does not yet prove that the template's components and placeholders match the stored parameter names, so a mapping with the wrong parameter count could be marked sendable. The follow-up issue for the component-schema check is a hard pre-dispatch gate on #138: real outbound sending must not be enabled on status, name and language alone.
+- Approved evidence proves the provider's status, name and language and, since [#218](https://github.com/stevdrey/dokene/issues/218), that the template's components and placeholders match the stored parameter names (§2a). Real outbound sending is therefore never enabled on status, name and language alone.
 - Delivery was split to respect the 40-file PR limit. [#215](https://github.com/stevdrey/dokene/issues/215) added the registry, resolver and API with a fail-closed provider gateway; [#135](https://github.com/stevdrey/dokene/issues/135) adds `GraphApiTemplateProviderGateway` (the provider lookup of §2) and replaces the submit-time stub with `ResolverBackedTemplateMappingGate`.
 - `GraphApiTemplateProviderGateway` is the only code that calls Meta for templates. Until a production `IntegrationSecretResolver` exists, every refresh is unavailable and no template becomes sendable, so sending stays disabled even if the other pieces are in place. That is the intended fail-closed default.
 - Templates created in Meta's WhatsApp Manager stay the source of truth for content and approval. Dokene stores a pointer and the last evidence only; it does not submit templates for approval.

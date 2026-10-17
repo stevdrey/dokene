@@ -50,12 +50,12 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
 
     /**
      * What the provider last reported, and for which mapping revision and business account. {@code UNVERIFIED} carries
-     * no evidence at all.
+     * no evidence at all; only {@code APPROVED} carries the parameter format its schema was verified against.
      */
     public record ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
-            Long checkedVersion) {
+            Long checkedVersion, TemplateParameterFormat parameterFormat) {
         public static final ApprovalEvidence UNVERIFIED = new ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED,
-                null, null, null);
+                null, null, null, null);
 
         public ApprovalEvidence {
             Objects.requireNonNull(status, "Status is required");
@@ -63,6 +63,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
             if (unverified != (checkedAt == null) || unverified != (checkedBusinessAccountId == null)
                     || unverified != (checkedVersion == null)) {
                 throw new IllegalArgumentException("Evidence must be complete unless unverified");
+            }
+            if ((status == TemplateApprovalStatus.APPROVED) != (parameterFormat != null)) {
+                throw new IllegalArgumentException("Only approved evidence carries a parameter format");
             }
             if (checkedAt != null) {
                 checkedAt = TimestampPrecision.normalize(checkedAt);
@@ -83,11 +86,32 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
                 parameterNames, enabled, ApprovalEvidence.UNVERIFIED, createdAt, now, version);
     }
 
-    /** Evidence is bound to the current revision and the business account that was asked. */
+    /**
+     * Evidence for a provider status other than approval, bound to the current revision and the business account that
+     * was asked. Approval is only ever recorded through {@link #verifiedApproval}, after its schema was checked.
+     */
     public TemplateMapping verified(TemplateApprovalStatus status, String businessAccountId, Instant now) {
+        Objects.requireNonNull(status, "Status is required");
+        if (status == TemplateApprovalStatus.APPROVED || status.derivedFromSchema()) {
+            throw new IllegalArgumentException("Approval evidence requires a verified schema");
+        }
+        return withEvidence(new ApprovalEvidence(status, now, businessAccountId, version, null), now);
+    }
+
+    /**
+     * The provider approved the template: the evidence is {@code APPROVED} only when its parameter schema matches the
+     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable.
+     */
+    public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
+        ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")
+                .check(parameterNames);
+        return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format()),
+                now);
+    }
+
+    private TemplateMapping withEvidence(ApprovalEvidence evidence, Instant now) {
         return new TemplateMapping(id, tenantId, integrationId, intent, providerTemplateName, language,
-                parameterNames, enabled, new ApprovalEvidence(status, now, businessAccountId, version), createdAt,
-                now, version);
+                parameterNames, enabled, evidence, createdAt, now, version);
     }
 
     /** Evidence that cannot be refreshed is dropped rather than kept as if it were still current. */
@@ -103,10 +127,12 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
 
     /**
      * Sendable only when enabled, provider-approved for exactly this revision and business account, and the evidence is
-     * fresh. Everything else fails closed.
+     * fresh. Everything else fails closed. The send adapter builds positional parameters only until the named send
+     * path lands (issue 218, part 2), so a template verified as {@code NAMED} is not sendable yet.
      */
     public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
+                && approval.parameterFormat() == TemplateParameterFormat.POSITIONAL
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

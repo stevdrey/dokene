@@ -2,6 +2,7 @@
 // ABOUTME: Implemented in integration; template never learns credentials, endpoints or provider payloads.
 package io.github.stevdrey.dokene.template.application;
 
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,14 +43,27 @@ public interface TemplateProviderGateway {
     sealed interface Lookup permits Reported, Absent, Unavailable {
     }
 
-    /** The provider reported this status for exactly this business account. */
-    record Reported(TemplateApprovalStatus status, String businessAccountId) implements Lookup {
+    /**
+     * The provider reported this status for exactly this business account. An approval always carries the template's
+     * parameter schema, which the template module checks against the mapping; no other status carries one.
+     */
+    record Reported(TemplateApprovalStatus status, String businessAccountId, ProviderTemplateSchema schema)
+            implements Lookup {
         public Reported {
             Objects.requireNonNull(status, "Status is required");
             Objects.requireNonNull(businessAccountId, "Business account id is required");
-            if (status == TemplateApprovalStatus.UNVERIFIED || status == TemplateApprovalStatus.NOT_FOUND) {
+            if (status == TemplateApprovalStatus.UNVERIFIED || status == TemplateApprovalStatus.NOT_FOUND
+                    || status.derivedFromSchema()) {
                 throw new IllegalArgumentException("Status is not provider evidence");
             }
+            if ((status == TemplateApprovalStatus.APPROVED) != (schema != null)) {
+                throw new IllegalArgumentException("Only an approval carries a parameter schema");
+            }
+        }
+
+        /** A provider status other than approval. */
+        public Reported(TemplateApprovalStatus status, String businessAccountId) {
+            this(status, businessAccountId, null);
         }
     }
 
