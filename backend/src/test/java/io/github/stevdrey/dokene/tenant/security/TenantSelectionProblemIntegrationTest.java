@@ -5,6 +5,7 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -32,8 +33,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +41,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.server.PathContainer;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -60,6 +60,8 @@ import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 /**
  * Issue #207: tenant-selection rejections raised by {@link TenantContextRequestFilter} use the closed problem+json
@@ -71,7 +73,6 @@ class TenantSelectionProblemIntegrationTest {
     private static final List<String> PHASE_3_MODULES = List.of(
             "io.github.stevdrey.dokene.messaging.", "io.github.stevdrey.dokene.integration.",
             "io.github.stevdrey.dokene.template.");
-    private static final Pattern PATH_VARIABLE = Pattern.compile("\\{([^/}:]+)(?::([^/}]+))?}");
     private static final String UUID_SAMPLE = "00000000-0000-4000-8000-000000000000";
     private static final List<String> PATH_SAMPLES = List.of("sample", UUID_SAMPLE, "0");
     private static final String INVALID_INPUT =
@@ -178,6 +179,17 @@ class TenantSelectionProblemIntegrationTest {
         assertThat(ownership.claimedOther()).isEmpty();
     }
 
+    /** A quantified constraint is parsed as one variable, and a constraint no sample satisfies fails loudly. */
+    @Test
+    void pathSamplesHonourQuantifiedConstraints() {
+        assertThat(samplePaths("/api/messages/{messageId:[0-9a-f-]{36}}/events"))
+                .containsExactly("/api/messages/" + UUID_SAMPLE + "/events");
+        assertThat(samplePaths("/api/templates/{templateIntent}"))
+                .containsExactly("/api/templates/sample", "/api/templates/" + UUID_SAMPLE, "/api/templates/0");
+        assertThatThrownBy(() -> samplePaths("/api/messages/{messageId:[x-z]{3}}"))
+                .isInstanceOf(AssertionError.class).hasMessageContaining("add one to PATH_SAMPLES");
+    }
+
     @Test
     void existingRoutesKeepTheEmptyBodyAndTheirStatuses() throws Exception {
         String route = "GET /api/customers";
@@ -279,24 +291,40 @@ class TenantSelectionProblemIntegrationTest {
         return methods.stream().map(RequestMethod::name).toList();
     }
 
-    /** Expands every path variable into each sample its own constraint accepts, in all combinations. */
+    /**
+     * Substitutes every path variable with each sample, in all combinations, and keeps the paths the handler's own
+     * pattern accepts, so a regex constraint (quantifier braces included) is honoured by Spring's parser itself.
+     */
     private static List<String> samplePaths(String pattern) {
         List<String> paths = List.of("");
-        Matcher variable = PATH_VARIABLE.matcher(pattern);
         int literalStart = 0;
-        while (variable.find()) {
-            String literal = pattern.substring(literalStart, variable.start());
-            Pattern constraint = variable.group(2) == null ? null : Pattern.compile(variable.group(2));
-            List<String> values = PATH_SAMPLES.stream()
-                    .filter(value -> constraint == null || constraint.matcher(value).matches()).toList();
-            assertThat(values).as("path samples accepted by %s in %s; add one", variable.group(), pattern)
-                    .isNotEmpty();
-            paths = paths.stream().flatMap(path -> values.stream().map(value -> path + literal + value)).toList();
-            literalStart = variable.end();
+        for (int open = pattern.indexOf('{'); open >= 0; open = pattern.indexOf('{', literalStart)) {
+            String literal = pattern.substring(literalStart, open);
+            paths = paths.stream().flatMap(path -> PATH_SAMPLES.stream().map(value -> path + literal + value)).toList();
+            literalStart = closingBrace(pattern, open) + 1;
         }
         String tail = pattern.substring(literalStart);
-        return paths.stream().map(path -> path + tail).toList();
+        PathPattern handler = PathPatternParser.defaultInstance.parse(pattern);
+        List<String> accepted = paths.stream().map(path -> path + tail)
+                .filter(path -> handler.matches(PathContainer.parsePath(path))).toList();
+        assertThat(accepted).as("path samples accepted by %s; add one to PATH_SAMPLES", pattern).isNotEmpty();
+        return accepted;
     }
+
+    /** Finds the brace closing the variable opened at {@code open}, past any braces inside its constraint. */
+    private static int closingBrace(String pattern, int open) {
+        int depth = 0;
+        for (int index = open; index < pattern.length(); index++) {
+            char character = pattern.charAt(index);
+            if (character == '{') {
+                depth++;
+            } else if (character == '}' && --depth == 0) {
+                return index;
+            }
+        }
+        throw new IllegalArgumentException("Unbalanced path variable in " + pattern);
+    }
+
 
     private record RouteOwnership(int phase3Handlers, List<String> unclaimedPhase3, List<String> overlappingPhase3,
             List<String> claimedOther) { }
