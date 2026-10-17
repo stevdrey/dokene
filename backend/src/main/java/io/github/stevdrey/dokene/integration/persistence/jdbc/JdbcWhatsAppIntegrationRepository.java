@@ -1,22 +1,30 @@
 package io.github.stevdrey.dokene.integration.persistence.jdbc;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberMappingConflictException;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRepository {
     private static final String PROVIDER = "META_WHATSAPP";
-    /** The tenant already has an integration: a lost create race, which is a stale precondition, not bad input. */
+    /**
+     * The tenant already has an integration: a lost create race, which is a stale precondition, not bad input. The
+     * only other unique key is the verified phone number index
+     * ({@code uq_tenant_messaging_integrations_verified_phone_number}), so a duplicate this name does not identify is
+     * still counted as a rejected mapping (fail closed).
+     */
     private static final String TENANT_PROVIDER_CONSTRAINT = "uq_tenant_messaging_integrations_tenant_provider";
 
     private final JdbcTemplate jdbc;
@@ -34,11 +42,16 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                 rs.getString("business_account_id"), rs.getString("display_phone_number"), rs.getBoolean("enabled"),
                 rs.getString("secret_ref"), rs.getLong("credential_revision"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
-                rs.getLong("version")), tenantId.value(), PROVIDER).stream().findFirst();
+                rs.getLong("version"), instant(rs.getTimestamp("ownership_verified_at"))), tenantId.value(), PROVIDER)
+                .stream().findFirst();
     }
 
+    /** A new mapping is always unverified; proof is only recorded by an update of the stored row. */
     @Override
     public void insert(WhatsAppIntegration integration) {
+        if (integration.ownershipVerified()) {
+            throw new IllegalStateException("A new integration cannot be verified");
+        }
         try {
             jdbc.update("""
                     INSERT INTO dokene.tenant_messaging_integrations (id, tenant_id, provider, phone_number_id,
@@ -50,12 +63,12 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                     integration.secretRef(), integration.credentialRevision(),
                     Timestamp.from(integration.createdAt()), Timestamp.from(integration.updatedAt()),
                     integration.version());
-        } catch (DataIntegrityViolationException conflict) {
-            String cause = String.valueOf(conflict.getMostSpecificCause().getMessage());
-            if (cause.contains(TENANT_PROVIDER_CONSTRAINT)) {
+        } catch (DuplicateKeyException duplicate) {
+            if (String.valueOf(duplicate.getMostSpecificCause().getMessage()).contains(TENANT_PROVIDER_CONSTRAINT)) {
                 throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
             }
-            // A mapping owned by another tenant is indistinguishable from any other invalid mapping.
+            throw new PhoneNumberMappingConflictException();
+        } catch (DataIntegrityViolationException invalid) {
             throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }
     }
@@ -66,16 +79,25 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
             return jdbc.queryForList("""
                     UPDATE dokene.tenant_messaging_integrations
                     SET phone_number_id = ?, business_account_id = ?, display_phone_number = ?, enabled = ?,
-                        secret_ref = ?, credential_revision = ?, updated_at = ?, version = version + 1
+                        secret_ref = ?, credential_revision = ?, updated_at = ?, ownership_verified_at = ?,
+                        version = version + 1
                     WHERE tenant_id = ? AND id = ? AND version = ?
                     RETURNING version
                     """, Long.class, integration.phoneNumberId(), integration.businessAccountId(),
                     integration.displayPhoneNumber(), integration.enabled(), integration.secretRef(),
                     integration.credentialRevision(), Timestamp.from(integration.updatedAt()),
+                    integration.ownershipVerified() ? Timestamp.from(integration.ownershipVerifiedAt()) : null,
                     integration.tenantId().value(), integration.id(), expectedVersion)
                     .stream().mapToLong(Long::longValue).findFirst();
-        } catch (DataIntegrityViolationException conflict) {
+        } catch (DuplicateKeyException duplicate) {
+            // Tenant and id never change, so the verified phone number is the only unique key an update can hit.
+            throw new PhoneNumberMappingConflictException();
+        } catch (DataIntegrityViolationException invalid) {
             throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }
+    }
+
+    private static Instant instant(Timestamp timestamp) {
+        return timestamp == null ? null : timestamp.toInstant();
     }
 }

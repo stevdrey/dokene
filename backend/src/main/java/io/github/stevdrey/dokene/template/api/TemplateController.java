@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.template.api;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateListResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateRequest;
@@ -14,7 +15,6 @@ import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Pr
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Version;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;
@@ -89,7 +89,7 @@ public class TemplateController {
      */
     private static TemplateResponse respond(Entry entry, HttpServletResponse response) {
         TemplateResponse body = toResponse(entry);
-        response.setHeader("ETag", "\"" + body.version() + "\"");
+        response.setHeader("ETag", StrictRequests.strongEtag(body.version()));
         response.setHeader("Cache-Control", "no-store");
         return body;
     }

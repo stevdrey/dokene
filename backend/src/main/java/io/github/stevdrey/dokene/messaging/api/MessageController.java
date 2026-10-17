@@ -1,7 +1,8 @@
-// ABOUTME: /api/messages/** and /api/customers/{id}/messages: submit, read, approve or reject, cancel (ADR 0023 §3.1).
+// ABOUTME: /api/messages/** and /api/customers/{id}/messages: submit, read, decide, cancel and send (ADR 0023 §3.1).
 // ABOUTME: Thin transport layer over the frozen v1 contract; every rule and re-check lives in the messaging services.
 package io.github.stevdrey.dokene.messaging.api;
 
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalSummary;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.AttemptSummary;
@@ -15,10 +16,12 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.SubmitMessag
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
 import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.CommandResult;
+import io.github.stevdrey.dokene.messaging.application.OutboundDispatchService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryService;
 import io.github.stevdrey.dokene.messaging.application.MessageDetail;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository.ListedMessage;
+import io.github.stevdrey.dokene.messaging.application.SendMessageCommand;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
@@ -27,7 +30,6 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;
@@ -60,10 +62,13 @@ import tools.jackson.databind.JsonNode;
 public class MessageController {
     private final OutboundMessageCommandService commands;
     private final OutboundMessageQueryService queries;
+    private final OutboundDispatchService dispatch;
 
-    public MessageController(OutboundMessageCommandService commands, OutboundMessageQueryService queries) {
+    public MessageController(OutboundMessageCommandService commands, OutboundMessageQueryService queries,
+            OutboundDispatchService dispatch) {
         this.commands = commands;
         this.queries = queries;
+        this.dispatch = dispatch;
     }
 
     /** T1. {@code If-Match} is the customer's follow-up policy version the operator's draft was made against. */
@@ -103,7 +108,7 @@ public class MessageController {
     @GetMapping("/messages/{messageId}")
     public MessageResponse get(@PathVariable UUID messageId, HttpServletResponse response) {
         MessageDetail detail = queries.detail(messageId);
-        response.setHeader(HttpHeaders.ETAG, etag(detail.message().version()));
+        response.setHeader(HttpHeaders.ETAG, StrictRequests.strongEtag(detail.message().version()));
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         return toResponse(detail);
     }
@@ -150,6 +155,26 @@ public class MessageController {
     }
 
     /**
+     * T6 onwards: re-checks the full send policy, commits the attempt, calls the provider once and records the outcome
+     * (issue 138). The command has no body, and any payload is refused as invalid input before anything happens, so a
+     * client can never believe extra conditions it sent were applied. A provider refusal or an unknown outcome is still
+     * {@code 201}, with the state in the representation; only a refusal before the attempt row exists is an error
+     * (ADR 0023 §4.4).
+     */
+    @RequiredPermission(TenantPermission.MESSAGE_SEND)
+    @PostMapping("/messages/{messageId}/sends")
+    public ResponseEntity<MessageResponse> send(@PathVariable UUID messageId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody(required = false) JsonNode body) {
+        if (body != null) {
+            throw invalid();
+        }
+        String version = version(ifMatch);
+        return respond(dispatch.send(new SendMessageCommand(messageId, version, idempotencyKey)), false);
+    }
+
+    /**
      * {@code 201} for a new record, {@code 200} for a replay; either way the body is the message's current
      * representation and the ETag is the version to send next (ADR 0023 §4.2). The detail was read inside the
      * command's transaction, so a committed command is never reported as failed by a second read.
@@ -161,7 +186,7 @@ public class MessageController {
         if (result.created() && location) {
             builder.location(URI.create("/api/messages/" + detail.message().id()));
         }
-        return noStore(builder).eTag(etag(detail.message().version())).body(toResponse(detail));
+        return noStore(builder).eTag(StrictRequests.strongEtag(detail.message().version())).body(toResponse(detail));
     }
 
     /**
@@ -172,10 +197,6 @@ public class MessageController {
      */
     private static ResponseEntity.BodyBuilder noStore(ResponseEntity.BodyBuilder builder) {
         return builder.header(HttpHeaders.CACHE_CONTROL, "no-store");
-    }
-
-    private static String etag(long version) {
-        return "\"" + version + "\"";
     }
 
     /** Missing stays null so the service refuses it; anything present but not one strong value is invalid input. */

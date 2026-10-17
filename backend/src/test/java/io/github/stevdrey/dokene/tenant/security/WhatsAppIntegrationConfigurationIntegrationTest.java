@@ -1,5 +1,5 @@
-// ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, duplicate mapping, stale
-// ABOUTME: writes, credential rotation and audit rollback. Secrets are only referenced, never resolved (issue 134).
+// ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, stale writes, credential rotation,
+// ABOUTME: audit rollback, ownership proof, reclaim of a squatted number and the rejected-proof throttle (134, 208, 210).
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
@@ -11,6 +11,7 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -28,12 +29,23 @@ import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
 import io.github.stevdrey.dokene.integration.application.IntegrationReadiness;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
+import io.github.stevdrey.dokene.integration.application.MappingRejectionLimitProperties;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.Claim;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.NotProven;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.Outcome;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.Proven;
+import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.Unavailable;
+import io.github.stevdrey.dokene.integration.application.VerifiedPhoneNumberMappings;
+import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl.Blocked;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
@@ -41,9 +53,15 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -54,10 +72,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest
@@ -65,19 +85,42 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong(
             100_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "200000000000001";
+    private static final int ACTOR_BUDGET = MappingRejectionLimitProperties.DEFAULT_ACTOR_REJECTIONS;
+    private static final int TENANT_BUDGET = MappingRejectionLimitProperties.DEFAULT_TENANT_REJECTIONS;
+    private static final String MAPPING_REJECTED = "MAPPING_REJECTED";
+    private static final String RATE_LIMITED = "RATE_LIMITED";
 
     /** Runtime readiness that tests can flip without touching the stored integration version. */
     static final class MutableReadiness implements IntegrationReadiness {
         volatile boolean outboundEnabled;
 
         @Override
-        public boolean outboundEnabled(io.github.stevdrey.dokene.tenant.domain.TenantId tenantId) {
+        public boolean outboundEnabled(TenantId tenantId) {
             return outboundEnabled;
+        }
+    }
+
+    /** Stands in for the provider adapter: answers per tenant, records every claim it was asked to prove. */
+    static final class ScriptedOwnership implements PhoneNumberOwnershipVerifier {
+        final Map<TenantId, Outcome> outcomes = new ConcurrentHashMap<>();
+        final List<Claim> claims = new CopyOnWriteArrayList<>();
+        volatile Runnable beforeAnswer = () -> { };
+
+        void answer(Tenant tenant, Outcome outcome) {
+            outcomes.put(tenant.id(), outcome);
+        }
+
+        void reset() {
+            outcomes.clear();
+            claims.clear();
+            beforeAnswer = () -> { };
         }
 
         @Override
-        public boolean webhookVerified(io.github.stevdrey.dokene.tenant.domain.TenantId tenantId) {
-            return false;
+        public Outcome verify(Claim claim) {
+            claims.add(claim);
+            beforeAnswer.run();
+            return outcomes.getOrDefault(claim.tenantId(), new NotProven());
         }
     }
 
@@ -87,6 +130,12 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         @Primary
         MutableReadiness mutableReadiness() {
             return new MutableReadiness();
+        }
+
+        @Bean
+        @Primary
+        ScriptedOwnership scriptedOwnership() {
+            return new ScriptedOwnership();
         }
     }
 
@@ -98,6 +147,9 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
 
     MockMvc mvc;
     @Autowired MutableReadiness readiness;
+    @Autowired ScriptedOwnership ownership;
+    @Autowired VerifiedPhoneNumberMappings mappings;
+    @Autowired WhatsAppOutboundSafetyControl safety;
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired AuditRequestFilter auditRequestFilter;
     @Autowired TenantRepository tenants;
@@ -106,7 +158,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     @Autowired WhatsAppIntegrationRepository repository;
     @MockitoSpyBean IntegrationAuditPort audit;
 
-    /** Phone number ids are globally unique, so every test maps its own. */
+    /** Verified phone number ids are globally unique, so every test maps its own. */
     private String phoneId;
     private Tenant tenantA;
     private Tenant tenantB;
@@ -120,6 +172,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         readiness.outboundEnabled = false;
+        ownership.reset();
         phoneId = Long.toString(NEXT_ID.incrementAndGet());
         Instant now = Instant.now();
         tenantA = seedTenant(tenants, contexts, "Integration A " + UUID.randomUUID(), now);
@@ -198,7 +251,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
-    void aLostCreateRaceIsAStalePreconditionButAForeignPhoneMappingIsInvalidInput() {
+    void aLostCreateRaceIsAStalePreconditionAndUnverifiedClaimsOfOneNumberCoexist() throws SQLException {
         Instant now = Instant.now();
         String otherPhone = Long.toString(NEXT_ID.incrementAndGet());
         contexts.runWithTenantId(tenantA.id(), () -> {
@@ -207,12 +260,14 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                     () -> repository.insert(WhatsAppIntegration.create(tenantA.id(), otherPhone, WABA_ID, null, true,
                             "wa-token-ok", now))).code()).isEqualTo(MessagingErrorCode.STALE_VERSION);
         });
-        contexts.runWithTenantId(tenantB.id(), () -> assertThat(
-                org.assertj.core.api.Assertions.catchThrowableOfType(IntegrationRefusedException.class,
-                        () -> repository.insert(WhatsAppIntegration.create(tenantB.id(), phoneId, WABA_ID, null, true,
-                                "wa-token-ok", now))).code()).isEqualTo(MessagingErrorCode.INVALID_INPUT));
+        // An unverified claim of the same number by another tenant is stored; only a proof can hold the number.
+        contexts.runWithTenantId(tenantB.id(), () -> repository.insert(WhatsAppIntegration.create(tenantB.id(), phoneId,
+                WABA_ID, null, true, "wa-token-ok", now)));
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.tenant_messaging_integrations "
+                    + "WHERE phone_number_id = ?", phoneId)).isEqualTo(2);
+        }
     }
-
     @Test
     void concurrentCreatesFromOneTenantYieldOneWinnerAndAStaleVersion() throws Exception {
         var barrier = new java.util.concurrent.CyclicBarrier(2);
@@ -280,26 +335,240 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
-    void unverifiedMappingMustNotBeTrustedForRouting() throws Exception {
+    void aPreRegisteredNumberNeverRoutesToTheSquatterAndTheOwnerReclaimsItByProvingOwnership() throws Exception {
         // Tenant B pre-registers the number of tenant A (who owns it at Meta) before A configures it.
-        write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
-        read(adminB, tenantB).andExpect(jsonPath("$.webhookVerified").value(false));
+        write(adminB, tenantB, null, body(phoneId, "wa-token-b", true)).andExpect(status().isOk());
 
-        // A is refused generically and learns nothing about B.
-        String refused = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
-                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
-        assertThat(refused).doesNotContain(tenantB.id().value().toString());
+        // A is neither blocked nor told anything about B.
+        String created = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.webhookVerified").value(false))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(created).doesNotContain(tenantB.id().value().toString()).doesNotContain("wa-token-b");
 
-        // Resolving a tenant from the stored mapping alone would route A's Meta events to B. Nothing stored here is
-        // verified, so the webhook (#139) must not resolve tenants from it until ownership is proven, and the send
-        // path (#142/#144) must fail closed on webhookVerified=false.
-        try (Connection migration = migrationConnection()) {
-            assertThat(queryUuids(migration, "SELECT tenant_id FROM dokene.tenant_messaging_integrations "
-                    + "WHERE phone_number_id = ?", phoneId)).containsExactly(tenantB.id().value());
-        }
+        // No unverified claim routes events or may send.
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        assertThat(integrationGate(tenantB)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+
+        // B's credential does not reach the number, so B cannot verify it.
+        ownership.answer(tenantB, new NotProven());
+        String notProven = verify(adminB, tenantB, "\"0\"").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT")).andReturn().getResponse().getContentAsString();
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+
+        // A proves ownership with its own credential; from then on only A is resolved for the number.
+        ownership.answer(tenantA, new Proven());
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.webhookVerified").value(true));
+        read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(true));
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantA.id());
+        assertThat(integrationGate(tenantA)).isEmpty();
+        assertThat(integrationGate(tenantB)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        // The global kill switch (#144) still blocks every send first.
+        assertThat(contexts.callWithTenantId(tenantA.id(), () -> safety.evaluate(tenantA.id())))
+                .isEqualTo(new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY));
+
+        // Even a credential that reaches the number cannot take over a verified mapping, and B cannot tell why.
+        ownership.answer(tenantB, new Proven());
+        String taken = verify(adminB, tenantB, "\"0\"").andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(taken).isEqualTo(notProven).doesNotContain(tenantA.id().value().toString())
+                .doesNotContain(phoneId);
         read(adminB, tenantB).andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantA.id());
+
+        // Each proof used only the asking tenant's own configuration and credential reference.
+        assertThat(ownership.claims).containsExactly(
+                new Claim(tenantB.id(), phoneId, WABA_ID, "wa-token-b"),
+                new Claim(tenantA.id(), phoneId, WABA_ID, "wa-token-ok"),
+                new Claim(tenantB.id(), phoneId, WABA_ID, "wa-token-b"));
+
+        // Disabling clears the proof, so a disabled owner never locks the number: routing and sending stop at once.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        // Re-enabling does not bring the proof back; the owner verifies again.
+        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        verify(adminA, tenantA, "\"3\"").andExpect(jsonPath("$.webhookVerified").value(true));
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantA.id());
     }
 
+    @Test
+    void aNumberReleasedByDisablingCanBeVerifiedByAnotherTenantThatReachesIt() throws Exception {
+        ownership.answer(tenantA, new Proven());
+        ownership.answer(tenantB, new Proven());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isOk());
+        write(adminB, tenantB, null, body(phoneId, "wa-token-b", true)).andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isBadRequest());
+
+        // A disables (for example after the number moved at Meta); B's credential now proves it and B takes over.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isOk()).andExpect(jsonPath("$.webhookVerified").value(true));
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantB.id());
+
+        // A re-enables later: its configuration is kept, but it cannot take the number back while B holds it.
+        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"3\"").andExpect(status().isBadRequest());
+        assertThat(mappings.tenantFor(phoneId)).contains(tenantB.id());
+    }
+
+    @Test
+    void changingTheNumberTheBusinessAccountOrTheCredentialRequiresANewProof() throws Exception {
+        String otherPhone = Long.toString(NEXT_ID.incrementAndGet());
+        ownership.answer(tenantA, new Proven());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"0\"").andExpect(jsonPath("$.webhookVerified").value(true));
+
+        // The display number is not part of the proof.
+        write(adminA, tenantA, "\"1\"", body(phoneId, WABA_ID, null, "wa-token-ok", true))
+                .andExpect(jsonPath("$.webhookVerified").value(true));
+        rotate(adminA, tenantA, "\"2\"").andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        verify(adminA, tenantA, "\"3\"").andExpect(jsonPath("$.webhookVerified").value(true));
+        write(adminA, tenantA, "\"4\"", body(phoneId, "wa-token-two-ok", true))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        verify(adminA, tenantA, "\"5\"").andExpect(jsonPath("$.webhookVerified").value(true));
+        write(adminA, tenantA, "\"6\"", body(phoneId, "200000000000002", "+50688887777", "wa-token-two-ok", true))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        verify(adminA, tenantA, "\"7\"").andExpect(jsonPath("$.webhookVerified").value(true));
+        write(adminA, tenantA, "\"8\"", body(otherPhone, "wa-token-two-ok", true))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        assertThat(mappings.tenantFor(otherPhone)).isEmpty();
+        verify(adminA, tenantA, "\"9\"").andExpect(jsonPath("$.webhookVerified").value(true));
+        assertThat(mappings.tenantFor(otherPhone)).contains(tenantA.id());
+
+        // The database refuses any write that keeps a proof for a configuration it was not made for, and a new row that
+        // claims to be verified, even when it bypasses the domain.
+        try (Connection migration = migrationConnection()) {
+            for (String change : List.of("credential_revision = credential_revision + 1",
+                    "phone_number_id = '" + NEXT_ID.incrementAndGet() + "'",
+                    "business_account_id = '200000000000009'", "enabled = false")) {
+                try (var update = migration.prepareStatement("UPDATE dokene.tenant_messaging_integrations SET "
+                        + change + " WHERE tenant_id = ?")) {
+                    update.setObject(1, tenantA.id().value());
+                    assertThat(org.assertj.core.api.Assertions.catchThrowableOfType(SQLException.class,
+                            update::executeUpdate).getMessage())
+                            .contains("WhatsApp ownership proof does not match the integration");
+                }
+            }
+            try (var insert = migration.prepareStatement("INSERT INTO dokene.tenant_messaging_integrations (id, "
+                    + "tenant_id, provider, phone_number_id, business_account_id, enabled, secret_ref, created_at, "
+                    + "updated_at, ownership_verified_at) VALUES (?, ?, 'META_WHATSAPP', ?, ?, true, 'wa-token-ok', "
+                    + "now(), now(), now())")) {
+                insert.setObject(1, UUID.randomUUID());
+                insert.setObject(2, tenantB.id().value());
+                insert.setString(3, Long.toString(NEXT_ID.incrementAndGet()));
+                insert.setString(4, WABA_ID);
+                assertThat(org.assertj.core.api.Assertions.catchThrowableOfType(SQLException.class,
+                        insert::executeUpdate).getMessage())
+                        .contains("WhatsApp ownership proof does not match the integration");
+            }
+            // Clearing the proof in the same statement is always allowed.
+            assertThat(queryInt(migration, "WITH changed AS (UPDATE dokene.tenant_messaging_integrations "
+                    + "SET enabled = false, ownership_verified_at = NULL WHERE tenant_id = ? RETURNING 1) "
+                    + "SELECT count(*) FROM changed", tenantA.id().value())).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void onlyManagersVerifyOwnershipAndOnlyWithAStrongIfMatch() throws Exception {
+        ownership.answer(tenantA, new Proven());
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+
+        verify(operatorA, tenantA, "\"0\"").andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        verify(viewerA, tenantA, "\"0\"").andExpect(status().isForbidden());
+        for (String invalid : List.of("0", "W/\"0\"", "", "*")) {
+            verify(adminA, tenantA, invalid).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        verify(adminA, tenantA, null).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/integrations/whatsapp/ownership-verifications").with(user(adminA)).with(csrf())
+                .header("X-Tenant-Id", tenantA.id().value()).header("If-None-Match", "*"))
+                .andExpect(status().isBadRequest());
+        verify(adminA, tenantA, "\"1\"").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        // A refused request never reaches the provider.
+        assertThat(ownership.claims).isEmpty();
+
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.webhookVerified").value(true));
+        assertThat(ownership.claims).containsExactly(new Claim(tenantA.id(), phoneId, WABA_ID, "wa-token-ok"));
+        assertThat(auditCount(tenantA)).isEqualTo(2);
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isNotFound());
+
+        // A disabled integration cannot be verified: refused deterministically, without the provider or any budget.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        verify(adminA, tenantA, "\"2\"").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        assertThat(ownership.claims).hasSize(1);
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+    }
+
+    @Test
+    void aConfigurationChangeDuringTheProofIsStaleAndRecordsNothing() throws Exception {
+        ownership.answer(tenantA, new Proven());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        ownership.beforeAnswer = () -> {
+            try (Connection migration = migrationConnection();
+                    var change = migration.prepareStatement("UPDATE dokene.tenant_messaging_integrations "
+                            + "SET version = version + 1 WHERE tenant_id = ?")) {
+                change.setObject(1, tenantA.id().value());
+                change.executeUpdate();
+            } catch (SQLException failure) {
+                throw new IllegalStateException(failure);
+            }
+        };
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(false));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+    }
+
+    @Test
+    void aProofIsNotRecordedWhenItsAuditFails() throws Exception {
+        ownership.answer(tenantA, new Proven());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        doThrow(new AuditPersistenceException()).when(audit).updated(any(), anyBoolean());
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+        assertThat(mappings.tenantFor(phoneId)).isEmpty();
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.tenant_messaging_integrations "
+                    + "WHERE tenant_id = ? AND ownership_verified_at IS NULL AND version = 0",
+                    tenantA.id().value())).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void theVerifiedMappingResolverIsTheOnlyCrossTenantReadAndExposesATenantIdOnly() throws Exception {
+        for (String malformed : java.util.Arrays.asList(null, "12", "' OR 1=1 --", phoneId + "0".repeat(40))) {
+            assertThat(mappings.tenantFor(malformed)).isEmpty();
+        }
+        try (Connection runtime = runtimeConnectionWithoutContext();
+                var resolve = runtime.prepareStatement("SELECT dokene.resolve_verified_whatsapp_tenant(?)")) {
+            resolve.setString(1, phoneId);
+            try (var result = resolve.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getObject(1)).isNull();
+            }
+        }
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? AND prosecdef "
+                    + "AND prorettype = 'uuid'::regtype", "resolve_verified_whatsapp_tenant")).isEqualTo(1);
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
+                    + "AND has_function_privilege('public', p.oid, 'EXECUTE')",
+                    "resolve_verified_whatsapp_tenant")).isZero();
+        }
+    }
     @Test
     void unsupportedMediaTypesUseTheClosedProblemShape() throws Exception {
         for (MediaType type : List.of(MediaType.TEXT_PLAIN, MediaType.APPLICATION_OCTET_STREAM)) {
@@ -342,23 +611,175 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     void doesNotDiscloseAnotherTenantsMappingOrIntegration() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
 
-        // B claiming A's phone number looks like any other invalid mapping; B cannot read A's record.
-        String duplicate = write(adminB, tenantB, null, body(phoneId, "wa-token-ok", true))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+        // B naming A's number is stored as B's own unverified claim; it neither fails nor reveals A.
+        String claimed = write(adminB, tenantB, null, body(phoneId, "wa-token-b", true))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.webhookVerified").value(false))
                 .andReturn().getResponse().getContentAsString();
-        String malformed = write(adminB, tenantB, null, body("12", "wa-token-ok", true))
-                .andReturn().getResponse().getContentAsString();
-        assertThat(duplicate).isEqualTo(malformed);
-        read(adminB, tenantB).andExpect(status().isNotFound());
+        assertThat(claimed).doesNotContain(tenantA.id().value().toString()).doesNotContain("wa-token-ok");
+        read(adminB, tenantB).andExpect(jsonPath("$.secretRef").value("wa-token-b"));
         // A principal of B naming tenant A is not a member there.
         read(adminB, tenantA).andExpect(status().is4xxClientError()).andExpect(content().string(
                 org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(phoneId))));
-        read(adminA, tenantA).andExpect(jsonPath("$.phoneNumberId").value(phoneId));
-
-        // B may use a different number; the mapping stays unique per number.
-        write(adminB, tenantB, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true)).andExpect(status().isOk());
+        read(adminA, tenantA).andExpect(jsonPath("$.phoneNumberId").value(phoneId))
+                .andExpect(jsonPath("$.secretRef").value("wa-token-ok"));
     }
+    @Test
+    void repeatedFailedProofsAreThrottledWithTheClosedProblemAndAuditedWithoutTheCandidateId() throws Exception {
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        for (int attempt = 1; attempt <= ACTOR_BUDGET; attempt++) {
+            verify(adminA, tenantA, "\"0\"")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+            assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(attempt);
+        }
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
 
+        int asked = ownership.claims.size();
+        var throttled = verify(adminA, tenantA, "\"0\"")
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(content().json("{\"type\":\"about:blank\",\"title\":\"Too Many Requests\","
+                        + "\"status\":429,\"code\":\"RATE_LIMITED\"}", JsonCompareMode.STRICT))
+                .andExpect(header().string("Retry-After", org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")))
+                .andReturn().getResponse();
+        assertThat(ownership.claims).hasSize(asked); // a throttled proof never reaches the provider
+        assertThat(Long.parseLong(throttled.getHeader("Retry-After"))).isLessThanOrEqualTo(15 * 60);
+        assertThat(throttled.getContentAsString()).doesNotContain(phoneId);
+        assertThat(throttled.getHeaderNames()).allSatisfy(name -> assertThat(throttled.getHeaders(name))
+                .noneMatch(value -> value.contains(phoneId)));
+
+        // Configuration writes are never throttled; every proof is, whatever number it is for.
+        write(adminA, tenantA, "\"0\"", body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isOk());
+        verify(adminA, tenantA, "\"1\"").andExpect(status().isTooManyRequests());
+
+        // One denial per refused attempt, attributed to the prober, with no target or id.
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(2);
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events a WHERE a.tenant_id = ? "
+                    + "AND row_to_json(a)::text LIKE ?", tenantA.id().value(), "%" + phoneId + "%")).isZero();
+        }
+        assertThat(auditCount(tenantA)).isEqualTo(2);
+
+        // Another tenant keeps its own budget.
+        ownership.answer(tenantB, new Proven());
+        write(adminB, tenantB, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isOk());
+        assertThat(denials(tenantB, adminB, MAPPING_REJECTED)).isZero();
+        assertThat(denials(tenantB, adminB, RATE_LIMITED)).isZero();
+    }
+    @Test
+    void successfulProofsNeverConsumeBudgetAndTheTenantBudgetSpansActors() throws Exception {
+        ownership.answer(tenantA, new Proven());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        long version = 0;
+        for (int proof = 0; proof <= TENANT_BUDGET; proof++, version++) {
+            verify(adminA, tenantA, "\"" + version + "\"").andExpect(status().isOk());
+        }
+
+        ownership.answer(tenantA, new NotProven());
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        exhaust(adminA, version);
+        verify(adminA, tenantA, "\"" + version + "\"").andExpect(status().isTooManyRequests());
+        // The kill path: disabling (and re-enabling) is a configuration write, so it is never throttled.
+        write(adminA, tenantA, "\"" + version + "\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        version++;
+        write(adminA, tenantA, "\"" + version + "\"", body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        version++;
+
+        // Below the tenant budget another admin is unaffected; once it is exhausted, every actor is throttled.
+        exhaust(secondAdminA, version);
+        IdentityId thirdAdminA = member(tenantA, TenantRole.ADMIN);
+        verify(thirdAdminA, tenantA, "\"" + version + "\"").andExpect(status().isTooManyRequests());
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, secondAdminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isEqualTo(1);
+        assertThat(denials(tenantA, thirdAdminA, RATE_LIMITED)).isEqualTo(1);
+        // Disabling cleared the proof; failed proofs never recorded a new one.
+        read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(false))
+                .andExpect(jsonPath("$.enabled").value(true));
+    }
+    @Test
+    void refusalsFailClosedWhenTheirDenialCannotBeAuditedAndNeverAuditInsideTheWrite() throws Exception {
+        List<Boolean> auditedInsideATransaction = new CopyOnWriteArrayList<>();
+        AtomicBoolean auditFails = new AtomicBoolean(true);
+        Answer<Object> recording = invocation -> {
+            auditedInsideATransaction.add(TransactionSynchronizationManager.isActualTransactionActive());
+            if (auditFails.get()) {
+                throw new AuditPersistenceException();
+            }
+            return invocation.callRealMethod();
+        };
+        doAnswer(recording).when(audit).mappingRejected();
+        doAnswer(recording).when(audit).mappingThrottled();
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+
+        // A rejected proof whose denial cannot be recorded is not answered; it still counts (fail closed).
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+
+        auditFails.set(false);
+        for (int attempt = 1; attempt < ACTOR_BUDGET; attempt++) {
+            verify(adminA, tenantA, "\"0\"").andExpect(status().isBadRequest());
+        }
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isEqualTo(ACTOR_BUDGET - 1);
+
+        // A conflict with another tenant's verified mapping is audited after its write rolled back.
+        String phoneOfB = Long.toString(NEXT_ID.incrementAndGet());
+        ownership.answer(tenantB, new Proven());
+        write(adminB, tenantB, null, body(phoneOfB, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isOk());
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        ownership.answer(tenantA, new Proven());
+        write(adminA, tenantA, "\"0\"", body(phoneOfB, "wa-token-ok", true)).andExpect(status().isOk());
+        verify(secondAdminA, tenantA, "\"1\"").andExpect(status().isBadRequest());
+
+        auditFails.set(true);
+        verify(adminA, tenantA, "\"1\"").andExpect(status().isServiceUnavailable()).andExpect(content().string(""));
+
+        assertThat(auditedInsideATransaction).hasSize(ACTOR_BUDGET + 2).containsOnly(false);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
+        read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(false));
+    }
+    @Test
+    void conflictClassificationReliesOnTheseConstraintNames() throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_constraint WHERE contype = 'u' AND conrelid = "
+                    + "'dokene.tenant_messaging_integrations'::regclass AND conname = ?",
+                    "uq_tenant_messaging_integrations_tenant_provider")).isEqualTo(1);
+            // The number is unique among verified mappings only; the former global key is gone.
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_constraint WHERE conname = ?",
+                    "uq_tenant_messaging_integrations_phone_number")).isZero();
+            assertThat(queryInt(migration, "SELECT count(*) FROM pg_indexes WHERE schemaname = 'dokene' "
+                    + "AND indexname = ? AND indexdef LIKE 'CREATE UNIQUE INDEX%' "
+                    + "AND indexdef LIKE '%WHERE (ownership_verified_at IS NOT NULL)%'",
+                    "uq_tenant_messaging_integrations_verified_phone_number")).isEqualTo(1);
+        }
+    }
+    @Test
+    void inconclusiveProofsAndConfigurationWritesNeverConsumeTheBudget() throws Exception {
+        for (int attempt = 0; attempt <= TENANT_BUDGET; attempt++) {
+            write(adminA, tenantA, null, body("12", "wa-token-ok", true))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        ownership.answer(tenantA, new Unavailable());
+        for (int attempt = 0; attempt <= TENANT_BUDGET; attempt++) {
+            verify(adminA, tenantA, "\"0\"").andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));
+        }
+        long version = 0;
+        for (int remap = 0; remap <= TENANT_BUDGET; remap++, version++) {
+            write(adminA, tenantA, "\"" + version + "\"", body(Long.toString(NEXT_ID.incrementAndGet()),
+                    "wa-token-ok", true)).andExpect(status().isOk());
+        }
+        ownership.answer(tenantA, new Proven());
+        verify(adminA, tenantA, "\"" + version + "\"").andExpect(status().isOk());
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
+    }
     @Test
     void rotatingTheSecretReferenceBumpsTheCredentialRevisionButDisablingDoesNot() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
@@ -370,7 +791,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-two-ok", false)).andExpect(status().isOk());
         assertThat(credentialRevision(tenantA)).isEqualTo(2);
 
-        // Only the reference is stored; resolution is the adapter's job at send time, so nothing resolves here.
+        // Only the reference is stored; resolution is the adapter's job, so writing configuration resolves nothing.
+        assertThat(ownership.claims).isEmpty();
     }
 
     @Test
@@ -399,6 +821,27 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         assertThat(auditCount(tenantA)).isZero();
     }
 
+    /** Spends the actor's whole budget on proofs the provider refuses; the version never moves. */
+    private void exhaust(IdentityId who, long version) throws Exception {
+        for (int attempt = 0; attempt < ACTOR_BUDGET; attempt++) {
+            verify(who, tenantA, "\"" + version + "\"")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+    }
+
+    private Optional<Blocked> integrationGate(Tenant tenant) {
+        return contexts.callWithTenantId(tenant.id(), () -> safety.integrationGate(tenant.id()));
+    }
+
+    private int denials(Tenant tenant, IdentityId actor, String reason) throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? AND actor_id = ? "
+                    + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' "
+                    + "AND denial_reason = ? AND permission = 'INTEGRATION_MANAGE' "
+                    + "AND target_type IS NULL AND target_id IS NULL", tenant.id().value(), actor.value(), reason);
+        }
+    }
+
     private ResultActions read(IdentityId who, Tenant tenant) throws Exception {
         return mvc.perform(get("/api/integrations/whatsapp").with(user(who))
                 .header("X-Tenant-Id", tenant.id().value()));
@@ -420,10 +863,24 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                 .header("X-Tenant-Id", tenant.id().value()).header("If-Match", ifMatch));
     }
 
+    private ResultActions verify(IdentityId who, Tenant tenant, String ifMatch) throws Exception {
+        var request = post("/api/integrations/whatsapp/ownership-verifications").with(user(who)).with(csrf())
+                .header("X-Tenant-Id", tenant.id().value());
+        if (ifMatch != null) {
+            request.header("If-Match", ifMatch);
+        }
+        return mvc.perform(request);
+    }
+
     private static String body(String phoneNumberId, String secretRef, boolean enabled) {
-        return "{\"phoneNumberId\":\"" + phoneNumberId + "\",\"businessAccountId\":\"" + WABA_ID
-                + "\",\"displayPhoneNumber\":\"+50688887777\",\"enabled\":" + enabled
-                + ",\"secretRef\":\"" + secretRef + "\"}";
+        return body(phoneNumberId, WABA_ID, "+50688887777", secretRef, enabled);
+    }
+
+    private static String body(String phoneNumberId, String businessAccountId, String displayPhoneNumber,
+            String secretRef, boolean enabled) {
+        return "{\"phoneNumberId\":\"" + phoneNumberId + "\",\"businessAccountId\":\"" + businessAccountId
+                + "\"" + (displayPhoneNumber == null ? "" : ",\"displayPhoneNumber\":\"" + displayPhoneNumber + "\"")
+                + ",\"enabled\":" + enabled + ",\"secretRef\":\"" + secretRef + "\"}";
     }
 
     private IdentityId member(Tenant tenant, TenantRole role) {

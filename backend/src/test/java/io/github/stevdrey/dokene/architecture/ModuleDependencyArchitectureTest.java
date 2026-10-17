@@ -67,6 +67,24 @@ class ModuleDependencyArchitectureTest {
                     JavaClass.Predicates.equivalentTo(VerifiedWebhookEvent.class))))
             .because("ADR 0024 §3: only the webhook verifier, after signature, tenant lookup and dedup, may build one");
 
+    private static final ArchRule RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL = noClasses().that()
+            .resideInAPackage(ROOT + ".ratelimit..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "another Dokene module",
+                            javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".ratelimit")))
+            .because("issue 208: the shared sliding window is used by followup and integration, so it depends on neither");
+
+    private static final ArchRule HTTP_PRIMITIVES_STAY_NEUTRAL = noClasses().that()
+            .resideInAPackage(ROOT + ".http..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "another Dokene module",
+                            javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".http")))
+            .because("issue 209: every module's controllers share the If-Match grammar, so it depends on none of them");
+
     private static final ArchRule SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION = noClasses().that()
             .resideOutsideOfPackage(ROOT + ".integration..")
             .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(IntegrationSecretResolver.class)
@@ -84,6 +102,16 @@ class ModuleDependencyArchitectureTest {
                                     && !javaClass.getPackageName().startsWith(ROOT + ".messaging.domain")
                                     && !javaClass.getPackageName().startsWith(ROOT + ".ai.domain")))
             .because("spec 0001: the aggregate is pure; Spring, JDBC and other modules stay in application and persistence");
+
+    @Test
+    void rateLimitPrimitivesDependOnNoModule() {
+        RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL.check(production);
+    }
+
+    @Test
+    void httpPrimitivesDependOnNoModule() {
+        HTTP_PRIMITIVES_STAY_NEUTRAL.check(production);
+    }
 
     @Test
     void nothingUpstreamOfMessagingDependsOnIt() {

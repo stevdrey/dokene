@@ -2,7 +2,7 @@
 // ABOUTME: Mirrored by frontend/src/features/integrations/types and pinned by contracts/messaging/v1/integration.json.
 package io.github.stevdrey.dokene.integration.api;
 
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import java.util.Objects;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;

@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.ratelimit.RetryAfter;
 import java.time.Duration;
 import java.util.Objects;
 
@@ -19,10 +20,6 @@ public class RecommendationRateLimitExceededException extends RuntimeException {
     }
 
     public long retryAfterSeconds() {
-        if (retryAfter.isNegative() || retryAfter.isZero()) {
-            return 1;
-        }
-        long seconds = retryAfter.getSeconds();
-        return retryAfter.getNano() > 0 ? seconds + 1 : (seconds > 0 ? seconds : 1);
+        return RetryAfter.seconds(retryAfter);
     }
 }

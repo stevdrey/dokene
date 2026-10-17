@@ -3,9 +3,9 @@
 package io.github.stevdrey.dokene.template.api;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
-import io.github.stevdrey.dokene.tenant.api.StrictRequests;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;

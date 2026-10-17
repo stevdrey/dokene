@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactPolicy;
 import io.github.stevdrey.dokene.customer.domain.ContactPolicyEvent;
 import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import java.time.Instant;
@@ -87,7 +88,7 @@ public class ContactPolicyController {
         var body = new ContactPolicyResponse(policy.customerId().value(), policy.version(), policy.doNotContact(),
                 policy.doNotContactSource(), policy.doNotContactChangedAt(),
                 policy.consents().stream().map(this::consentResponse).toList());
-        return ResponseEntity.ok().eTag("\"" + policy.version() + "\"").body(body);
+        return ResponseEntity.ok().eTag(StrictRequests.strongEtag(policy.version())).body(body);
     }
 
     private ConsentResponse consentResponse(ContactConsent consent) {
@@ -100,19 +101,11 @@ public class ContactPolicyController {
                 event.membershipId().value(), event.policyVersion());
     }
 
+    /** Exactly one strong canonical numeric ETag such as {@code "3"} (ADR 0023 §4.1). */
     private long parseVersion(String value) {
         if (value == null || value.isBlank()) throw new CustomerValidationException("If-Match", CustomerValidationMessages.IF_MATCH_REQUIRED);
-        String unquoted = value.strip();
-        if (unquoted.length() >= 2 && unquoted.startsWith("\"") && unquoted.endsWith("\"")) {
-            unquoted = unquoted.substring(1, unquoted.length() - 1);
-        }
-        try {
-            long version = Long.parseLong(unquoted);
-            if (version < 0) throw new CustomerValidationException("If-Match", CustomerValidationMessages.CONTACT_POLICY_VERSION_INVALID);
-            return version;
-        } catch (NumberFormatException exception) {
-            throw new CustomerValidationException("If-Match", CustomerValidationMessages.CONTACT_POLICY_VERSION_INVALID);
-        }
+        return StrictRequests.strongNumericVersion(value).orElseThrow(() -> new CustomerValidationException("If-Match",
+                CustomerValidationMessages.CONTACT_POLICY_VERSION_INVALID));
     }
 
     public record ConsentRequest(ConsentStatus status, ContactIntentSource source) { }

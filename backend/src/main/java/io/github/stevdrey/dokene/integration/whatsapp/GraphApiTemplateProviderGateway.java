@@ -8,61 +8,42 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
+import io.github.stevdrey.dokene.integration.whatsapp.GraphApiHttp.Reply;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
-@EnableConfigurationProperties(GraphApiProperties.class)
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
-    /** Hard cap on the bytes read from the provider; enforced while streaming, never after buffering. */
-    private static final int MAX_BODY_BYTES = 262_144;
     /** Most pages one lookup may read; a longer list is unavailable rather than assumed to lack the template. */
     private static final int MAX_PAGES = 5;
-    /** Graph cursors are opaque base64-like tokens; anything else is not sent back. */
-    private static final Pattern CURSOR = Pattern.compile("^[A-Za-z0-9_=+/-]{1,512}$");
 
     private final WhatsAppIntegrationRepository integrations;
     private final ObjectProvider<IntegrationSecretResolver> secrets;
     private final TenantContextProvider contexts;
-    private final GraphApiProperties properties;
-    private final HttpClient http;
+    private final GraphApiHttp http;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public GraphApiTemplateProviderGateway(WhatsAppIntegrationRepository integrations,
             ObjectProvider<IntegrationSecretResolver> secrets, TenantContextProvider contexts,
-            GraphApiProperties properties) {
+            GraphApiHttp http) {
         this.integrations = Objects.requireNonNull(integrations, "Integrations are required");
         this.secrets = Objects.requireNonNull(secrets, "Secrets are required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
-        this.properties = Objects.requireNonNull(properties, "Properties are required");
-        this.http = HttpClient.newBuilder().connectTimeout(properties.timeout())
-                .followRedirects(HttpClient.Redirect.NEVER).build();
+        this.http = Objects.requireNonNull(http, "Graph API HTTP is required");
     }
 
     /** The sender as this adapter returns it: the identity plus what is needed to call Meta, never exposed further. */
@@ -85,7 +66,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
                 return new Unavailable();
             }
             // One deadline covers every page, so the whole call never exceeds the configured timeout.
-            long deadline = System.nanoTime() + properties.timeout().toNanos();
+            long deadline = http.deadline();
             try (ResolvedSecret secret = resolver.resolve(
                     new Tenant(graph.tenantId(), SecretPurpose.WHATSAPP_ACCESS_TOKEN),
                     new SecretReference(graph.secretRef()))) {
@@ -104,7 +85,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
     private Lookup search(GraphSender graph, char[] token, String name, String language, long deadline) {
         String cursor = null;
         for (int page = 0; page < MAX_PAGES; page++) {
-            Reply reply = fetchPage(pageUri(graph, name, language, cursor), token, deadline);
+            Reply reply = http.get(pageUri(graph, name, language, cursor), token, deadline);
             if (reply.status() != 200 || reply.body() == null) {
                 return new Unavailable();
             }
@@ -128,7 +109,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
                 return new Absent(graph.businessAccountId());
             }
             cursor = root.path("paging").path("cursors").path("after").asString(null);
-            if (cursor == null || !CURSOR.matcher(cursor).matches()) {
+            if (cursor == null || !GraphApiHttp.CURSOR.matcher(cursor).matches()) {
                 return new Unavailable();
             }
         }
@@ -136,67 +117,10 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
     }
 
     private URI pageUri(GraphSender graph, String name, String language, String cursor) {
-        String uri = properties.baseUrl().toString().replaceAll("/+$", "") + "/" + graph.businessAccountId()
-                + "/message_templates?name=" + URLEncoder.encode(name, StandardCharsets.UTF_8) + "&language="
+        String path = graph.businessAccountId() + "/message_templates?name="
+                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "&language="
                 + URLEncoder.encode(language, StandardCharsets.UTF_8);
-        return URI.create(cursor == null ? uri : uri + "&after=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
-    }
-
-    /** The status and, for a 200 within the size and time bounds, the body bytes. */
-    private record Reply(int status, byte[] body) {
-    }
-
-    private Reply fetchPage(URI uri, char[] token, long deadline) {
-        long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) {
-            return new Reply(0, null);
-        }
-        try {
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
-                    .header("Authorization", "Bearer " + new String(token)).header("Accept", "application/json")
-                    .GET().build();
-            HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            InputStream stream = response.body();
-            try {
-                long declared = response.headers().firstValueAsLong("Content-Length").orElse(0);
-                if (response.statusCode() != 200 || declared > MAX_BODY_BYTES) {
-                    return new Reply(response.statusCode(), null);
-                }
-                return new Reply(200, readBounded(stream, deadline));
-            } finally {
-                stream.close(); // also cancels the exchange when the body was not fully read
-            }
-        } catch (IOException failure) {
-            throw new IllegalStateException("Provider request failed");
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Provider request interrupted");
-        }
-    }
-
-    /**
-     * Reads at most {@code MAX_BODY_BYTES} before {@code deadline} (nanoTime), so neither a huge or endless body nor a
-     * slow drip can exhaust the heap or hold the caller. Returns null when either bound is exceeded.
-     */
-    private byte[] readBounded(InputStream stream, long deadline) throws InterruptedException {
-        long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) {
-            return null;
-        }
-        CompletableFuture<byte[]> read = new CompletableFuture<>();
-        Thread.ofVirtual().start(() -> {
-            try {
-                byte[] bytes = stream.readNBytes(MAX_BODY_BYTES + 1);
-                read.complete(bytes.length > MAX_BODY_BYTES ? null : bytes);
-            } catch (IOException | RuntimeException failure) {
-                read.completeExceptionally(failure);
-            }
-        });
-        try {
-            return read.get(remaining, TimeUnit.NANOSECONDS);
-        } catch (TimeoutException | ExecutionException failure) {
-            return null;
-        }
+        return http.uri(cursor == null ? path : path + "&after=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
     }
 
     /** Unknown or non-sendable-by-policy states (for example LIMIT_EXCEEDED) are not evidence. */

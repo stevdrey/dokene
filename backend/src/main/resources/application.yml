@@ -44,14 +44,26 @@ dokene:
       initial-backoff: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:250ms}
       max-backoff: ${DOKENE_AI_RETRY_MAX_BACKOFF:2s}
       min-attempt-budget: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:1s}
-  template:
-    # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
-    approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}
   integration:
+    whatsapp:
+      # Phone numbers already mapped by another tenant, per sliding window, before mapping changes get 429 (issue 208).
+      mapping-rejection-limit:
+        tenant-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_TENANT_LIMIT:10}
+        actor-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_ACTOR_LIMIT:5}
+        window: ${DOKENE_WHATSAPP_MAPPING_REJECTION_WINDOW:15m}
     secrets:
       # Blank keeps the resolver disabled (fail closed); `local` reads entries from
       # DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_<n>_* or a mounted file (spec 0006).
       source: ${DOKENE_INTEGRATION_SECRETS_SOURCE:}
+  messaging:
+    # Manual dispatch send policy bounds (issue 138, ADR 0028); sending stays off until the kill switches allow it.
+    max-send-attempts: ${DOKENE_MESSAGING_MAX_SEND_ATTEMPTS:3}
+    min-contact-interval: ${DOKENE_MESSAGING_MIN_CONTACT_INTERVAL:24h}
+    send-rate-per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
+    send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
+  template:
+    # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
+    approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}

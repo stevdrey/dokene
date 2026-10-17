@@ -97,6 +97,11 @@ the session CSRF token. Customer payloads contain `displayName`, optional `notes
 shaped as `{ "number": "8888 7777", "region": "CR", "primary": true }`; exactly one must be primary. Input is
 validated with its explicit two-letter country region and responses contain only normalized E.164 values.
 
+Every `If-Match` in the API (customers, contact policies, purchases, follow-ups, messages, templates and
+integrations) is parsed by the shared `http.StrictRequests` helper: it must be exactly one strong canonical numeric ETag
+such as `"3"`. Unquoted (`3`), zero-padded (`"03"`), signed (`"+3"`), weak (`W/"3"`), list and `*` values are
+`400`, as ADR 0023 §4.1 requires.
+
 - `POST /api/customers` creates a profile, returns `201`, and sets `ETag: "<version>"`.
 - `GET /api/customers/{customerId}` returns an authorized active or archived profile with `ETag: "<version>"`.
 - `PUT /api/customers/{customerId}` replaces the profile and phones; requires the current version via `If-Match: "<version>"` or JSON body `version`, and returns `200` with `ETag: "<version>"`.

@@ -258,6 +258,8 @@ Protect at minimum:
 - exports;
 - integration/webhook endpoints where applicable.
 
+Implemented today: AI recommendation calls (`dokene.ai.rate-limit`, ADR 0019) and rejected WhatsApp phone-number ownership proofs (`dokene.integration.whatsapp.mapping-rejection-limit`, issues 208 and 210), both per tenant and per actor, held in memory per instance.
+
 Outbound policy should detect or prevent anomalous bursts and repeated recipient contact.
 
 ## Supply chain

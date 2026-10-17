@@ -14,7 +14,7 @@ Core application logic should depend on a narrow contract such as:
 MessagingProvider
 ```
 
-An initial adapter can integrate with Meta WhatsApp Cloud API. Future adapters may target other providers or channels without changing follow-up policy.
+The initial adapter, `GraphApiMessagingProvider` ([ADR 0027](../adr/0027-meta-whatsapp-send-adapter.md)), sends approved templates through the Meta WhatsApp Cloud API (Graph API v23.0, available until 2027-10-08). It is a transport only: one bounded `POST` to the allow-listed Graph host with the tenant's own credential, and no retry. Future adapters may target other providers or channels without changing follow-up policy.
 
 The provider abstraction should expose application-level semantics, not leak arbitrary provider JSON into the domain.
 
@@ -118,6 +118,30 @@ External sends must remain safe under:
 
 A logical message/follow-up should have a durable idempotency identity so retrying the operation does not accidentally contact the customer twice.
 
+Manual dispatch (`POST /api/messages/{messageId}/sends`, `MESSAGE_SEND`, `Idempotency-Key` and strong `If-Match` required, no body; [ADR 0028](../adr/0028-manual-dispatch-claim-and-last-moment-send-gate.md), issue 138) works like this:
+
+1. **Claim.** One transaction runs the full last-moment send policy under the customer and message locks: kill switches, integration, consent, do-not-contact, archive, cadence, contact frequency, tenant rate, re-resolved template and approval fingerprint. In the same transaction it applies T6 and T7, commits a `STARTED` attempt row naming the authorizing member, and records the idempotency key. That row is the durable claim; a partial unique index allows only one per message.
+2. **Call.** The provider is called once, outside any transaction.
+3. **Record.** A second transaction records the outcome (T8 to T11) and its audit row.
+
+What each case produces:
+
+- A refusal before the claim writes nothing and makes no provider call. That includes a membership that was revoked or demoted after the request began, because the claim re-reads it, and any request body.
+- The same key again replays the current state (`200`). The same key for another message or version is `409 IDEMPOTENCY_KEY_REUSED`.
+- A concurrent click with another key loses the lock race (`STALE_VERSION` or `INVALID_TRANSITION`).
+- If the outcome cannot be recorded, for example during an audit outage, the claim stays and the message stays `SENDING`: sending halts instead of risking a duplicate.
+
+Send policy bounds:
+
+| Property | Default | Refusal |
+| --- | --- | --- |
+| `dokene.messaging.max-send-attempts` | 3 | `SEND_ATTEMPTS_EXHAUSTED` |
+| `dokene.messaging.min-contact-interval` | 24h | `CONTACT_FREQUENCY_EXCEEDED` |
+| `dokene.messaging.send-rate-per-tenant-per-minute` | 30 | `429 RATE_LIMITED` with `Retry-After` |
+| `dokene.messaging.send-timeout` | 10s | Past the deadline the provider call is interrupted and its outcome is unknown |
+
+A disable or revocation that commits after the claim cannot retract a call already in flight; it stops later sends only. Application duplicate suppression is not proof of exactly-once delivery by the provider. Live sending stays off until the kill switch work (#144) and the template schema check (#218) land.
+
 ## WhatsApp templates
 
 Business-initiated WhatsApp messaging may require approved provider templates depending on Meta policy and the conversation window.
@@ -134,7 +158,7 @@ DORMANT_CUSTOMER
 
 Application code maps allowed semantic templates to tenant/provider template configuration.
 
-The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dispatch-policy.md)) stores one mapping per semantic intent and tenant: provider template name, language, ordered parameter names and an `enabled` flag, behind `GET /api/templates`, `PUT /api/templates/{templateIntent}` and `POST /api/templates/{templateIntent}/approval-refresh`. Approval is provider evidence, never operator input: the refresh asks Meta's Graph API with the tenant's own credential and records the status, check time, business account and mapping revision. A mapping is sendable only when it is enabled, `APPROVED` for its current revision and business account, and the evidence is younger than `dokene.template.approval-max-age` (24 hours by default). Editing a mapping drops the evidence and voids open approvals; a failed refresh drops it too. Phase 3 never sends free-form text: with no trusted customer-service-window evidence it sends only a verified template. The Graph API host is allow-listed (`graph.facebook.com`, loopback test servers, or hosts explicitly listed in `dokene.integration.whatsapp.graph.additional-trusted-hosts`) because tenant credentials are sent to it. Approval evidence does not yet prove the template's placeholders match the stored parameters; that check is a required gate before live dispatch (#138).
+The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dispatch-policy.md)) stores one mapping per semantic intent and tenant: provider template name, language, ordered parameter names and an `enabled` flag, behind `GET /api/templates`, `PUT /api/templates/{templateIntent}` and `POST /api/templates/{templateIntent}/approval-refresh`. Approval is provider evidence, never operator input: the refresh asks Meta's Graph API with the tenant's own credential and records the status, check time, business account and mapping revision. A mapping is sendable only when it is enabled, `APPROVED` for its current revision and business account, and the evidence is younger than `dokene.template.approval-max-age` (24 hours by default). Editing a mapping drops the evidence and voids open approvals; a failed refresh drops it too. Phase 3 never sends free-form text: with no trusted customer-service-window evidence it sends only a verified template. The Graph API host is allow-listed (`graph.facebook.com`, loopback test servers, or hosts explicitly listed in `dokene.integration.whatsapp.graph.additional-trusted-hosts`) because tenant credentials are sent to it. Approval evidence does not yet prove the template's placeholders match the stored parameters; that check (#218) is a required gate before live dispatch is enabled.
 
 The AI must not invent provider template IDs.
 
@@ -170,23 +194,32 @@ Reusable credentials should live in a secret store or secret-management abstract
 
 ### WhatsApp integration API (V20, issue 134)
 
-`tenant_messaging_integrations` holds one `META_WHATSAPP` record per tenant under forced row level security (runtime grants `SELECT, INSERT, UPDATE`). The Meta `phone_number_id` and `business_account_id` are numeric identifiers and are stored apart from the optional human `display_phone_number` (E.164). `(provider, phone_number_id)` is globally unique, because webhooks resolve the tenant from it.
+`tenant_messaging_integrations` holds one `META_WHATSAPP` record per tenant under forced row level security (runtime grants `SELECT, INSERT, UPDATE`). The Meta `phone_number_id` and `business_account_id` are numeric identifiers and are stored apart from the optional human `display_phone_number` (E.164). `(provider, phone_number_id)` is unique among **verified** mappings only (V24, issue 210): several tenants may hold an unverified claim of one number, but only the tenant that proves ownership is ever routed to or sends from it.
 
 | Route | Permission | Behaviour |
 | --- | --- | --- |
-| `GET /api/integrations/whatsapp` | `INTEGRATION_READ` (all roles) | Returns `enabled`, `outboundEnabled`, the identifiers, `displayPhoneNumber`, `secretRef`, `webhookVerified` and `version` with a strong `ETag`; `404 NOT_FOUND` when none exists. `outboundEnabled` (tenant kill switch, #144) and `webhookVerified` (#139) are fixed to `false`, fail closed, until those features persist their state. |
-| `PUT /api/integrations/whatsapp` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Exactly one precondition is required, else `400`: `If-None-Match: *` creates the record (`409 STALE_VERSION` if one already exists) and `If-Match: "<version>"` replaces it (stale `409 STALE_VERSION`). |
-| `POST /api/integrations/whatsapp/credential-rotations` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Records that the secret behind the unchanged `secretRef` was replaced in the store. Strong `If-Match`, no body; bumps `credential_revision` and the version and is audited; `404` when no integration exists. |
+| `GET /api/integrations/whatsapp` | `INTEGRATION_READ` (all roles) | Returns `enabled`, `outboundEnabled`, the identifiers, `displayPhoneNumber`, `secretRef`, `webhookVerified` and `version` with a strong `ETag`; `404 NOT_FOUND` when none exists. `outboundEnabled` (tenant kill switch, #144) is fixed to `false`, fail closed, until that feature persists its state. `webhookVerified` is the stored ownership proof for the current number, business account and credential revision. |
+| `PUT /api/integrations/whatsapp` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Exactly one precondition is required, else `400`: `If-None-Match: *` creates the record (`409 STALE_VERSION` if one already exists) and `If-Match: "<version>"` replaces it (stale `409 STALE_VERSION`). Any well-formed `phoneNumberId` is accepted and stored unverified; a `PUT` is never throttled. Changing `phoneNumberId`, `businessAccountId` or `secretRef`, or disabling the integration, clears the ownership proof; re-enabling does not restore it. |
+| `POST /api/integrations/whatsapp/credential-rotations` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Records that the secret behind the unchanged `secretRef` was replaced in the store. Strong `If-Match`, no body; bumps `credential_revision` and the version, clears the ownership proof and is audited; `404` when no integration exists. |
+| `POST /api/integrations/whatsapp/ownership-verifications` | `INTEGRATION_MANAGE` (OWNER, ADMIN) | Proves at Meta, with the tenant's own credential, that the stored business account lists the stored phone number, and records the proof (`webhookVerified=true`). Strong `If-Match`, no body; bumps the version and is audited. `400 INVALID_INPUT` when not proven or when another tenant already verified the number (indistinguishable), `400 INVALID_INPUT` for a disabled integration (no Meta call, no budget), `503 PROVIDER_UNAVAILABLE` when Meta gives no conclusion or the tenant's token is invalid or expired (`401`), `409 STALE_VERSION`, `404`, and `429 RATE_LIMITED` while the rejected-proof budget is spent. |
 
-- Tenant-selection failures (missing, duplicate or malformed `X-Tenant-Id`, no membership) are rejected by `TenantContextRequestFilter` before the controller and keep the framework's empty-body `400`/`403`, as ADR 0023 keeps the 401/403 semantics unchanged. Every failure after the tenant is resolved uses the closed problem+json shape.
+- Tenant-selection failures are rejected by `TenantContextRequestFilter` before the controller, with unchanged statuses and audit, and use the closed problem+json shape on every Phase 3 route (`/api/messages/**`, `/api/customers/{customerId}/messages`, `/api/integrations/**`, `/api/templates/**`): a missing `X-Tenant-Id` or no membership is `403 FORBIDDEN`, a duplicated or malformed one is `400 INVALID_INPUT`. Each module claims its own routes through a `TenantSelectionRejectionResponder` (ADR 0024, issue 207 addendum); other endpoints keep the empty-body `400`/`403`.
 - Tenant and actor come from the verified context, never the body. Unknown or wrongly typed members, including any raw token, are rejected with `400 INVALID_INPUT`.
-- The body carries a `secretRef`, a bare key (`^[A-Za-z0-9_-]{1,128}$`). Only the reference is stored: it is resolved by `IntegrationSecretResolver` inside the provider adapter at send time (fail closed: unknown, missing or wrong-scope references block the send), never when configuration is written, so the write path needs no resolver. Secret values are never stored, returned, logged or audited, and nothing contacts Meta to validate them.
-- A phone number id already mapped by another tenant is refused with the same `400 INVALID_INPUT` as any malformed id, so the API never reads or names another tenant's record. Because the mapping is globally unique, an admin can still learn that a candidate id is unavailable; this is an accepted residual risk tracked in the threat model.
+- The body carries a `secretRef`, a bare key (`^[A-Za-z0-9_-]{1,128}$`). Only the reference is stored: it is resolved by `IntegrationSecretResolver` inside the provider adapter, at send time or for an explicit ownership verification (fail closed: unknown, missing or wrong-scope references block the operation), never when configuration is written, so the write path needs no resolver. Secret values are never stored, returned, logged or audited, and writing configuration never contacts Meta.
+- Ownership verification (issue 210):
+  - `PUT` never conflicts on the number, so naming another tenant's number neither blocks it nor reveals that it is in use.
+  - A proof that Meta confirms but that another tenant's verified mapping blocks is answered exactly like an unproven number. That is the only remaining availability signal, and it is throttled (issue 208): each `400` refusal consumes a budget per tenant and per actor in a sliding window, configured by `dokene.integration.whatsapp.mapping-rejection-limit` (`tenant-rejections` 10, `actor-rejections` 5, `window` 15m).
+  - `503 PROVIDER_UNAVAILABLE`, stale preconditions, successful proofs and configuration writes consume nothing. Each proof reserves a unit before calling Meta, so parallel attempts cannot exceed the budget.
+  - While either budget is spent, every proof gets `429` with the closed `RATE_LIMITED` problem and `Retry-After`, and Meta is not called. Configuration writes and credential rotations are never throttled, so disabling always works.
+  - Every refused proof appends one `AUTHORIZATION_DENIED` (`INTEGRATION_MANAGE`) in its own transaction: reason `MAPPING_REJECTED` for each `400` and `RATE_LIMITED` for each `429`. No candidate id appears in responses, logs or audit rows.
+  - The budget lives in memory per instance; the remaining risk is tracked in the threat model.
+  - Until a production secret resolver exists (#142), every proof fails closed with `503 PROVIDER_UNAVAILABLE`.
 - Rotating a secret in place (same `secretRef`): replace it in the store, then `POST /api/integrations/whatsapp/credential-rotations` with `If-Match` (no body). Changing `secretRef` bumps `credential_revision` too, which is part of the approval sender identity: open approvals then fail the send with `APPROVAL_INVALIDATED`. Enabling or disabling does not void approvals; the enabled flag is read live at send time.
-- The `ETag` is the configuration concurrency token (the stored `version`). `outboundEnabled` and `webhookVerified` are live runtime state, so `GET` and `PUT` send `Cache-Control: no-store` and never answer `304`.
-- Mapping ownership is **not verified** by this API: every stored mapping is unverified (`webhookVerified=false`) until #139 proves ownership. The webhook must not resolve tenants from unverified mappings and the send path must fail closed on `webhookVerified=false`; a squatted id is released out of band by a platform operator until verification-based reclaim exists (ADR 0024 addendum).
+- The `ETag` is the configuration concurrency token (the stored `version`); recording or clearing a proof bumps it. `outboundEnabled` is live runtime state, so `GET` and `PUT` send `Cache-Control: no-store` and never answer `304`.
+- **Reclaiming a pre-registered number.** If another tenant mapped your number first, configure it as usual and call `ownership-verifications`. The other tenant's unverified row is inert: it is never routed to, never sends, and cannot be verified without a credential that reaches the number. Neither tenant sees the other's record. Disabling an integration releases its number. Only if a number moved at Meta while the old tenant stays enabled with a stale proof does a platform operator have to clear it (ADR 0024, issue 210 addendum).
+- Webhook ingress (#139) resolves a tenant only through `VerifiedPhoneNumberMappings` (the security-definer `dokene.resolve_verified_whatsapp_tenant`), which returns the tenant id of a verified, enabled mapping and nothing else. `OutboundSafetyControl.evaluate` checks the global switch, the tenant switch and then the mapping, in that order; a disabled integration or one without a current proof is `INTEGRATION_DISABLED`.
 - Each write appends `INTEGRATION_UPDATED` in the same transaction with the `enabled` flag only. If the audit append fails, the change rolls back.
-- The `OutboundSafetyControl` implementation that combines this record with the kill switches belongs to the kill switch work (#144).
+- The state behind the global and tenant switches in `OutboundSafetyControl.evaluate` belongs to the kill switch work (#144); until then the global switch blocks every send.
 
 ### Secret references and the local secret source (spec 0006, issue 142)
 
@@ -253,6 +286,17 @@ Provider errors should be normalized into useful application categories while pr
 Do not expose raw secret-bearing provider payloads in logs or UI errors.
 
 Retries should distinguish transient from permanent failures.
+
+The Meta adapter reports four result classes (ADR 0027 §4):
+
+- `Accepted`: Meta returned a message id. Acceptance is not delivery.
+- `RejectedPermanently`: a definitive refusal, normalized to a `FailureCategory`.
+- `FailedTransiently`: a definitive refusal that proves nothing was taken, such as throttling, a 4xx "service unavailable" code, an unreachable provider or a failed TLS handshake.
+- `OutcomeUnknown`: a timeout after sending, a redirect, any 5xx (whatever Meta code it carries), or an unusable success body.
+
+`OutcomeUnknown` is never retried automatically. Only the integer Meta error code is read; error text, trace ids and bodies are discarded.
+
+The dispatcher maps these results through the message state machine. An exception that escapes the port counts as `OutcomeUnknown`. A transient failure returns the message to `APPROVED`, where only a new operator send, which passes the whole policy again, can try once more, up to the attempt cap. An unknown outcome keeps the message `SENDING` until a human resolves it (T12). A claim whose outcome was never recorded is turned into an unknown outcome by the recovery processor (ADR 0028 §5), never resent.
 
 ## Future channels
 

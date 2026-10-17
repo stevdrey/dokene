@@ -1,8 +1,10 @@
 package io.github.stevdrey.dokene.customer.api;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -221,7 +223,7 @@ class CustomerControllerTest {
 
     @Test
     void updateReturnsNotFoundWhenCustomerMissing() throws Exception {
-        when(service.update(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any()))
+        when(service.update(any(), anyLong(), any(), any(), any()))
                 .thenThrow(new io.github.stevdrey.dokene.customer.application.CustomerNotFoundException());
 
         mvc.perform(put("/api/customers/{id}", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON).content("""
@@ -233,7 +235,7 @@ class CustomerControllerTest {
     @Test
     void archiveReturnsNotFoundWhenCustomerMissing() throws Exception {
         org.mockito.Mockito.doThrow(new io.github.stevdrey.dokene.customer.application.CustomerNotFoundException())
-                .when(service).archive(any(), org.mockito.ArgumentMatchers.anyLong());
+                .when(service).archive(any(), anyLong());
 
         mvc.perform(delete("/api/customers/{id}", UUID.randomUUID()).header("If-Match", "\"0\""))
                 .andExpect(status().isNotFound());
@@ -245,6 +247,45 @@ class CustomerControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(delete("/api/customers/{id}", customer.id().value()).header("If-Match", "-5"))
                 .andExpect(status().isBadRequest());
+        for (String lenient : List.of("0", "\"00\"", "\"+0\"", "W/\"0\"", "\"0\", \"1\"", "*")) {
+            mvc.perform(delete("/api/customers/{id}", customer.id().value()).header("If-Match", lenient))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.field").value("If-Match"))
+                    .andExpect(jsonPath("$.message").value(CustomerValidationMessages.VERSION_INVALID));
+        }
+        mvc.perform(delete("/api/customers/{id}", customer.id().value()).header("If-Match", " "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("If-Match"))
+                .andExpect(jsonPath("$.message").value(CustomerValidationMessages.IF_MATCH_REQUIRED));
+        verify(service, never()).archive(any(), anyLong());
+    }
+
+    @Test
+    void updateRefusesMalformedIfMatchInsteadOfFallingBackToBodyVersion() throws Exception {
+        for (String lenient : List.of("0", "\"00\"", "\"+0\"", "W/\"0\"", "\"0\", \"1\"", "*")) {
+            mvc.perform(put("/api/customers/{id}", customer.id().value()).header("If-Match", lenient)
+                    .contentType(MediaType.APPLICATION_JSON).content("""
+                    {"displayName":"Ana","version":0,"phones":[{"number":"8888 7777","region":"CR","primary":true}]}
+                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.field").value("If-Match"))
+                    .andExpect(jsonPath("$.message").value(CustomerValidationMessages.VERSION_INVALID));
+        }
+        verify(service, never()).update(any(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void updateRefusesAPresentButBlankIfMatchInsteadOfFallingBackToBodyVersion() throws Exception {
+        for (String blank : List.of("", " ")) {
+            mvc.perform(put("/api/customers/{id}", customer.id().value()).header("If-Match", blank)
+                    .contentType(MediaType.APPLICATION_JSON).content("""
+                    {"displayName":"Ana","version":0,"phones":[{"number":"8888 7777","region":"CR","primary":true}]}
+                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.field").value("If-Match"))
+                    .andExpect(jsonPath("$.message").value(CustomerValidationMessages.IF_MATCH_REQUIRED));
+        }
+        verify(service, never()).update(any(), anyLong(), any(), any(), any());
     }
 
     @Test

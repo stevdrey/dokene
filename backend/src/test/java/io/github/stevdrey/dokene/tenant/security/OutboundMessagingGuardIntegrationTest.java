@@ -14,7 +14,9 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditReader;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
+import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
+import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
@@ -45,7 +47,9 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.nio.charset.StandardCharsets;
@@ -180,6 +184,30 @@ class OutboundMessagingGuardIntegrationTest {
         for (String table : MESSAGING_TABLES) {
             assertThat(rowCount(ownerA, table)).as(table).isZero();
         }
+    }
+
+    /** Issue 138 review: T1 to T5 authorize the membership as it is under the customer lock, not as resolved. */
+    @Test
+    void aMembershipRevokedAfterTheRequestStartedCannotApproveAndTheDenialIsAudited() throws Exception {
+        TenantMembership approver = seedMembership(memberships, contexts, tenantA.id(),
+                new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR, Instant.now());
+        TenantContext stale = context(approver);
+        OutboundMessage message = pendingMessage();
+        approver.revoke(Instant.now());
+        contexts.runWithTenantId(tenantA.id(), () -> memberships.save(approver));
+
+        assertThatRefused(() -> inContext(stale, () -> commands.approve(
+                new ApprovalCommand(message.id(), null, "1", "stale-" + UUID.randomUUID()))),
+                MessagingErrorCode.FORBIDDEN);
+
+        assertThat(inContext(ownerA, () -> messages.findById(tenantA.id().value(), message.id())).orElseThrow()
+                .status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        assertThat(inContext(ownerA, () -> auditReader.read(null, 100).events())).anySatisfy(event -> {
+            assertThat(event.type()).isEqualTo(AuditEventType.AUTHORIZATION_DENIED);
+            assertThat(event.membershipId()).isEqualTo(approver.id());
+            assertThat(event.metadata()).isEqualTo(new AuditMetadata.AuthorizationDenied(
+                    TenantPermission.MESSAGE_APPROVE, AuditDenialReason.INACTIVE_MEMBERSHIP));
+        });
     }
 
     /** covers: AC-4 (T2 re-runs the shared guards: a consent change between submit and approve blocks approval). */

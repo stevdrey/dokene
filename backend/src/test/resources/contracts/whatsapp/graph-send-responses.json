@@ -1,0 +1,82 @@
+{
+  "accepted": {
+    "status": 200,
+    "body": {"messaging_product": "whatsapp", "contacts": [{"input": "+50600000001", "wa_id": "50600000001"}], "messages": [{"id": "wamid.SYNTHETIC-0001", "message_status": "accepted"}]}
+  },
+  "acceptedWithoutStatus": {
+    "status": 200,
+    "body": {"messaging_product": "whatsapp", "contacts": [{"input": "+50600000001", "wa_id": "50600000001"}], "messages": [{"id": "wamid.SYNTHETIC-0002"}]}
+  },
+  "heldForQualityAssessment": {
+    "status": 200,
+    "body": {"messaging_product": "whatsapp", "messages": [{"id": "wamid.SYNTHETIC-0003", "message_status": "held_for_quality_assessment"}]}
+  },
+  "paused": {
+    "status": 200,
+    "body": {"messaging_product": "whatsapp", "messages": [{"id": "wamid.SYNTHETIC-0004", "message_status": "paused"}]}
+  },
+  "acceptedWithoutId": {
+    "status": 200,
+    "body": {"messaging_product": "whatsapp", "messages": [{}]}
+  },
+  "acceptedWithUnsafeId": {
+    "status": 200,
+    "body": {"messaging_product": "whatsapp", "messages": [{"id": "wamid.SYNTHETIC <script>"}]}
+  },
+  "templateParameterMismatch": {
+    "status": 400,
+    "body": {"error": {"message": "(#132000) Number of parameters does not match the expected number of params", "type": "OAuthException", "code": 132000, "error_data": {"messaging_product": "whatsapp", "details": "body: number of localizable_params (1) does not match the expected number of params (2)"}, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "templateMissing": {
+    "status": 404,
+    "body": {"error": {"message": "(#132001) Template name does not exist in the translation", "type": "OAuthException", "code": 132001, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "invalidParameter": {
+    "status": 400,
+    "body": {"error": {"message": "(#100) Invalid parameter", "type": "OAuthException", "code": 100, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "recipientUndeliverable": {
+    "status": 400,
+    "body": {"error": {"message": "(#131026) Message undeliverable", "type": "OAuthException", "code": 131026, "error_data": {"messaging_product": "whatsapp", "details": "Recipient +50600000001 cannot receive messages"}, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "accountRestricted": {
+    "status": 403,
+    "body": {"error": {"message": "(#368) Temporarily blocked for policies violations", "type": "OAuthException", "code": 368, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "tokenExpiredWithSecrets": {
+    "status": 401,
+    "body": {"error": {"message": "Error validating access token SYNTHETIC-NOT-A-REAL-TOKEN for +50600000001: Session has expired", "type": "OAuthException", "code": 190, "error_data": {"messaging_product": "whatsapp", "details": "Authorization: Bearer SYNTHETIC-NOT-A-REAL-TOKEN; text=Hola Ana, tu pedido"}, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "permissionMissing": {
+    "status": 403,
+    "body": {"error": {"message": "(#200) Permission not granted", "type": "OAuthException", "code": 200, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "throughputLimit": {
+    "status": 400,
+    "body": {"error": {"message": "(#130429) Rate limit hit", "type": "OAuthException", "code": 130429, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "appRateLimit": {
+    "status": 429,
+    "body": {"error": {"message": "(#4) Application request limit reached", "type": "OAuthException", "code": 4, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "serviceUnavailable": {
+    "status": 503,
+    "body": {"error": {"message": "(#131016) Service unavailable", "type": "OAuthException", "code": 131016, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "temporaryDowntime": {
+    "status": 503,
+    "body": {"error": {"message": "(#2) Service temporarily unavailable", "type": "OAuthException", "code": 2, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "genericServerError": {
+    "status": 500,
+    "body": {"error": {"message": "(#1) An unknown error occurred", "type": "OAuthException", "code": 1, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "unknownServerError": {
+    "status": 500,
+    "body": {"error": {"message": "(#131000) Something went wrong", "type": "OAuthException", "code": 131000, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
+  "unknownErrorRefused": {
+    "status": 400,
+    "body": {"error": {"message": "(#131000) Something went wrong", "type": "OAuthException", "code": 131000, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  }
+}
