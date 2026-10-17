@@ -11,24 +11,45 @@ import java.util.regex.Pattern;
 public interface IntegrationSecretResolver {
     /**
      * Resolves {@code reference} inside {@code scope} only: a tenant scope never reaches a deployment secret or another
-     * tenant's secret, whatever key the tenant stored. Throws when unresolvable; there is no default or empty secret
-     * (fail closed). The caller closes the result.
+     * tenant's secret, whatever key the tenant stored. Throws {@link SecretUnavailableException} when unresolvable;
+     * there is no default or empty secret (fail closed). The caller closes the result.
      */
     ResolvedSecret resolve(SecretScope scope, SecretReference reference);
 
-    /** The namespace a reference is resolved in. */
-    sealed interface SecretScope permits Tenant, Deployment {
+    /** What a secret is for. A scope admits only the purposes its callers may legitimately ask for (spec 0006). */
+    enum SecretPurpose {
+        WHATSAPP_ACCESS_TOKEN,
+        WEBHOOK_VERIFY_TOKEN,
+        APP_SECRET
     }
 
-    /** References stored in a tenant's integration configuration (tenant-supplied, so tenant-confined). */
-    record Tenant(TenantId tenantId) implements SecretScope {
+    /** The namespace a reference is resolved in. */
+    sealed interface SecretScope permits Tenant, Deployment {
+        SecretPurpose purpose();
+    }
+
+    /**
+     * References stored in a tenant's integration configuration (tenant-supplied, so tenant-confined). A tenant may
+     * only ask for its WhatsApp access token, so a sender can never even request a webhook secret.
+     */
+    record Tenant(TenantId tenantId, SecretPurpose purpose) implements SecretScope {
         public Tenant {
             Objects.requireNonNull(tenantId, "Tenant id is required");
+            Objects.requireNonNull(purpose, "Secret purpose is required");
+            if (purpose != SecretPurpose.WHATSAPP_ACCESS_TOKEN) {
+                throw new IllegalArgumentException("A tenant scope admits only WHATSAPP_ACCESS_TOKEN");
+            }
         }
     }
 
     /** References read from deployment configuration properties only, never from tenant input. */
-    record Deployment() implements SecretScope {
+    record Deployment(SecretPurpose purpose) implements SecretScope {
+        public Deployment {
+            Objects.requireNonNull(purpose, "Secret purpose is required");
+            if (purpose != SecretPurpose.WEBHOOK_VERIFY_TOKEN && purpose != SecretPurpose.APP_SECRET) {
+                throw new IllegalArgumentException("A deployment scope admits only WEBHOOK_VERIFY_TOKEN and APP_SECRET");
+            }
+        }
     }
 
     /** A bare key within a scope: no path, scheme or separator, so it cannot escape its namespace. */

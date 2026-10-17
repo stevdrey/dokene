@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
@@ -116,7 +117,8 @@ public class GraphApiMessagingProvider implements MessagingProvider {
         long deadline = http.deadline();
         try {
             return new Prepared(uri, payload, deadline,
-                    resolver.resolve(new Tenant(tenantId), new SecretReference(integration.secretRef())));
+                    resolver.resolve(new Tenant(tenantId, SecretPurpose.WHATSAPP_ACCESS_TOKEN),
+                            new SecretReference(integration.secretRef())));
         } catch (RuntimeException unresolvable) {
             return new Refused(new RejectedPermanently(FailureCategory.AUTHENTICATION));
         }
