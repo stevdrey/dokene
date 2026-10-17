@@ -175,7 +175,23 @@ class GraphApiMessagingProviderTest {
             assertThat(provider.send(namedCommand(List.of(name), List.of("Ana"))))
                     .as(name).isEqualTo(new RejectedPermanently(FailureCategory.TEMPLATE_REJECTED));
         }
+        // A repeated name would fill one placeholder twice and leave another empty.
+        assertThat(provider.send(namedCommand(List.of("customer_name", "customer_name"), List.of("Ana", "Ana"))))
+                .isEqualTo(new RejectedPermanently(FailureCategory.TEMPLATE_REJECTED));
         assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void aPositionalTemplateNeverSendsItsBoundParameterNames() throws Exception {
+        replay("accepted");
+
+        assertThat(provider.send(command(List.of("Ana", "pedido 42")))).isEqualTo(new Accepted("wamid.SYNTHETIC-0001"));
+
+        JsonNode parameters = JSON.readTree(requestBody.get()).at("/template/components/0/parameters");
+        assertThat(parameters.size()).isEqualTo(2);
+        for (JsonNode parameter : parameters) {
+            assertThat(parameter.has("parameter_name")).isFalse();
+        }
     }
 
     @Test

@@ -28,6 +28,8 @@ import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.net.URI;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -142,9 +144,14 @@ public class GraphApiMessagingProvider implements MessagingProvider {
                 && TemplateMapping.LANGUAGE.matcher(command.language()).matches()
                 && command.parameters().size() <= TemplateMapping.MAX_PARAMETERS
                 && command.parameters().stream().allMatch(TemplateParameterValues::acceptable)
-                && (command.parameterFormat() != ParameterFormat.NAMED || command.parameterNames().stream()
-                        .allMatch(name -> TemplateMapping.PARAMETER_NAME.matcher(name).matches()));
+                && (command.parameterFormat() != ParameterFormat.NAMED || namesAcceptable(command.parameterNames()));
         return templateValid ? Optional.empty() : Optional.of(FailureCategory.TEMPLATE_REJECTED);
+    }
+
+    /** A named parameter is filled by its name, so each one must follow the mapping's grammar and be distinct. */
+    private boolean namesAcceptable(List<String> names) {
+        return names.stream().allMatch(name -> TemplateMapping.PARAMETER_NAME.matcher(name).matches())
+                && new HashSet<>(names).size() == names.size();
     }
 
     /**
