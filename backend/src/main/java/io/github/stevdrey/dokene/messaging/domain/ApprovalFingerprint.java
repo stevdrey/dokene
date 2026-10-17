@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 public record ApprovalFingerprint(String value) {
     /** Domain label of the canonical encoding; a different binding needs a new label, never a reinterpretation. */
-    public static final String SCHEME = "approval/v2";
+    public static final String SCHEME = "approval/v3";
 
     private static final Pattern SHA256_HEX = Pattern.compile("^[0-9a-f]{64}$");
 
@@ -96,6 +96,7 @@ public record ApprovalFingerprint(String value) {
             fields.add(Long.toString(template.version()));
             fields.add(template.providerTemplateName());
             fields.add(template.language());
+            fields.add(template.parameterFormat().name());
             fields.add(Integer.toString(template.parameterNames().size()));
             fields.addAll(template.parameterNames());
             fields.addAll(parameterValues);
@@ -107,9 +108,20 @@ public record ApprovalFingerprint(String value) {
         }
     }
 
-    /** The template mapping revision the approval was given against. */
+    /**
+     * How the approved template declares its body placeholders. It mirrors the template module's
+     * TemplateParameterFormat, because this package cannot depend on the template module.
+     */
+    public enum ParameterFormat {
+        POSITIONAL, NAMED
+    }
+
+    /**
+     * The template mapping revision the approval was given against, including the parameter format its provider
+     * schema was verified to declare: a template re-verified under another format voids the approval.
+     */
     public record TemplateRevision(long version, String providerTemplateName, String language,
-            List<String> parameterNames) {
+            ParameterFormat parameterFormat, List<String> parameterNames) {
         /**
          * Meta's naming grammar. The name and language rules mirror TemplateMappingResolver.ResolvedTemplateMapping,
          * because this package cannot depend on the template module.
@@ -125,6 +137,7 @@ public record ApprovalFingerprint(String value) {
             if (language.isBlank()) {
                 throw new IllegalArgumentException("Template language is required");
             }
+            Objects.requireNonNull(parameterFormat, "Parameter format is required");
             parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "Parameter names are required"));
             if (version < 0) {
                 throw new IllegalArgumentException("Template mapping version cannot be negative");
