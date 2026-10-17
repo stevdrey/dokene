@@ -293,16 +293,17 @@ class TemplateRegistryIntegrationTest {
     }
 
     @Test
-    void aNamedApprovalIsRecordedWithItsFormatButNotSendableYetAndEditsClearIt() throws Exception {
+    void aNamedApprovalIsSendableAndResolvesWithItsFormatAndEditsClearIt() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
                         List.of("product", "customer_name")));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
-                .andExpect(jsonPath("$.sendable").value(false));
+                .andExpect(jsonPath("$.sendable").value(true));
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
-                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+                .isInstanceOfSatisfying(TemplateMappingResolver.Resolved.class, resolved -> assertThat(
+                        resolved.mapping().parameterFormat()).isEqualTo(TemplateParameterFormat.NAMED));
         assertThat(parameterFormat(tenantA)).isEqualTo("NAMED");
 
         replace(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"", TEMPLATE.replace("_v1", "_v2")).andExpect(status().isOk())

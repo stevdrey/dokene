@@ -76,7 +76,7 @@ Template and integration endpoints (ADR 0023 §3.2 and §3.3) add their records 
 
 ### 2. Approval fingerprint
 
-`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`, `approval/v2` since the addendum below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
+`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`; `approval/v2` and then `approval/v3` since the addenda below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
 
 The fields, in this order:
 
@@ -86,7 +86,7 @@ The fields, in this order:
 | Recipient and content | recipient E.164, channel, semantic action, template intent, locale, body |
 | Policy snapshot | `sourcePolicyVersion`, the snapshot the operator submitted against |
 | Consent revision | the contact policy version (`customer_consent_history.policy_version`) of the history row that started the contact's current WhatsApp `GRANTED` run: the first `GRANTED` row after the latest non-`GRANTED` row, or the first row when consent was never withdrawn. Every consent change advances the version by compare-and-set, so a revocation followed by a re-grant always yields a new value, and re-saving `GRANTED` over `GRANTED` does not void approvals. A timestamp is not used because two changes can share one at database precision |
-| Template mapping | mapping version, provider template name, language, parameter count, then each parameter name in order |
+| Template mapping | mapping version, provider template name, language, verified parameter format (since `approval/v3`), parameter count, then each parameter name in order |
 | Parameter values | the exact ordered values the provider will receive, one per parameter name |
 | Sender identity | integration id, `phoneNumberId`, `businessAccountId` |
 
@@ -171,6 +171,17 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 ## Addendum (issue 134): credential revision in the sender identity
 
 `SenderRevision` gains `credentialRevision`, the count of secret reference changes for the integration (starts at 1; the reference itself is never hashed). Because the canonical encoding changes, the scheme label moves from `approval/v1` to `approval/v2`, as the label rule requires. Nothing had persisted a v1 fingerprint yet. Rotating the credential therefore voids open approvals, while toggling `enabled` still does not.
+
+## Addendum (issue 218): parameter format in the template revision
+
+A provider template declares its body placeholders either positionally (`{{1}}`) or by name (`{{customer_name}}`), and Meta requires a different request for each: a named placeholder is filled only when the parameter carries its `parameter_name`. The verified format (ADR 0025 §2a) therefore decides what the provider receives, so the approval binds it.
+
+- `TemplateRevision` gains `parameterFormat`, a closed `ApprovalFingerprint.ParameterFormat` (`POSITIONAL`, `NAMED`). The messaging domain cannot depend on the template module, so it mirrors `TemplateParameterFormat`. `ApprovalBindingAssembler` maps one to the other with an exhaustive switch, so a new format cannot reach a fingerprint unmapped.
+- The format is encoded right after the language. Because the canonical encoding changes, the scheme label moves from `approval/v2` to `approval/v3`, as the label rule requires.
+- A template re-verified under another format after approval fails step 5b with `APPROVAL_INVALIDATED`, and the operator cancels and resubmits.
+- `OutboundSendCommand` carries the format and the parameter names of the binding that matched, aligned one to one with the values, so the adapter sends exactly the approved shape.
+
+Every stored `approval/v2` fingerprint stops covering its binding, so open approvals taken before this change are invalidated at send time. This is accepted: live sending is off (the global kill switch is hardcoded until [#144](https://github.com/stevdrey/dokene/issues/144)), so no approval that a customer could be waiting on is lost. No migration rewrites them, because a fingerprint cannot be recomputed without the approver.
 
 ## Addendum (issue 134): integration endpoint preconditions and filter-level rejections
 

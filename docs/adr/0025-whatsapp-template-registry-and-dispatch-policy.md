@@ -44,7 +44,6 @@ The evidence row stores the status, the check time, the business account that wa
 
 - the mapping is `enabled`;
 - its status is `APPROVED`, which implies a matching parameter schema (§2a);
-- its verified parameter format is `POSITIONAL`, until the named send path lands (§2a);
 - the evidence was recorded for the current `version`;
 - the mapping belongs to the tenant's current integration;
 - the evidence was recorded for that integration's current business account;
@@ -52,7 +51,7 @@ The evidence row stores the status, the check time, the business account that wa
 
 An absent mapping is `NotMapped`. Everything else is `Disabled`. Submit already calls it through `ResolverBackedTemplateMappingGate`, which replaces the property-driven stub. Approval ([#136](https://github.com/stevdrey/dokene/issues/136)) and send ([#142](https://github.com/stevdrey/dokene/issues/142)) must call the same resolver, so that a stale, disabled, deleted, rejected or edited mapping is ineligible at every step. Refresh is explicit. There is no scheduler in this phase: an operator refreshes before use, and an expired mapping simply stops being sendable until someone does.
 
-The approval fingerprint (ADR 0024 §2) binds the mapping `version`, name, language and parameter names. An edit therefore voids open approvals with `APPROVAL_INVALIDATED`, while a refresh or an expiry makes the next step fail closed with `TEMPLATE_NOT_MAPPED`.
+The approval fingerprint (ADR 0024 §2) binds the mapping `version`, name, language, verified parameter format and parameter names. An edit therefore voids open approvals with `APPROVAL_INVALIDATED`, while a refresh or an expiry makes the next step fail closed with `TEMPLATE_NOT_MAPPED`.
 
 ### 2a. Parameter schema evidence (issue 218)
 
@@ -70,7 +69,7 @@ Migration V27 adds the statuses and the columns `approval_parameter_format` and 
 
 V27 is an expand-only migration, so a rolling deploy is safe. Instances of the previous release never write the new columns or statuses, and no constraint refuses their writes. A stored format is trusted only for `APPROVED` evidence whose `approval_parameter_checked_at` equals `approval_checked_at`. An older instance that rewrites the evidence (a status-only refresh, or an edit) changes the check time without the format, so its approval reads as schema-unchecked and is not sendable until a current instance refreshes it. During the deploy window, an older instance that reads a `SCHEMA_*` row fails with an error instead of answering; that is closed and sends nothing. Once every instance runs this release, a later migration may add the strict "format exactly when `APPROVED`" constraint and drop the check-time column.
 
-The send adapter builds positional parameters only. Until the named send path lands (the second part of #218, which binds the format into the approval fingerprint and sends `parameter_name`), a mapping verified as `NAMED` is not sendable (`TemplateMapping.sendable`), so the API reports `sendable: false` and the resolver answers `Disabled`.
+Both verified formats are sendable. The resolver returns the format with the mapping, the approval fingerprint binds it (`approval/v3`, ADR 0024 addendum for issue 218), and the send adapter builds the parameters in that shape: positional values in order, or for `NAMED` each value with its `parameter_name`. The adapter re-checks every name against the mapping's parameter-name grammar and refuses a malformed one with `TEMPLATE_REJECTED` before any call.
 
 ### 3. Precondition and audit
 

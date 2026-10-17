@@ -135,8 +135,8 @@ class TemplateMappingTest {
                 TemplateParameterFormat.NAMED, List.of("customer_name")), WABA, NOW);
         assertThat(named.approval().status()).isEqualTo(TemplateApprovalStatus.APPROVED);
         assertThat(named.approval().parameterFormat()).isEqualTo(TemplateParameterFormat.NAMED);
-        // Not sendable until the send adapter can build named parameters.
-        assertThat(named.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        // Named placeholders are sent by name, so a template verified as NAMED is as sendable as a positional one.
+        assertThat(named.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
     }
 
     @Test

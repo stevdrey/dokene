@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
 /**
  * Every input is re-read from authoritative state, never from the request: kill switches and integration, the stored
  * approval, the customer's contact policy and eligibility, the contact frequency and tenant rate bounds, the current
- * template mapping and the approval fingerprint. The command it returns carries exactly the parameter values of the
- * binding whose fingerprint just matched, so what is sent is what was approved.
+ * template mapping and the approval fingerprint. The command it returns carries exactly the parameter format, names and
+ * values of the binding whose fingerprint just matched, so what is sent is what was approved.
  */
 @Component
 @EnableConfigurationProperties(MessagingDispatchProperties.class)
@@ -110,9 +110,10 @@ public class SendPolicyGate {
         if (message.attemptCount() >= properties.maxSendAttempts()) {
             throw refuse(MessagingErrorCode.SEND_ATTEMPTS_EXHAUSTED);
         }
-        return new OutboundSendCommand(message.recipientPhone(), binding.template().providerTemplateName(),
-                binding.template().language(), binding.parameterValues(), message.locale(), message.sendKey(),
-                sender);
+        ApprovalFingerprint.TemplateRevision template = binding.template();
+        return new OutboundSendCommand(message.recipientPhone(), template.providerTemplateName(), template.language(),
+                template.parameterFormat(), template.parameterNames(), binding.parameterValues(), message.locale(),
+                message.sendKey(), sender);
     }
 
     /**
