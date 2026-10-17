@@ -18,6 +18,7 @@ import {
 import { DRAFT_BODY_MAX_CODE_POINTS } from '@/features/followups/types';
 import type { DraftResponse, RecommendationResponse } from '@/features/followups/types';
 import { countCodePoints } from '@/features/followups/utils/textLength';
+import { formatEvidenceEntry, formatWarningText } from '@/features/followups/utils/draftEvidence';
 
 interface AiAssistantPanelProps {
   customerId: string;
@@ -139,6 +140,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
     else staleMessage = STALE_CHANGED_MESSAGE;
   }
   const draftData: DraftResponse | null = draft.kind === 'result' ? draft.data : null;
+  const draftTimeZone = draftData?.evaluation?.tenantTimeZone ?? null;
   const keptDraft = isStale && draftDirty && draftText !== '';
 
   const showRecommendation = recData !== null && !isStale;
@@ -490,9 +492,14 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             <div>
               <div style={labelStyle}>Datos en los que se basa</div>
               <ul style={{ ...bodyTextStyle, paddingLeft: 'var(--space-16)' }}>
-                {draftData.draft.evidence.map((entry, index) => (
-                  <li key={`${index}-${entry}`}>{entry}</li>
-                ))}
+                {draftData.draft.evidence.map((entry, index) => {
+                  const shown = formatEvidenceEntry(entry, draftTimeZone);
+                  return (
+                    <li key={`${index}-${entry}`} title={shown.formatted ? shown.raw : undefined}>
+                      {shown.text}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -500,9 +507,14 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             <div>
               <div style={labelStyle}>Advertencias para revisar</div>
               <ul style={{ ...bodyTextStyle, paddingLeft: 'var(--space-16)' }}>
-                {draftData.draft.warnings.map((entry, index) => (
-                  <li key={`${index}-${entry}`}>{entry}</li>
-                ))}
+                {draftData.draft.warnings.map((entry, index) => {
+                  const shown = formatWarningText(entry, draftTimeZone);
+                  return (
+                    <li key={`${index}-${entry}`} title={shown.formatted ? shown.raw : undefined}>
+                      {shown.text}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
