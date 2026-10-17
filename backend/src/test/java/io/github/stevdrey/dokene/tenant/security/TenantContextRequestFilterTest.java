@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
@@ -16,6 +17,8 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,6 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.ToIntFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -30,6 +36,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
+@ExtendWith(OutputCaptureExtension.class)
 class TenantContextRequestFilterTest {
 
     private final ScopedValueTenantContextProvider tenantContexts = new ScopedValueTenantContextProvider();
@@ -216,20 +223,59 @@ class TenantContextRequestFilterTest {
     }
 
     @Test
-    void keepsTheEmptyBodyErrorWhenSeveralRespondersClaimTheRoute() throws Exception {
+    void keepsTheEmptyBodyErrorWhenSeveralRespondersClaimTheRoute(CapturedOutput output) throws Exception {
         authenticate(identityId);
+        String resourceId = UUID.randomUUID().toString();
+        MockHttpServletRequest crafted = new MockHttpServletRequest(
+                "GET", "/api/tenant-resource/" + resourceId + "%0D%0AFORGED-ENCODED\r\nFORGED-RAW");
+
+        assertOverlapAnsweredWithEmptyBody(crafted);
+
+        assertThat(output.getAll())
+                .contains("Tenant-selection rejection for a GET request claimed by more than one responder")
+                .contains(RecordingResponder.class.getName(), ClaimingEverything.class.getName())
+                .doesNotContain(resourceId, "FORGED", "tenant-resource");
+    }
+
+    @Test
+    void logsAnUnknownMethodAsOtherWhenSeveralRespondersClaimTheRoute(CapturedOutput output) throws Exception {
+        authenticate(identityId);
+        MockHttpServletRequest crafted = new MockHttpServletRequest("PROPFIND\r\nFORGED-METHOD", "/api/tenant-resource");
+
+        assertOverlapAnsweredWithEmptyBody(crafted);
+
+        assertThat(output.getAll())
+                .contains("Tenant-selection rejection for a OTHER request claimed by more than one responder")
+                .doesNotContain("PROPFIND", "FORGED");
+    }
+
+    private void assertOverlapAnsweredWithEmptyBody(MockHttpServletRequest request) throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
         AuditRecorder audit = mock();
 
-        filter((identity, requestedTenant) -> context, audit, List.of(new RecordingResponder("/api/tenant-resource"),
-                new RecordingResponder("/api/**")))
-                .doFilter(requestWithoutTenant(), response, (request, result) -> {
+        filter((identity, requestedTenant) -> context, audit,
+                List.of(new RecordingResponder("/api/**"), new ClaimingEverything()))
+                .doFilter(request, response, (ignoredRequest, ignoredResponse) -> {
                     throw new AssertionError("The filter chain must not run");
                 });
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString()).isEmpty();
         verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verifyNoMoreInteractions(audit);
+    }
+
+    /** Claims every request, so any route overlaps it; it must never be asked to write. */
+    private static final class ClaimingEverything implements TenantSelectionRejectionResponder {
+        @Override
+        public boolean handles(HttpServletRequest request) {
+            return true;
+        }
+
+        @Override
+        public void write(HttpServletResponse response, TenantSelectionRejection rejection) {
+            throw new AssertionError("An overlapping responder must not write the rejection");
+        }
     }
 
     private void assertRejectedBy(
