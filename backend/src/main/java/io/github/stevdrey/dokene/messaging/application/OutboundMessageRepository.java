@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -69,6 +70,21 @@ public interface OutboundMessageRepository {
     SendAttempt updateAttempt(SendAttempt attempt);
 
     List<SendAttempt> findAttempts(UUID tenantId, UUID messageId);
+
+    /**
+     * Serializes the send policy's rate bound per tenant until the transaction ends, so concurrent sends cannot all
+     * pass the count below before any of them inserts its attempt.
+     */
+    void acquireSendBudgetLock(UUID tenantId);
+
+    /** Attempts started at or after {@code since}, whatever their outcome: every one may have reached the provider. */
+    int countAttemptsStartedSince(UUID tenantId, Instant since);
+
+    /** The earliest start among the attempts counted above; it bounds when the window frees a slot. */
+    Optional<Instant> oldestAttemptStartedSince(UUID tenantId, Instant since);
+
+    /** True when another message to this customer was sent ({@code sent_at} set) at or after {@code since}. */
+    boolean sentToCustomerSince(UUID tenantId, UUID customerId, Instant since);
 
     MessageEvent appendEvent(MessageEvent event);
 

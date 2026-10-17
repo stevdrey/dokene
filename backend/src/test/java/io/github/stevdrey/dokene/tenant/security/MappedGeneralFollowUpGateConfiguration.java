@@ -41,6 +41,7 @@ public class MappedGeneralFollowUpGateConfiguration {
         templates.mapped = true;
         safety.configured = true;
         safety.credentialRevision = 1;
+        safety.blockedWith = MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY;
     }
 
     /** A sendable GENERAL_FOLLOW_UP mapping whose revision a test can edit. */
@@ -60,10 +61,14 @@ public class MappedGeneralFollowUpGateConfiguration {
         }
     }
 
-    /** One stable sender per tenant; sending itself stays blocked, as in production until #144. */
+    /**
+     * One stable sender per tenant. Sending stays blocked, as in production until #144, unless a dispatch test sets
+     * {@code blockedWith} to null to permit it.
+     */
     public static final class StubSafetyControl implements OutboundSafetyControl {
         volatile boolean configured = true;
         volatile long credentialRevision = 1;
+        volatile MessagingErrorCode blockedWith = MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY;
 
         @Override
         public Optional<SenderRevision> configuredSender(TenantId tenantId) {
@@ -77,7 +82,12 @@ public class MappedGeneralFollowUpGateConfiguration {
 
         @Override
         public Decision evaluate(TenantId tenantId) {
-            return new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY);
+            MessagingErrorCode blocked = blockedWith;
+            if (blocked != null) {
+                return new Blocked(blocked);
+            }
+            return configuredSender(tenantId).<Decision>map(Permitted::new)
+                    .orElseThrow(() -> new IllegalStateException("No integration configured"));
         }
     }
 }
