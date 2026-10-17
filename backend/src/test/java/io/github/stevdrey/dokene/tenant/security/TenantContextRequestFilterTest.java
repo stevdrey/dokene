@@ -215,6 +215,23 @@ class TenantContextRequestFilterTest {
         verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
     }
 
+    @Test
+    void keepsTheEmptyBodyErrorWhenSeveralRespondersClaimTheRoute() throws Exception {
+        authenticate(identityId);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AuditRecorder audit = mock();
+
+        filter((identity, requestedTenant) -> context, audit, List.of(new RecordingResponder("/api/tenant-resource"),
+                new RecordingResponder("/api/**")))
+                .doFilter(requestWithoutTenant(), response, (request, result) -> {
+                    throw new AssertionError("The filter chain must not run");
+                });
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).isEmpty();
+        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+    }
+
     private void assertRejectedBy(
             MockHttpServletRequest request,
             TenantContextResolver resolver,

@@ -164,34 +164,36 @@ class TenantSelectionProblemIntegrationTest {
         RouteOwnership ownership = routeOwnership(responders);
 
         assertThat(ownership.overlappingPhase3())
-                .contains("GET /api/messages at /api/messages claimed by "
-                        + "[messageRoutesTenantSelectionResponder, overlappingWildcard]")
-                .contains("GET /api/templates at /api/templates claimed by "
-                        + "[overlappingSpecific, templateTenantSelectionResponder]")
-                .contains("HEAD /api/templates at /api/templates claimed by "
-                        + "[overlappingHead, overlappingSpecific, templateTenantSelectionResponder]")
-                .contains("POST /api/customers/{customerId}/messages at /api/customers/" + UUID_SAMPLE
-                        + "/messages claimed by [messageRoutesTenantSelectionResponder, overlappingConstrained]")
-                .noneMatch(overlap -> overlap.contains("/api/customers/sample/messages"))
-                .allSatisfy(overlap -> assertThat(overlap).containsAnyOf(
-                        "overlappingWildcard", "overlappingSpecific", "overlappingHead", "overlappingConstrained"));
+                .containsEntry("GET /api/messages",
+                        List.of("/api/messages claimed by [messageRoutesTenantSelectionResponder, overlappingWildcard]"))
+                .containsEntry("GET /api/templates",
+                        List.of("/api/templates claimed by [overlappingSpecific, templateTenantSelectionResponder]"))
+                .containsEntry("HEAD /api/templates", List.of("/api/templates claimed by "
+                        + "[overlappingHead, overlappingSpecific, templateTenantSelectionResponder]"))
+                .containsEntry("POST /api/customers/{customerId}/messages", List.of("/api/customers/" + UUID_SAMPLE
+                        + "/messages claimed by [messageRoutesTenantSelectionResponder, overlappingConstrained]"))
+                .allSatisfy((route, overlaps) -> assertThat(overlaps).allSatisfy(overlap -> assertThat(overlap)
+                        .containsAnyOf("overlappingWildcard", "overlappingSpecific", "overlappingHead",
+                                "overlappingConstrained")));
         assertThat(ownership.unclaimedPhase3()).isEmpty();
         assertThat(ownership.claimedOther()).isEmpty();
     }
 
     /**
-     * A constraint with quantifier or escaped braces is parsed as one variable, and a constraint no sample satisfies
-     * fails loudly.
+     * A constraint with quantifier or escaped braces is parsed as one variable, each variable is varied on its own
+     * around a base path, and a constraint no sample satisfies fails loudly.
      */
     @Test
     void pathSamplesHonourConstraintsWithBraces() {
-        assertThat(samplePaths("/api/messages/{messageId:[0-9a-f-]{36}}/events"))
+        assertThat(samplePaths(parse("/api/messages/{messageId:[0-9a-f-]{36}}/events")))
                 .containsExactly("/api/messages/" + UUID_SAMPLE + "/events");
-        assertThat(samplePaths("/api/messages/{messageId:[^\\}]+}/events")).containsExactly(
+        assertThat(samplePaths(parse("/api/messages/{messageId:[^\\}]+}/events"))).containsExactly(
                 "/api/messages/sample/events", "/api/messages/" + UUID_SAMPLE + "/events", "/api/messages/0/events");
-        assertThat(samplePaths("/api/templates/{templateIntent}"))
-                .containsExactly("/api/templates/sample", "/api/templates/" + UUID_SAMPLE, "/api/templates/0");
-        assertThatThrownBy(() -> samplePaths("/api/messages/{messageId:[x-z]{3}}"))
+        assertThat(samplePaths(parse("/api/customers/{customerId}/purchases/{purchaseId}"))).containsExactly(
+                "/api/customers/sample/purchases/sample",
+                "/api/customers/" + UUID_SAMPLE + "/purchases/sample", "/api/customers/0/purchases/sample",
+                "/api/customers/sample/purchases/" + UUID_SAMPLE, "/api/customers/sample/purchases/0");
+        assertThatThrownBy(() -> samplePaths(parse("/api/messages/{messageId:[x-z]{3}}")))
                 .isInstanceOf(AssertionError.class).hasMessageContaining("add one to PATH_SAMPLES");
     }
 
@@ -242,20 +244,21 @@ class TenantSelectionProblemIntegrationTest {
 
     /**
      * Names the responders claiming each registered {@code /api} handler route, for every method Spring routes to it
-     * and several sample values per path variable. Ownership is sampled, not proven over every matcher's domain.
+     * and several sample values per path variable, grouped by {@code METHOD pattern}. Ownership is sampled, not
+     * proven over every matcher's domain.
      */
     private RouteOwnership routeOwnership(Map<String, TenantSelectionRejectionResponder> responders) {
         RequestMappingHandlerMapping handlerMappings = webApplicationContext
                 .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
-        List<String> unclaimedPhase3 = new ArrayList<>();
-        List<String> overlappingPhase3 = new ArrayList<>();
-        List<String> claimedOther = new ArrayList<>();
+        Map<String, List<String>> unclaimedPhase3 = new TreeMap<>();
+        Map<String, List<String>> overlappingPhase3 = new TreeMap<>();
+        Map<String, List<String>> claimedOther = new TreeMap<>();
         int phase3Handlers = 0;
         for (Map.Entry<RequestMappingInfo, HandlerMethod> handler : handlerMappings.getHandlerMethods().entrySet()) {
             boolean phase3 = isPhase3Module(handler.getValue().getBeanType());
             List<String> methods = effectiveMethods(handler.getKey());
-            for (String pattern : handler.getKey().getPatternValues()) {
-                if (!pattern.startsWith("/api/")) {
+            for (PathPattern pattern : handler.getKey().getPathPatternsCondition().getPatterns()) {
+                if (!pattern.getPatternString().startsWith("/api/")) {
                     continue;
                 }
                 List<String> paths = samplePaths(pattern);
@@ -263,20 +266,20 @@ class TenantSelectionProblemIntegrationTest {
                     phase3Handlers++;
                 }
                 for (String method : methods) {
+                    String route = method + " " + pattern.getPatternString();
                     for (String path : paths) {
                         MockHttpServletRequest request = new MockHttpServletRequest(method, path);
                         List<String> owners = responders.entrySet().stream()
                                 .filter(responder -> responder.getValue().handles(request))
                                 .map(Map.Entry::getKey).sorted().toList();
-                        String route = method + " " + pattern + " at " + path;
-                        if (phase3) {
-                            if (owners.isEmpty()) {
-                                unclaimedPhase3.add(route);
-                            } else if (owners.size() > 1) {
-                                overlappingPhase3.add(route + " claimed by " + owners);
-                            }
-                        } else if (!owners.isEmpty()) {
-                            claimedOther.add(route + " claimed by " + owners);
+                        if (phase3 && owners.isEmpty()) {
+                            unclaimedPhase3.computeIfAbsent(route, ignored -> new ArrayList<>()).add(path);
+                        } else if (phase3 && owners.size() > 1) {
+                            overlappingPhase3.computeIfAbsent(route, ignored -> new ArrayList<>())
+                                    .add(path + " claimed by " + owners);
+                        } else if (!phase3 && !owners.isEmpty()) {
+                            claimedOther.computeIfAbsent(route, ignored -> new ArrayList<>())
+                                    .add(path + " claimed by " + owners);
                         }
                     }
                 }
@@ -285,7 +288,10 @@ class TenantSelectionProblemIntegrationTest {
         return new RouteOwnership(phase3Handlers, unclaimedPhase3, overlappingPhase3, claimedOther);
     }
 
-    /** An unrestricted mapping accepts every method and a GET mapping also answers HEAD. */
+    /**
+     * An unrestricted mapping accepts every method, a GET mapping also answers HEAD, and every mapping answers
+     * OPTIONS.
+     */
     private static List<String> effectiveMethods(RequestMappingInfo mapping) {
         Set<RequestMethod> declared = mapping.getMethodsCondition().getMethods();
         Set<RequestMethod> methods = declared.isEmpty()
@@ -293,32 +299,54 @@ class TenantSelectionProblemIntegrationTest {
         if (methods.contains(RequestMethod.GET)) {
             methods.add(RequestMethod.HEAD);
         }
+        methods.add(RequestMethod.OPTIONS);
         return methods.stream().map(RequestMethod::name).toList();
     }
 
     /**
-     * Substitutes every path variable with each sample, in all combinations, and keeps the paths the handler's own
-     * pattern accepts, so a regex constraint (quantifier braces included) is honoured by Spring's parser itself.
+     * Builds a base path from the first sample each variable's own constraint accepts, then varies one variable at a
+     * time through its other accepted samples, and keeps the paths the handler's own pattern accepts.
      */
-    private static List<String> samplePaths(String pattern) {
-        List<String> paths = List.of("");
+    private static List<String> samplePaths(PathPattern pattern) {
+        String text = pattern.getPatternString();
+        List<String> literals = new ArrayList<>();
+        List<List<String>> accepted = new ArrayList<>();
         int literalStart = 0;
-        for (int open = pattern.indexOf('{'); open >= 0; open = pattern.indexOf('{', literalStart)) {
-            String literal = pattern.substring(literalStart, open);
-            paths = paths.stream().flatMap(path -> PATH_SAMPLES.stream().map(value -> path + literal + value)).toList();
-            literalStart = closingBrace(pattern, open) + 1;
+        for (int open = text.indexOf('{'); open >= 0; open = text.indexOf('{', literalStart)) {
+            int close = closingBrace(text, open);
+            literals.add(text.substring(literalStart, open));
+            PathPattern variable = PathPatternParser.defaultInstance.parse("/" + text.substring(open, close + 1));
+            List<String> values = PATH_SAMPLES.stream()
+                    .filter(value -> variable.matches(PathContainer.parsePath("/" + value))).toList();
+            assertThat(values).as("path samples accepted by %s in %s; add one to PATH_SAMPLES",
+                    text.substring(open, close + 1), text).isNotEmpty();
+            accepted.add(values);
+            literalStart = close + 1;
         }
-        String tail = pattern.substring(literalStart);
-        PathPattern handler = PathPatternParser.defaultInstance.parse(pattern);
-        List<String> accepted = paths.stream().map(path -> path + tail)
-                .filter(path -> handler.matches(PathContainer.parsePath(path))).toList();
-        assertThat(accepted).as("path samples accepted by %s; add one to PATH_SAMPLES", pattern).isNotEmpty();
-        return accepted;
+        literals.add(text.substring(literalStart));
+        List<String> base = accepted.stream().map(List::getFirst).toList();
+        List<List<String>> combinations = new ArrayList<>(List.of(base));
+        for (int variable = 0; variable < accepted.size(); variable++) {
+            for (String value : accepted.get(variable).subList(1, accepted.get(variable).size())) {
+                List<String> combination = new ArrayList<>(base);
+                combination.set(variable, value);
+                combinations.add(combination);
+            }
+        }
+        List<String> paths = combinations.stream().map(values -> {
+            StringBuilder path = new StringBuilder(literals.getFirst());
+            for (int index = 0; index < values.size(); index++) {
+                path.append(values.get(index)).append(literals.get(index + 1));
+            }
+            return path.toString();
+        }).filter(path -> pattern.matches(PathContainer.parsePath(path))).toList();
+        assertThat(paths).as("path samples accepted by %s; add one to PATH_SAMPLES", text).isNotEmpty();
+        return paths;
     }
 
     /**
      * Finds the brace closing the variable opened at {@code open}, past any braces inside its constraint, escaped
-     * ones included.
+     * ones included. Spring refuses escapes outside a variable, so literals need no such handling.
      */
     private static int closingBrace(String pattern, int open) {
         int depth = 0;
@@ -335,9 +363,12 @@ class TenantSelectionProblemIntegrationTest {
         throw new IllegalArgumentException("Unbalanced path variable in " + pattern);
     }
 
+    private static PathPattern parse(String pattern) {
+        return PathPatternParser.defaultInstance.parse(pattern);
+    }
 
-    private record RouteOwnership(int phase3Handlers, List<String> unclaimedPhase3, List<String> overlappingPhase3,
-            List<String> claimedOther) { }
+    private record RouteOwnership(int phase3Handlers, Map<String, List<String>> unclaimedPhase3,
+            Map<String, List<String>> overlappingPhase3, Map<String, List<String>> claimedOther) { }
 
     /** Claims {@code pattern} on top of the registered owners, to prove an overlap cannot pass unnoticed. */
     private static final class OverlappingResponder extends ProblemJsonTenantSelectionResponder {
