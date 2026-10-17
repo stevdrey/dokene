@@ -221,7 +221,7 @@ describe('AiAssistantPanel', () => {
     expect(screen.getByText('Verifica el stock antes de ofrecer.')).toBeInTheDocument();
   });
 
-  it('shows machine evidence and warning values in Spanish while keeping the raw text as a title', async () => {
+  it('shows machine evidence and warning values in Spanish without exposing the raw values', async () => {
     const draftWithMachineValues: DraftResponse = {
       ...baseDraft,
       draft: {
@@ -242,21 +242,19 @@ describe('AiAssistantPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
     await screen.findByLabelText('Borrador del mensaje (editable)');
 
-    expect(screen.getByText('Compra reciente: Café molido')).not.toHaveAttribute('title');
-    expect(screen.getByText('Fecha de compra: 10 ene 2026')).toHaveAttribute(
-      'title',
-      'Fecha de compra: 2026-01-10T14:00:00Z'
-    );
-    expect(screen.getByText('Estado de seguimiento: Vencido')).toHaveAttribute(
-      'title',
-      'Estado de seguimiento: OVERDUE'
-    );
-    expect(screen.getByText('La compra del 10 ene 2026 está Vencido.')).toHaveAttribute(
-      'title',
-      'La compra del 2026-01-10T14:00:00Z está OVERDUE.'
-    );
-    expect(screen.queryByText(/2026-01-10T14:00:00Z/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/OVERDUE/)).not.toBeInTheDocument();
+    for (const text of [
+      'Compra reciente: Café molido',
+      'Fecha de compra: 10 ene 2026',
+      'Estado de seguimiento: Vencido',
+      'La compra del 10 ene 2026 está Vencido.'
+    ]) {
+      const item = screen.getByText(text);
+      expect(item).toHaveAccessibleName('');
+      expect(item).toHaveAccessibleDescription('');
+    }
+    // The raw machine values must not reach assistive technology through any attribute or hidden text.
+    expect(document.body.innerHTML).not.toContain('2026-01-10T14:00:00Z');
+    expect(document.body.innerHTML).not.toContain('OVERDUE');
   });
 
   it('moves focus to the draft editor when the draft arrives', async () => {

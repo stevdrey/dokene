@@ -492,14 +492,9 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             <div>
               <div style={labelStyle}>Datos en los que se basa</div>
               <ul style={{ ...bodyTextStyle, paddingLeft: 'var(--space-16)' }}>
-                {draftData.draft.evidence.map((entry, index) => {
-                  const shown = formatEvidenceEntry(entry, draftTimeZone);
-                  return (
-                    <li key={`${index}-${entry}`} title={shown.formatted ? shown.raw : undefined}>
-                      {shown.text}
-                    </li>
-                  );
-                })}
+                {draftData.draft.evidence.map((entry, index) => (
+                  <li key={`${index}-${entry}`}>{formatEvidenceEntry(entry, draftTimeZone)}</li>
+                ))}
               </ul>
             </div>
           )}
@@ -507,14 +502,9 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             <div>
               <div style={labelStyle}>Advertencias para revisar</div>
               <ul style={{ ...bodyTextStyle, paddingLeft: 'var(--space-16)' }}>
-                {draftData.draft.warnings.map((entry, index) => {
-                  const shown = formatWarningText(entry, draftTimeZone);
-                  return (
-                    <li key={`${index}-${entry}`} title={shown.formatted ? shown.raw : undefined}>
-                      {shown.text}
-                    </li>
-                  );
-                })}
+                {draftData.draft.warnings.map((entry, index) => (
+                  <li key={`${index}-${entry}`}>{formatWarningText(entry, draftTimeZone)}</li>
+                ))}
               </ul>
             </div>
           )}
