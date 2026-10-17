@@ -4,8 +4,11 @@ package io.github.stevdrey.dokene.messaging.api;
 
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import io.github.stevdrey.dokene.ratelimit.RetryAfter;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +25,16 @@ public class MessagingExceptionHandler {
     @ExceptionHandler(MessagingRefusedException.class)
     ResponseEntity<MessagingProblem> refused(MessagingRefusedException refusal) {
         return problem(refusal.code());
+    }
+
+    /** The tenant send rate (ADR 0023 §4.4): the closed problem plus {@code Retry-After} in whole seconds. */
+    @ExceptionHandler(MessagingRateLimitedException.class)
+    ResponseEntity<MessagingProblem> rateLimited(MessagingRateLimitedException throttled) {
+        MessagingProblem body = MessagingProblem.of(throttled.code());
+        return ResponseEntity.status(HttpStatus.valueOf(body.status()))
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(RetryAfter.seconds(throttled.retryAfter())))
+                .contentType(MediaType.parseMediaType(MessagingApiContract.PROBLEM_MEDIA_TYPE))
+                .body(body);
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)
