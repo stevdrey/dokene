@@ -195,6 +195,27 @@ describe('FollowUpWorkbench', () => {
     });
   });
 
+  it('wraps the phone and WhatsApp contact row instead of widening the detail at 320 px', async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 320 });
+    try {
+      vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({ items: [mockItems[0]], nextCursor: null });
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      fireEvent.click(await screen.findByRole('heading', { level: 3, name: mockItems[0].displayName }));
+
+      const copyButton = await screen.findByRole('button', { name: 'Copiar número de teléfono' });
+      const contactRow = copyButton.closest('.follow-up-detail__contact-pill') as HTMLElement;
+      expect(contactRow).toHaveTextContent(mockItems[0].primaryPhone);
+      expect(contactRow).toHaveTextContent('WhatsApp directo');
+      const style = getComputedStyle(contactRow);
+      expect(style.flexWrap).toBe('wrap');
+      expect(style.maxWidth).toBe('100%');
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
+    }
+  });
+
   it('selects first item on desktop and displays customer detail context', async () => {
     render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
 
