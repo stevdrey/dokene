@@ -598,6 +598,31 @@ describe('FollowUpWorkbench', () => {
     });
   });
 
+  it('keeps the search icon positioned against the input only while the loaded-pages helper is shown', async () => {
+    vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({
+      items: [mockItems[0]],
+      nextCursor: 'cursor-page-2'
+    });
+
+    render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
+    });
+
+    const searchInput = screen.getByPlaceholderText('Buscar por nombre o teléfono...');
+    fireEvent.change(searchInput, { target: { value: 'Valentina' } });
+
+    const helperText = await screen.findByText('Buscando en 1 cargados');
+    const iconWrapper = searchInput.parentElement as HTMLElement;
+    const icon = Array.from(iconWrapper.children).find((child) => child.textContent === 'search');
+
+    expect(icon).toBeDefined();
+    expect(iconWrapper.style.position).toBe('relative');
+    expect(iconWrapper.children).toHaveLength(2);
+    expect(iconWrapper).not.toContainElement(helperText);
+  });
+
   it('calculates snooze dates in tenant time zone without shifting days due to UTC offset', () => {
     // 23:30 in Santiago (UTC-3) on 2026-09-15 is 02:30 UTC on 2026-09-16
     const fixedInstant = new Date('2026-09-16T02:30:00Z');

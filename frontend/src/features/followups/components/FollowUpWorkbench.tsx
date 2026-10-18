@@ -833,49 +833,53 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
           </div>
 
           {/* Search Input Bar */}
-          <div style={{ position: 'relative', width: isMobile ? '100%' : '360px' }}>
+          <div style={{ width: isMobile ? '100%' : '360px' }}>
             <label htmlFor="followup-search-input" className="sr-only">
               Buscar seguimientos por nombre o teléfono
             </label>
-            <span
-              className="material-symbols-outlined"
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                fontSize: '20px',
-                color: 'var(--color-text-muted)',
-                pointerEvents: 'none'
-              }}
-            >
-              search
-            </span>
-            <input
-              id="followup-search-input"
-              type="search"
-              aria-label="Buscar seguimientos por nombre o teléfono"
-              value={searchQuery}
-              onChange={(e) => {
-                setConflictNotice(null);
-                setSearchQuery(e.target.value);
-              }}
-              placeholder="Buscar por nombre o teléfono..."
-              style={{
-                width: '100%',
-                height: '44px',
-                paddingLeft: '40px',
-                paddingRight: '12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-outline)',
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-text-main)',
-                fontSize: 'var(--font-size-secondary)',
-                outline: 'none',
-                fontFamily: 'inherit'
-              }}
-            />
+            {/* Positioning context holds only the input so the icon stays centered when the helper row renders below. */}
+            <div style={{ position: 'relative' }}>
+              <span
+                className="material-symbols-outlined"
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: '20px',
+                  color: 'var(--color-text-muted)',
+                  pointerEvents: 'none'
+                }}
+              >
+                search
+              </span>
+              <input
+                id="followup-search-input"
+                type="search"
+                aria-label="Buscar seguimientos por nombre o teléfono"
+                value={searchQuery}
+                onChange={(e) => {
+                  setConflictNotice(null);
+                  setSearchQuery(e.target.value);
+                }}
+                placeholder="Buscar por nombre o teléfono..."
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  height: '44px',
+                  paddingLeft: '40px',
+                  paddingRight: '12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-outline)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: 'var(--color-text-main)',
+                  fontSize: 'var(--font-size-secondary)',
+                  outline: 'none',
+                  fontFamily: 'inherit'
+                }}
+              />
+            </div>
             {isSearchActive && nextCursor && (
               <div
                 style={{
