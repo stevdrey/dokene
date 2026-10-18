@@ -63,6 +63,6 @@
 
 ## Phase 3 security cases
 
-The threats above are turned into runnable cases for Phase 3 outbound messaging in [Phase 3 Security Cases](../verification/phase-3-security-cases.md). That table covers IDOR and RLS, role permissions, CSRF, edited or stale approval, revoked consent, replay or duplicate send, forged webhook, secret exposure and emergency disable, across two synthetic tenants and the four tenant roles. It is preparation: it lists what must be proved and what already has a test, and it does not replace the integrated security run.
+The threats above are turned into runnable cases for Phase 3 outbound messaging in [Phase 3 Security Cases](../verification/phase-3-security-cases.md). That table covers IDOR and RLS, role permissions, CSRF, edited or stale approval, template approval evidence, revoked consent, replay or duplicate send, forged webhook, secret exposure and emergency disable, across two synthetic tenants and the four tenant roles. It is preparation: it lists what must be proved and what already has a test, and it does not replace the integrated security run.
 
 This document will evolve as features and integrations are introduced.
