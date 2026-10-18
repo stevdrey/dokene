@@ -1,0 +1,6 @@
+browser 158.0
+320x568 detail docScrollW=308 vw=320 pill=41..267 w=226 h=80 flexWrap=wrap kids=[52-70@251 78-183@252 52-169@290 177-221@277] overflowing=0 
+320x568 after-copy-click docScrollW=308 vw=320 pill=41..267 w=226 h=103 flexWrap=wrap kids=[52-70@249 78-183@250 52-169@288 177-221@275 52-107@327] overflowing=0 
+320x256 (1280@400%) detail docScrollW=308 vw=320 pill=41..267 w=226 h=80 flexWrap=wrap kids=[52-70@228 78-183@229 52-169@267 177-221@254] overflowing=0 
+360 detail docScrollW=348 vw=360 pill=41..307 w=266 h=80 flexWrap=wrap kids=[52-70@251 78-183@252 52-169@290 177-221@277] overflowing=0 
+390 detail docScrollW=378 vw=390 pill=41..337 w=296 h=81 flexWrap=wrap kids=[52-70@188 78-183@188 191-308@187 52-96@214] overflowing=0 

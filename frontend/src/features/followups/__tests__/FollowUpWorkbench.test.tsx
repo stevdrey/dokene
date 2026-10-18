@@ -195,6 +195,45 @@ describe('FollowUpWorkbench', () => {
     });
   });
 
+  describe('contact row reflow', () => {
+    let originalWidth: number;
+
+    const setWindowWidth = (value: number) =>
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value });
+
+    beforeEach(() => {
+      originalWidth = window.innerWidth;
+    });
+
+    afterEach(() => setWindowWidth(originalWidth));
+
+    it('keeps the contact row wrappable inside shrinkable detail containers in the mobile layout', async () => {
+      setWindowWidth(320);
+      vi.spyOn(followUpApi, 'getFollowUpQueue').mockResolvedValue({ items: [mockItems[0]], nextCursor: null });
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      fireEvent.click(await screen.findByRole('heading', { level: 3, name: mockItems[0].displayName }));
+
+      expect(await screen.findByRole('button', { name: /Volver a Seguimientos/ })).toBeInTheDocument();
+      const copyButton = screen.getByRole('button', { name: 'Copiar número de teléfono' });
+      const contactRow = copyButton.closest<HTMLElement>('.follow-up-detail__contact-pill');
+      expect(contactRow).not.toBeNull();
+      expect(contactRow).toHaveTextContent(mockItems[0].primaryPhone);
+      expect(contactRow).toHaveTextContent('WhatsApp directo');
+      const style = getComputedStyle(contactRow!);
+      expect(style.flexWrap).toBe('wrap');
+      expect(style.maxWidth).toBe('100%');
+
+      // max-width: 100% only bounds the row if every ancestor up to the detail can shrink.
+      const nameBlock = contactRow!.closest<HTMLElement>('.follow-up-detail__name-block');
+      const detail = contactRow!.closest<HTMLElement>('.follow-up-detail');
+      expect(nameBlock).not.toBeNull();
+      expect(detail).not.toBeNull();
+      expect(getComputedStyle(nameBlock!).minWidth).toBe('0px');
+      expect(getComputedStyle(detail!).minWidth).toBe('0px');
+    });
+  });
+
   it('selects first item on desktop and displays customer detail context', async () => {
     render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
 
