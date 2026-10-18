@@ -657,13 +657,12 @@ describe('FollowUpWorkbench', () => {
       const loadMore = await screen.findByRole('button', { name: 'Cargar más seguimientos' });
       loadMore.focus();
       fireEvent.click(loadMore);
-      // Browsers drop focus from a button disabled while loading (focus fixup); jsdom does not,
-      // so drop it to the body by focusing and removing a throwaway element.
-      const sink = document.createElement('button');
-      document.body.appendChild(sink);
-      sink.focus();
-      sink.remove();
-      expect(document.activeElement).toBe(document.body);
+      // While loading it stays focusable (aria-disabled), so browsers do not drop focus.
+      const loading = screen.getByRole('button', { name: 'Cargando...' });
+      expect(loading).toBe(loadMore);
+      expect(loading).not.toBeDisabled();
+      expect(loading).toHaveAttribute('aria-disabled', 'true');
+      expect(loading).toHaveFocus();
 
       await act(async () => {
         page2.resolve({ items: [mockItems[1]], nextCursor: 'cursor-page-3' });
@@ -708,6 +707,52 @@ describe('FollowUpWorkbench', () => {
       fireEvent.click(loadMore);
 
       await waitFor(() => expect(container.querySelector('[data-customer-id="cust-2"]')).toHaveFocus());
+    });
+
+    it('keeps "Cargar más páginas" focusable while its page loads', async () => {
+      const page2 = deferredPage();
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockImplementationOnce(() => page2.promise as any);
+
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+      fireEvent.change(screen.getByPlaceholderText('Buscar por nombre o teléfono...'), {
+        target: { value: 'Valentina' }
+      });
+      const loadMorePages = await screen.findByRole('button', { name: 'Cargar más páginas' });
+      loadMorePages.focus();
+      fireEvent.click(loadMorePages);
+
+      expect(loadMorePages).toHaveTextContent('Cargando...');
+      expect(loadMorePages).not.toBeDisabled();
+      expect(loadMorePages).toHaveAttribute('aria-disabled', 'true');
+      expect(loadMorePages).toHaveFocus();
+
+      await act(async () => {
+        page2.resolve({ items: [mockItems[1]], nextCursor: 'cursor-page-3' });
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Cargar más páginas' })).toHaveFocus());
+    });
+
+    it('does not move focus for a page superseded by a queue reload', async () => {
+      const page2 = deferredPage();
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockImplementationOnce(() => page2.promise as any)
+        .mockResolvedValueOnce({ items: [mockItems[1]], nextCursor: null });
+
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      const loadMore = await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+      loadMore.focus();
+      fireEvent.click(loadMore);
+      // The operator leaves the button (focus on the body), then the filter reloads the queue.
+      loadMore.blur();
+      fireEvent.click(screen.getByRole('button', { name: /Vencidos/i }));
+
+      await waitFor(() => expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0));
+      expect(screen.getByPlaceholderText('Buscar por nombre o teléfono...')).not.toHaveFocus();
+      expect(document.activeElement).toBe(document.body);
     });
 
     it('moves focus to "Reintentar" when loading a page fails', async () => {

@@ -1,8 +1,10 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@/shared/components/Button';
+import { isFocusLost } from '@/shared/utils/focus';
 import {
   useFollowUpAssistant,
   type AssistantErrorKind,
+  type PendingDiscard,
   type QueueRefreshReason
 } from '@/features/followups/hooks/useFollowUpAssistant';
 import {
@@ -42,6 +44,8 @@ const STALE_CHANGED_MESSAGE =
   'El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación.';
 const STALE_REFRESHING_MESSAGE = 'El seguimiento cambió mientras consultabas al asistente.';
 const STALE_REFRESH_FAILED_MESSAGE = 'No pudimos actualizar la lista de seguimientos.';
+
+type DiscardKind = NonNullable<PendingDiscard>;
 
 const DISCARD_COPY = {
   'regenerate-draft': {
@@ -125,6 +129,15 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   // Set when the operator activates a control in the panel: most actions swap the activated
   // button for another branch's button, so focus must be recovered once the outcome renders.
   const focusRecoveryRef = useRef(false);
+  // Whether the panel is still waiting for an outcome (request or queue refresh in flight).
+  const awaitingOutcomeRef = useRef(false);
+  // Discard confirmation: focus moves to its confirm button when it opens and, on cancel, back
+  // to the control that opened it (or the equivalent button rendered in its place).
+  const discardConfirmRef = useRef<HTMLButtonElement | null>(null);
+  const discardOpenerRef = useRef<HTMLElement | null>(null);
+  const cancelledDiscardRef = useRef<DiscardKind | null>(null);
+  const regenerateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const requeryButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const assistant = useFollowUpAssistant({ customerId, policyVersion, onRequestRefresh });
   const { recommendation, draft, draftText, draftDirty, pendingDiscard, copyStatus } = assistant;
@@ -179,11 +192,22 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   // (the workbench recovers focus if the detail is gone).
   const refreshPending = staleRefresh === 'pending' || assistant.ineligibleRefresh === 'pending';
   useEffect(() => {
+    awaitingOutcomeRef.current = busy || refreshPending;
     if (busy || refreshPending || !focusRecoveryRef.current) return;
     focusRecoveryRef.current = false;
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected) return;
-    (recHeadingRef.current ?? panelHeadingRef.current)?.focus();
+    const cancelled = cancelledDiscardRef.current;
+    cancelledDiscardRef.current = null;
+    if (!isFocusLost()) return;
+    let target: HTMLElement | null = null;
+    if (cancelled) {
+      const opener = discardOpenerRef.current;
+      target = opener?.isConnected
+        ? opener
+        : cancelled === 'regenerate-draft'
+          ? regenerateButtonRef.current
+          : requeryButtonRef.current;
+    }
+    (target ?? recHeadingRef.current ?? panelHeadingRef.current)?.focus();
   });
 
   let liveMessage = '';
@@ -206,8 +230,13 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const recErrorKind: AssistantErrorKind | null = recommendation.kind === 'error' ? recommendation.error : null;
   const draftErrorKind: AssistantErrorKind | null = draft.kind === 'error' ? draft.error : null;
 
+  const rememberDiscardOpener = () => {
+    discardOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+
   const askRequery = () => {
     if (draftDirty) {
+      rememberDiscardOpener();
       assistant.askDiscard('requery');
     } else {
       void assistant.requestRecommendation();
@@ -216,6 +245,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
 
   const askRegenerate = () => {
     if (draftDirty) {
+      rememberDiscardOpener();
       assistant.askDiscard('regenerate-draft');
     } else if (recData) {
       void assistant.requestDraft(recData);
@@ -226,6 +256,19 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   // moved on (derived staleness) it is dropped, so confirming can never request a draft for an
   // obsolete recommendation. Requerying stays available.
   const activeDiscard = pendingDiscard === 'regenerate-draft' && isStale ? null : pendingDiscard;
+
+  // Opening the confirmation always moves focus to it, even when the opener stays (e.g.
+  // "Consultar de nuevo" above the editor), so keyboard users land on the decision.
+  useEffect(() => {
+    if (activeDiscard) {
+      discardConfirmRef.current?.focus();
+    }
+  }, [activeDiscard]);
+
+  const cancelDiscard = () => {
+    cancelledDiscardRef.current = activeDiscard;
+    assistant.cancelDiscard();
+  };
 
   const confirmDiscard = () => {
     if (activeDiscard === 'requery') {
@@ -242,10 +285,10 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
       <div role="group" aria-label="Confirmar reemplazo del borrador" style={alertStyle}>
         <span>{copy.message}</span>
         <div style={actionsRowStyle}>
-          <Button variant="danger" size="sm" onClick={confirmDiscard}>
+          <Button ref={discardConfirmRef} variant="danger" size="sm" onClick={confirmDiscard}>
             {copy.confirm}
           </Button>
-          <Button variant="ghost" size="sm" onClick={assistant.cancelDiscard}>
+          <Button variant="ghost" size="sm" onClick={cancelDiscard}>
             Cancelar
           </Button>
         </div>
@@ -281,6 +324,11 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
       onClickCapture={(event) => {
         if (event.target instanceof Element && event.target.closest('button')) {
           focusRecoveryRef.current = true;
+          // A click that starts no request and changes nothing must not leave the marker armed
+          // for a later, unrelated render.
+          requestAnimationFrame(() => {
+            if (!awaitingOutcomeRef.current) focusRecoveryRef.current = false;
+          });
         }
       }}
       style={{
@@ -385,6 +433,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
                 </Button>
               ) : (
                 <Button
+                  ref={requeryButtonRef}
                   variant="primary"
                   onClick={askRequery}
                   disabled={!canUseAi || busy || staleRefresh === 'pending'}
@@ -580,7 +629,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
               <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
                 Copiar borrador
               </Button>
-              <Button variant="secondary" onClick={askRegenerate} disabled={busy || !canUseAi}>
+              <Button ref={regenerateButtonRef} variant="secondary" onClick={askRegenerate} disabled={busy || !canUseAi}>
                 Regenerar borrador
               </Button>
             </div>

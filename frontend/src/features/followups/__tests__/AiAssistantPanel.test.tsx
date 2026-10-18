@@ -1228,6 +1228,59 @@ describe('AiAssistantPanel', () => {
       await waitFor(() => expect(heading).toHaveFocus());
     });
 
+    async function editedDraft() {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      renderPanel();
+      await getRecommendation();
+      activate('Generar borrador');
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mis cambios' } });
+    }
+
+    it('moves focus to the confirmation when a discard prompt opens and back to its opener on cancel', async () => {
+      await editedDraft();
+
+      activate('Regenerar borrador');
+      expect(screen.getByRole('button', { name: 'Reemplazar mis cambios' })).toHaveFocus();
+
+      activate('Cancelar');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerar borrador' })).toHaveFocus());
+    });
+
+    it('returns focus to "Consultar de nuevo" when its discard prompt is cancelled', async () => {
+      await editedDraft();
+
+      activate('Consultar de nuevo');
+      expect(screen.getByRole('button', { name: 'Descartar y consultar' })).toHaveFocus();
+
+      activate('Cancelar');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Consultar de nuevo' })).toHaveFocus());
+    });
+
+    it('does not keep the recovery armed after a click that changes nothing', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      const { rerenderWith } = renderPanel();
+      await getRecommendation();
+      activate('Generar borrador');
+      await screen.findByLabelText('Borrador del mensaje (editable)');
+      activate('Copiar borrador');
+      await screen.findByText('Borrador copiado');
+
+      // A second copy leaves the state unchanged, so it does not render.
+      activate('Copiar borrador');
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      (document.activeElement as HTMLElement).blur();
+
+      rerenderWith({ canUseAi: false });
+
+      expect(document.activeElement).toBe(document.body);
+    });
+
     it('does not take focus back when the operator moved it elsewhere while loading', async () => {
       const pending = deferred<{ data: RecommendationResponse; version: number }>();
       vi.spyOn(followUpApi, 'requestRecommendation').mockReturnValue(pending.promise);

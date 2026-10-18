@@ -6,6 +6,7 @@ import { FollowUpCard } from './FollowUpCard';
 import { FollowUpDetail } from './FollowUpDetail';
 import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 import { Button } from '@/shared/components/Button';
+import { isFocusLost } from '@/shared/utils/focus';
 import { getCalendarDateInTimeZone } from '../utils/dateUtils';
 import { ApiError } from '@/shared/api/httpClient';
 import './FollowUpLayout.css';
@@ -70,6 +71,17 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const tenantTimeZoneRef = useRef<string | undefined>(undefined);
   const policyGenerationRef = useRef(0);
   const policyAbortControllerRef = useRef<AbortController | null>(null);
+  // Keyboard focus around paging: a "Cargar más" button is removed once no page remains, and a
+  // failed page replaces the queue with the error view, which drops focus to the body. The
+  // activated source is remembered so focus can be put back once the page renders.
+  const loadMoreButtonsRef = useRef<Record<LoadMoreSource, HTMLButtonElement | null>>({
+    list: null,
+    search: null,
+    empty: null
+  });
+  const loadMoreFocusRef = useRef<{ source: LoadMoreSource; newIds: string[] } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
 
   // Detect mobile width (< 1024px) for responsive split vs stacked view; notified only on crossings.
   const [isMobile, setIsMobile] = useState(() =>
@@ -186,6 +198,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       loadMoreAbortControllerRef.current.abort();
       loadMoreAbortControllerRef.current = null;
     }
+    // The superseded page will never render, so it must not trigger focus recovery.
+    loadMoreFocusRef.current = null;
     setLoadingMore(false);
 
     if (queueAbortControllerRef.current) {
@@ -367,24 +381,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     };
   }, [activeFilter, replaceQueue]);
 
-  // Keyboard focus around paging: each "Cargar más" button is disabled while its page loads and
-  // removed once no page remains, which drops focus to the body. The activated source is
-  // remembered so focus can be put back once the page renders.
-  const listLoadMoreRef = useRef<HTMLButtonElement>(null);
-  const searchLoadMoreRef = useRef<HTMLButtonElement>(null);
-  const emptyLoadMoreRef = useRef<HTMLButtonElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const retryButtonRef = useRef<HTMLButtonElement>(null);
-  const loadMoreFocusRef = useRef<{ source: LoadMoreSource; newIds: string[] } | null>(null);
-  const loadMoreButtonRefs: Record<LoadMoreSource, React.RefObject<HTMLButtonElement | null>> = {
-    list: listLoadMoreRef,
-    search: searchLoadMoreRef,
-    empty: emptyLoadMoreRef
-  };
-
   const handleLoadMore = async (source: LoadMoreSource) => {
     if (!nextCursor || loadingMore || backgroundRefreshing) return;
-    const activator = loadMoreButtonRefs[source].current;
+    const activator = loadMoreButtonsRef.current[source];
     loadMoreFocusRef.current =
       activator !== null && document.activeElement === activator ? { source, newIds: [] } : null;
     const currentGeneration = requestGenerationRef.current;
@@ -503,36 +502,37 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   // so returning to the operator's card from "Volver" still wins.
   useEffect(() => {
     if (!focusInDetailRef.current) return;
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected) {
+    if (!isFocusLost()) {
       // e.g. "Volver" already returned focus to the card: the detail no longer holds it.
-      if (!detailRegionRef.current?.contains(active)) focusInDetailRef.current = false;
+      if (!detailRegionRef.current?.contains(document.activeElement)) focusInDetailRef.current = false;
       return;
     }
     if (selectedItemId) {
       detailRegionRef.current?.focus();
       return;
     }
+    // On desktop the layout effect auto-selects the first remaining customer on the next render;
+    // wait for it so focus lands in that customer's detail.
+    if (!isMobile && filteredItems.length > 0) return;
     focusInDetailRef.current = false;
     const firstCard = queueColumnRef.current?.querySelector<HTMLElement>('[data-customer-id]');
     (firstCard ?? searchInputRef.current)?.focus();
-  }, [isMobile, selectedItemId]);
+  }, [isMobile, selectedItemId, filteredItems]);
 
   // Restore focus after a page loaded from a focused "Cargar más": stay on that button while
-  // pages remain, else go to the first newly loaded visible card, else back to the search box
+  // pages remain (it keeps focus while loading, see Button), else go to the first newly loaded visible card, else back to the search box
   // (or the last card). Focus the operator moved elsewhere meanwhile is kept.
   useEffect(() => {
     const pending = loadMoreFocusRef.current;
     if (!pending || loadingMore) return;
     loadMoreFocusRef.current = null;
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected) return;
+    if (!isFocusLost()) return;
     if (error) {
       // A failed page replaces the queue with the error view.
       retryButtonRef.current?.focus();
       return;
     }
-    const button = loadMoreButtonRefs[pending.source].current;
+    const button = loadMoreButtonsRef.current[pending.source];
     if (button && !button.disabled) {
       button.focus();
       return;
@@ -545,7 +545,6 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       ? queueColumnRef.current?.querySelector<HTMLElement>(`[data-customer-id="${CSS.escape(targetId)}"]`)
       : null;
     (card ?? searchInputRef.current)?.focus();
-    // loadMoreButtonRefs only holds stable refs.
   }, [loadingMore, filteredItems, isSearchActive, error]);
 
   // Stats calculation
@@ -974,10 +973,15 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               >
                 <span>Buscando en {items.length} cargados</span>
                 <button
-                  ref={searchLoadMoreRef}
+                  ref={(element) => {
+                    loadMoreButtonsRef.current.search = element;
+                  }}
                   type="button"
                   onClick={() => void handleLoadMore('search')}
-                  disabled={loadingMore || backgroundRefreshing}
+                  // Stays focusable while its page loads; disabled would drop focus to the body.
+                  aria-disabled={loadingMore || undefined}
+                  aria-busy={loadingMore || undefined}
+                  disabled={backgroundRefreshing}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -1089,7 +1093,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             {searchQuery.trim() && nextCursor && (
               <div style={{ marginTop: 'var(--space-16)', display: 'flex', gap: 'var(--space-12)', justifyContent: 'center' }}>
                 <Button
-                  ref={emptyLoadMoreRef}
+                  ref={(element) => {
+                    loadMoreButtonsRef.current.empty = element;
+                  }}
                   type="button"
                   variant="secondary"
                   onClick={() => void handleLoadMore('empty')}
@@ -1150,7 +1156,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             {nextCursor && (
               <div style={{ textAlign: 'center', marginTop: 'var(--space-8)' }}>
                 <Button
-                  ref={listLoadMoreRef}
+                  ref={(element) => {
+                    loadMoreButtonsRef.current.list = element;
+                  }}
                   type="button"
                   variant="secondary"
                   onClick={() => void handleLoadMore('list')}
@@ -1172,9 +1180,21 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               focusInDetailRef.current = true;
             }}
             onBlur={(event) => {
-              if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
-                focusInDetailRef.current = false;
+              const region = event.currentTarget;
+              if (event.relatedTarget) {
+                if (!region.contains(event.relatedTarget)) focusInDetailRef.current = false;
+                return;
               }
+              // No new target: either the focused node is being removed (keep the marker so focus
+              // can be recovered) or the operator left it, e.g. clicking blank space or a button
+              // that does not take focus (Safari). A node still attached after the event means
+              // the operator left.
+              const blurred = event.target;
+              queueMicrotask(() => {
+                if (blurred.isConnected && !region.contains(document.activeElement)) {
+                  focusInDetailRef.current = false;
+                }
+              });
             }}
             role="region"
             aria-label={selectedItem ? `Detalle de ${selectedItem.displayName}` : 'Detalle de seguimiento'}

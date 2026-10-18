@@ -919,11 +919,26 @@ describe('FollowUpWorkbench AI assistance', () => {
 
       activateRecommendation();
 
+      const region = await screen.findByRole('region', { name: 'Detalle de Marcela Domínguez Peña' });
+      await waitFor(() => expect(region).toHaveFocus());
+      expect(container.querySelector('[data-customer-id="cust-2"]')).not.toHaveFocus();
+    });
+
+    it('does not pull focus into the detail after the operator left it', async () => {
+      vi.mocked(followUpApi.getFollowUpQueue).mockResolvedValue({ items: [baseItem, otherItem], nextCursor: null });
+      await renderWorkbench();
+      const inside = screen.getByRole('button', { name: 'Obtener recomendación' });
+      inside.focus();
+      // Leaving without a new focus target (blank space, or a button Safari does not focus).
+      await act(async () => {
+        inside.blur();
+      });
+
+      // Selecting another card by a click that does not focus it (Safari).
+      fireEvent.click(screen.getByRole('button', { name: /Marcela Domínguez Peña/ }));
+
       await screen.findByRole('region', { name: 'Detalle de Marcela Domínguez Peña' });
-      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
-      const region = screen.getByRole('region', { name: 'Detalle de Marcela Domínguez Peña' });
-      const card = container.querySelector('[data-customer-id="cust-2"]');
-      expect([region, card]).toContain(document.activeElement);
+      expect(document.activeElement).toBe(document.body);
     });
 
     it('moves focus to the first card on mobile when the detail closes', async () => {

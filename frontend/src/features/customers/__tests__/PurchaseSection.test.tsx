@@ -790,7 +790,7 @@ describe('PurchaseSection', () => {
 
     // Start loadMore
     fireEvent.click(screen.getByRole('button', { name: /Cargar compras anteriores/i }));
-    expect(screen.getByRole('button', { name: /Cargando\.\.\./i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Cargando\.\.\./i })).toHaveAttribute('aria-disabled', 'true');
 
     // Now record a purchase (mutation triggers loadPurchases)
     vi.spyOn(customerApi, 'recordPurchase').mockResolvedValueOnce(mockPurchases[1]);
