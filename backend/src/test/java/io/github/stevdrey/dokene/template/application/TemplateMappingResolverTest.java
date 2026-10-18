@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -48,9 +49,20 @@ class TemplateMappingResolverTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void requiresTheVerifiedParameterFormat() {
+        assertThat(new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE, "repeat_purchase_v1", "es",
+                TemplateParameterFormat.NAMED, List.of("customer_name"), 3).parameterFormat())
+                .isEqualTo(TemplateParameterFormat.NAMED);
+        assertThatThrownBy(() -> new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE,
+                "repeat_purchase_v1", "es", null, List.of(), 3))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("Parameter format is required");
+    }
+
     private static ResolvedTemplateMapping mapping(String name, String language, List<String> parameters,
             long version) {
-        return new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE, name, language, parameters,
-                version);
+        return new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE, name, language,
+                TemplateParameterFormat.POSITIONAL, parameters, version);
     }
 }

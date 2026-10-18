@@ -22,6 +22,8 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -31,7 +33,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -270,6 +274,38 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
                         row.getTimestamp("started_at").toInstant(), instant(row.getTimestamp("finished_at")),
                         row.getObject("requested_by_membership_id", UUID.class),
                         row.getObject("requested_by_actor_id", UUID.class)), tenantId, messageId);
+    }
+
+    @Override
+    public List<ExpiredClaimRef> findExpiredClaims(Instant startedBefore, Optional<UUID> afterAttemptId, int limit) {
+        return jdbc.query("""
+                SELECT tenant_id, message_id, attempt_id
+                FROM dokene.find_expired_dispatch_claims(?, ?::uuid, ?)
+                """, (row, index) -> new ExpiredClaimRef(row.getObject("tenant_id", UUID.class),
+                        row.getObject("message_id", UUID.class), row.getObject("attempt_id", UUID.class)),
+                Timestamp.from(startedBefore), afterAttemptId.orElse(null), limit);
+    }
+
+    @Override
+    public <T> Optional<T> runAsSoleRecoveryRunner(Supplier<T> run) {
+        return jdbc.execute((ConnectionCallback<Optional<T>>) connection -> {
+            if (!recoveryLock(connection, "pg_try_advisory_lock")) {
+                return Optional.empty();
+            }
+            try {
+                return Optional.ofNullable(run.get());
+            } finally {
+                recoveryLock(connection, "pg_advisory_unlock");
+            }
+        });
+    }
+
+    private static boolean recoveryLock(Connection connection, String function) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT " + function + "(hashtext('dokene'), hashtext('DISPATCH_RECOVERY'))");
+                ResultSet result = statement.executeQuery()) {
+            return result.next() && result.getBoolean(1);
+        }
     }
 
     @Override

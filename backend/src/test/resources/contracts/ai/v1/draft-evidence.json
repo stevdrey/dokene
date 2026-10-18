@@ -1,0 +1,7 @@
+{
+  "formattedLabels": {
+    "fecha de compra": "PURCHASE_DATE",
+    "estado de seguimiento": "FOLLOW_UP_STATUS"
+  },
+  "followUpStatuses": ["DUE", "OVERDUE"]
+}

@@ -47,6 +47,7 @@ public class RegistryTemplateMappingResolver implements TemplateMappingResolver 
             return new Disabled();
         }
         return new Resolved(new ResolvedTemplateMapping(mapping.intent(), mapping.providerTemplateName(),
-                mapping.language(), mapping.parameterNames(), mapping.version()));
+                mapping.language(), mapping.approval().parameterFormat(), mapping.parameterNames(),
+                mapping.version()));
     }
 }

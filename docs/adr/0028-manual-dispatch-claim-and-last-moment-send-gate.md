@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted. Implements `POST /api/messages/{messageId}/sends` as frozen by [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) §3.1, §4.2 to §4.4 and [ADR 0024](0024-phase-3-messaging-contract-freeze.md) §2 and §5. Issue: [#138](https://github.com/stevdrey/dokene/issues/138), part of epic [#130](https://github.com/stevdrey/dokene/issues/130). Delivered in two pull requests. The first adds the claim, the gate, the synchronous dispatch and migration V25. The second adds the bounded recovery processor described in §5.
+Accepted. Implements `POST /api/messages/{messageId}/sends` as frozen by [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) §3.1, §4.2 to §4.4 and [ADR 0024](0024-phase-3-messaging-contract-freeze.md) §2 and §5. Issue: [#138](https://github.com/stevdrey/dokene/issues/138), part of epic [#130](https://github.com/stevdrey/dokene/issues/130). Delivered in two pull requests. The first adds the claim, the gate, the synchronous dispatch and migration V25. The second adds the bounded recovery processor described in §5 and migration V26.
 
-Live sending stays off. The global kill switch is hardcoded to `OUTBOUND_DISABLED_GLOBALLY` until [#144](https://github.com/stevdrey/dokene/issues/144). Before anyone enables it, [#218](https://github.com/stevdrey/dokene/issues/218) (provider template component-schema verification) must also be merged, because the registry proves only status, name and language (ADR 0025).
+Live sending stays off. The global kill switch is hardcoded to `OUTBOUND_DISABLED_GLOBALLY` until [#144](https://github.com/stevdrey/dokene/issues/144). [#218](https://github.com/stevdrey/dokene/issues/218) added the provider template component-schema verification that had to precede it: the registry now records `APPROVED` only when the template's parameter schema matches the mapping, together with its verified parameter format (ADR 0025 §2a).
 
 ## Context
 
@@ -47,11 +47,11 @@ Duplicate suppression is layered:
 5. The documented abuse bounds (ADR 0024 §5), configured under `dokene.messaging`:
    - `CONTACT_FREQUENCY_EXCEEDED` when another message to the same customer has `sent_at` within `min-contact-interval` (default 24h);
    - `RATE_LIMITED` (`429`) when the tenant has started `send-rate-per-tenant-per-minute` attempts (default 30) in the last minute, counted under a per-tenant advisory lock so concurrent sends cannot all pass the count. This bound is checked last (`SendPolicyGate.requireRateBudget`), after every other step, just before the claim writes. The claim takes the lock only then and reads the clock after taking it, so the lock covers only the count and the inserts, never the rest of the policy. A claim that waited behind another one counts the window, and dates its attempt (`started_at`), from when it actually holds the budget. The response carries `Retry-After`: the whole seconds, rounded up, until the oldest counted attempt leaves the window.
-6. `ApprovalBindingAssembler.bind`. It re-resolves the template through `TemplateMappingResolver` (`Resolved` only: enabled, provider-approved for the current mapping version and business account, not older than `dokene.template.approval-max-age`). It re-renders the parameters, validates them with `TemplateParameterValues.validate` and reads the current consent revision.
+6. `ApprovalBindingAssembler.bind`. It re-resolves the template through `TemplateMappingResolver` (`Resolved` only: enabled, provider-approved with a matching parameter schema for the current mapping version and business account, not older than `dokene.template.approval-max-age`), together with its verified parameter format. It re-renders the parameters, validates them with `TemplateParameterValues.validate` and reads the current consent revision.
 7. Step 5b: the stored approval fingerprint must cover that binding, otherwise `APPROVAL_INVALIDATED`. A later mapping edit, disable, rejection, expiry, credential rotation or consent re-grant therefore voids the approval.
 8. `attemptCount < max-send-attempts` (default 3), otherwise `SEND_ATTEMPTS_EXHAUSTED`.
 
-The gate returns the `OutboundSendCommand` built from the binding that matched: exactly the bound parameter values, the message's `send_key` and the bound `SenderRevision`. Any refusal rolls the whole transaction back: no state change, attempt row, idempotency key or send audit row is written, and **zero provider calls** are made.
+The gate returns the `OutboundSendCommand` built from the binding that matched: exactly the bound parameter format, names and values, the message's `send_key` and the bound `SenderRevision`. Any refusal rolls the whole transaction back: no state change, attempt row, idempotency key or send audit row is written, and **zero provider calls** are made.
 
 ### 3. Provider call and outcome
 
@@ -74,11 +74,36 @@ If the outcome transaction fails, for example during an audit outage (`AuditPers
 - it never resends;
 - it never reports success or failure it did not record.
 
-Further sends of that message are refused. §5 turns an expired claim into an unknown outcome, and a human resolves it as `FAILED` (T12) after checking the provider side.
+Further sends of that message are refused. The recovery processor (§5) turns an expired claim into an unknown outcome, and a human resolves it as `FAILED` (T12) after checking the provider side.
 
 ### 5. Recovery processor (second PR of #138)
 
-A bounded, scheduled processor finds `STARTED` attempts older than a claim timeout across tenants. It uses a `SECURITY DEFINER` function that returns only `(tenant_id, message_id)`, in the style of `dokene.resolve_verified_whatsapp_tenant`. For each one it rebuilds the authorizing member's context, after re-validating that the membership is active and holds `MESSAGE_SEND`, and records `OutcomeUnknown`. It never calls the provider, so a crash between the claim and the record can never cause a duplicate. If the membership is no longer valid, or the outcome still cannot be recorded, the claim is left in place and logged. Recurring candidate generation remains Phase 4.
+`DispatchRecoveryProcessor` turns abandoned claims into unknown outcomes. It is bounded and scheduled (`@Scheduled` fixed delay; scheduling is enabled application wide on `DokeneApplication`, and `enabled` is the only switch for this job) and is configured under `dokene.messaging.recovery`: `enabled` (default `true`), `claim-timeout` (default 10m), `batch-size` (default 50, at most 500) and `interval` (default 1m). When recovery is enabled, startup fails unless `claim-timeout` is at least the dispatch deadline `dokene.messaging.send-timeout` (§3) plus one minute. A claim's start time is stamped before its commit and before the provider call, and the inline outcome is recorded after the deadline, so a claim only just older than the deadline may still guard a call in flight.
+
+**Finding claims.** The processor starts without any tenant scope and refuses to run inside one. Migration V26 adds `dokene.find_expired_dispatch_claims(started_before, after_attempt_id, max_rows)`, a `SECURITY DEFINER` function in the style of `dokene.resolve_verified_whatsapp_tenant`. It returns only `(tenant_id, message_id, attempt_id)` of `STARTED` attempts that began before the cutoff, ordered by attempt id after the cursor, capped at 500 rows. Each run continues after the last attempt id the previous run saw and wraps around when a page comes back short. The order is not oldest first, because a claim the processor must leave alone stays `STARTED`. An oldest-first page would return such claims on every run, and enough of them would starve every newer claim. With the cursor, every expired claim is reached within a few runs. Only one application instance runs recovery at a time: each run holds a session advisory lock on one dedicated connection, and an instance that cannot take it skips the run. That keeps instances from resolving and locking the same claims. Each instance keeps its own cursor in memory, and the row locks below still serialize the transitions if two runs ever overlap. `EXECUTE` is granted to `dokene_runtime` only. The cutoff is `clock − claim-timeout`, computed in the application, so the timeout lives in one place.
+
+**Handling each claim.**
+
+1. Under `callWithTenantId`, it re-reads the message's `STARTED` attempt and checks that it is still older than the cutoff.
+2. It re-validates the authorizing membership from the attempt row with `CurrentMembershipAuthorizer.currentMember`, which shares the membership lookup that step 4 uses but does not audit. The member is resolved by `TenantContextResolver`, the same path a request uses, so the membership and the tenant must be active. The resolved membership must also be the one the attempt names, so a member who was removed and re-invited does not count, and its role must still hold `MESSAGE_SEND`.
+3. It rebuilds that member's `TenantContext` and binds a fresh audit correlation id.
+4. In one transaction, under the customer lock and then the message lock, it:
+   - re-reads the membership through `CurrentMembershipAuthorizer` (same membership, `MESSAGE_SEND`, access to the customer), as the inline claim does. A revocation or demotion committed after step 2 therefore stops the recovery, and the denial is audited. Step 2 alone checks without auditing, so a claim that stays blocked does not write a denial row on every run;
+   - re-checks that the message is still `SENDING` without an unknown outcome and that the same attempt is still `STARTED`;
+   - applies `completeAttempt(OutcomeUnknown(empty))` (T11), completes the attempt row as `OUTCOME_UNKNOWN`, appends the `SEND_OUTCOME_UNKNOWN` event and audits `MESSAGE_SEND_OUTCOME_UNKNOWN`.
+
+The processor never calls `MessagingProvider`, so a crash between the claim and the outcome record can never cause a duplicate. The claim stays in place, and only ids are logged, when:
+
+- the membership is no longer valid;
+- the membership was revoked or demoted after step 2, or access to the customer was lost;
+- the message or customer can no longer be read in the tenant;
+- the transaction fails, for example during an audit outage.
+
+The next run tries again, and a human can still resolve the message with T12 after checking the provider side.
+
+**Concurrency.** Two processors, or a processor and a late inline outcome, may select the same claim. Whichever takes the locks second sees the claim already completed and does nothing, so exactly one transition is recorded. Startup enforces `claim-timeout` ≥ `send-timeout` + 1m (10s by default; the default `claim-timeout` is 10m). A shorter timeout would let recovery record an unknown outcome while the inline call is still running; the inline record then fails with `INVALID_TRANSITION` and the message stays `SENDING` with an unknown outcome. That is safe, but it is a worse result.
+
+Recurring candidate generation remains Phase 4.
 
 ### 6. Attribution and context
 

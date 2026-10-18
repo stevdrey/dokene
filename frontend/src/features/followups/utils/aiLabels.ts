@@ -95,3 +95,26 @@ export function confidenceLabel(confidence: number): string {
   const clamped = Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0;
   return `${Math.round(clamped * 100)}\u00a0%`;
 }
+
+// Follow-up statuses the backend can cite in draft evidence (RecommendationContext accepts only these).
+export const DRAFT_FOLLOW_UP_STATUSES = ['DUE', 'OVERDUE'] as const;
+type DraftFollowUpStatus = (typeof DRAFT_FOLLOW_UP_STATUSES)[number];
+
+const FOLLOW_UP_STATUS_LABELS: Record<DraftFollowUpStatus, string> = {
+  DUE: 'Pendiente',
+  OVERDUE: 'Vencido'
+};
+
+// Gender-neutral wording for free text, where the status may follow any noun ("La compra está con retraso").
+const FOLLOW_UP_STATUS_PHRASES: Record<DraftFollowUpStatus, string> = {
+  DUE: 'pendiente',
+  OVERDUE: 'con retraso'
+};
+
+export function followUpStatusLabel(status: string): string | undefined {
+  return lookup(FOLLOW_UP_STATUS_LABELS, status);
+}
+
+export function followUpStatusPhrase(status: string): string | undefined {
+  return lookup(FOLLOW_UP_STATUS_PHRASES, status);
+}

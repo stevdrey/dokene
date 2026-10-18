@@ -61,6 +61,13 @@ dokene:
     min-contact-interval: ${DOKENE_MESSAGING_MIN_CONTACT_INTERVAL:24h}
     send-rate-per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
     send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
+    recovery:
+      # Turns STARTED claims older than claim-timeout into unknown outcomes (ADR 0028 §5); never calls the provider.
+      # While enabled, startup fails unless claim-timeout >= dokene.messaging.send-timeout + 1m; keep it well above.
+      enabled: ${DOKENE_MESSAGING_RECOVERY_ENABLED:true}
+      claim-timeout: ${DOKENE_MESSAGING_RECOVERY_CLAIM_TIMEOUT:10m}
+      batch-size: ${DOKENE_MESSAGING_RECOVERY_BATCH_SIZE:50}
+      interval: ${DOKENE_MESSAGING_RECOVERY_INTERVAL:1m}
   template:
     # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
     approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}
