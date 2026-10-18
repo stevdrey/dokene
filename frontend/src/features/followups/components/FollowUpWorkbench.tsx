@@ -857,7 +857,6 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               <input
                 id="followup-search-input"
                 type="search"
-                aria-label="Buscar seguimientos por nombre o teléfono"
                 value={searchQuery}
                 onChange={(e) => {
                   setConflictNotice(null);

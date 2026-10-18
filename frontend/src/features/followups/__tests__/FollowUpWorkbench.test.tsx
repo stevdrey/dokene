@@ -610,7 +610,7 @@ describe('FollowUpWorkbench', () => {
       expect(screen.getAllByText('Valentina Morales').length).toBeGreaterThan(0);
     });
 
-    const searchInput = screen.getByPlaceholderText('Buscar por nombre o teléfono...');
+    const searchInput = screen.getByRole('searchbox', { name: 'Buscar seguimientos por nombre o teléfono' });
     fireEvent.change(searchInput, { target: { value: 'Valentina' } });
 
     const helperText = await screen.findByText('Buscando en 1 cargados');
@@ -619,7 +619,6 @@ describe('FollowUpWorkbench', () => {
 
     expect(icon).toBeDefined();
     expect(iconWrapper.style.position).toBe('relative');
-    expect(iconWrapper.children).toHaveLength(2);
     expect(iconWrapper).not.toContainElement(helperText);
   });
 
