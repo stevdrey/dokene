@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
 import { getCalendarDateInTimeZone } from '../components/SnoozeModal';
@@ -634,6 +634,100 @@ describe('FollowUpWorkbench', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText('Marcela Domínguez Peña').length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('focus after loading more pages', () => {
+    function deferredPage() {
+      let resolve!: (value: { items: typeof mockItems; nextCursor: string | null }) => void;
+      const promise = new Promise<{ items: typeof mockItems; nextCursor: string | null }>((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    }
+
+    it('keeps focus on "Cargar más seguimientos" while more pages remain', async () => {
+      const page2 = deferredPage();
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockImplementationOnce(() => page2.promise as any);
+
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      const loadMore = await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+      loadMore.focus();
+      fireEvent.click(loadMore);
+      // Browsers drop focus from a button disabled while loading (focus fixup); jsdom does not,
+      // so drop it to the body by focusing and removing a throwaway element.
+      const sink = document.createElement('button');
+      document.body.appendChild(sink);
+      sink.focus();
+      sink.remove();
+      expect(document.activeElement).toBe(document.body);
+
+      await act(async () => {
+        page2.resolve({ items: [mockItems[1]], nextCursor: 'cursor-page-3' });
+      });
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Cargar más seguimientos' })).toHaveFocus()
+      );
+    });
+
+    it('moves focus to the first newly loaded card when the last page removes the button', async () => {
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockResolvedValueOnce({ items: [mockItems[1]], nextCursor: null });
+
+      const { container } = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      const loadMore = await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+      loadMore.focus();
+      fireEvent.click(loadMore);
+
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: 'Cargar más seguimientos' })).not.toBeInTheDocument()
+      );
+      await waitFor(() => expect(container.querySelector('[data-customer-id="cust-2"]')).toHaveFocus());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('moves focus to the matching card after loading from the empty search state', async () => {
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockResolvedValueOnce({ items: [mockItems[1]], nextCursor: null });
+
+      const { container } = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+
+      fireEvent.change(screen.getByPlaceholderText('Buscar por nombre o teléfono...'), {
+        target: { value: 'Marcela' }
+      });
+      const loadMore = await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+      loadMore.focus();
+      fireEvent.click(loadMore);
+
+      await waitFor(() => expect(container.querySelector('[data-customer-id="cust-2"]')).toHaveFocus());
+    });
+
+    it('moves focus to the search box when "Cargar más páginas" finds no further match', async () => {
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockResolvedValueOnce({ items: [mockItems[1]], nextCursor: null });
+
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+
+      const searchInput = screen.getByPlaceholderText('Buscar por nombre o teléfono...');
+      fireEvent.change(searchInput, { target: { value: 'Valentina' } });
+      const loadMorePages = await screen.findByRole('button', { name: 'Cargar más páginas' });
+      loadMorePages.focus();
+      fireEvent.click(loadMorePages);
+
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: 'Cargar más páginas' })).not.toBeInTheDocument()
+      );
+      await waitFor(() => expect(searchInput).toHaveFocus());
     });
   });
 

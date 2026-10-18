@@ -120,6 +120,11 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const draftLabelId = useId();
   const rawValuesId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const panelHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const recHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  // Set when the operator activates a control in the panel: most actions swap the activated
+  // button for another branch's button, so focus must be recovered once the outcome renders.
+  const focusRecoveryRef = useRef(false);
 
   const assistant = useFollowUpAssistant({ customerId, policyVersion, onRequestRefresh });
   const { recommendation, draft, draftText, draftDirty, pendingDiscard, copyStatus } = assistant;
@@ -166,6 +171,17 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
       textareaRef.current?.focus();
     }
   }, [draft.kind === 'result' ? draft.data : null, showDraftEditor]);
+
+  // Runs after the editor effect above: when the activated control was removed (or disabled while
+  // loading) focus fell to the body, so move it to the recommendation heading, or the panel
+  // heading, instead of losing the operator's place. Focus moved elsewhere meanwhile is kept.
+  useEffect(() => {
+    if (busy || !focusRecoveryRef.current) return;
+    focusRecoveryRef.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    (recHeadingRef.current ?? panelHeadingRef.current)?.focus();
+  });
 
   let liveMessage = '';
   if (isStale && staleRefresh === 'pending') liveMessage = 'Actualizando la lista…';
@@ -259,6 +275,11 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   return (
     <section
       aria-labelledby={headingId}
+      onClickCapture={(event) => {
+        if (event.target instanceof Element && event.target.closest('button')) {
+          focusRecoveryRef.current = true;
+        }
+      }}
       style={{
         border: '1px solid var(--color-outline-subtle)',
         borderLeft: '4px solid var(--color-brand)',
@@ -277,6 +298,8 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
         </span>
         <h3
           id={headingId}
+          ref={panelHeadingRef}
+          tabIndex={-1}
           style={{ fontSize: 'var(--font-size-component-heading)', fontWeight: 600, color: 'var(--color-text-main)', margin: 0 }}
         >
           Asistente IA
@@ -401,7 +424,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             gap: 'var(--space-8)'
           }}
         >
-          <h4 id={recHeadingId} style={{ margin: 0, fontSize: 'var(--font-size-secondary)', fontWeight: 600, color: 'var(--color-brand)' }}>
+          <h4 id={recHeadingId} ref={recHeadingRef} tabIndex={-1} style={{ margin: 0, fontSize: 'var(--font-size-secondary)', fontWeight: 600, color: 'var(--color-brand)' }}>
             Recomendación de la IA
           </h4>
           {rec.status === 'AVAILABLE' && rec.recommendation && (

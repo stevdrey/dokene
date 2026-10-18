@@ -17,6 +17,8 @@ interface FollowUpWorkbenchProps {
 // Safety cap for the extra pages followed to find a selected customer that is still due.
 const MAX_SELECTED_SEARCH_PAGES = 20;
 
+type LoadMoreSource = 'list' | 'search' | 'empty';
+
 // Below 1024px the workbench stacks the queue and the detail.
 const MOBILE_LAYOUT_QUERY = '(max-width: 1023.98px)';
 
@@ -365,8 +367,25 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     };
   }, [activeFilter, replaceQueue]);
 
-  const handleLoadMore = async () => {
+  // Keyboard focus around paging: each "Cargar más" button is disabled while its page loads and
+  // removed once no page remains, which drops focus to the body. The activated source is
+  // remembered so focus can be put back once the page renders.
+  const listLoadMoreRef = useRef<HTMLButtonElement>(null);
+  const searchLoadMoreRef = useRef<HTMLButtonElement>(null);
+  const emptyLoadMoreRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const loadMoreFocusRef = useRef<{ source: LoadMoreSource; newIds: string[] } | null>(null);
+  const loadMoreButtonRefs: Record<LoadMoreSource, React.RefObject<HTMLButtonElement | null>> = {
+    list: listLoadMoreRef,
+    search: searchLoadMoreRef,
+    empty: emptyLoadMoreRef
+  };
+
+  const handleLoadMore = async (source: LoadMoreSource) => {
     if (!nextCursor || loadingMore || backgroundRefreshing) return;
+    const activator = loadMoreButtonRefs[source].current;
+    loadMoreFocusRef.current =
+      activator !== null && document.activeElement === activator ? { source, newIds: [] } : null;
     const currentGeneration = requestGenerationRef.current;
     const currentFilter = activeFilter;
     const controller = new AbortController();
@@ -382,10 +401,14 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         controller.signal
       );
       if (requestGenerationRef.current === currentGeneration && activeFilter === currentFilter) {
+        if (loadMoreFocusRef.current) {
+          loadMoreFocusRef.current.newIds = (page.items || []).map((item) => item.customerId);
+        }
         setItems((prev) => [...prev, ...(page.items || [])]);
         setNextCursor(page.nextCursor || null);
       }
     } catch (err) {
+      loadMoreFocusRef.current = null;
       if (err instanceof Error && err.name === 'AbortError') return;
       if (requestGenerationRef.current === currentGeneration) {
         setError(err instanceof Error ? err.message : 'Error al cargar más seguimientos.');
@@ -393,6 +416,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     } finally {
       if (requestGenerationRef.current === currentGeneration) {
         setLoadingMore(false);
+      } else {
+        loadMoreFocusRef.current = null;
       }
     }
   };
@@ -466,6 +491,31 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         ?.focus();
     }
   }, [isMobile, selectedItemId]);
+
+  // Restore focus after a page loaded from a focused "Cargar más": stay on that button while
+  // pages remain, else go to the first newly loaded visible card, else back to the search box
+  // (or the last card). Focus the operator moved elsewhere meanwhile is kept.
+  useEffect(() => {
+    const pending = loadMoreFocusRef.current;
+    if (!pending || loadingMore) return;
+    loadMoreFocusRef.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const button = loadMoreButtonRefs[pending.source].current;
+    if (button && !button.disabled) {
+      button.focus();
+      return;
+    }
+    const visibleIds = new Set(filteredItems.map((item) => item.customerId));
+    const targetId =
+      pending.newIds.find((id) => visibleIds.has(id)) ??
+      (isSearchActive ? undefined : filteredItems[filteredItems.length - 1]?.customerId);
+    const card = targetId
+      ? queueColumnRef.current?.querySelector<HTMLElement>(`[data-customer-id="${CSS.escape(targetId)}"]`)
+      : null;
+    (card ?? searchInputRef.current)?.focus();
+    // loadMoreButtonRefs only holds stable refs.
+  }, [loadingMore, filteredItems, isSearchActive]);
 
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
@@ -856,6 +906,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               </span>
               <input
                 id="followup-search-input"
+                ref={searchInputRef}
                 type="search"
                 value={searchQuery}
                 onChange={(e) => {
@@ -892,8 +943,9 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
               >
                 <span>Buscando en {items.length} cargados</span>
                 <button
+                  ref={searchLoadMoreRef}
                   type="button"
-                  onClick={handleLoadMore}
+                  onClick={() => void handleLoadMore('search')}
                   disabled={loadingMore || backgroundRefreshing}
                   style={{
                     background: 'none',
@@ -1005,9 +1057,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             {searchQuery.trim() && nextCursor && (
               <div style={{ marginTop: 'var(--space-16)', display: 'flex', gap: 'var(--space-12)', justifyContent: 'center' }}>
                 <Button
+                  ref={emptyLoadMoreRef}
                   type="button"
                   variant="secondary"
-                  onClick={handleLoadMore}
+                  onClick={() => void handleLoadMore('empty')}
                   isLoading={loadingMore}
                   disabled={backgroundRefreshing}
                 >
@@ -1065,9 +1118,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             {nextCursor && (
               <div style={{ textAlign: 'center', marginTop: 'var(--space-8)' }}>
                 <Button
+                  ref={listLoadMoreRef}
                   type="button"
                   variant="secondary"
-                  onClick={handleLoadMore}
+                  onClick={() => void handleLoadMore('list')}
                   isLoading={loadingMore}
                   disabled={backgroundRefreshing}
                 >

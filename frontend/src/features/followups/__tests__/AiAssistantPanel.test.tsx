@@ -1133,4 +1133,100 @@ describe('AiAssistantPanel', () => {
       expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
     });
   });
+
+  describe('focus is never dropped to the body when the activated control is removed', () => {
+    const noDraft: DraftResponse = {
+      ...baseDraft,
+      status: 'NO_DRAFT',
+      draft: null,
+      refusal: { reason: 'SAFETY_VIOLATION', rationale: 'El texto inventaba una oferta.', confidence: 0.9 },
+      refusalReason: 'SAFETY_VIOLATION'
+    };
+
+    function activate(name: string) {
+      const button = screen.getByRole('button', { name });
+      button.focus();
+      fireEvent.click(button);
+    }
+
+    it('moves focus to the recommendation heading when the recommendation arrives', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      renderPanel();
+
+      activate('Obtener recomendación');
+
+      const heading = await screen.findByRole('heading', { name: 'Recomendación de la IA' });
+      await waitFor(() => expect(heading).toHaveFocus());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('moves focus to the panel heading when the recommendation request fails', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new Error('boom'));
+      renderPanel();
+
+      activate('Obtener recomendación');
+
+      await screen.findByText(/No pudimos consultar al asistente IA/);
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Asistente IA' })).toHaveFocus());
+    });
+
+    it('keeps focus in the panel when "Regenerar borrador" ends without a draft', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      const draft = vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: noDraft, version: 3 });
+      renderPanel();
+
+      await getRecommendation();
+      activate('Generar borrador');
+      await screen.findByText(/La IA no pudo redactar un borrador/);
+
+      activate('Regenerar borrador');
+      await waitFor(() => expect(draft).toHaveBeenCalledTimes(2));
+      await screen.findByRole('button', { name: 'Regenerar borrador' });
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Recomendación de la IA' })).toHaveFocus()
+      );
+    });
+
+    it('moves focus to the editor after confirming a discard', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      renderPanel();
+
+      await getRecommendation();
+      activate('Generar borrador');
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mis cambios' } });
+
+      activate('Regenerar borrador');
+      activate('Reemplazar mis cambios');
+
+      await waitFor(() =>
+        expect(screen.getByLabelText('Borrador del mensaje (editable)')).toHaveValue(baseDraft.draft!.body)
+      );
+      await waitFor(() => expect(screen.getByLabelText('Borrador del mensaje (editable)')).toHaveFocus());
+    });
+
+    it('does not take focus back when the operator moved it elsewhere while loading', async () => {
+      const pending = deferred<{ data: RecommendationResponse; version: number }>();
+      vi.spyOn(followUpApi, 'requestRecommendation').mockReturnValue(pending.promise);
+      render(
+        <>
+          <button type="button">Fuera del panel</button>
+          <AiAssistantPanel customerId="c-1" policyVersion={3} canUseAi onRequestRefresh={vi.fn().mockResolvedValue(true)} />
+        </>
+      );
+
+      activate('Obtener recomendación');
+      const outside = screen.getByRole('button', { name: 'Fuera del panel' });
+      outside.focus();
+
+      await act(async () => {
+        pending.resolve({ data: baseRec, version: 3 });
+      });
+
+      await screen.findByRole('heading', { name: 'Recomendación de la IA' });
+      expect(outside).toHaveFocus();
+    });
+  });
 });
