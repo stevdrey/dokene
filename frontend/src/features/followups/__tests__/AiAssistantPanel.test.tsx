@@ -221,6 +221,71 @@ describe('AiAssistantPanel', () => {
     expect(screen.getByText('Verifica el stock antes de ofrecer.')).toBeInTheDocument();
   });
 
+  it('shows machine evidence and warning values in Spanish without exposing the raw values', async () => {
+    const draftWithMachineValues: DraftResponse = {
+      ...baseDraft,
+      draft: {
+        ...baseDraft.draft!,
+        evidence: [
+          'Compra reciente: Café molido',
+          'Fecha de compra: 2026-01-10T14:00:00Z',
+          'Estado de seguimiento: OVERDUE'
+        ],
+        warnings: ['La compra del 2026-01-10T14:00:00Z está OVERDUE.']
+      }
+    };
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+    vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: draftWithMachineValues, version: 3 });
+    renderPanel();
+
+    await getRecommendation();
+    fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+    await screen.findByLabelText('Borrador del mensaje (editable)');
+
+    for (const text of [
+      'Compra reciente: Café molido',
+      'Fecha de compra: 10 ene 2026',
+      'Estado de seguimiento: Vencido',
+      'La compra del 10 ene 2026 está con retraso.'
+    ]) {
+      const item = screen.getByText(text);
+      expect(item).toHaveAccessibleName('');
+      expect(item).toHaveAccessibleDescription('');
+    }
+    // Collapsed by default: the raw machine values are not in the DOM, so assistive technology never gets them unasked.
+    expect(document.body.innerHTML).not.toContain('2026-01-10T14:00:00Z');
+    expect(document.body.innerHTML).not.toContain('OVERDUE');
+
+    const toggle = screen.getByRole('button', { name: 'Ver valores originales' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveAccessibleName('Ocultar valores originales');
+    const rawList = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+    expect(Array.from(rawList.querySelectorAll('li'), (li) => li.textContent)).toEqual([
+      'Fecha de compra: 2026-01-10T14:00:00Z',
+      'Estado de seguimiento: OVERDUE',
+      'La compra del 2026-01-10T14:00:00Z está OVERDUE.'
+    ]);
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.body.innerHTML).not.toContain('OVERDUE');
+  });
+
+  it('offers no raw-values toggle when nothing was reformatted', async () => {
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+    vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+    renderPanel();
+
+    await getRecommendation();
+    fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+    await screen.findByLabelText('Borrador del mensaje (editable)');
+
+    expect(screen.queryByRole('button', { name: 'Ver valores originales' })).not.toBeInTheDocument();
+  });
+
   it('moves focus to the draft editor when the draft arrives', async () => {
     vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
     vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
