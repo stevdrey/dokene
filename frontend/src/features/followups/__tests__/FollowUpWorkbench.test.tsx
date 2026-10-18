@@ -710,6 +710,21 @@ describe('FollowUpWorkbench', () => {
       await waitFor(() => expect(container.querySelector('[data-customer-id="cust-2"]')).toHaveFocus());
     });
 
+    it('moves focus to "Reintentar" when loading a page fails', async () => {
+      vi.spyOn(followUpApi, 'getFollowUpQueue')
+        .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })
+        .mockRejectedValueOnce(new Error('Fallo de red'));
+
+      render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+
+      const loadMore = await screen.findByRole('button', { name: 'Cargar más seguimientos' });
+      loadMore.focus();
+      fireEvent.click(loadMore);
+
+      const retry = await screen.findByRole('button', { name: 'Reintentar' });
+      await waitFor(() => expect(retry).toHaveFocus());
+    });
+
     it('moves focus to the search box when "Cargar más páginas" finds no further match', async () => {
       vi.spyOn(followUpApi, 'getFollowUpQueue')
         .mockResolvedValueOnce({ items: [mockItems[0]], nextCursor: 'cursor-page-2' })

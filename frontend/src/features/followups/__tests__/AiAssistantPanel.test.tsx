@@ -1207,6 +1207,27 @@ describe('AiAssistantPanel', () => {
       await waitFor(() => expect(screen.getByLabelText('Borrador del mensaje (editable)')).toHaveFocus());
     });
 
+    it('waits for the queue refresh an INELIGIBLE result triggers before moving focus', async () => {
+      const ineligibleEvaluation = { ...evaluation, eligible: false, status: 'INELIGIBLE' as const, reasons: ['DO_NOT_CONTACT' as const] };
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      const refresh = deferred<boolean>();
+      const { props } = renderPanel({ onRequestRefresh: vi.fn().mockReturnValue(refresh.promise) });
+
+      activate('Obtener recomendación');
+      await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledWith('ineligible'));
+      const heading = screen.getByRole('heading', { name: 'Asistente IA' });
+      expect(heading).not.toHaveFocus();
+
+      await act(async () => {
+        refresh.resolve(true);
+      });
+
+      await waitFor(() => expect(heading).toHaveFocus());
+    });
+
     it('does not take focus back when the operator moved it elsewhere while loading', async () => {
       const pending = deferred<{ data: RecommendationResponse; version: number }>();
       vi.spyOn(followUpApi, 'requestRecommendation').mockReturnValue(pending.promise);

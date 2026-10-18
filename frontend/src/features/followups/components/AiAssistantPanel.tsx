@@ -175,8 +175,11 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   // Runs after the editor effect above: when the activated control was removed (or disabled while
   // loading) focus fell to the body, so move it to the recommendation heading, or the panel
   // heading, instead of losing the operator's place. Focus moved elsewhere meanwhile is kept.
+  // A queue refresh still in flight may remove this detail, so recovery waits for it to settle
+  // (the workbench recovers focus if the detail is gone).
+  const refreshPending = staleRefresh === 'pending' || assistant.ineligibleRefresh === 'pending';
   useEffect(() => {
-    if (busy || !focusRecoveryRef.current) return;
+    if (busy || refreshPending || !focusRecoveryRef.current) return;
     focusRecoveryRef.current = false;
     const active = document.activeElement;
     if (active && active !== document.body && active.isConnected) return;

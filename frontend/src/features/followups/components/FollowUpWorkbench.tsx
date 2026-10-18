@@ -374,6 +374,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const searchLoadMoreRef = useRef<HTMLButtonElement>(null);
   const emptyLoadMoreRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
   const loadMoreFocusRef = useRef<{ source: LoadMoreSource; newIds: string[] } | null>(null);
   const loadMoreButtonRefs: Record<LoadMoreSource, React.RefObject<HTMLButtonElement | null>> = {
     list: listLoadMoreRef,
@@ -408,8 +409,10 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
         setNextCursor(page.nextCursor || null);
       }
     } catch (err) {
-      loadMoreFocusRef.current = null;
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (err instanceof Error && err.name === 'AbortError') {
+        loadMoreFocusRef.current = null;
+        return;
+      }
       if (requestGenerationRef.current === currentGeneration) {
         setError(err instanceof Error ? err.message : 'Error al cargar más seguimientos.');
       }
@@ -465,6 +468,8 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
   const queueColumnRef = useRef<HTMLDivElement>(null);
   const detailRegionRef = useRef<HTMLDivElement>(null);
   const returnFocusCustomerIdRef = useRef<string | null>(null);
+  // Whether focus was last inside the detail; removing the focused node keeps it set.
+  const focusInDetailRef = useRef(false);
 
   const handleBackToList = useCallback(() => {
     setSelectedCustomerId((prevId) => {
@@ -492,6 +497,27 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     }
   }, [isMobile, selectedItemId]);
 
+  // When the detail holding focus is replaced or removed (a queue refresh or disposition took the
+  // customer out of the queue), focus would fall to the body: move it to the new customer's
+  // detail, or to the first card when no customer is shown. Runs after the mobile effect above,
+  // so returning to the operator's card from "Volver" still wins.
+  useEffect(() => {
+    if (!focusInDetailRef.current) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) {
+      // e.g. "Volver" already returned focus to the card: the detail no longer holds it.
+      if (!detailRegionRef.current?.contains(active)) focusInDetailRef.current = false;
+      return;
+    }
+    if (selectedItemId) {
+      detailRegionRef.current?.focus();
+      return;
+    }
+    focusInDetailRef.current = false;
+    const firstCard = queueColumnRef.current?.querySelector<HTMLElement>('[data-customer-id]');
+    (firstCard ?? searchInputRef.current)?.focus();
+  }, [isMobile, selectedItemId]);
+
   // Restore focus after a page loaded from a focused "Cargar más": stay on that button while
   // pages remain, else go to the first newly loaded visible card, else back to the search box
   // (or the last card). Focus the operator moved elsewhere meanwhile is kept.
@@ -501,6 +527,11 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
     loadMoreFocusRef.current = null;
     const active = document.activeElement;
     if (active && active !== document.body && active.isConnected) return;
+    if (error) {
+      // A failed page replaces the queue with the error view.
+      retryButtonRef.current?.focus();
+      return;
+    }
     const button = loadMoreButtonRefs[pending.source].current;
     if (button && !button.disabled) {
       button.focus();
@@ -515,7 +546,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
       : null;
     (card ?? searchInputRef.current)?.focus();
     // loadMoreButtonRefs only holds stable refs.
-  }, [loadingMore, filteredItems, isSearchActive]);
+  }, [loadingMore, filteredItems, isSearchActive, error]);
 
   // Stats calculation
   const dueTodayCount = items.filter((i) => i.status === 'DUE').length;
@@ -1014,6 +1045,7 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             </p>
           </div>
           <Button
+            ref={retryButtonRef}
             type="button"
             variant="primary"
             onClick={() => replaceQueue(activeFilter === 'OVERDUE' ? 'OVERDUE' : undefined)}
@@ -1136,6 +1168,14 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
             ref={detailRegionRef}
             className="follow-up-detail-region"
             tabIndex={-1}
+            onFocus={() => {
+              focusInDetailRef.current = true;
+            }}
+            onBlur={(event) => {
+              if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+                focusInDetailRef.current = false;
+              }
+            }}
             role="region"
             aria-label={selectedItem ? `Detalle de ${selectedItem.displayName}` : 'Detalle de seguimiento'}
             hidden={isMobile && !selectedItem}

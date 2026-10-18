@@ -879,4 +879,66 @@ describe('FollowUpWorkbench AI assistance', () => {
       expect(screen.queryByText(/ya no es elegible para seguimiento/)).not.toBeInTheDocument();
     });
   });
+
+  describe('focus when an AI-triggered refresh removes the focused detail (Issue #197)', () => {
+    const otherItem: QueueItemResponse = { ...baseItem, customerId: 'cust-2', displayName: 'Marcela Domínguez Peña' };
+    const ineligible: RecommendationResponse = {
+      ...recommendation,
+      status: 'INELIGIBLE',
+      recommendation: null,
+      rejectionReason: 'NO_CONTACT_CONSENT',
+      evaluation: {
+        customerId: 'cust-1',
+        eligible: false,
+        status: 'INELIGIBLE',
+        reasons: ['DO_NOT_CONTACT'],
+        evaluatedAt: '2026-09-15T12:00:00Z',
+        tenantDate: '2026-09-15',
+        tenantTimeZone: 'America/Santiago',
+        nextFollowUpDate: null,
+        timingSource: 'NONE',
+        effectiveCadenceDays: 60,
+        lastPurchaseAt: null
+      }
+    };
+
+    afterEach(() => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    });
+
+    function activateRecommendation() {
+      const button = screen.getByRole('button', { name: 'Obtener recomendación' });
+      button.focus();
+      fireEvent.click(button);
+    }
+
+    it('moves focus into the next customer on desktop instead of the body', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: ineligible, version: 2 });
+      const { container } = await renderWorkbench();
+      vi.mocked(followUpApi.getFollowUpQueue).mockResolvedValue({ items: [otherItem], nextCursor: null });
+
+      activateRecommendation();
+
+      await screen.findByRole('region', { name: 'Detalle de Marcela Domínguez Peña' });
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+      const region = screen.getByRole('region', { name: 'Detalle de Marcela Domínguez Peña' });
+      const card = container.querySelector('[data-customer-id="cust-2"]');
+      expect([region, card]).toContain(document.activeElement);
+    });
+
+    it('moves focus to the first card on mobile when the detail closes', async () => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 768 });
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: ineligible, version: 2 });
+      const { container } = render(<FollowUpWorkbench onNavigateToCustomer={onNavigateToCustomer} />);
+      const card = await screen.findByRole('button', { name: /Valentina Morales/ });
+      card.focus();
+      fireEvent.keyDown(card, { key: 'Enter' });
+      await screen.findByRole('button', { name: 'Obtener recomendación' });
+      vi.mocked(followUpApi.getFollowUpQueue).mockResolvedValue({ items: [otherItem], nextCursor: null });
+
+      activateRecommendation();
+
+      await waitFor(() => expect(container.querySelector('[data-customer-id="cust-2"]')).toHaveFocus());
+    });
+  });
 });
