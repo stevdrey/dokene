@@ -28,6 +28,16 @@ public final class SecretBindFailureAnalyzer extends AbstractFailureAnalyzer<Bin
         return new FailureAnalysis(description,
                 "Keep dokene.integration.secrets.local.entries[<n>] indices contiguous from 0 and give each entry only "
                         + "the fields scope, tenant-id, ref, purpose and value. Values are never printed here.",
-                cause);
+                new SecretBindFailure(description));
+    }
+
+    /**
+     * Boot's reporter logs the analysis cause with its stack trace at debug level. The raw bind exception keeps every
+     * unbound {@code ConfigurationProperty}, value included, so the analysis carries this closed throwable instead.
+     */
+    static final class SecretBindFailure extends RuntimeException {
+        private SecretBindFailure(String description) {
+            super(description, null, false, false);
+        }
     }
 }

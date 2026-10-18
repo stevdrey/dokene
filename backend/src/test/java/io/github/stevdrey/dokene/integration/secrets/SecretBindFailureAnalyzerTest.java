@@ -6,6 +6,7 @@ import static io.github.stevdrey.dokene.integration.secrets.SecretCanaries.conta
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,7 +33,27 @@ class SecretBindFailureAnalyzerTest {
         assertGapReportedWithoutValues("", output);
     }
 
+    /**
+     * Boot's reporter logs the analysis cause with its stack trace at debug level, so the cause handed to the
+     * analysis must not be the raw bind exception, which keeps the unbound values.
+     */
+    @Test
+    void aGapInTheEntryIndicesIsReportedByNameOnlyWithDiagnosticsAtDebugLevel(CapturedOutput output) {
+        assertGapReportedWithoutValues("local", output,
+                Map.of("logging.level.org.springframework.boot.diagnostics", "DEBUG"));
+
+        assertThat(output.getAll())
+                .contains("Application failed to start due to an exception")
+                .contains(SecretBindFailureAnalyzer.SecretBindFailure.class.getName())
+                .doesNotContain("BindException: Failed to bind properties");
+    }
+
     private static void assertGapReportedWithoutValues(String source, CapturedOutput output) {
+        assertGapReportedWithoutValues(source, output, Map.of());
+    }
+
+    private static void assertGapReportedWithoutValues(String source, CapturedOutput output,
+            Map<String, Object> extraProperties) {
         String tenantId = UUID.randomUUID().toString();
         String ref = SecretCanaries.ref();
         String value = SecretCanaries.value();
@@ -51,10 +72,12 @@ class SecretBindFailureAnalyzerTest {
                 Map.entry(ENTRIES + "[2].ref", strandedRef),
                 Map.entry(ENTRIES + "[2].purpose", "APP_SECRET"),
                 Map.entry(ENTRIES + "[2].value", strandedValue));
+        Map<String, Object> allProperties = new HashMap<>(properties);
+        allProperties.putAll(extraProperties);
 
         Throwable failure = catchThrowable(() -> new SpringApplicationBuilder(IntegrationSecretsConfiguration.class)
                 .web(WebApplicationType.NONE)
-                .properties(properties)
+                .properties(allProperties)
                 .run());
 
         assertThat(failure).isNotNull();
