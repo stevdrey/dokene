@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@/shared/components/Button';
 import {
   useFollowUpAssistant,
@@ -118,6 +118,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const headingId = useId();
   const recHeadingId = useId();
   const draftLabelId = useId();
+  const rawValuesId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const assistant = useFollowUpAssistant({ customerId, policyVersion, onRequestRefresh });
@@ -141,6 +142,20 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   }
   const draftData: DraftResponse | null = draft.kind === 'result' ? draft.data : null;
   const draftTimeZone = draftData?.evaluation?.tenantTimeZone ?? null;
+  const shownDraft = draftData?.draft ?? null;
+  // Formatted once per draft, not on every keystroke in the editor.
+  const draftFacts = useMemo(() => {
+    if (shownDraft === null) {
+      return null;
+    }
+    const evidence = shownDraft.evidence.map((raw) => ({ raw, text: formatEvidenceEntry(raw, draftTimeZone) }));
+    const warnings = shownDraft.warnings.map((raw) => ({ raw, text: formatWarningText(raw, draftTimeZone) }));
+    const changedRaw = [...evidence, ...warnings].filter((entry) => entry.text !== entry.raw).map((entry) => entry.raw);
+    return { evidence, warnings, changedRaw };
+  }, [shownDraft, draftTimeZone]);
+  // Tied to the draft it was opened for, so a new draft starts collapsed without an effect.
+  const [rawValuesShownFor, setRawValuesShownFor] = useState<typeof shownDraft>(null);
+  const rawValuesShown = shownDraft !== null && rawValuesShownFor === shownDraft;
   const keptDraft = isStale && draftDirty && draftText !== '';
 
   const showRecommendation = recData !== null && !isStale;
@@ -488,24 +503,47 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
             <span>{countCodePoints(draftText)} / {DRAFT_BODY_MAX_CODE_POINTS}</span>
           </div>
 
-          {draftData.draft.evidence.length > 0 && (
+          {draftFacts !== null && draftFacts.evidence.length > 0 && (
             <div>
               <div style={labelStyle}>Datos en los que se basa</div>
               <ul style={{ ...bodyTextStyle, paddingLeft: 'var(--space-16)' }}>
-                {draftData.draft.evidence.map((entry, index) => (
-                  <li key={`${index}-${entry}`}>{formatEvidenceEntry(entry, draftTimeZone)}</li>
+                {draftFacts.evidence.map((entry, index) => (
+                  <li key={`${index}-${entry.raw}`}>{entry.text}</li>
                 ))}
               </ul>
             </div>
           )}
-          {draftData.draft.warnings.length > 0 && (
+          {draftFacts !== null && draftFacts.warnings.length > 0 && (
             <div>
               <div style={labelStyle}>Advertencias para revisar</div>
               <ul style={{ ...bodyTextStyle, paddingLeft: 'var(--space-16)' }}>
-                {draftData.draft.warnings.map((entry, index) => (
-                  <li key={`${index}-${entry}`}>{formatWarningText(entry, draftTimeZone)}</li>
+                {draftFacts.warnings.map((entry, index) => (
+                  <li key={`${index}-${entry.raw}`}>{entry.text}</li>
                 ))}
               </ul>
+            </div>
+          )}
+          {draftFacts !== null && draftFacts.changedRaw.length > 0 && (
+            <div>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={rawValuesShown}
+                aria-controls={rawValuesId}
+                onClick={() => setRawValuesShownFor(rawValuesShown ? null : shownDraft)}
+              >
+                {rawValuesShown ? 'Ocultar valores originales' : 'Ver valores originales'}
+              </Button>
+              {/* Raw machine values stay out of the DOM until asked for, so screen readers never announce them unasked. */}
+              <div id={rawValuesId}>
+                {rawValuesShown && (
+                  <ul style={{ ...noteStyle, paddingLeft: 'var(--space-16)' }}>
+                    {draftFacts.changedRaw.map((raw, index) => (
+                      <li key={`${index}-${raw}`}>{raw}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
 

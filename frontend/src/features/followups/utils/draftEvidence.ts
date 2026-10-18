@@ -4,79 +4,67 @@
 // (ADR 0018 `Label: Value`), so the model echoes raw machine values such as
 // `2026-01-10T14:00:00Z` or `OVERDUE`. These helpers only change what the operator
 // reads; the draft sent or validated is never touched. Values arrive from the network,
-// so anything unrecognized is returned unchanged. The raw value is not kept in a `title`
-// or hidden text: either would expose it to screen readers, which is what #194 avoids.
+// so anything unrecognized is returned unchanged. The panel keeps the raw values behind
+// an explicit disclosure instead of a `title` or hidden text, which screen readers would
+// announce unasked.
 
-const FOLLOW_UP_STATUS_LABELS: Record<'DUE' | 'OVERDUE', string> = {
-  DUE: 'Pendiente',
-  OVERDUE: 'Vencido'
-};
+import { followUpStatusLabel, followUpStatusPhrase } from '@/features/followups/utils/aiLabels';
+import {
+  formatCalendarDate,
+  formatInstantDate,
+  ISO_DATE_SOURCE,
+  ISO_INSTANT_SOURCE
+} from '@/features/followups/utils/dateUtils';
 
-const ISO_INSTANT_PATTERN =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):(\d{2}))$/;
-// `\b` treats accented letters as non-word characters (e.g. `DUEÑO`), so tokens are
-// bounded by Unicode-aware lookarounds instead.
-const EMBEDDED_ISO_INSTANT_PATTERN =
-  /(?<![\p{L}\p{N}_])\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})(?![\p{L}\p{N}_])/gu;
-const EMBEDDED_STATUS_PATTERN = /(?<![\p{L}\p{N}_])(?:OVERDUE|DUE)(?![\p{L}\p{N}_])/gu;
+/**
+ * Evidence labels whose values are formatted, as `DraftGroundingContext.sourceForLabel`
+ * resolves them (pinned by `contracts/ai/v1/draft-evidence.json`).
+ */
+export const FORMATTED_EVIDENCE_LABELS = {
+  'fecha de compra': 'PURCHASE_DATE',
+  'estado de seguimiento': 'FOLLOW_UP_STATUS'
+} as const;
 
-function followUpStatusLabel(value: string): string | undefined {
-  return Object.prototype.hasOwnProperty.call(FOLLOW_UP_STATUS_LABELS, value)
-    ? FOLLOW_UP_STATUS_LABELS[value as keyof typeof FOLLOW_UP_STATUS_LABELS]
+type FormattedEvidenceKind = (typeof FORMATTED_EVIDENCE_LABELS)[keyof typeof FORMATTED_EVIDENCE_LABELS];
+
+// Mirrors DraftSafetyValidator.FORMAT_CHARACTER_PATTERN: invisible characters the backend drops
+// before comparing a cited value with the authoritative field.
+const FORMAT_CHARACTERS =
+  /[\p{Cf}­͏؜ᅟ-ᅠ឴-឵᠋-᠏⁥ㅤ︀-️ﾠ￰-￸\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}]/gu;
+
+// Tokens inside free text are bounded by Unicode-aware lookarounds (`\b` treats `Ñ` as a
+// boundary in `DUEÑO`), and a hyphen or slash joined to a word (`DUE-DATE`) is not a boundary.
+const BEFORE_TOKEN = '(?<![\\p{L}\\p{N}_]|[\\p{L}\\p{N}_][-/])';
+const AFTER_TOKEN = '(?![\\p{L}\\p{N}_]|[-/][\\p{L}\\p{N}_])';
+const EMBEDDED_INSTANT_PATTERN = new RegExp(`${BEFORE_TOKEN}${ISO_INSTANT_SOURCE}${AFTER_TOKEN}`, 'gu');
+const EMBEDDED_DATE_PATTERN = new RegExp(`${BEFORE_TOKEN}${ISO_DATE_SOURCE}(?![Tt]\\d)${AFTER_TOKEN}`, 'gu');
+const EMBEDDED_STATUS_PATTERN = new RegExp(`${BEFORE_TOKEN}(?:OVERDUE|DUE)${AFTER_TOKEN}`, 'gu');
+
+/** Canonicalizes a cited value the way the backend does before its exact match (NFKC, no format characters). */
+function canonicalValue(value: string): string {
+  return value.normalize('NFKC').replace(FORMAT_CHARACTERS, '').normalize('NFKC').trim();
+}
+
+function formattedEvidenceKind(label: string): FormattedEvidenceKind | undefined {
+  const key = label.toLowerCase();
+  return Object.prototype.hasOwnProperty.call(FORMATTED_EVIDENCE_LABELS, key)
+    ? FORMATTED_EVIDENCE_LABELS[key as keyof typeof FORMATTED_EVIDENCE_LABELS]
     : undefined;
 }
 
-// `Date` silently normalizes calendar-invalid values (`2026-02-30` becomes March 2,
-// `T24:00` the next day), so the components are checked before parsing.
-function isValidInstantParts(match: RegExpExecArray): boolean {
-  const [, year, month, day, hour, minute, second = '0', offsetHour = '0', offsetMinute = '0'] = match;
-  const calendarDay = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  return (
-    calendarDay.getUTCFullYear() === Number(year) &&
-    calendarDay.getUTCMonth() === Number(month) - 1 &&
-    calendarDay.getUTCDate() === Number(day) &&
-    Number(hour) < 24 &&
-    Number(minute) < 60 &&
-    Number(second) < 60 &&
-    Number(offsetHour) < 24 &&
-    Number(offsetMinute) < 60
-  );
-}
-
-function formatInstant(value: string, timeZone: string | null): string | undefined {
-  const match = ISO_INSTANT_PATTERN.exec(value);
-  if (match === null || !isValidInstantParts(match)) {
-    return undefined;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-  const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
-  if (timeZone) {
-    try {
-      return new Intl.DateTimeFormat('es-CL', { ...options, timeZone }).format(date);
-    } catch {
-      // Unknown time zone: fall back to the browser's zone below.
-    }
-  }
-  return new Intl.DateTimeFormat('es-CL', options).format(date);
-}
-
-function formatValue(label: string, value: string, timeZone: string | null): string | undefined {
-  switch (label.toLowerCase()) {
-    case 'fecha de compra':
-      return formatInstant(value, timeZone);
-    case 'estado de seguimiento':
-      return followUpStatusLabel(value);
-    default:
-      return undefined;
+function formatValue(kind: FormattedEvidenceKind, value: string, timeZone: string | null): string | undefined {
+  const canonical = canonicalValue(value);
+  switch (kind) {
+    case 'PURCHASE_DATE':
+      return formatInstantDate(canonical, timeZone ?? undefined) ?? undefined;
+    case 'FOLLOW_UP_STATUS':
+      return followUpStatusLabel(canonical.toUpperCase());
   }
 }
 
 /**
  * Formats a `Label: Value` evidence entry for known labels. Splits on the first colon
- * only (ISO times contain colons) and matches the label case-insensitively, as the
+ * only (ISO times contain colons) and matches label and value case-insensitively, as the
  * backend validator does.
  */
 export function formatEvidenceEntry(entry: string, timeZone: string | null): string {
@@ -85,17 +73,19 @@ export function formatEvidenceEntry(entry: string, timeZone: string | null): str
     return entry;
   }
   const label = entry.slice(0, separator).trim();
-  const value = entry.slice(separator + 1).trim();
-  const formattedValue = formatValue(label, value, timeZone);
+  const kind = formattedEvidenceKind(label);
+  const formattedValue = kind === undefined ? undefined : formatValue(kind, entry.slice(separator + 1), timeZone);
   return formattedValue === undefined ? entry : `${label}: ${formattedValue}`;
 }
 
 /**
- * Best-effort formatting for free-text warnings: replaces embedded ISO instants and
- * upper-case follow-up status tokens, leaving the rest of the text untouched.
+ * Best-effort formatting for free-text warnings: replaces embedded ISO instants, ISO
+ * calendar dates and upper-case follow-up status tokens (with gender-neutral wording),
+ * leaving the rest of the text untouched.
  */
 export function formatWarningText(warning: string, timeZone: string | null): string {
   return warning
-    .replace(EMBEDDED_ISO_INSTANT_PATTERN, (match) => formatInstant(match, timeZone) ?? match)
-    .replace(EMBEDDED_STATUS_PATTERN, (match) => followUpStatusLabel(match) ?? match);
+    .replace(EMBEDDED_INSTANT_PATTERN, (match) => formatInstantDate(match, timeZone ?? undefined) ?? match)
+    .replace(EMBEDDED_DATE_PATTERN, (match) => formatCalendarDate(match) ?? match)
+    .replace(EMBEDDED_STATUS_PATTERN, (match) => followUpStatusPhrase(match) ?? match);
 }
