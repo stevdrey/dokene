@@ -1,0 +1,13 @@
+browser Firefox 158.0
+firefox 320x568 1-detail: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x568 2-recommendation: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x568 3-draft: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x568 4-editor: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x568 5-dialog-posponer: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=true
+firefox 320x568 6-dialog-descartar: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=true
+firefox 320x256-dpr4 1-detail: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x256-dpr4 2-recommendation: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x256-dpr4 3-draft: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x256-dpr4 4-editor: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=false
+firefox 320x256-dpr4 5-dialog-posponer: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=true
+firefox 320x256-dpr4 6-dialog-descartar: vw=320 clientW=308 docScrollW=308 overflow=false beyond=0 pill=41..267 h=80 dialogOpen=true
