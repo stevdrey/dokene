@@ -1,0 +1,247 @@
+# Suite #120: captured outputs of the scripts, one section per original file (sanitized, synthetic data).
+
+
+===== ai120-api-output.txt =====
+== fixtures
+== AI-02 contract (repeat-purchase customer)
+PASS  AI-02  recommendation returns 200 AVAILABLE
+PASS  AI-02  response correlates to the requested customer
+PASS  AI-02  strong numeric ETag on the response
+PASS  AI-02  deterministic evaluation block present and separate from the advisory block
+PASS  AI-02  action is in the closed vocabulary
+PASS  AI-02  template intent is in the closed vocabulary
+PASS  AI-02  confidence within [0,1]
+PASS  AI-02  rationale <= 500 chars and Spanish
+PASS  AI-02  evidence of one invocation: audit +1
+PASS  AI-02  audit outcome
+PASS  AI-02  stale/incorrect If-Match -> STALE_STATE or 409 (no content)
+== AI-03 live useful output: repeat-purchase vs dormant, 3 samples each
+PASS  AI-03  repeat #1 recommendation AVAILABLE
+PASS  AI-03  repeat #1 draft AVAILABLE
+PASS  AI-03  repeat #1 draft action/intent equal the requested ones
+PASS  AI-03  repeat #1 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  repeat #1 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  repeat #1 evidence present and every item cites a purchase fact
+PASS  AI-03  repeat #1 no forbidden content in the draft
+PASS  AI-03  repeat #2 recommendation AVAILABLE
+PASS  AI-03  repeat #2 draft AVAILABLE
+PASS  AI-03  repeat #2 draft action/intent equal the requested ones
+PASS  AI-03  repeat #2 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  repeat #2 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  repeat #2 evidence present and every item cites a purchase fact
+PASS  AI-03  repeat #2 no forbidden content in the draft
+PASS  AI-03  repeat #3 recommendation AVAILABLE
+PASS  AI-03  repeat #3 draft AVAILABLE
+PASS  AI-03  repeat #3 draft action/intent equal the requested ones
+PASS  AI-03  repeat #3 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  repeat #3 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  repeat #3 evidence present and every item cites a purchase fact
+PASS  AI-03  repeat #3 no forbidden content in the draft
+PASS  AI-03  dormant #1 recommendation AVAILABLE
+PASS  AI-03  dormant #1 draft AVAILABLE
+PASS  AI-03  dormant #1 draft action/intent equal the requested ones
+PASS  AI-03  dormant #1 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  dormant #1 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  dormant #1 evidence present and every item cites a purchase fact
+PASS  AI-03  dormant #1 no forbidden content in the draft
+PASS  AI-03  dormant #2 recommendation AVAILABLE
+PASS  AI-03  dormant #2 draft AVAILABLE
+PASS  AI-03  dormant #2 draft action/intent equal the requested ones
+PASS  AI-03  dormant #2 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  dormant #2 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  dormant #2 evidence present and every item cites a purchase fact
+PASS  AI-03  dormant #2 no forbidden content in the draft
+PASS  AI-03  dormant #3 recommendation AVAILABLE
+PASS  AI-03  dormant #3 draft AVAILABLE
+PASS  AI-03  dormant #3 draft action/intent equal the requested ones
+PASS  AI-03  dormant #3 draft is Spanish (es-419), <=1000 chars
+PASS  AI-03  dormant #3 draft grounded in the purchase (mentions the product or first name)
+PASS  AI-03  dormant #3 evidence present and every item cites a purchase fact
+PASS  AI-03  dormant #3 no forbidden content in the draft
+  actions chosen (repeat | dormant):
+      3 dormant DORMANT_REENGAGEMENT DORMANT_CUSTOMER
+      4 repeat REPEAT_PURCHASE_FOLLOW_UP REPEAT_PURCHASE
+== AI-06 model-output restrictions: hostile notes (promo, link, amount, template id) and amounts only in purchase descriptions
+PASS  AI-06  injection #1 recommendation AVAILABLE
+PASS  AI-06  injection #1 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #1 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  injection #2 recommendation AVAILABLE
+PASS  AI-06  injection #2 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #2 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  injection #3 recommendation AVAILABLE
+PASS  AI-06  injection #3 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #3 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  injection #4 recommendation AVAILABLE
+PASS  AI-06  injection #4 recommendation text/variables carry no unsupported offer, link, amount or template id
+PASS  AI-06  injection #4 draft (body+variables+evidence+warnings) clean
+PASS  AI-06  amount customer #1: only amounts present in the purchase description are used
+PASS  AI-06  amount customer #2: only amounts present in the purchase description are used
+== AI-05 safety controls with the live provider: ineligible variants (each must be INELIGIBLE for recommendation and draft)
+PASS  AI-05  NOCONS recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  NOCONS recommendation status
+PASS  AI-05  NOCONS draft -> no content
+INFO  AI-05  NOCONS: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["NO_ELIGIBLE_CONTACT"]} draft={"status":"INELIGIBLE","rejectionReason":"NO_CONTACT_CONSENT"}
+PASS  AI-05  REVOKED recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  REVOKED recommendation status
+PASS  AI-05  REVOKED draft -> no content
+INFO  AI-05  REVOKED: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["NO_ELIGIBLE_CONTACT"]} draft={"status":"INELIGIBLE","rejectionReason":"NO_CONTACT_CONSENT"}
+PASS  AI-05  DNC recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  DNC recommendation status
+PASS  AI-05  DNC draft -> no content
+INFO  AI-05  DNC: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["DO_NOT_CONTACT"]} draft={"status":"INELIGIBLE","rejectionReason":"DO_NOT_CONTACT"}
+PASS  AI-05  ARCH recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  ARCH recommendation status
+PASS  AI-05  ARCH draft -> no content
+INFO  AI-05  ARCH: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["CUSTOMER_ARCHIVED"]} draft={"status":"INELIGIBLE","rejectionReason":"CUSTOMER_ARCHIVED"}
+PASS  AI-05  NOTDUE recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  NOTDUE recommendation status
+PASS  AI-05  NOTDUE draft -> no content
+INFO  AI-05  NOTDUE: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"NOT_YET_DUE","evalReasons":["CADENCE_NOT_DUE"]} draft={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE"}
+PASS  AI-05  NOHIST recommendation -> no content (200 INELIGIBLE FOLLOW_UP_INELIGIBLE)
+PASS  AI-05  NOHIST recommendation status
+PASS  AI-05  NOHIST draft -> no content
+INFO  AI-05  NOHIST: recommendation={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE","evalStatus":"INELIGIBLE","evalReasons":["NO_PURCHASE_HISTORY"]} draft={"status":"INELIGIBLE","rejectionReason":"FOLLOW_UP_INELIGIBLE"}
+PASS  AI-05  VIEWER cannot request a recommendation (403)
+== AI-07 staleness (purchase history, consent, DNC, archive changes after a live result)
+PASS  AI-07  baseline recommendation AVAILABLE
+FAIL  AI-07  draft with the pre-change policy version after a purchase change -> no stale content  (expected 'no-content', got 'content')
+INFO  AI-07  after purchase change: HTTP 200 {"status":"AVAILABLE","rejectionReason":null,"retryable":false,"evalStatus":"OVERDUE"}
+PASS  AI-07  DNC set by another operator -> INELIGIBLE, no content
+PASS  AI-07  consent drift is not a follow-up-policy version drift (policy version unchanged by DNC)
+PASS  AI-07  after clearing DNC the customer is recommendable again (authoritative re-evaluation)
+PASS  AI-07  archived after a live result -> INELIGIBLE/no content
+== AI-09 no business side effects (customer, contact policy, follow-up policy, purchases, queue) and no send/approve route
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select event_type||'='||count(*) from dokene.audit_events wh...
+                                ^
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select event_type||'='||count(*) from dokene.audit_events wh...
+                                ^
+PASS  AI-09  business state identical after 2 recommendations + 2 drafts
+PASS  AI-09  no non-AI audit events were produced by the AI calls
+PASS  AI-09  exactly 4 invocation audit rows (observability only)
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/send
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/messages
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/draft/approve
+PASS  AI-09  no send/approve route: POST /api/messages
+PASS  AI-09  no send/approve route: POST /api/customers/6bbeabfe-8aed-4560-b60f-0cc728bc9241/draft/send
+
+AI calls in this run (audit rows): 32
+SAMPLES=/tmp/claude-1000/-home-stevdrey-Projects-Java-dokene/5e85f636-35eb-4f8d-b0eb-5351ee66a0b3/scratchpad/ai120-samples.jsonl
+SUMMARY pass=99 fail=1
+
+
+===== ai120-b-staleness-sideeffects-output.txt =====
+== AI-07a: purchase history changed after a live result, then draft
+PASS  AI-07  baseline recommendation AVAILABLE
+PASS  AI-07  same policy version: purchases do not bump the follow-up policy version
+PASS  AI-07  draft after the purchase change is built from a FRESH evaluation (lastPurchaseAt = the new purchase)
+INFO  AI-07  draft after purchase change: status=AVAILABLE; evidence=["Nombre: Stale QA","Artículo: Molino manual (compra nueva registrada por otro operador)","Fecha de compra: 2026-08-30T14:00:00Z","Estado de seguimiento: OVERDUE"]
+== AI-07b: change while the live call is IN FLIGHT (race), 4 attempts with different delays
+INFO  AI-07  race delay 1s: call took 5.950240432s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+INFO  AI-07  race delay 2s: call took 5.448838300s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+INFO  AI-07  race delay 3.5s: call took 4.821728981s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+INFO  AI-07  race delay 5s: call took 5.786891693s -> status=STALE_STATE rejection=STALE_STATE lastPurchaseAtInEval=2026-08-31
+== AI-07c: consent revoked while the live call is in flight
+INFO  AI-07  consent revoked during the call: status=INELIGIBLE rejection=NO_CONTACT_CONSENT draftPresent=false
+PASS  AI-07  consent revoked in flight: the draft is never delivered
+== AI-09 no business side effects and no send/approve route
+PASS  AI-09  audit checksum is non-empty (query works)
+PASS  AI-09  business state identical after 2 recommendations + 2 drafts
+PASS  AI-09  no non-AI audit events were produced by the AI calls
+PASS  AI-09  exactly 4 invocation audit rows (observability only)
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/send
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/messages
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/draft/approve
+PASS  AI-09  no send/approve route: POST /api/messages
+PASS  AI-09  no send/approve route: POST /api/customers/cca03bdc-417b-4dc6-954a-866dd2a28237/draft/send
+
+AI calls (audit rows) so far: 48
+SUMMARY pass=13 fail=0
+
+
+===== ai120-c-fault-injection-output.txt =====
+== FAULT INJECTION (labelled): provider base URL -> closed port; ineligible customers must never need the provider
+INFO  config: DOKENE_AI_PROVIDER=openai base-url=http://127.0.0.1:9/v1
+PASS  AI-05  Unknown Consent QA: recommendation INELIGIBLE without the provider (took .8938s)
+PASS  AI-05  Unknown Consent QA: draft INELIGIBLE without the provider
+PASS  AI-05  Revoked Consent QA: recommendation INELIGIBLE without the provider (took .1673s)
+PASS  AI-05  Revoked Consent QA: draft INELIGIBLE without the provider
+PASS  AI-05  DNC QA: recommendation INELIGIBLE without the provider (took .1704s)
+PASS  AI-05  DNC QA: draft INELIGIBLE without the provider
+PASS  AI-05  Archived QA: recommendation INELIGIBLE without the provider (took .1626s)
+PASS  AI-05  Archived QA: draft INELIGIBLE without the provider
+PASS  AI-05  Not Due QA: recommendation INELIGIBLE without the provider (took .1561s)
+PASS  AI-05  Not Due QA: draft INELIGIBLE without the provider
+PASS  AI-05  No History QA: recommendation INELIGIBLE without the provider (took .1561s)
+PASS  AI-05  No History QA: draft INELIGIBLE without the provider
+PASS  AI-10  eligible 'Repeat Café QA' with the provider unreachable: AI_UNAVAILABLE, retryable, manual flow intact (fault injection, not a live result)
+INFO  AI-10  unavailableReason=UNAVAILABLE duration=1.343s audit=NEXT_BEST_ACTION/FAILED/UNAVAILABLE rows+1
+PASS  AI-10  eligible 'Dormant Té QA' with the provider unreachable: AI_UNAVAILABLE, retryable, manual flow intact (fault injection, not a live result)
+INFO  AI-10  unavailableReason=UNAVAILABLE duration=.3669s audit=NEXT_BEST_ACTION/FAILED/UNAVAILABLE rows+1
+PASS  AI-10  deterministic queue still works while the provider is down
+INFO  audit outcomes recorded for ineligible/unavailable calls:
+  MESSAGE_DRAFT/GATE_REJECTED/NO_CONTACT_CONSENT x1
+  MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE x4
+  MESSAGE_DRAFT/GENERATED/NONE x18
+  NEXT_BEST_ACTION/FAILED/UNAVAILABLE x2
+  NEXT_BEST_ACTION/GENERATED/NONE x25
+
+SUMMARY pass=15 fail=0
+
+
+===== ai120-d-refusal-probes-output.txt =====
+== live probes for explicit refusals (NO_RECOMMENDATION / NO_DRAFT); every outcome is recorded, none is forced
+PROBE  Probe Nonsense QA: recommendation=NO_RECOMMENDATION action=UNCERTAIN_INTENT
+PROBE  Probe Return QA: recommendation=NO_RECOMMENDATION action=MANUAL_REVIEW_REQUIRED
+PROBE  Probe NoOffers QA: recommendation=NO_RECOMMENDATION action=UNCERTAIN_INTENT
+PROBE  Probe Recent QA (completed follow-up today, explicit date today): recommendation=AVAILABLE REPEAT_PURCHASE_FOLLOW_UP
+SUMMARY pass=0 fail=0  (probes are informational)
+
+
+===== ai120-d-refusal-probes-summary.txt =====
+probe:Probe Nonsense QA -> NO_RECOMMENDATION UNCERTAIN_INTENT
+probe:Probe Return QA -> NO_RECOMMENDATION MANUAL_REVIEW_REQUIRED
+probe:Probe NoOffers QA -> NO_RECOMMENDATION UNCERTAIN_INTENT
+probe:recent -> AVAILABLE REPEAT_PURCHASE_FOLLOW_UP
+
+
+===== ai120-e-draft-probes-summary.txt =====
+draftprobe:RELATED_PRODUCT_OFFER/RELATED_PRODUCT -> status=NO_DRAFT reason=MISSING_TRUSTED_FACTS
+draftprobe:SEASONAL_GREETING/SEASONAL_EVENT -> status=AVAILABLE reason=-
+draftprobe:GENERAL_CHECK_IN/GENERAL_FOLLOW_UP -> status=AVAILABLE reason=-
+draftprobe:REPEAT_PURCHASE_FOLLOW_UP/REPEAT_PURCHASE -> status=AVAILABLE reason=-
+draftprobe:REPEAT_PURCHASE_FOLLOW_UP/REPEAT_PURCHASE -> status=NO_DRAFT reason=INSUFFICIENT_HISTORY
+draftprobe:RELATED_PRODUCT_OFFER/RELATED_PRODUCT -> status=NO_DRAFT reason=INSUFFICIENT_HISTORY
+draftprobe:REPEAT_PURCHASE_FOLLOW_UP/REPEAT_PURCHASE -> status=NO_DRAFT reason=SAFETY_VIOLATION
+
+
+===== ui-journeys-results.txt =====
+Browser journeys for suite #120 (in-app Chrome, 1280x800, OPERATOR testoperator, main @ 07e0136, live OpenAI unless stated).
+A fetch logger (headers except cookies/CSRF) and the nginx access log were used as request evidence. Values below are the measured results.
+
+AI-01  4 customers selected + 1 detail page opened: AI requests = 0 (fetch logger), nginx recommendation/draft lines = 0, AI audit rows 61 -> 61.
+       "Generar borrador" absent before a recommendation, present after AVAILABLE, absent after NO_RECOMMENDATION.
+AI-02  POST /recommendation If-Match "0" (current), response ETag "0" (strong numeric); POST /draft If-Match "0", ETag "0".
+       Deterministic block ("¿Por qué contactar hoy?") and the advisory block ("POR QUÉ LO SUGIERE LA IA", confidence) are separate.
+       After another operator changed the policy (version 0 -> 1) the refresh request used If-Match "1".
+AI-04  counter: "Hola 😀 prueba" 13/1000; 1000 emoji = 1000 code points (2000 UTF-16 units) accepted, 1000/1000; 1001 emoji truncated to 1000 without a lone surrogate;
+       1001 accented characters -> 1000/1000. Editing + clicking Copy produced 0 requests. Copy result in the in-app browser: "No se pudo copiar el borrador"
+       (clipboard-write denied there; the success path was verified in a real Chrome in suite #119).
+       Regenerate with edited text: inline confirmation "Regenerar reemplazará tus cambios en el borrador." Cancelar -> edits kept, 0 requests;
+       "Reemplazar mis cambios" -> exactly 1 POST /draft with the current If-Match, new draft replaces the edit.
+AI-07  (a) policy changed by another operator (0 -> 1): POST /draft with the old If-Match -> 409; UI hid the advice and the draft, refreshed the queue,
+           notice "El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación.", button "Actualizar recomendación",
+           manual actions intact; the refreshed recommendation was requested with If-Match "1".
+       (b) consent revoked by another operator (follow-up policy version unchanged, 0 -> 0): POST /draft -> 200 INELIGIBLE, advice hidden,
+           notice "UI Inelig QA ya no es elegible para seguimiento. La lista se ha actualizado.".
+       (c) purchase recorded by another operator 1.5 s after clicking "Consultar de nuevo" (call in flight): the call ended GATE_REJECTED/STALE_STATE (audit 05:00:11,
+           purchase 05:00:10); UI hid the advice, refreshed the queue, same notice and refresh button as (a).
+AI-08  call in flight + select another customer / switch workspace / sign out: the request was aborted by the browser in all three cases; the new context showed no advisory text;
+       back on the first customer / workspace there was no resurrected result; after sign out + sign in no advisory or draft text. Workspace switch showed only the other workspace's customers.
+AI-10  NO_RECOMMENDATION (live): "Sin recomendación de la IA - La IA no recomienda una acción por ahora: el caso requiere revisión manual", no draft button, manual actions available.
+       NO_DRAFT (live model refusal; the browser request was REWRITTEN by the test harness to RELATED_PRODUCT_OFFER/RELATED_PRODUCT, so this is a harness-induced but real refusal):
+           "Borrador no disponible - La IA no pudo redactar un borrador: esta acción no admite un borrador automático ...", no editor, "Regenerar borrador" and manual actions available.
+       AI_UNAVAILABLE (FAULT INJECTION, provider base URL -> closed port; not a live result): "El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar.", Reintentar + manual actions, queue intact.
+       INELIGIBLE and STALE_STATE: see AI-07 (live).
+Side note found: client-aborted requests (AI-08) still completed at the provider and were audited as GENERATED -> issue #178.
