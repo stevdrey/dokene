@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier;
@@ -50,7 +51,8 @@ public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershi
                 return new Unavailable();
             }
             long deadline = http.deadline();
-            try (ResolvedSecret secret = resolver.resolve(new Tenant(claim.tenantId()),
+            try (ResolvedSecret secret = resolver.resolve(
+                    new Tenant(claim.tenantId(), SecretPurpose.WHATSAPP_ACCESS_TOKEN),
                     new SecretReference(claim.secretRef()))) {
                 return secret.withValue(token -> search(claim, token, deadline));
             }

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.sun.net.httpserver.HttpServer;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.Claim;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.NotProven;
@@ -108,7 +109,7 @@ class GraphApiPhoneNumberOwnershipVerifierTest {
         ArgumentCaptor<IntegrationSecretResolver.SecretScope> scope =
                 ArgumentCaptor.forClass(IntegrationSecretResolver.SecretScope.class);
         org.mockito.Mockito.verify(resolver).resolve(scope.capture(), any());
-        assertThat(scope.getValue()).isEqualTo(new Tenant(tenantId));
+        assertThat(scope.getValue()).isEqualTo(new Tenant(tenantId, SecretPurpose.WHATSAPP_ACCESS_TOKEN));
     }
 
     @Test

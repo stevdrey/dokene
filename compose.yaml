@@ -173,6 +173,10 @@ services:
       DOKENE_AI_RETRY_INITIAL_BACKOFF: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:-250ms}
       DOKENE_AI_RETRY_MAX_BACKOFF: ${DOKENE_AI_RETRY_MAX_BACKOFF:-2s}
       DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:-1s}
+      # Blank keeps the secret resolver disabled (fail closed). Only this variable is forwarded: `local` with no
+      # entries boots a resolver that refuses everything as MISSING. To give the container entries, add the indexed
+      # variables (or a volume plus SPRING_CONFIG_ADDITIONAL_LOCATION) in a compose override file (spec 0006).
+      DOKENE_INTEGRATION_SECRETS_SOURCE: ${DOKENE_INTEGRATION_SECRETS_SOURCE:-}
     read_only: true
     tmpfs:
       - /tmp

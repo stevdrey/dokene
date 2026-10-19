@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
@@ -68,7 +69,8 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
             }
             // One deadline covers every page, so the whole call never exceeds the configured timeout.
             long deadline = http.deadline();
-            try (ResolvedSecret secret = resolver.resolve(new Tenant(graph.tenantId()),
+            try (ResolvedSecret secret = resolver.resolve(
+                    new Tenant(graph.tenantId(), SecretPurpose.WHATSAPP_ACCESS_TOKEN),
                     new SecretReference(graph.secretRef()))) {
                 return secret.withValue(token -> search(graph, token, providerTemplateName, language, deadline));
             }

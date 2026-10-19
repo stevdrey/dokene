@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.sun.net.httpserver.HttpServer;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
+import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.Tenant;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
@@ -150,7 +151,7 @@ class GraphApiMessagingProviderTest {
                                                               {"type":"text","text":"pedido 42"}]}]}}
                 """));
         assertThat(requestBody.get()).doesNotContain(TOKEN);
-        verify(resolver).resolve(new Tenant(tenantId), new SecretReference("synthetic-wa-token"));
+        verify(resolver).resolve(new Tenant(tenantId, SecretPurpose.WHATSAPP_ACCESS_TOKEN), new SecretReference("synthetic-wa-token"));
     }
 
     @Test
