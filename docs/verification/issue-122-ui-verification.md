@@ -1,6 +1,6 @@
 # Issue 122 verification: AI workbench accessibility, responsive layout and operator recovery
 
-Campaign: #118. Suite: #122. Tested on `main` @ `a2baddb` (includes #187-#190), local Docker stack, synthetic data only. Browsers: Chrome 155.0.8059.39 and Firefox 157.0.1 (both headless, fresh profiles, driven by real input events through the DevTools Protocol and WebDriver BiDi), plus the Claude in-app browser for the earlier spot checks. Live OpenAI (`gpt-6-luna`) produced the recommendation and draft content of UX-01 to UX-06 (partly), UX-08 to UX-11; the fault-injection stub (labelled FI) produced long/malicious AI text and provider failures (UX-06b, UX-07). Screenshots were captured for every state but are not kept in the repository (see the last section).
+Campaign: #118. Suite: #122. Tested on `main` @ `a2baddb` (includes #187-#190), local Docker stack, synthetic data only. Browsers: Chrome 155.0.8059.39 and Firefox 157.0.1 (both headless, fresh profiles, driven by real input events through the DevTools Protocol and WebDriver BiDi), plus the Claude in-app browser for the earlier spot checks. Live OpenAI (`gpt-6-luna`) produced the recommendation and draft content of UX-01 to UX-06 (partly), UX-08 to UX-11; the fault-injection stub (labelled FI) produced long/malicious AI text and provider failures (UX-06b, UX-07). Screenshots were captured for every state; a curated set of 10 is kept in `issue-122-evidence/screenshots/` (see the last section) and the rest is preserved in the archive tag.
 
 **Verdict for suite #122: NOT clean.** Seven defects were filed (#191-#197 below; #191, #192 and #193 are Medium or Medium-Low). UX-07, UX-08, UX-09 and UX-10 pass, the keyboard journey passes, and the measured contrast and target sizes pass.
 
@@ -61,4 +61,18 @@ Regression: UX-01 matrix (Chrome) shows no overflow at any viewport; keyboard jo
 
 ## Evidence kept in this repository
 
-`issue-122-evidence/scripts/` holds the scripts that produced the results (see its README where present) and `issue-122-evidence/outputs.txt` holds their captured text outputs, one section per original file; the section headers keep the original file names used in the text above (for example `outputs-retest-...`, `rerun-...`). Raw screenshots, JSON measurement dumps and sample dumps were not kept in the repository to keep it small; the complete original evidence is preserved in the tag `qa-118-full-evidence-archive` (the evidence branch of PR #128).
+`issue-122-evidence/scripts/` holds the scripts that produced the results (see its README where present) and `issue-122-evidence/outputs.txt` holds their captured text outputs, one section per original file; the section headers keep the original file names used in the text above (for example `outputs-retest-...`, `rerun-...`). Only 10 representative screenshots are kept (below); the other screenshots, the JSON measurement dumps and the sample dumps were not kept in the repository to keep it small; the complete original evidence is preserved in the tag `qa-118-full-evidence-archive` (the evidence branch of PR #128).
+
+### Screenshots kept (`issue-122-evidence/screenshots/`)
+
+| File | Shows |
+|---|---|
+| `ux01-desktop-4-draft.png`, `ux01-phone-4-draft.png` | recommendation, draft editor, evidence and actions at 1440x900 and 390x844 (live OpenAI) |
+| `ux02-zoom200-4b-editor.png` | the draft editor at 200 % zoom (720x450 CSS px) |
+| `ux05-viewer-detail.png` | the VIEWER explanation ("Tu rol no permite usar el asistente IA…") and disabled controls |
+| `ux08-1-stale-refresh-failed.png` | stale state with the editable "Tu borrador editado" and "Reintentar actualizar lista" |
+| `ux09-1-after-refresh.png` | the page-2 customer selected and reordered after the AI-driven refresh |
+| `ux10-1-notice.png` | the customer-specific ineligibility notice after the queue refresh |
+| `ret-192-profile-1440.png`, `ret-193-after-crossing.png`, `ret-196-320.png` | retest evidence on `7069914`: long-text profile without overflow, draft kept after crossing the breakpoint, contact row at 320 px |
+
+The before-the-fix screenshots of each defect are attached to its Issue (#191 to #196) from the archive tag.
