@@ -4,6 +4,8 @@ Dokene is an open-source, security-first customer follow-up platform for small b
 
 The product helps a business remember when to reconnect with customers, understand relevant purchase history and timing, prepare a suitable follow-up, and send it through an approved communication channel. The system is designed to reduce the cognitive and operational burden of maintaining customer relationships without turning the AI model into an autonomous authority.
 
+> **Project status:** Dokene is in active development and is **not production-ready**. The capabilities below describe the product's intended scope; several are only partly implemented, and APIs, configuration, and documentation may change. Do not use it with real customer data or live messaging in production. See [[Roadmap]] for planned phases.
+
 > **Naming note:** Dokene is a brand name inspired by the Bribri verb `dö̀knẽ`, associated with the idea of returning. Dokene is not presented as a literal Bribri word.
 
 ## Product goal

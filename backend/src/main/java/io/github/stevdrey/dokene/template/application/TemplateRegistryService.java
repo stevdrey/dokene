@@ -134,6 +134,8 @@ public class TemplateRegistryService {
             lookup = new TemplateProviderGateway.Unavailable();
         }
         TemplateMapping next = switch (lookup) {
+            case TemplateProviderGateway.Reported reported when reported.status() == TemplateApprovalStatus.APPROVED ->
+                    current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Reported reported ->
                     current.verified(reported.status(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Absent absent ->
@@ -144,7 +146,9 @@ public class TemplateRegistryService {
             if (!repository.updateApproval(next, expectedVersion, current.approval())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
             }
-            if (next.approval().status() != current.approval().status()) {
+            // The verified format decides sendability (and, later, the payload shape) like the status does.
+            if (next.approval().status() != current.approval().status()
+                    || next.approval().parameterFormat() != current.approval().parameterFormat()) {
                 audit.updated(next.id(), next.enabled());
             }
             return next;

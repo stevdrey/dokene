@@ -1,6 +1,6 @@
 # Issue #138 manual dispatch: verification record
 
-Status: first PR of two (claim, last-moment gate, synchronous dispatch). The bounded recovery processor (ADR 0028 §5) is verified in the second PR.
+Status: both PRs. The first PR delivers the claim, the last-moment gate and synchronous dispatch. The second delivers the bounded recovery processor (ADR 0028 §5) and is recorded under [Recovery processor](#recovery-processor-second-pr).
 
 ## Environment
 
@@ -63,7 +63,32 @@ Status: first PR of two (claim, last-moment gate, synchronous dispatch). The bou
 - `./gradlew test --tests '*MessageApiIntegrationTest'`: 15 passed.
 - `./gradlew check`: passed, 1809 tests, 0 failures, 0 skipped (after the Codex and code review fixes). `TenantPersistenceIntegrationTest` now expects Flyway version 25.
 
+## Recovery processor (second PR)
+
+Branch `138-dispatch-outbox-recovery-processor`, stacked on the first PR. Migration V26 adds `dokene.find_expired_dispatch_claims`.
+
+`DispatchRecoveryIntegrationTest` runs against PostgreSQL with `claim-timeout=PT0S`, so every committed claim is expired at once. Each test makes a halted claim the way production would: an audit outage on `MESSAGE_SENT` after the provider accepted the send.
+
+| Acceptance item | Test |
+| --- | --- |
+| A crash after submission becomes `OUTCOME_UNKNOWN`; zero extra provider calls; audit attributed to the authorizing member with a correlation id; a later run changes nothing | `aCrashAfterSubmissionBecomesAnUnknownOutcomeWithoutAnotherProviderCall` |
+| Two processors racing over one claim record one transition, one event and one audit row | `twoProcessorsRacingOverOneClaimRecordItOnce` |
+| A revoked membership, or one demoted to a role without `MESSAGE_SEND`, leaves the claim untouched | `aRevokedOrDemotedAuthorizingMembershipLeavesTheClaimUntouched` |
+| An audit outage during recovery keeps the claim; the next run records it | `anAuditOutageDuringRecoveryKeepsTheClaimForTheNextRun` |
+| RLS hides attempts from a context-free runtime connection, while the function returns ids only and respects the cutoff, the cursor and the limit; it is `SECURITY DEFINER`, not executable by `PUBLIC`, executable by `dokene_runtime`, with the result shape `(tenant_id, message_id, attempt_id)` | `theExpiredClaimFinderIsTheOnlyCrossTenantReadAndExposesIdsOnly` |
+| The processor refuses to start inside a tenant scope | `recoveryRefusesToRunInsideATenantScope` |
+| Blocked claims cannot starve the others: with one claim per run, a recoverable claim behind blocked ones is reached (Codex review, P1) | `claimsThatMustBeLeftAloneCannotStarveTheOthers` |
+| A membership revoked between the first check and the transaction is caught under the lock and the denial is audited (Codex review, P2) | `aMembershipRevokedAfterTheFirstCheckIsCaughtInsideTheTransaction` |
+| An enabled `claim-timeout` below `send-timeout` + 1m fails construction (Codex review, P2; tightened in code review) | `anEnabledClaimTimeoutMustExceedTheDispatchDeadlineByTheMargin` |
+| The scheduled run is registered with application-wide scheduling | `theScheduledRunIsRegisteredWhateverTheRecoveryFlag` |
+| Only one instance runs recovery at a time: while another session holds the run lock, a run does nothing | `onlyOneInstanceRunsRecoveryAtATime` |
+
+Results:
+
+- `./gradlew test --tests '*DispatchRecoveryIntegrationTest'`: 11 passed.
+- `./gradlew check`: passed, 1820 tests, 0 failures, 0 skipped. `TenantPersistenceIntegrationTest` now expects Flyway version 26.
+
 ## Not verified here
 
-- The crash-recovery path that turns an expired `STARTED` claim into an unknown outcome is in PR 2.
 - Live sending against Meta is out of scope until #144 and #218 land.
+- A timed scheduled run itself is not exercised. Tests prove the run is registered, and every Gradle test task sets `dokene.messaging.recovery.enabled=false` and calls `recoverExpiredClaims()` directly.

@@ -14,14 +14,18 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -30,6 +34,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 class TenantContextRequestFilter extends OncePerRequestFilter {
 
     static final String TENANT_ID_HEADER = "X-Tenant-Id";
+
+    private static final Logger log = LoggerFactory.getLogger(TenantContextRequestFilter.class);
 
     private final TenantContextProvider tenantContexts;
     private final TenantContextResolver tenantContextResolver;
@@ -149,20 +155,35 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
         }
     }
 
-    /** Audits the denial, then lets the owning module write its body or falls back to the empty-body error. */
+    /**
+     * Audits the denial, then lets the single owning module write its body. A route no responder owns keeps the
+     * empty-body error, and so does a route several responders claim: bean order never picks the contract (Issue #222).
+     */
     private void reject(
             HttpServletRequest request,
             HttpServletResponse response,
             TenantSelectionRejection rejection
     ) throws IOException {
         auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
-        for (TenantSelectionRejectionResponder responder : rejectionResponders) {
-            if (responder.handles(request)) {
-                responder.write(response, rejection);
-                return;
-            }
+        List<TenantSelectionRejectionResponder> owners = rejectionResponders.stream()
+                .filter(responder -> responder.handles(request)).toList();
+        if (owners.size() == 1) {
+            owners.getFirst().write(response, rejection);
+            return;
+        }
+        if (owners.size() > 1) {
+            // Never the client-supplied URI or method text; the log pattern already carries the correlation id.
+            log.error("Tenant-selection rejection for a {} request claimed by more than one responder: {}",
+                    loggableMethod(request), owners.stream().map(owner -> owner.getClass().getName()).toList());
         }
         response.sendError(rejection.status());
+    }
+
+    /** A known HTTP method's own constant name, or {@code OTHER}, so no client-supplied text reaches the log. */
+    private static String loggableMethod(HttpServletRequest request) {
+        return Arrays.stream(RequestMethod.values())
+                .filter(method -> method.name().equals(request.getMethod()))
+                .findFirst().map(RequestMethod::name).orElse("OTHER");
     }
 
     private boolean isAuthenticated(Authentication authentication) {

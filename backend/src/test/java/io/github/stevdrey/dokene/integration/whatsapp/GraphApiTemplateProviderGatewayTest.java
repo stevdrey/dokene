@@ -1,4 +1,4 @@
-// ABOUTME: Drives the Graph API gateway against a local stub server: status mapping, fail-closed paths and secret hygiene.
+// ABOUTME: Drives the Graph API gateway against a local stub server: status and schema mapping, fail-closed paths, secrets.
 // ABOUTME: No network beyond loopback; the bearer secret must reach only the Authorization header (issue 135).
 package io.github.stevdrey.dokene.integration.whatsapp;
 
@@ -22,12 +22,17 @@ import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway.Absent;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway.Reported;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway.Unavailable;
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.BodyParameters;
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unreadable;
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unsupported;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,6 +43,9 @@ import org.springframework.beans.factory.ObjectProvider;
 
 class GraphApiTemplateProviderGatewayTest {
     private static final String WABA = "400000000000001";
+    private static final String ONE_BODY_PARAMETER = "[{\"type\":\"BODY\",\"text\":\"Hola {{1}}\"}]";
+    private static final Reported APPROVED_ONE = new Reported(TemplateApprovalStatus.APPROVED, WABA,
+            new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")));
 
     private HttpServer server;
     private final AtomicReference<String> authorization = new AtomicReference<>();
@@ -128,11 +136,11 @@ class GraphApiTemplateProviderGatewayTest {
     @Test
     void mapsProviderStatusesAndSendsTheTenantsCredentialAsABearerOnly() {
         body = list("repeat_purchase_v1", "es_MX", "APPROVED");
-        assertThat(find())
-                .isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA));
+        assertThat(find()).isEqualTo(APPROVED_ONE);
         assertThat(authorization.get()).isEqualTo("Bearer EAAG-secret");
         assertThat(path.get()).startsWith("/v23.0/" + WABA + "/message_templates?")
-                .contains("name=repeat_purchase_v1").contains("language=es_MX").doesNotContain("EAAG");
+                .contains("name=repeat_purchase_v1").contains("language=es_MX")
+                .contains("fields=name%2Clanguage%2Cstatus%2Cparameter_format%2Ccomponents").doesNotContain("EAAG");
 
         for (String[] pair : new String[][] {{"PENDING", "PENDING"}, {"IN_APPEAL", "PENDING"},
                 {"REJECTED", "REJECTED"}, {"PAUSED", "PAUSED"}, {"DISABLED", "DISABLED"}, {"DELETED", "DELETED"},
@@ -141,6 +149,28 @@ class GraphApiTemplateProviderGatewayTest {
             assertThat(find())
                     .isEqualTo(new Reported(TemplateApprovalStatus.valueOf(pair[1]), WABA));
         }
+    }
+
+    @Test
+    void anApprovalCarriesTheTemplatesParameterSchema() {
+        body = listWith("APPROVED", "\"parameter_format\":\"NAMED\",\"components\":[{\"type\":\"HEADER\","
+                + "\"format\":\"TEXT\",\"text\":\"Aviso\"},{\"type\":\"BODY\",\"text\":\"Hola {{customer_name}}\"},"
+                + "{\"type\":\"FOOTER\",\"text\":\"Gracias\"}]");
+        assertThat(find()).isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA,
+                new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name"))));
+
+        body = listWith("APPROVED", "\"components\":[{\"type\":\"HEADER\",\"format\":\"IMAGE\"},"
+                + "{\"type\":\"BODY\",\"text\":\"Hola {{1}}\"}]");
+        assertThat(find()).isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA, new Unsupported()));
+
+        body = listWith("APPROVED", "\"id\":\"2\"");
+        assertThat(find()).isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA, new Unreadable()));
+    }
+
+    @Test
+    void aStatusOtherThanApprovalNeverReadsTheSchema() {
+        body = listWith("REJECTED", "\"parameter_format\":7,\"components\":\"garbage\"");
+        assertThat(find()).isEqualTo(new Reported(TemplateApprovalStatus.REJECTED, WABA));
     }
 
     @Test
@@ -205,8 +235,7 @@ class GraphApiTemplateProviderGatewayTest {
         String exact = list("repeat_purchase_v1", "es_MX", "APPROVED");
         body = exact + " ".repeat(262_144 - exact.length());
         assertThat(body.length()).isEqualTo(262_144);
-        assertThat(find())
-                .isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA));
+        assertThat(find()).isEqualTo(APPROVED_ONE);
 
         body = exact;
         dripMillis = 400; // headers arrive at once, then the body trickles past the 500 ms timeout
@@ -218,9 +247,9 @@ class GraphApiTemplateProviderGatewayTest {
     @Test
     void oneDeadlineCoversTheHeadersAndTheBody() {
         body = list("repeat_purchase_v1", "es_MX", "APPROVED");
-        // Headers take ~350 ms and the body ~(length x 4 ms): each alone fits the 500 ms timeout, together they do not.
+        // Headers take ~350 ms and the body ~(length x 3 ms): each alone fits the 500 ms timeout, together they do not.
         delayMillis = 350;
-        dripMillis = 4;
+        dripMillis = 3;
         assertThat(body.length() * dripMillis).isBetween(200L, 480L);
         long started = System.nanoTime();
         assertThat(find()).isInstanceOf(Unavailable.class);
@@ -308,6 +337,12 @@ class GraphApiTemplateProviderGatewayTest {
 
     private static String list(String name, String language, String status) {
         return "{\"data\":[{\"name\":\"" + name + "\",\"language\":\"" + language + "\",\"status\":\"" + status
-                + "\",\"id\":\"1\"}]}";
+                + "\",\"components\":" + ONE_BODY_PARAMETER + "}]}";
+    }
+
+    /** The looked-up template with the given status and raw extra members (format, components). */
+    private static String listWith(String status, String members) {
+        return "{\"data\":[{\"name\":\"repeat_purchase_v1\",\"language\":\"es_MX\",\"status\":\"" + status
+                + "\"," + members + "}]}";
     }
 }

@@ -207,4 +207,17 @@ describe('FollowUpCard', () => {
 
     expect(getComputedStyle(screen.getByText('check_circle')).flexShrink).toBe('0');
   });
+
+  it('shows the last purchase day in the tenant time zone', () => {
+    render(
+      <FollowUpCard
+        item={{ ...baseItem, lastPurchaseAt: '2026-01-11T02:00:00Z' }}
+        isSelected={false}
+        onSelect={onSelect}
+        timeZone="America/Santiago"
+      />
+    );
+
+    expect(screen.getByText(/Última: 10 ene 2026/)).toBeInTheDocument();
+  });
 });

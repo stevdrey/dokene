@@ -76,7 +76,7 @@ Template and integration endpoints (ADR 0023 §3.2 and §3.3) add their records 
 
 ### 2. Approval fingerprint
 
-`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`, `approval/v2` since the addendum below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
+`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`; `approval/v2` and then `approval/v3` since the addenda below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
 
 The fields, in this order:
 
@@ -86,7 +86,7 @@ The fields, in this order:
 | Recipient and content | recipient E.164, channel, semantic action, template intent, locale, body |
 | Policy snapshot | `sourcePolicyVersion`, the snapshot the operator submitted against |
 | Consent revision | the contact policy version (`customer_consent_history.policy_version`) of the history row that started the contact's current WhatsApp `GRANTED` run: the first `GRANTED` row after the latest non-`GRANTED` row, or the first row when consent was never withdrawn. Every consent change advances the version by compare-and-set, so a revocation followed by a re-grant always yields a new value, and re-saving `GRANTED` over `GRANTED` does not void approvals. A timestamp is not used because two changes can share one at database precision |
-| Template mapping | mapping version, provider template name, language, parameter count, then each parameter name in order |
+| Template mapping | mapping version, provider template name, language, verified parameter format (since `approval/v3`), parameter count, then each parameter name in order |
 | Parameter values | the exact ordered values the provider will receive, one per parameter name |
 | Sender identity | integration id, `phoneNumberId`, `businessAccountId` |
 
@@ -99,7 +99,7 @@ Deliberately excluded:
 When the fingerprint is computed, stored and checked:
 
 1. **At T2 (approve):** it is computed under the customer lock, from the resolved mapping, the rendered parameter values and the integration's configured sender identity (`OutboundSafetyControl.configuredSender`), and stored on the approval record. Kill-switch state is not a T2 guard: an approval can be given while sending is switched off. If the tenant has no integration configured at all, T2 is refused with `INTEGRATION_DISABLED`, because there is no sender to bind. The column belongs to [#136](https://github.com/stevdrey/dokene/issues/136). It is never returned to the browser, written to audit or logged.
-2. **At T6, as new send policy step 5b:** it runs after step 5 (`APPROVED` with an `APPROVE` decision). The service recomputes the fingerprint from current state and compares it with the stored value. On a mismatch the send is refused with `409 APPROVAL_INVALIDATED`. The refusal writes no row and changes no state, like every other policy refusal; the message stays `APPROVED`. On a match, the `OutboundSendCommand` is built from that same binding: its `parameters` are exactly the bound `parameterValues`, never re-rendered after the check.
+2. **At T6, as new send policy step 5b:** it runs after step 5 (`APPROVED` with an `APPROVE` decision). The service recomputes the fingerprint from current state and compares it with the stored value. On a mismatch the send is refused with `409 APPROVAL_INVALIDATED`. The refusal writes no row and changes no state, like every other policy refusal; the message stays `APPROVED`. On a match, the `OutboundSendCommand` is built from that same binding: its `parameters` are exactly the bound `parameterValues`, and its parameter format and names are those of the bound template revision (issue 218 addendum), never re-rendered or re-resolved after the check.
 3. **Recovery:** the operator cancels (T5) and submits again. No new transition is added.
 
 How each kind of change is handled:
@@ -172,6 +172,17 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 
 `SenderRevision` gains `credentialRevision`, the count of secret reference changes for the integration (starts at 1; the reference itself is never hashed). Because the canonical encoding changes, the scheme label moves from `approval/v1` to `approval/v2`, as the label rule requires. Nothing had persisted a v1 fingerprint yet. Rotating the credential therefore voids open approvals, while toggling `enabled` still does not.
 
+## Addendum (issue 218): parameter format in the template revision
+
+A provider template declares its body placeholders either positionally (`{{1}}`) or by name (`{{customer_name}}`), and Meta requires a different request for each: a named placeholder is filled only when the parameter carries its `parameter_name`. The verified format (ADR 0025 §2a) therefore decides what the provider receives, so the approval binds it.
+
+- `TemplateRevision` gains `parameterFormat`, a closed `ApprovalFingerprint.ParameterFormat` (`POSITIONAL`, `NAMED`). The messaging domain cannot depend on the template module, so it mirrors `TemplateParameterFormat`. `ApprovalBindingAssembler` maps one to the other with an exhaustive switch, so a new format cannot reach a fingerprint unmapped.
+- The format is encoded right after the language. Because the canonical encoding changes, the scheme label moves from `approval/v2` to `approval/v3`, as the label rule requires.
+- A template re-verified under another format after approval fails step 5b with `APPROVAL_INVALIDATED`, and the operator cancels and resubmits.
+- `OutboundSendCommand` carries the format and the parameter names of the binding that matched, aligned one to one with the values, so the adapter sends exactly the approved shape.
+
+Every stored `approval/v2` fingerprint stops covering its binding, so open approvals taken before this change are invalidated at send time. This is accepted: live sending is off (the global kill switch is hardcoded until [#144](https://github.com/stevdrey/dokene/issues/144)), so no approval that a customer could be waiting on is lost. No migration rewrites them, because a fingerprint cannot be recomputed without the approver.
+
 ## Addendum (issue 134): integration endpoint preconditions and filter-level rejections
 
 - `PUT /api/integrations/whatsapp` states exactly one precondition (ADR 0023 §4.1): `If-None-Match: *` to create, which fails with `409 STALE_VERSION` if the tenant already has an integration, or `If-Match: "<version>"` to replace. A missing, doubled or malformed precondition is `400 INVALID_INPUT`, so nothing is created or replaced unconditionally.
@@ -219,7 +230,7 @@ Quiet hours, per-day caps, scheduled sending and provider health throttling are 
 [#207](https://github.com/stevdrey/dokene/issues/207) closes the exception recorded in the issue 134 addendum. `TenantContextRequestFilter` still rejects tenant selection before any controller advice runs, with the same statuses and the same audited denial (`TENANT_READ`, `NO_TENANT_CONTEXT`). On Phase 3 routes the rejection now carries the closed problem+json body of ADR 0023 §4.4.
 
 - **Statuses are unchanged** (ADR 0008, ADR 0023 §6): a missing `X-Tenant-Id` or a tenant without an active membership is `403 FORBIDDEN`; a duplicated or malformed selector is `400 INVALID_INPUT`. A missing selector is a tenant failure, not a missing request header, so it stays `403`.
-- **SPI in `tenant.security`.** `TenantSelectionRejection` (`INVALID_SELECTOR` 400, `ACCESS_DENIED` 403) owns the status. A module that owns routes registers a `TenantSelectionRejectionResponder` bean, usually by extending `ProblemJsonTenantSelectionResponder`, which writes the module's closed problem record with the rejection's status as `application/problem+json`. That base class serializes each body once, when the bean is created, and refuses to start if a body's own `status` differs from the rejection's, so a response can never carry contradictory statuses. The tenant module never depends on `messaging`, `integration` or `template`.
+- **SPI in `tenant.security`.** `TenantSelectionRejection` (`INVALID_SELECTOR` 400, `ACCESS_DENIED` 403) owns the status. A module that owns routes registers a `TenantSelectionRejectionResponder` bean, usually by extending `ProblemJsonTenantSelectionResponder`, which writes the module's closed problem record with the rejection's status as `application/problem+json`. That base class serializes each body once, when the bean is created, and refuses to start if a body's own `status` differs from the rejection's, so a response can never carry contradictory statuses. The tenant module never depends on `messaging`, `integration` or `template`. Each route has exactly one owning responder. If several responders claim a rejected request, the filter logs the overlap at ERROR, with the responder classes and a normalized method only and never the client-supplied URI, and answers with the empty-body error, so bean order never picks the contract. An integration test checks that every Phase 3 route has exactly one owner (issue 222).
 - **Route ownership.** `messaging.api` claims `/api/messages/**` and `/api/customers/*/messages`, and `integration.api` claims `/api/integrations/**`; both extend `MessagingProblemTenantSelectionResponder`, the single rejection-to-`MessagingErrorCode` mapping. `template.api` claims `/api/templates/**` with its own mapping to `TemplateProblem` (same JSON for the shared codes), because the template module may not depend on messaging. Matching is by path pattern, so a lookalike path outside those trees is not claimed. `TenantSelectionProblemIntegrationTest` checks every registered `/api` handler: each handler of a Phase 3 module must be claimed and no other may be, so a new Phase 3 route without a responder fails the build.
 - **Existing endpoints** are handled by no responder and keep the framework's empty-body `400`/`403`.
 

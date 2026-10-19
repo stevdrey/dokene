@@ -1,6 +1,7 @@
 import React from 'react';
 import { QueueItemResponse } from '@/features/followups/types';
-import { getCalendarDateInTimeZone, computeDaysOverdueInTimeZone } from '../utils/dateUtils';
+import { getCalendarDateInTimeZone, computeDaysOverdueInTimeZone, formatInstantDate } from '../utils/dateUtils';
+import { followUpStatusLabel } from '../utils/aiLabels';
 import './FollowUpLayout.css';
 
 interface FollowUpCardProps {
@@ -32,15 +33,6 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = React.memo(({ item, isS
     }
   };
 
-  const formatPurchaseDate = (dateIso: string | null) => {
-    if (!dateIso) return null;
-    try {
-      const d = new Date(dateIso);
-      return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-      return null;
-    }
-  };
 
   const daysOverdue = isOverdue && timeZone ? computeDaysOverdueInTimeZone(item.dueDate, timeZone) : null;
 
@@ -83,7 +75,8 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = React.memo(({ item, isS
     }
   };
 
-  const lastPurchaseFormatted = formatPurchaseDate(item.lastPurchaseAt);
+  // Tenant zone, so the day matches the purchase date cited in the AI draft evidence.
+  const lastPurchaseFormatted = item.lastPurchaseAt ? formatInstantDate(item.lastPurchaseAt, timeZone) : null;
 
   return (
     <div
@@ -206,10 +199,10 @@ export const FollowUpCard: React.FC<FollowUpCardProps> = React.memo(({ item, isS
           {isOverdue
             ? daysOverdue && daysOverdue > 0
               ? `Vencido hace ${daysOverdue} d`
-              : 'Vencido'
+              : followUpStatusLabel('OVERDUE')
             : isDueToday
             ? 'Pendiente para hoy'
-            : 'Pendiente'}
+            : followUpStatusLabel('DUE')}
         </span>
       </div>
 

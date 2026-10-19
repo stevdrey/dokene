@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import java.util.ArrayList;
 import java.util.List;
@@ -109,7 +110,8 @@ public class ApprovalBindingAssembler {
                 message.contactId(), message.recipientPhone(), message.channel(), message.action(),
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(),
                 consentRevision, new ApprovalFingerprint.TemplateRevision(mapping.version(),
-                        mapping.providerTemplateName(), mapping.language(), mapping.parameterNames()),
+                        mapping.providerTemplateName(), mapping.language(), parameterFormat(mapping.parameterFormat()),
+                        mapping.parameterNames()),
                 rendered.values(), sender);
     }
 
@@ -133,6 +135,14 @@ public class ApprovalBindingAssembler {
         } catch (IllegalArgumentException rejected) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+    }
+
+    /** Exhaustive, so a new template format cannot reach a fingerprint without a deliberate mapping here. */
+    private static ApprovalFingerprint.ParameterFormat parameterFormat(TemplateParameterFormat format) {
+        return switch (format) {
+            case POSITIONAL -> ApprovalFingerprint.ParameterFormat.POSITIONAL;
+            case NAMED -> ApprovalFingerprint.ParameterFormat.NAMED;
+        };
     }
 
     /**

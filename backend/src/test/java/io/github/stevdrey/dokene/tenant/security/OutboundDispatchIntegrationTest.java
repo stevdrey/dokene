@@ -36,6 +36,7 @@ import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
 import io.github.stevdrey.dokene.messaging.application.SendMessageCommand;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
@@ -47,6 +48,7 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -171,6 +173,21 @@ class OutboundDispatchIntegrationTest {
     }
 
     @Test
+    void aNamedTemplateIsSentWithTheApprovedFormatAndNames() throws Exception {
+        templates.parameterFormat = TemplateParameterFormat.NAMED;
+        OutboundMessage approved = approvedMessage();
+
+        CommandResult sent = inContext(ownerA, () -> dispatch.send(send(approved, "send-" + UUID.randomUUID())));
+
+        assertThat(sent.message().status()).isEqualTo(MessageStatus.SENT);
+        assertThat(provider.calls()).singleElement().satisfies(call -> {
+            assertThat(call.parameterFormat()).isEqualTo(ApprovalFingerprint.ParameterFormat.NAMED);
+            assertThat(call.parameterNames()).containsExactly("customer_name", "message_body");
+            assertThat(call.parameters()).containsExactly(customer.displayName(), BODY);
+        });
+    }
+
+    @Test
     void aDuplicateClickReplaysTheSameKeyWithoutASecondProviderCall() throws Exception {
         OutboundMessage approved = approvedMessage();
         SendMessageCommand command = send(approved, "double-" + UUID.randomUUID());
@@ -248,6 +265,10 @@ class OutboundDispatchIntegrationTest {
         templates.version = 2;
         assertDeniedWithoutEffects(approved, MessagingErrorCode.APPROVAL_INVALIDATED);
         templates.version = 1;
+        // Re-verifying the same revision with named placeholders changes what the provider would receive.
+        templates.parameterFormat = TemplateParameterFormat.NAMED;
+        assertDeniedWithoutEffects(approved, MessagingErrorCode.APPROVAL_INVALIDATED);
+        templates.parameterFormat = TemplateParameterFormat.POSITIONAL;
         templates.mapped = false;
         assertDeniedWithoutEffects(approved, MessagingErrorCode.TEMPLATE_NOT_MAPPED);
         templates.mapped = true;
