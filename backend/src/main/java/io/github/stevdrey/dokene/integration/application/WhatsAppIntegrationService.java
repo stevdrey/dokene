@@ -58,11 +58,11 @@ public class WhatsAppIntegrationService {
     }
 
     /**
-     * The stored configuration plus the two states reported with it, both read from the same row: {@code outboundEnabled}
-     * is the stored tenant kill switch (spec 0008) and {@code webhookVerified} the persisted ownership proof for the
-     * current phone number, business account and credential revision.
+     * The stored configuration, which carries the tenant kill switch (spec 0008), plus {@code webhookVerified}: the
+     * persisted ownership proof for the current phone number, business account and credential revision, read from the
+     * same row.
      */
-    public record IntegrationView(WhatsAppIntegration integration, boolean outboundEnabled, boolean webhookVerified) {
+    public record IntegrationView(WhatsAppIntegration integration, boolean webhookVerified) {
     }
 
     @Transactional(readOnly = true)
@@ -111,11 +111,8 @@ public class WhatsAppIntegrationService {
                     || current.version() != expectedVersion) {
                 throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
             }
-            WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
-                    displayPhoneNumber, enabled, secretRef, clock.instant()));
-            long storedVersion = repository.update(next, expectedVersion).orElseThrow(
-                    () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-            saved = next.withVersion(storedVersion);
+            saved = store(validated(() -> current.update(phoneNumberId, businessAccountId, displayPhoneNumber,
+                    enabled, secretRef, clock.instant())), expectedVersion);
         }
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
@@ -167,10 +164,7 @@ public class WhatsAppIntegrationService {
     }
 
     private IntegrationView recordProof(WhatsAppIntegration current, long expectedVersion) {
-        WhatsAppIntegration next = current.verifyOwnership(clock.instant());
-        long storedVersion = repository.update(next, expectedVersion).orElseThrow(
-                () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-        WhatsAppIntegration saved = next.withVersion(storedVersion);
+        WhatsAppIntegration saved = store(current.verifyOwnership(clock.instant()), expectedVersion);
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
     }
@@ -190,16 +184,8 @@ public class WhatsAppIntegrationService {
     @Transactional
     public IntegrationView rotateCredential(long expectedVersion) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
-        WhatsAppIntegration current = repository.findByTenant(tenantId)
-                .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
-        if (current.version() != expectedVersion) {
-            throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
-        }
-        WhatsAppIntegration next = current.rotateCredential(clock.instant());
-        long storedVersion = repository.update(next, expectedVersion).orElseThrow(
-                () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-        WhatsAppIntegration saved = next.withVersion(storedVersion);
+        WhatsAppIntegration current = requireVersion(expectedVersion);
+        WhatsAppIntegration saved = store(current.rotateCredential(clock.instant()), expectedVersion);
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
     }
@@ -214,21 +200,30 @@ public class WhatsAppIntegrationService {
     @Transactional
     public IntegrationView setOutboundEnabled(long expectedVersion, boolean enabled) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
-        WhatsAppIntegration current = repository.findByTenant(tenantId)
+        WhatsAppIntegration current = requireVersion(expectedVersion);
+        if (current.outboundEnabled() == enabled) {
+            return view(current);
+        }
+        WhatsAppIntegration saved = store(current.withOutboundEnabled(enabled, clock.instant()), expectedVersion);
+        audit.outboundSwitchChanged(saved.id(), enabled);
+        return view(saved);
+    }
+
+    /** The current tenant's row at exactly the named version, else {@code NOT_FOUND} or {@code STALE_VERSION}. */
+    private WhatsAppIntegration requireVersion(long expectedVersion) {
+        WhatsAppIntegration current = repository.findByTenant(contexts.requireCurrent().tenantId())
                 .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
         if (current.version() != expectedVersion) {
             throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
         }
-        if (current.outboundEnabled() == enabled) {
-            return view(current);
-        }
-        WhatsAppIntegration next = current.withOutboundEnabled(enabled, clock.instant());
+        return current;
+    }
+
+    /** Compare-and-set against {@code expectedVersion}; a lost race is {@code STALE_VERSION}. The stored row. */
+    private WhatsAppIntegration store(WhatsAppIntegration next, long expectedVersion) {
         long storedVersion = repository.update(next, expectedVersion).orElseThrow(
                 () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-        WhatsAppIntegration saved = next.withVersion(storedVersion);
-        audit.outboundSwitchChanged(saved.id(), enabled);
-        return view(saved);
+        return next.withVersion(storedVersion);
     }
 
     /**
@@ -254,6 +249,6 @@ public class WhatsAppIntegrationService {
     }
 
     private IntegrationView view(WhatsAppIntegration integration) {
-        return new IntegrationView(integration, integration.outboundEnabled(), integration.ownershipVerified());
+        return new IntegrationView(integration, integration.ownershipVerified());
     }
 }

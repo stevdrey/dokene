@@ -150,6 +150,6 @@ class WhatsAppIntegrationControllerTest {
     }
 
     private static IntegrationView view(WhatsAppIntegration integration) {
-        return new IntegrationView(integration, integration.outboundEnabled(), integration.ownershipVerified());
+        return new IntegrationView(integration, integration.ownershipVerified());
     }
 }

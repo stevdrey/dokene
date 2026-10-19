@@ -40,6 +40,9 @@ import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyC
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl.Blocked;
+import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl.Decision;
+import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl.Permitted;
+import io.github.stevdrey.dokene.messaging.application.OutboundSwitchProperties;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -53,7 +56,6 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -375,8 +377,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         outbound(adminA, tenantA, "\"0\"", ON).andExpect(status().isOk())
                 .andExpect(jsonPath("$.outboundEnabled").value(true)).andExpect(jsonPath("$.enabled").value(false))
                 .andExpect(jsonPath("$.webhookVerified").value(false));
-        // Switched on, but still not a sender: the integration gate answers after the switches.
-        assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        // Switched on, but still not a sender: the integration state answers after the switches.
+        assertThat(sendDecision(tenantA)).isEqualTo(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
     }
 
     @Test
@@ -424,41 +426,44 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
 
     @Test
     void aPreRegisteredNumberNeverRoutesToTheSquatterAndTheOwnerReclaimsItByProvingOwnership() throws Exception {
-        // Tenant B pre-registers the number of tenant A (who owns it at Meta) before A configures it.
+        // Tenant B pre-registers the number of tenant A (who owns it at Meta) before A configures it. Both tenants
+        // switch outbound on, so the send decisions below answer with the integration state, not the tenant switch.
         write(adminB, tenantB, null, body(phoneId, "wa-token-b", true)).andExpect(status().isOk());
+        outbound(adminB, tenantB, "\"0\"", ON).andExpect(status().isOk());
 
         // A is neither blocked nor told anything about B.
         String created = write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.webhookVerified").value(false))
                 .andReturn().getResponse().getContentAsString();
         assertThat(created).doesNotContain(tenantB.id().value().toString()).doesNotContain("wa-token-b");
+        outbound(adminA, tenantA, "\"0\"", ON).andExpect(status().isOk());
 
         // No unverified claim routes events or may send.
         assertThat(mappings.tenantFor(phoneId)).isEmpty();
-        assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
-        assertThat(integrationGate(tenantB)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        assertThat(sendDecision(tenantA)).isEqualTo(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        assertThat(sendDecision(tenantB)).isEqualTo(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
 
         // B's credential does not reach the number, so B cannot verify it.
         ownership.answer(tenantB, new NotProven());
-        String notProven = verify(adminB, tenantB, "\"0\"").andExpect(status().isBadRequest())
+        String notProven = verify(adminB, tenantB, "\"1\"").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT")).andReturn().getResponse().getContentAsString();
         assertThat(mappings.tenantFor(phoneId)).isEmpty();
 
         // A proves ownership with its own credential; from then on only A is resolved for the number.
         ownership.answer(tenantA, new Proven());
-        verify(adminA, tenantA, "\"0\"").andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+        verify(adminA, tenantA, "\"1\"").andExpect(status().isOk()).andExpect(header().string("ETag", "\"2\""))
                 .andExpect(jsonPath("$.webhookVerified").value(true));
         read(adminA, tenantA).andExpect(jsonPath("$.webhookVerified").value(true));
         assertThat(mappings.tenantFor(phoneId)).contains(tenantA.id());
-        assertThat(integrationGate(tenantA)).isEmpty();
-        assertThat(integrationGate(tenantB)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
-        // The global kill switch (#144) still blocks every send first.
+        assertThat(sendDecision(tenantA)).isInstanceOf(Permitted.class);
+        assertThat(sendDecision(tenantB)).isEqualTo(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        // The deployed control still refuses first on the global kill switch (#144), which this stack leaves off.
         assertThat(contexts.callWithTenantId(tenantA.id(), () -> safety.evaluate(tenantA.id())))
                 .isEqualTo(new Blocked(MessagingErrorCode.OUTBOUND_DISABLED_GLOBALLY));
 
         // Even a credential that reaches the number cannot take over a verified mapping, and B cannot tell why.
         ownership.answer(tenantB, new Proven());
-        String taken = verify(adminB, tenantB, "\"0\"").andExpect(status().isBadRequest())
+        String taken = verify(adminB, tenantB, "\"1\"").andExpect(status().isBadRequest())
                 .andReturn().getResponse().getContentAsString();
         assertThat(taken).isEqualTo(notProven).doesNotContain(tenantA.id().value().toString())
                 .doesNotContain(phoneId);
@@ -472,15 +477,15 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
                 new Claim(tenantB.id(), phoneId, WABA_ID, "wa-token-b"));
 
         // Disabling clears the proof, so a disabled owner never locks the number: routing and sending stop at once.
-        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false))
+        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", false))
                 .andExpect(jsonPath("$.webhookVerified").value(false));
         assertThat(mappings.tenantFor(phoneId)).isEmpty();
-        assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+        assertThat(sendDecision(tenantA)).isEqualTo(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
         // Re-enabling does not bring the proof back; the owner verifies again.
-        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true))
+        write(adminA, tenantA, "\"3\"", body(phoneId, "wa-token-ok", true))
                 .andExpect(jsonPath("$.webhookVerified").value(false));
         assertThat(mappings.tenantFor(phoneId)).isEmpty();
-        verify(adminA, tenantA, "\"3\"").andExpect(jsonPath("$.webhookVerified").value(true));
+        verify(adminA, tenantA, "\"4\"").andExpect(jsonPath("$.webhookVerified").value(true));
         assertThat(mappings.tenantFor(phoneId)).contains(tenantA.id());
     }
 
@@ -917,8 +922,14 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         }
     }
 
-    private Optional<Blocked> integrationGate(Tenant tenant) {
-        return contexts.callWithTenantId(tenant.id(), () -> safety.integrationGate(tenant.id()));
+    /**
+     * The send decision as a deployment with the global switch on would make it, over the real rows and policies, so
+     * the tenant switch and the integration state can be observed; the autowired control keeps the stack's default off.
+     */
+    private Decision sendDecision(Tenant tenant) {
+        WhatsAppOutboundSafetyControl permitted = new WhatsAppOutboundSafetyControl(repository,
+                new OutboundSwitchProperties(true));
+        return contexts.callWithTenantId(tenant.id(), () -> permitted.evaluate(tenant.id()));
     }
 
     private int denials(Tenant tenant, IdentityId actor, String reason) throws SQLException {

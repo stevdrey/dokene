@@ -109,7 +109,7 @@ public class WhatsAppIntegrationController {
         var integration = view.integration();
         response.setHeader("ETag", StrictRequests.strongEtag(integration.version()));
         response.setHeader("Cache-Control", "no-store");
-        return new IntegrationResponse(integration.enabled(), view.outboundEnabled(), integration.phoneNumberId(),
+        return new IntegrationResponse(integration.enabled(), integration.outboundEnabled(), integration.phoneNumberId(),
                 integration.businessAccountId(), integration.displayPhoneNumber(), integration.secretRef(),
                 view.webhookVerified(), integration.version());
     }

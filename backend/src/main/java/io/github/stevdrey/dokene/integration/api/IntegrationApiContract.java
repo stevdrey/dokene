@@ -26,15 +26,14 @@ public final class IntegrationApiContract {
     }
 
     /**
-     * Binds the kill switch body: an object with exactly one member {@code enabled} holding a JSON boolean. The strict
-     * reader refuses unknown and missing members; the explicit check refuses a number or string standing in for the
-     * boolean, which the reader would otherwise coerce.
+     * Binds the kill switch body: an object with exactly one member {@code enabled} holding a JSON boolean. Checked on
+     * the tree rather than through the strict reader, which would coerce a number or string standing in for the boolean.
      */
     public static OutboundRequest readOutbound(JsonNode body) {
         if (body == null || !body.isObject() || body.size() != 1 || !body.path("enabled").isBoolean()) {
             throw new InvalidRequestException();
         }
-        return StrictRequests.read(body, OutboundRequest.class).orElseThrow(InvalidRequestException::new);
+        return new OutboundRequest(body.get("enabled").booleanValue());
     }
 
     /** A request that is not a valid integration body or carries an invalid precondition header. */

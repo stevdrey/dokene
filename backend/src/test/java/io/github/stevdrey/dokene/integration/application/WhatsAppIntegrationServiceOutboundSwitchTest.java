@@ -132,7 +132,7 @@ class WhatsAppIntegrationServiceOutboundSwitchTest {
         IntegrationView view = service.setOutboundEnabled(3, false);
 
         assertThat(view.integration()).isSameAs(stored);
-        assertThat(view.outboundEnabled()).isFalse();
+        assertThat(view.integration().outboundEnabled()).isFalse();
         verify(repository, never()).update(any(), anyLong());
         verifyNoInteractions(audit);
     }
@@ -157,7 +157,7 @@ class WhatsAppIntegrationServiceOutboundSwitchTest {
         assertThat(next.credentialRevision()).isEqualTo(stored.credentialRevision());
         assertThat(next.ownershipVerifiedAt()).isEqualTo(stored.ownershipVerifiedAt());
 
-        assertThat(view.outboundEnabled()).isTrue();
+        assertThat(view.integration().outboundEnabled()).isTrue();
         assertThat(view.integration().version()).isEqualTo(4);
         assertThat(view.integration().id()).isEqualTo(stored.id());
 
@@ -176,7 +176,7 @@ class WhatsAppIntegrationServiceOutboundSwitchTest {
 
         IntegrationView view = service.setOutboundEnabled(3, false);
 
-        assertThat(view.outboundEnabled()).isFalse();
+        assertThat(view.integration().outboundEnabled()).isFalse();
         verify(audit).outboundSwitchChanged(on.id(), false);
     }
 
@@ -190,7 +190,7 @@ class WhatsAppIntegrationServiceOutboundSwitchTest {
 
         IntegrationView view = service.setOutboundEnabled(7, true);
 
-        assertThat(view.outboundEnabled()).isTrue();
+        assertThat(view.integration().outboundEnabled()).isTrue();
         assertThat(view.integration().enabled()).isFalse();
         assertThat(view.webhookVerified()).isFalse();
         verify(audit).outboundSwitchChanged(disabledAndUnproven.id(), true);

@@ -99,19 +99,13 @@ class WhatsAppOutboundSafetyControlTest {
     }
 
     @Test
-    void theIntegrationGateAndTheConfiguredSenderIgnoreBothSwitches() {
+    void theConfiguredSenderIgnoresBothSwitchesAndTheIntegrationState() {
         WhatsAppOutboundSafetyControl control = new WhatsAppOutboundSafetyControl(integrations, GLOBAL_OFF);
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(unverified));
-        assertThat(control.integrationGate(tenantId)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
         assertThat(control.configuredSender(tenantId)).contains(new SenderRevision(unverified.id(),
                 "100000000000001", "200000000000001", 1));
 
-        when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(
-                unverified.verifyOwnership(Instant.parse("2026-10-01T11:00:00Z"))));
-        assertThat(control.integrationGate(tenantId)).isEmpty();
-
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> control.integrationGate(tenantId)).isInstanceOf(IllegalStateException.class);
         assertThat(control.configuredSender(tenantId)).isEmpty();
     }
 

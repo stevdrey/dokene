@@ -61,16 +61,6 @@ public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
                 .orElseGet(() -> new Permitted(senderRevision(integration)));
     }
 
-    /**
-     * The integration half of step 4 on its own, with one read and without either switch: a disabled integration, or
-     * one whose phone number ownership is not proven for the current configuration (issue 210), is
-     * {@code INTEGRATION_DISABLED}. Empty means this gate does not block.
-     */
-    public Optional<Blocked> integrationGate(TenantId tenantId) {
-        Objects.requireNonNull(tenantId, "Tenant id is required");
-        return integrationDecision(requireIntegration(tenantId));
-    }
-
     /** The sending identity an approval binds; the send adapter compares it with the one approval recorded. */
     public static SenderRevision senderRevision(WhatsAppIntegration integration) {
         return new SenderRevision(integration.id(), integration.phoneNumberId(), integration.businessAccountId(),
@@ -86,6 +76,10 @@ public class WhatsAppOutboundSafetyControl implements OutboundSafetyControl {
                 .orElseThrow(() -> new IllegalStateException("No integration is configured"));
     }
 
+    /**
+     * The integration half of step 4: a disabled integration, or one whose phone number ownership is not proven for the
+     * current configuration (issue 210), is {@code INTEGRATION_DISABLED}. Empty means this gate does not block.
+     */
     private static Optional<Blocked> integrationDecision(WhatsAppIntegration integration) {
         return integration.enabled() && integration.ownershipVerified() ? Optional.empty()
                 : Optional.of(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));

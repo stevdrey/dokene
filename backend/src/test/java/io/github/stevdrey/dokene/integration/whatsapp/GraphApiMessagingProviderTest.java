@@ -436,6 +436,11 @@ class GraphApiMessagingProviderTest {
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, false)));
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
 
+        // The tenant kill switch turned off after the claim committed: enabled and proven, yet refused (spec 0008).
+        when(integrations.findByTenant(tenantId))
+                .thenReturn(Optional.of(configured.withOutboundEnabled(false, Instant.now())));
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(configured));
         when(secrets.getIfAvailable()).thenReturn(null);
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
@@ -571,9 +576,10 @@ class GraphApiMessagingProviderTest {
                 new GraphApiHttp(new GraphApiProperties(baseUrl, Duration.ofMillis(500), List.of())));
     }
 
+    /** A sendable row unless told otherwise: the tenant switch is on, which {@code create} leaves off. */
     private WhatsAppIntegration integration(boolean enabled, boolean verified) {
         WhatsAppIntegration created = WhatsAppIntegration.create(tenantId, PHONE_NUMBER_ID, "400000000000001", null,
-                true, "synthetic-wa-token", Instant.now());
+                true, "synthetic-wa-token", Instant.now()).withOutboundEnabled(true, Instant.now());
         WhatsAppIntegration proven = verified ? created.verifyOwnership(Instant.now()) : created;
         return enabled ? proven : proven.update(PHONE_NUMBER_ID, "400000000000001", null, false,
                 "synthetic-wa-token", Instant.now());
