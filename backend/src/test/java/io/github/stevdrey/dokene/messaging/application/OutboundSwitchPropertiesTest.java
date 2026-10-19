@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 
@@ -51,5 +52,14 @@ class OutboundSwitchPropertiesTest {
             assertThat(context.getStartupFailure()).hasStackTraceContaining(PROPERTY)
                     .hasStackTraceContaining("Invalid boolean value '" + value + "'");
         });
+    }
+
+    /** The shipped application.yml wires the environment variable to the property; a typo in either would be silent. */
+    @Test
+    void theEnvironmentVariableReachesThePropertyThroughTheShippedConfiguration() {
+        ApplicationContextRunner shipped = runner.withInitializer(new ConfigDataApplicationContextInitializer());
+        shipped.run(context -> assertThat(context.getBean(OutboundSwitchProperties.class).enabled()).isFalse());
+        shipped.withSystemProperties("DOKENE_MESSAGING_OUTBOUND_ENABLED=true")
+                .run(context -> assertThat(context.getBean(OutboundSwitchProperties.class).enabled()).isTrue());
     }
 }
