@@ -91,6 +91,6 @@ Tests are offline only. `GraphApiMessagingProviderTest` replays the synthetic Me
 
 ## Consequences
 
-- #142 can wire dispatch against a real adapter. Sending stays impossible in practice until #142 provides a production `IntegrationSecretResolver` and #144 opens the kill switches.
+- #142 can wire dispatch against a real adapter. Sending stays impossible in practice until #142 provides a production `IntegrationSecretResolver`; the kill switches (#144, spec 0008) are configurable and off by default.
 - `OutcomeUnknown` is the expected result for opaque gateway errors and timeouts. Operators settle it through webhooks (T13) or manual resolution, never through an automatic retry.
 - The Graph API version must be revisited before 2027-10-08.

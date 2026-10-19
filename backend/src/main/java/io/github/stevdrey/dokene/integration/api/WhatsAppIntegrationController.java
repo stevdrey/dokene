@@ -4,6 +4,7 @@ import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationRequest;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationResponse;
+import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.OutboundRequest;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.Create;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.IntegrationView;
@@ -81,10 +82,28 @@ public class WhatsAppIntegrationController {
     }
 
     /**
+     * The tenant outbound kill switch (spec 0008). Strong {@code If-Match} and a one member body; the switch is
+     * independent of {@code enabled} and of the ownership proof. The global switch has no route.
+     */
+    @RequiredPermission(TenantPermission.INTEGRATION_MANAGE)
+    @PutMapping("/outbound")
+    public IntegrationResponse setOutbound(
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch,
+            @RequestBody JsonNode body, HttpServletResponse response) {
+        if (ifNoneMatch != null || !(precondition(ifMatch, null) instanceof Version(long expectedVersion))) {
+            throw new InvalidRequestException();
+        }
+        OutboundRequest request = IntegrationApiContract.readOutbound(body);
+        return respond(integrations.setOutboundEnabled(expectedVersion, request.enabled()), response);
+    }
+
+    /**
      * The ETag is the configuration concurrency token: the stored row's version, which every change to the ownership
-     * proof also bumps. {@code outboundEnabled} is live runtime state that can change without it, so the response is
-     * never cacheable and the handlers return the body directly (not a {@code ResponseEntity}) with headers set on the servlet
-     * response, which keeps Spring from answering a matching {@code If-None-Match} GET with a {@code 304}.
+     * proof and to the tenant kill switch also bumps. The row can still change behind a client between reads, so the
+     * response is never cacheable and the handlers return the body directly (not a {@code ResponseEntity}) with headers
+     * set on the servlet response, which keeps Spring from answering a matching {@code If-None-Match} GET with a
+     * {@code 304}.
      */
     private IntegrationResponse respond(IntegrationView view, HttpServletResponse response) {
         var integration = view.integration();

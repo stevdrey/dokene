@@ -1,5 +1,5 @@
 // ABOUTME: Proves the tenant WhatsApp integration config API: role matrix, IDOR, RLS, stale writes, credential rotation,
-// ABOUTME: audit rollback, ownership proof, reclaim of a squatted number and the rejected-proof throttle (134, 208, 210).
+// ABOUTME: audit rollback, ownership proof, squatted-number reclaim, the proof throttle and the tenant kill switch route.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
@@ -27,7 +27,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
-import io.github.stevdrey.dokene.integration.application.IntegrationReadiness;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.integration.application.MappingRejectionLimitProperties;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier;
@@ -89,16 +88,8 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final int TENANT_BUDGET = MappingRejectionLimitProperties.DEFAULT_TENANT_REJECTIONS;
     private static final String MAPPING_REJECTED = "MAPPING_REJECTED";
     private static final String RATE_LIMITED = "RATE_LIMITED";
-
-    /** Runtime readiness that tests can flip without touching the stored integration version. */
-    static final class MutableReadiness implements IntegrationReadiness {
-        volatile boolean outboundEnabled;
-
-        @Override
-        public boolean outboundEnabled(TenantId tenantId) {
-            return outboundEnabled;
-        }
-    }
+    private static final String ON = "{\"enabled\":true}";
+    private static final String OFF = "{\"enabled\":false}";
 
     /** Stands in for the provider adapter: answers per tenant, records every claim it was asked to prove. */
     static final class ScriptedOwnership implements PhoneNumberOwnershipVerifier {
@@ -125,13 +116,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @TestConfiguration
-    static class ReadinessConfiguration {
-        @Bean
-        @Primary
-        MutableReadiness mutableReadiness() {
-            return new MutableReadiness();
-        }
-
+    static class OwnershipConfiguration {
         @Bean
         @Primary
         ScriptedOwnership scriptedOwnership() {
@@ -146,7 +131,6 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     MockMvc mvc;
-    @Autowired MutableReadiness readiness;
     @Autowired ScriptedOwnership ownership;
     @Autowired VerifiedPhoneNumberMappings mappings;
     @Autowired WhatsAppOutboundSafetyControl safety;
@@ -171,7 +155,6 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
-        readiness.outboundEnabled = false;
         ownership.reset();
         phoneId = Long.toString(NEXT_ID.incrementAndGet());
         Instant now = Instant.now();
@@ -320,18 +303,123 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     }
 
     @Test
-    void theEtagIsTheConfigurationTokenAndRuntimeReadinessIsNeverServedFromACache() throws Exception {
+    void theTenantOutboundSwitchChangesOnlyThroughItsRouteBumpsTheEtagAndIsAudited() throws Exception {
         write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
         read(adminA, tenantA).andExpect(status().isOk()).andExpect(header().string("ETag", "\"0\""))
                 .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
                 .andExpect(jsonPath("$.outboundEnabled").value(false));
 
-        readiness.outboundEnabled = true; // runtime state changes; the stored version does not
-        mvc.perform(get("/api/integrations/whatsapp").with(user(adminA)).header("X-Tenant-Id", tenantA.id().value())
-                        .header("If-None-Match", "\"0\""))
-                .andExpect(status().isOk()).andExpect(header().string("ETag", "\"0\""))
+        outbound(adminA, tenantA, "\"0\"", ON).andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
                 .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.outboundEnabled").value(true)).andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.secretRef").value("wa-token-ok"))
+                .andExpect(jsonPath("$.accessToken").doesNotExist());
+        read(adminA, tenantA).andExpect(header().string("ETag", "\"1\""))
                 .andExpect(jsonPath("$.outboundEnabled").value(true));
+        assertThat(switchAudits(tenantA, true)).isEqualTo(1);
+
+        // Stating the stored value is a no op: no write, no version bump, no second audit row.
+        outbound(adminA, tenantA, "\"1\"", ON).andExpect(status().isOk()).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.outboundEnabled").value(true));
+        assertThat(switchAudits(tenantA, true)).isEqualTo(1);
+
+        // A stale, missing or malformed precondition and a body that is not exactly one JSON boolean change nothing.
+        outbound(adminA, tenantA, "\"0\"", OFF).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        outbound(adminA, tenantA, null, OFF).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        mvc.perform(put("/api/integrations/whatsapp/outbound").with(user(adminA)).with(csrf())
+                        .header("X-Tenant-Id", tenantA.id().value()).header("If-None-Match", "*")
+                        .contentType(MediaType.APPLICATION_JSON).content(OFF))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        for (String malformed : List.of("1", "W/\"1\"", "", "*")) {
+            outbound(adminA, tenantA, malformed, OFF).andExpect(status().isBadRequest());
+        }
+        for (String json : List.of("{\"enabled\":false,\"global\":true}", "{\"enabled\":\"true\"}",
+                "{\"enabled\":1}", "{\"enabled\":null}", "{}", "null", "[]", "true")) {
+            outbound(adminA, tenantA, "\"1\"", json).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+        read(adminA, tenantA).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.outboundEnabled").value(true));
+        assertThat(switchAudits(tenantA, false)).isZero();
+
+        // The configuration write, the credential rotation and the ownership proof leave the switch as it was.
+        write(adminA, tenantA, "\"1\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outboundEnabled").value(true));
+        write(adminA, tenantA, "\"2\"", body(phoneId, "wa-token-ok", true)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outboundEnabled").value(true));
+        rotate(adminA, tenantA, "\"3\"").andExpect(status().isOk()).andExpect(jsonPath("$.outboundEnabled").value(true));
+        ownership.answer(tenantA, new Proven());
+        verify(adminA, tenantA, "\"4\"").andExpect(status().isOk()).andExpect(jsonPath("$.outboundEnabled").value(true))
+                .andExpect(jsonPath("$.webhookVerified").value(true));
+
+        // Off again: its own audit row, and the flip never touches the proof.
+        outbound(adminA, tenantA, "\"5\"", OFF).andExpect(status().isOk()).andExpect(header().string("ETag", "\"6\""))
+                .andExpect(jsonPath("$.outboundEnabled").value(false))
+                .andExpect(jsonPath("$.webhookVerified").value(true));
+        read(adminA, tenantA).andExpect(jsonPath("$.outboundEnabled").value(false));
+        assertThat(switchAudits(tenantA, false)).isEqualTo(1);
+        assertThat(switchAudits(tenantA, true)).isEqualTo(1);
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.audit_events a WHERE a.tenant_id = ? "
+                    + "AND a.event_type = 'OUTBOUND_KILL_SWITCH_CHANGED' AND (row_to_json(a)::text LIKE ? "
+                    + "OR row_to_json(a)::text LIKE ?)", tenantA.id().value(), "%" + phoneId + "%",
+                    "%wa-token%")).isZero();
+        }
+    }
+
+    @Test
+    void theOutboundSwitchIsIndependentOfTheEnabledFlagAndTheProof() throws Exception {
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        outbound(adminA, tenantA, "\"0\"", ON).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outboundEnabled").value(true)).andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.webhookVerified").value(false));
+        // Switched on, but still not a sender: the integration gate answers after the switches.
+        assertThat(integrationGate(tenantA)).contains(new Blocked(MessagingErrorCode.INTEGRATION_DISABLED));
+    }
+
+    @Test
+    void onlyManagersOfTheSelectedTenantFlipTheOutboundSwitch() throws Exception {
+        outbound(adminA, tenantA, "\"0\"", ON).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        write(adminB, tenantB, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-b", true))
+                .andExpect(status().isOk());
+        outbound(adminB, tenantB, "\"0\"", ON).andExpect(status().isOk());
+
+        // P3-KILL-05 / P3-PERM-12: OPERATOR and VIEWER are denied both ways, before the input is looked at.
+        for (String json : List.of(ON, OFF)) {
+            outbound(operatorA, tenantA, "\"0\"", json).andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+            outbound(viewerA, tenantA, "\"0\"", json).andExpect(status().isForbidden());
+        }
+        outbound(operatorA, tenantA, "garbage", "{}").andExpect(status().isForbidden());
+        // P3-KILL-06: an admin of A naming tenant B is not a member there.
+        outbound(adminA, tenantB, "\"1\"", OFF).andExpect(status().isForbidden());
+        // No CSRF token, no change.
+        mvc.perform(put("/api/integrations/whatsapp/outbound").with(user(adminA))
+                        .header("X-Tenant-Id", tenantA.id().value()).header("If-Match", "\"0\"")
+                        .contentType(MediaType.APPLICATION_JSON).content(ON))
+                .andExpect(status().isForbidden());
+
+        read(adminA, tenantA).andExpect(header().string("ETag", "\"0\""))
+                .andExpect(jsonPath("$.outboundEnabled").value(false));
+        read(adminB, tenantB).andExpect(header().string("ETag", "\"1\""))
+                .andExpect(jsonPath("$.outboundEnabled").value(true));
+        assertThat(switchAudits(tenantA, true) + switchAudits(tenantA, false)).isZero();
+        assertThat(switchAudits(tenantB, true)).isEqualTo(1);
+    }
+
+    @Test
+    void anOutboundSwitchFlipRollsBackWhenItsAuditFails() throws Exception {
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        doThrow(new AuditPersistenceException()).when(audit).outboundSwitchChanged(any(), anyBoolean());
+        outbound(adminA, tenantA, "\"0\"", ON).andExpect(status().isServiceUnavailable())
+                .andExpect(content().string(""));
+        read(adminA, tenantA).andExpect(header().string("ETag", "\"0\""))
+                .andExpect(jsonPath("$.outboundEnabled").value(false));
+        assertThat(switchAudits(tenantA, true)).isZero();
     }
 
     @Test
@@ -861,6 +949,23 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private ResultActions rotate(IdentityId who, Tenant tenant, String ifMatch) throws Exception {
         return mvc.perform(post("/api/integrations/whatsapp/credential-rotations").with(user(who)).with(csrf())
                 .header("X-Tenant-Id", tenant.id().value()).header("If-Match", ifMatch));
+    }
+
+    private ResultActions outbound(IdentityId who, Tenant tenant, String ifMatch, String json) throws Exception {
+        var request = put("/api/integrations/whatsapp/outbound").with(user(who)).with(csrf())
+                .header("X-Tenant-Id", tenant.id().value()).contentType(MediaType.APPLICATION_JSON).content(json);
+        if (ifMatch != null) {
+            request.header("If-Match", ifMatch);
+        }
+        return mvc.perform(request);
+    }
+
+    private int switchAudits(Tenant tenant, boolean enabled) throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? "
+                    + "AND event_type = 'OUTBOUND_KILL_SWITCH_CHANGED' AND outcome = 'SUCCESS' "
+                    + "AND target_type = 'INTEGRATION' AND enabled = ?", tenant.id().value(), enabled);
+        }
     }
 
     private ResultActions verify(IdentityId who, Tenant tenant, String ifMatch) throws Exception {
