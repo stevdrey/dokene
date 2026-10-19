@@ -46,6 +46,13 @@ dokene:
       min-attempt-budget: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:1s}
   integration:
     whatsapp:
+      # Deployment secret references for the Meta webhook verifier (spec 0007): bare keys of the APP_SECRET and
+      # WEBHOOK_VERIFY_TOKEN entries, never the secrets. Blank keeps that path refusing every request.
+      verify-token-ref: ${DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF:}
+      app-secret-ref: ${DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF:}
+      webhook:
+        # Largest webhook body read, in bytes (1 to 16777216). Meta documents payloads up to 3 MB.
+        max-body-bytes: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES:4194304}
       # Phone numbers already mapped by another tenant, per sliding window, before mapping changes get 429 (issue 208).
       mapping-rejection-limit:
         tenant-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_TENANT_LIMIT:10}

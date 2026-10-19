@@ -177,6 +177,9 @@ services:
       # entries boots a resolver that refuses everything as MISSING. To give the container entries, add the indexed
       # variables (or a volume plus SPRING_CONFIG_ADDITIONAL_LOCATION) in a compose override file (spec 0006).
       DOKENE_INTEGRATION_SECRETS_SOURCE: ${DOKENE_INTEGRATION_SECRETS_SOURCE:-}
+      # Bare keys of the deployment entries the webhook verifier resolves (spec 0007). Blank keeps each path refusing.
+      DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF: ${DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF:-}
+      DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF: ${DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF:-}
     read_only: true
     tmpfs:
       - /tmp

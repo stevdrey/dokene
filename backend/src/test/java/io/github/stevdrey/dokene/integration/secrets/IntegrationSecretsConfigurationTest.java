@@ -2,7 +2,7 @@
 // ABOUTME: relaxed binding of indexed entries, redacted properties and a cause chain that never carries a value.
 package io.github.stevdrey.dokene.integration.secrets;
 
-import static io.github.stevdrey.dokene.integration.secrets.SecretCanaries.containsAny;
+import static io.github.stevdrey.dokene.integration.testsupport.SecretCanaries.containsAny;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
@@ -15,6 +15,8 @@ import io.github.stevdrey.dokene.integration.application.SecretUnavailableExcept
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.Category;
 import io.github.stevdrey.dokene.integration.secrets.IntegrationSecretsProperties.Entry;
 import io.github.stevdrey.dokene.integration.secrets.IntegrationSecretsProperties.Local;
+import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.ArrayList;
 import java.util.List;

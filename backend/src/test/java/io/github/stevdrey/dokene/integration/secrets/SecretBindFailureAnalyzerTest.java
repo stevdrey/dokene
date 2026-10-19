@@ -2,10 +2,11 @@
 // ABOUTME: names properties only. ApplicationContextRunner skips failure analyzers, so this test cannot use it.
 package io.github.stevdrey.dokene.integration.secrets;
 
-import static io.github.stevdrey.dokene.integration.secrets.SecretCanaries.containsAny;
+import static io.github.stevdrey.dokene.integration.testsupport.SecretCanaries.containsAny;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
