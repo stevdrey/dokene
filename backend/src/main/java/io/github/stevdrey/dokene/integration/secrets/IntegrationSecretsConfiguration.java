@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -94,12 +95,19 @@ public class IntegrationSecretsConfiguration {
         if (raw == null) {
             throw InvalidSecretConfigurationException.invalid(index, "tenant-id");
         }
+        UUID parsed;
         try {
-            return new TenantId(UUID.fromString(raw));
+            parsed = UUID.fromString(raw);
         } catch (IllegalArgumentException malformed) {
             // Deliberately not chained: the JDK message would carry the raw text.
             throw InvalidSecretConfigurationException.invalid(index, "tenant-id");
         }
+        // UUID.fromString zero-pads abbreviated groups ("1-1-1-1-1"), so a typo would bind the
+        // credential to an unintended tenant. Only the 36-character form is accepted; case is not significant.
+        if (!parsed.toString().equals(raw.toLowerCase(Locale.ROOT))) {
+            throw InvalidSecretConfigurationException.invalid(index, "tenant-id");
+        }
+        return new TenantId(parsed);
     }
 
     /** An exact constant name that the port's scope records admit for this scope (AC-1). */

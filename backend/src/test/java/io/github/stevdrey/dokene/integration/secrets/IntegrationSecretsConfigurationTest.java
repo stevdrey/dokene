@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.integration.secrets.IntegrationSecretsPropertie
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -214,6 +215,27 @@ class IntegrationSecretsConfigurationTest {
         startupCanaries.add(malformed);
         assertStartupRefused("entries[0].tenant-id is invalid", local(
                 entry(0, "tenant", malformed, tokenRef, "WHATSAPP_ACCESS_TOKEN", token)));
+    }
+
+    @Test
+    void anAbbreviatedTenantIdFailsStartupInsteadOfBeingZeroPadded() {
+        // UUID.fromString would silently expand this to 00000001-0001-0001-0001-000000000001.
+        assertStartupRefused("entries[0].tenant-id is invalid", local(
+                entry(0, "tenant", "1-1-1-1-1", tokenRef, "WHATSAPP_ACCESS_TOKEN", token)));
+    }
+
+    @Test
+    void anUppercaseTenantIdIsAccepted() {
+        runner.withPropertyValues(local(
+                entry(0, "tenant", tenantA.toString().toUpperCase(Locale.ROOT), tokenRef, "WHATSAPP_ACCESS_TOKEN",
+                        token)))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    IntegrationSecretResolver resolver = context.getBean(IntegrationSecretResolver.class);
+                    try (ResolvedSecret secret = resolver.resolve(tenantScope(), new SecretReference(tokenRef))) {
+                        assertThat(secret.<String>withValue(String::new)).isEqualTo(token);
+                    }
+                });
     }
 
     @Test
