@@ -180,6 +180,8 @@ services:
       # Bare keys of the deployment entries the webhook verifier resolves (spec 0007). Blank keeps each path refusing.
       DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF: ${DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF:-}
       DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF: ${DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF:-}
+      # Largest webhook body accepted, in bytes; a blank .env value falls back to the application default.
+      DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES:-4194304}
     read_only: true
     tmpfs:
       - /tmp
