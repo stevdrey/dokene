@@ -1,0 +1,17 @@
+== Retest on main @ 7069914 (Chrome 155, live OpenAI)
+-- #195 search icon
+PASS  #195 icon centered on the input while the query/helper row is shown  -- {"inTop":183,"inBottom":227,"icTop":195,"icBottom":215,"centerDelta":0,"helper":true}
+-- #197 focus after activated button is removed (keyboard)
+PASS  #197 focus is not BODY after the recommendation arrives  -- {"tag":"h4","role":"","name":"Recomendación de la IA","focusVisible":true,"outline":"solid 2px","shadow":"","inViewport":true,"inDialog":false}
+   next Tab -> {"tag":"button","name":"Consultar de nuevo"}
+PASS  focus on the editor when the draft arrives (unchanged)
+-- #194 evidence presentation
+   evidence block: 
+PASS  #194 no raw ISO timestamp
+PASS  #194 no English status value
+-- #197 focus on Regenerar / Cargar más
+   after Enter on Regenerar -> {"tag":"BODY"}
+FAIL  #197 focus not BODY after Regenerar
+   after Enter on Cargar más -> {"tag":"div","name":"Injection Notes QAverifiedContacto autorizado (W"}
+PASS  #197 focus not BODY after paging
+PASS=6 FAIL=1

@@ -1,0 +1,34 @@
+== Retest on main @ 7069914 (Chrome 155)
+-- #191 fresh load, unfiltered queue with the long-name customers present
+   320px docScrollW=305/320 overflow=false
+   360px docScrollW=345/360 overflow=false
+   390px docScrollW=375/390 overflow=false
+   480px docScrollW=465/480 overflow=false
+   560px docScrollW=545/560 overflow=false
+   600px docScrollW=585/600 overflow=false
+   700px docScrollW=685/700 overflow=false
+   760px docScrollW=745/760 overflow=false
+   768px docScrollW=753/768 overflow=false
+   780px docScrollW=765/780 overflow=false
+   800px docScrollW=785/800 overflow=false
+   820px docScrollW=805/820 overflow=false
+   860px docScrollW=845/860 overflow=false
+   1024px docScrollW=1009/1024 overflow=false
+   1440px docScrollW=1425/1440 overflow=false
+PASS  #191 no horizontal overflow from 320 to 1440 px on a fresh load
+-- #192 long unbroken name/notes/purchase (detail and profile)
+PASS  #192 detail at 1440px without horizontal overflow  -- docScrollW=1425/1440
+PASS  #192 profile at 1440px without horizontal overflow  -- docScrollW=1425/1440
+PASS  #192 detail at 390px without horizontal overflow  -- docScrollW=375/390
+PASS  #192 profile at 390px without horizontal overflow  -- docScrollW=375/390
+-- #196 320 px and 400 % zoom contact row
+PASS  #196 detail at 320x568 (dpr 1) without horizontal overflow  -- docScrollW=305/320
+PASS  #196 detail at 320x256 (dpr 4) without horizontal overflow  -- docScrollW=305/320
+-- #193 breakpoint crossing with AI result and edited draft (live)
+PASS  #193 at 1100px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 1023px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 1024px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 390px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 768px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 1440px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS=13 FAIL=0

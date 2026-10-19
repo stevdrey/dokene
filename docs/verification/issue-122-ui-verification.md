@@ -42,3 +42,19 @@ Campaign: #118. Suite: #122. Tested on `main` @ `a2baddb` (includes #187-#190), 
 ## Checklist for a manual screen-reader pass (UX-04)
 
 With NVDA or Orca on Firefox or Chrome: (1) log in and confirm the page title, language and the "Seguimientos" heading are announced; (2) move through the queue by heading and by landmark; (3) select a card (name, status and due text are read as one button); (4) press "Obtener recomendación" and confirm "Consultando al asistente…" then "Recomendación lista" are announced once, and where the cursor lands afterwards (#197); (5) press "Generar borrador" and confirm "Borrador listo para revisar" and the editor label "Borrador del mensaje (editable)"; (6) type past 1000 code points and confirm the counter is announced or discoverable; (7) read the evidence list (#194) and the warnings; (8) open Posponer and Descartar and confirm the dialog name, the focus trap and the focus return; (9) trigger an error (stop the provider) and confirm the alert text.
+
+## Retest on `main` @ `7069914` (fixes for #191 to #197 merged)
+
+Same procedure (Chrome 155, Firefox 158 for the Firefox parts, live OpenAI), scripts `ret*.mjs`, outputs in `issue-122-evidence/outputs-retest-7069914/`. **Verdict: no unresolved defect in suite #122 apart from UX-04 (no real screen reader), and one residual observation under #197.**
+
+| Issue | Result |
+|---|---|
+| #191 | **PASS.** Fresh load of the unfiltered queue (with the long-name customers) at 320, 360, 390, 480, 560, 600, 700, 760, 768, 780, 800, 820, 860, 1024 and 1440 px: no horizontal overflow. Firefox: no overflow at 1440, 1024, 768, 390 and 320. |
+| #192 | **PASS.** The 70-character unbroken name with a 180-character unbroken note and purchase: detail and customer profile have no horizontal overflow at 1440 and 390 px (Chrome) and at 1440 px (Firefox). |
+| #193 | **PASS.** Edited draft and recommendation survive 1100, 1023, 1024, 390, 768 and 1440 px in the same document (live OpenAI). |
+| #194 | **PASS.** Evidence reads `Fecha de compra: 10 ene 2026` and `Estado de seguimiento: Vencido`, with a "Ver valores originales" control. The new control is one more tab stop between the editor and "Copiar borrador" on desktop (the earlier Tab-order assertion of the Firefox script was updated by this change; the journey is otherwise unchanged). |
+| #195 | **PASS.** The icon is centered on the input (delta 0 px) while the helper row is visible in Chrome and sits inside the input box in Firefox. |
+| #196 | **PASS.** 320x568 and 320x256 at 400 % zoom: document 305 px wide in a 320 px viewport, no horizontal scroll. |
+| #197 | **PASS for the reported cases, with a residual observation.** When the result arrives focus lands on the "Recomendación de la IA" heading, on the editor for drafts, on the first card after "Cargar más", and on "Reemplazar mis cambios" when Regenerar needs confirmation (never `BODY`). While a request is loading (a few seconds with the live model) the activated button is removed and focus is still `BODY` for "Obtener recomendación", "Consultar de nuevo", "Generar borrador" and "Regenerar borrador"; the loading state is announced by the `role=status` region. Low impact; not reopened. |
+
+Regression: UX-01 matrix (Chrome) shows no overflow at any viewport; keyboard journey (UX-03) unchanged; Firefox journey passes except the Tab-order assertion noted above.
