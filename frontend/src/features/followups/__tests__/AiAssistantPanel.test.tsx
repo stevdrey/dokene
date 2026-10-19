@@ -1133,4 +1133,174 @@ describe('AiAssistantPanel', () => {
       expect(screen.getByRole('button', { name: 'Actualizar recomendación' })).toBeEnabled();
     });
   });
+
+  describe('focus is never dropped to the body when the activated control is removed', () => {
+    const noDraft: DraftResponse = {
+      ...baseDraft,
+      status: 'NO_DRAFT',
+      draft: null,
+      refusal: { reason: 'SAFETY_VIOLATION', rationale: 'El texto inventaba una oferta.', confidence: 0.9 },
+      refusalReason: 'SAFETY_VIOLATION'
+    };
+
+    function activate(name: string) {
+      const button = screen.getByRole('button', { name });
+      button.focus();
+      fireEvent.click(button);
+    }
+
+    it('moves focus to the recommendation heading when the recommendation arrives', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      renderPanel();
+
+      activate('Obtener recomendación');
+
+      const heading = await screen.findByRole('heading', { name: 'Recomendación de la IA' });
+      await waitFor(() => expect(heading).toHaveFocus());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('moves focus to the panel heading when the recommendation request fails', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockRejectedValue(new Error('boom'));
+      renderPanel();
+
+      activate('Obtener recomendación');
+
+      await screen.findByText(/No pudimos consultar al asistente IA/);
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Asistente IA' })).toHaveFocus());
+    });
+
+    it('keeps focus in the panel when "Regenerar borrador" ends without a draft', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      const draft = vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: noDraft, version: 3 });
+      renderPanel();
+
+      await getRecommendation();
+      activate('Generar borrador');
+      await screen.findByText(/La IA no pudo redactar un borrador/);
+
+      activate('Regenerar borrador');
+      await waitFor(() => expect(draft).toHaveBeenCalledTimes(2));
+      await screen.findByRole('button', { name: 'Regenerar borrador' });
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Recomendación de la IA' })).toHaveFocus()
+      );
+    });
+
+    it('moves focus to the editor after confirming a discard', async () => {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      renderPanel();
+
+      await getRecommendation();
+      activate('Generar borrador');
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mis cambios' } });
+
+      activate('Regenerar borrador');
+      activate('Reemplazar mis cambios');
+
+      await waitFor(() =>
+        expect(screen.getByLabelText('Borrador del mensaje (editable)')).toHaveValue(baseDraft.draft!.body)
+      );
+      await waitFor(() => expect(screen.getByLabelText('Borrador del mensaje (editable)')).toHaveFocus());
+    });
+
+    it('waits for the queue refresh an INELIGIBLE result triggers before moving focus', async () => {
+      const ineligibleEvaluation = { ...evaluation, eligible: false, status: 'INELIGIBLE' as const, reasons: ['DO_NOT_CONTACT' as const] };
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+        data: { ...baseRec, status: 'INELIGIBLE', recommendation: null, rejectionReason: 'DO_NOT_CONTACT', evaluation: ineligibleEvaluation },
+        version: 3
+      });
+      const refresh = deferred<boolean>();
+      const { props } = renderPanel({ onRequestRefresh: vi.fn().mockReturnValue(refresh.promise) });
+
+      activate('Obtener recomendación');
+      await waitFor(() => expect(props.onRequestRefresh).toHaveBeenCalledWith('ineligible'));
+      const heading = screen.getByRole('heading', { name: 'Asistente IA' });
+      expect(heading).not.toHaveFocus();
+
+      await act(async () => {
+        refresh.resolve(true);
+      });
+
+      await waitFor(() => expect(heading).toHaveFocus());
+    });
+
+    async function editedDraft() {
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      renderPanel();
+      await getRecommendation();
+      activate('Generar borrador');
+      const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+      fireEvent.change(textarea, { target: { value: 'Mis cambios' } });
+    }
+
+    it('moves focus to the confirmation when a discard prompt opens and back to its opener on cancel', async () => {
+      await editedDraft();
+
+      activate('Regenerar borrador');
+      expect(screen.getByRole('button', { name: 'Reemplazar mis cambios' })).toHaveFocus();
+
+      activate('Cancelar');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerar borrador' })).toHaveFocus());
+    });
+
+    it('returns focus to "Consultar de nuevo" when its discard prompt is cancelled', async () => {
+      await editedDraft();
+
+      activate('Consultar de nuevo');
+      expect(screen.getByRole('button', { name: 'Descartar y consultar' })).toHaveFocus();
+
+      activate('Cancelar');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Consultar de nuevo' })).toHaveFocus());
+    });
+
+    it('does not keep the recovery armed after a click that changes nothing', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+      vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+      const { rerenderWith } = renderPanel();
+      await getRecommendation();
+      activate('Generar borrador');
+      await screen.findByLabelText('Borrador del mensaje (editable)');
+      activate('Copiar borrador');
+      await screen.findByText('Borrador copiado');
+
+      // A second copy leaves the state unchanged, so it does not render.
+      activate('Copiar borrador');
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      (document.activeElement as HTMLElement).blur();
+
+      rerenderWith({ canUseAi: false });
+
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('does not take focus back when the operator moved it elsewhere while loading', async () => {
+      const pending = deferred<{ data: RecommendationResponse; version: number }>();
+      vi.spyOn(followUpApi, 'requestRecommendation').mockReturnValue(pending.promise);
+      render(
+        <>
+          <button type="button">Fuera del panel</button>
+          <AiAssistantPanel customerId="c-1" policyVersion={3} canUseAi onRequestRefresh={vi.fn().mockResolvedValue(true)} />
+        </>
+      );
+
+      activate('Obtener recomendación');
+      const outside = screen.getByRole('button', { name: 'Fuera del panel' });
+      outside.focus();
+
+      await act(async () => {
+        pending.resolve({ data: baseRec, version: 3 });
+      });
+
+      await screen.findByRole('heading', { name: 'Recomendación de la IA' });
+      expect(outside).toHaveFocus();
+    });
+  });
 });

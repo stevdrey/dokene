@@ -16,6 +16,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       children,
       style,
       className,
+      onClick,
       ...props
     },
     ref
@@ -46,10 +47,24 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const minWidth = '44px';
     const padding = size === 'sm' ? 'var(--space-8) var(--space-12)' : 'var(--space-8) var(--space-16)';
 
+    // While loading the button stays focusable (aria-disabled, clicks suppressed) instead of
+    // natively disabled: browsers drop focus from a disabled button, losing the keyboard place.
+    const busy = isLoading && !disabled;
+
     return (
       <button
         ref={ref}
-        disabled={disabled || isLoading}
+        disabled={disabled}
+        aria-disabled={busy || undefined}
+        aria-busy={busy || undefined}
+        onClick={(event) => {
+          if (busy) {
+            // Also cancels form submission for submit buttons.
+            event.preventDefault();
+            return;
+          }
+          onClick?.(event);
+        }}
         className={`interactive-target ${className || ''}`}
         style={{
           backgroundColor: bg,
