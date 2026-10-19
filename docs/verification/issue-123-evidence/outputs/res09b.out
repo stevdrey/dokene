@@ -1,0 +1,9 @@
+GET /api/customers during the outage -> http=500 after 30 ms body='{"timestamp":"2026-10-19T06:01:21.962Z","status":500,"error":"Internal Server Error","path":"/api/cu'
+PASS  RES-09  GET /api/customers: terminal 5xx, sanitized
+  latency of the failure: 30 ms
+GET /api/follow-up-queue during the outage -> http=500 after 30020 ms body='{"timestamp":"2026-10-19T06:01:51.990Z","status":500,"error":"Internal Server Error","path":"/api/fo'
+PASS  RES-09  GET /api/follow-up-queue: terminal 5xx, sanitized
+  latency of the failure: 30020 ms
+POST during the outage -> 500 after 30036 ms
+PASS  RES-09  recovered without a backend restart
+PASS=3 FAIL=0

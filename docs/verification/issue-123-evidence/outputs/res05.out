@@ -1,0 +1,31 @@
+== plain in-flight (no retry; provider delayed 4 s, change at ~1.2 s)
+  [inflight-member] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  inflight-member: result not delivered as AVAILABLE
+  [inflight-role] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  inflight-role: result not delivered as AVAILABLE
+  [inflight-archive] authority change rc=204 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  inflight-archive: result not delivered as AVAILABLE
+  [inflight-dnc] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  inflight-dnc: result not delivered as AVAILABLE
+  [inflight-consent] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  inflight-consent: result not delivered as AVAILABLE
+== controlled retry (first attempt: 503 after 2.5 s; change at ~1.2 s; a second attempt would be a 2nd provider request)
+  [retry-member] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  retry-member: result not delivered as AVAILABLE
+PASS  SEC-09  retry-member: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-role] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  retry-role: result not delivered as AVAILABLE
+PASS  SEC-09  retry-role: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-archive] authority change rc=204 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  retry-archive: result not delivered as AVAILABLE
+PASS  SEC-09  retry-archive: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-dnc] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  retry-dnc: result not delivered as AVAILABLE
+PASS  SEC-09  retry-dnc: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-consent] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  retry-consent: result not delivered as AVAILABLE
+PASS  SEC-09  retry-consent: revoked authority prevents the 2nd attempt from transmitting context
+== control: no change during a retry -> 2 provider requests (proves the retry really happens)
+  control: 200 AVAILABLE - provider requests=2
+PASS  SEC-09  control: retry happens when nothing changed
+PASS=16 FAIL=0

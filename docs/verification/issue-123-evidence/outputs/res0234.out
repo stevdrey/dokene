@@ -1,0 +1,48 @@
+== baseline default config: max-attempts=2, timeout 15 s, backoff 250ms..2s, min-attempt-budget 1 s, SDK max-retries 0
+  DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1
+  DOKENE_AI_OPENAI_MAX_RETRIES=0
+  DOKENE_AI_OPENAI_TIMEOUT=15s
+  DOKENE_AI_RETRY_INITIAL_BACKOFF=250ms
+  DOKENE_AI_RETRY_MAX_ATTEMPTS=2
+  DOKENE_AI_RETRY_MAX_BACKOFF=2s
+  DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET=1s
+== RES-03 provider faults (injected)
+429 Retry-After: 1 (short) -> http=200 status=AVAILABLE reason=- retryable=- latency=1068ms | provider: 2 attempt(s); gaps_ms= [1015] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  429 Retry-After: 1 (short): 2 provider attempt(s)
+429 retry-after-ms: 500 -> http=200 status=AVAILABLE reason=- retryable=- latency=568ms | provider: 2 attempt(s); gaps_ms= [514] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  429 retry-after-ms: 500: 2 provider attempt(s)
+429 Retry-After: 30 (long, does not fit the 15 s budget) -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=47ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/THROTTLED)
+PASS  RES-04  429 Retry-After: 30 (long, does not fit the 15 s budget): 1 provider attempt(s)
+429 without Retry-After (waits max-backoff) -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=1699ms | provider: 2 attempt(s); gaps_ms= [1648] | audit rows +1 (NEXT_BEST_ACTION/FAILED/THROTTLED)
+PASS  RES-04  429 without Retry-After (waits max-backoff): 2 provider attempt(s)
+503 once then success -> http=200 status=AVAILABLE reason=- retryable=- latency=222ms | provider: 2 attempt(s); gaps_ms= [166] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  503 once then success: 2 provider attempt(s)
+503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=239ms | provider: 2 attempt(s); gaps_ms= [188] | audit rows +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-04  503 always: 2 provider attempt(s)
+500 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=268ms | provider: 2 attempt(s); gaps_ms= [218] | audit rows +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-04  500 always: 2 provider attempt(s)
+401 (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- latency=54ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-04  401 (not retryable): 1 provider attempt(s)
+400 (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- latency=50ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-04  400 (not retryable): 1 provider attempt(s)
+404 (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- latency=48ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-04  404 (not retryable): 1 provider attempt(s)
+malformed structured output (not retryable) -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE retryable=- latency=50ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE)
+PASS  RES-04  malformed structured output (not retryable): 1 provider attempt(s)
+model refusal content part (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REFUSED retryable=- latency=48ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REFUSED)
+PASS  RES-04  model refusal content part (not retryable): 1 provider attempt(s)
+== RES-02 timeout (injected delay) and RES-04 deadline
+provider delay 20 s, default timeout 15 s -> http=200 status=AI_UNAVAILABLE reason=TIMEOUT retryable=true latency=15054ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/TIMEOUT)
+PASS  RES-04  provider delay 20 s, default timeout 15 s: 1 provider attempt(s)
+provider delay 10 s, request timeoutMs=3000 -> http=200 status=AI_UNAVAILABLE reason=TIMEOUT retryable=true latency=3046ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/TIMEOUT)
+PASS  RES-04  provider delay 10 s, request timeoutMs=3000: 1 provider attempt(s)
+503 then a 10 s delay on the second attempt, timeoutMs=4000 (second attempt gets only the remaining budget) -> http=200 status=AI_UNAVAILABLE reason=TIMEOUT retryable=true latency=4056ms | provider: 2 attempt(s); gaps_ms= [184] | audit rows +1 (NEXT_BEST_ACTION/FAILED/TIMEOUT)
+PASS  RES-04  503 then a 10 s delay on the second attempt, timeoutMs=4000 (second attempt gets only the remaining budget): 2 provider attempt(s)
+429 Retry-After: 3 with timeoutMs=3500 (hint does not leave min-attempt-budget) -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=47ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/THROTTLED)
+PASS  RES-04  429 Retry-After: 3 with timeoutMs=3500 (hint does not leave min-attempt-budget): 1 provider attempt(s)
+429 Retry-After: 2 with timeoutMs=3500 (hint fits) -> http=200 status=AVAILABLE reason=- retryable=- latency=2063ms | provider: 2 attempt(s); gaps_ms= [2013] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  429 Retry-After: 2 with timeoutMs=3500 (hint fits): 2 provider attempt(s)
+== draft endpoint uses the same bounded retry
+draft 503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE | provider: 2 attempt(s); gaps_ms= [206]
+PASS  RES-04  draft 503 always: 2 provider attempts
+PASS=18 FAIL=0

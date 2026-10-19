@@ -1,0 +1,26 @@
+== RES-07 UI races with a provider that answers after 6 s (injected); the provider work is observed from the stub log and the durable audit
+PASS  a) double click and double Enter produce exactly one provider request and one audit row  -- provider requests 1, audit rows 1
+PASS  a) the single result is shown (no duplicate panels)
+PASS  b) switching customer during the call: no recommendation/advice of the previous customer appears  -- now showing "Probe NoOffers QA"
+PASS  b) the late response never appears for the other customer
+   observed: provider requests 1 (completed at the provider), audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  c) switching workspace during the call: nothing from the first workspace
+PASS  c) the late response never appears in the other workspace
+   observed: provider requests 1, audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  d) navigating away/reloading during the call: no stale advice after reload
+   observed: provider requests 1 (the aborted browser request does not cancel the provider call: documented limitation #178/#180), audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  e) logout during the call: login screen, no advice
+PASS  e) late response after logout shows nothing
+   observed: provider requests 1, audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+   f1) SIGKILL of the backend container while the call is in flight
+   UI after the crash: Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación receipt_long Historial 
+PASS  f1) backend crash during the call: no false success, an understandable error with manual actions available
+   observed after the crash: provider requests 1 (the provider call was already sent), audit rows +0 (no terminal audit row can exist for a killed process)
+   backend back; GET /api/session with the old cookie -> 401 (BFF sessions live in the backend process)
+PASS  f1) after the crash the old session is rejected cleanly and the login screen is shown (no partial UI)  -- spa Dokene Gestión de relaciones y seguimiento a clientes para pequeño
+PASS  f1) recovery: after signing in again a new recommendation works
+   f2) graceful restart (SIGTERM) while the call is in flight
+   UI after the graceful restart: Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Recomendación lista Recomendación de la IA ACCIÓN SUGERIDA Reactiva
+   observed: provider requests 0, audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE): a graceful restart lets the in-flight request finish, so a delivered result has its audit row
+PASS  f2) graceful restart: a delivered result is backed by exactly one terminal audit row (no unaudited result)
+PASS=13 FAIL=0

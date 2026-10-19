@@ -1,0 +1,7 @@
+== RES-08 UI: response lost after the server committed the manual action, then the operator retries (Chrome 155)
+snooze: after the lost response -> dialog open: true
+PASS  snooze: the server applied the snooze although the client saw a failure  -- 2026-10-26
+snooze: client requests: [{"url":"customers/c96e51f5-7d13-4b07-9e4e-8b09e994ef92/follow-up-snooze","method":"PUT","ifMatch":"\"0\""},{"url":"customers/c96e51f5-7d13-4b07-9e4e-8b09e994ef92/follow-up-snooze","method":"PUT","ifMatch":"\"1\""}]
+snooze: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(a) logout Cerrar sesión Dokene chevron_r
+PASS  snooze: at most one snooze audit event (no duplicate completion)  -- audit=1
+PASS=2 FAIL=0

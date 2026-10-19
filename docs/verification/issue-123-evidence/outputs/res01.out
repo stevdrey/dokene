@@ -1,0 +1,76 @@
+== 1 provider unset (empty)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=- in 0.8s audit=NEXT_BEST_ACTION/FAILED/NOT_AVAILABLE
+  draft: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:24:06.485Z  INFO 1 --- [dokene] [nio-8080-exec-2] [ecf59b58-e89d-41e0-bac5-caecd9540387] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=ecf59b58-e8
+    2026-10-19T05:24:10.024Z  INFO 1 --- [dokene] [nio-8080-exec-1] [7e2b719d-63ba-4b35-813e-196c0233ce55] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=7e2b719d-63ba-
+== 2 provider blank (spaces)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=- in 0.9s audit=NEXT_BEST_ACTION/FAILED/NOT_AVAILABLE
+  draft: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:24:23.253Z  INFO 1 --- [dokene] [nio-8080-exec-2] [4503d7c9-cdfa-49d2-82c3-b52d2657d97c] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=4503d7c9-cd
+    2026-10-19T05:24:26.978Z  INFO 1 --- [dokene] [nio-8080-exec-1] [26037fed-53f6-4f31-9dea-123af74acafc] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=26037fed-53f6-
+== 3 provider fake (explicit)
+  backend: started healthy
+  recommendation: http=200 status=AVAILABLE reason=- retryable=- in 0.7s audit=NEXT_BEST_ACTION/GENERATED/NONE
+  draft: http=200 status=AVAILABLE reason=- retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:24:39.853Z  INFO 1 --- [dokene] [nio-8080-exec-2] [bd1258ec-5b0d-46b5-8753-8547d5d4915c] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=bd1258ec-5b0d-46b
+    2026-10-19T05:24:43.367Z  INFO 1 --- [dokene] [io-8080-exec-10] [99e87991-2361-4483-b982-eeed7fee4035] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=GENERATED, detail=NONE, correlationId=99e87991-2361-4483-b
+== 4 provider unknown value (opneai) -> expected fail-fast (#109 / PR #117)
+  backend: DID NOT BECOME HEALTHY (status: Restarting (1) 48 seconds ago)
+    2026-10-19T05:24:46.893Z  WARN 1 --- [dokene] [           main] [] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.IllegalStateException: Unsupported dokene.ai.provider value 'opneai'. Supported values: fake, open
+    2026-10-19T05:24:46.917Z ERROR 1 --- [dokene] [           main] [] o.s.boot.SpringApplication               : Application run failed
+    java.lang.IllegalStateException: Unsupported dokene.ai.provider value 'opneai'. Supported values: fake, openai (leave unset or blank to disable AI).
+    2026-10-19T05:24:50.247Z  WARN 1 --- [dokene] [           main] [] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.IllegalStateException: Unsupported dokene.ai.provider value 'opneai'. Supported values: fake, open
+    2026-10-19T05:24:50.288Z ERROR 1 --- [dokene] [           main] [] o.s.boot.SpringApplication               : Application run failed
+== 4b provider upper-case OPENAI (case-insensitive match)
+  backend: started healthy
+  recommendation: http=200 status=AVAILABLE reason=- retryable=- in 5.7s audit=NEXT_BEST_ACTION/GENERATED/NONE
+  draft: http=200 status=AVAILABLE reason=- retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:27:14.778Z  INFO 1 --- [dokene] [nio-8080-exec-2] [ef2b959f-4f6a-4f76-9a3e-ece8f5083ec7] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=ef2b959f-4f6a-4f7
+    2026-10-19T05:27:23.886Z  INFO 1 --- [dokene] [nio-8080-exec-3] [a73745a1-5df7-433c-9f62-897148acde92] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=GENERATED, detail=NONE, correlationId=a73745a1-5df7-433c-9
+== 5 openai with absent key
+  backend: DID NOT BECOME HEALTHY (status: Up Less than a second (health: starting))
+    2026-10-19T05:27:37.352Z ERROR 1 --- [dokene] [           main] [] o.s.boot.SpringApplication               : Application run failed
+    Caused by: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'followUpRecommendationService' defined in URL [jar:nested:/app/dokene.jar/!BOOT-INF/classes/!/io/github/stevdrey/dokene/followup/application/FollowUpRecommendationService.class]: Unsatisfied d
+    Caused by: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'openAiProvider' defined in class path resource [io/github/stevdrey/dokene/ai/provider/openai/OpenAiConfiguration.class]: Unsatisfied dependency expressed through method 'openAiProvider' parame
+    Caused by: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'openAiClient' defined in class path resource [io/github/stevdrey/dokene/ai/provider/openai/OpenAiConfiguration.class]: Failed to instantiate [com.openai.client.OpenAIClient]: Factory method 'openAiClie
+    Caused by: org.springframework.beans.BeanInstantiationException: Failed to instantiate [com.openai.client.OpenAIClient]: Factory method 'openAiClient' threw exception with message: OpenAI API key must be configured when dokene.ai.provider is set to 'openai'
+== 6 openai with an invalid key (genuine OpenAI 401)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- in 1.8s audit=NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST
+  draft: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:30:18.069Z  INFO 1 --- [dokene] [nio-8080-exec-2] [c0f154df-9323-4d1c-8be9-d6939e8122ed] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=c0f154df
+    2026-10-19T05:30:21.724Z  INFO 1 --- [dokene] [nio-8080-exec-1] [ade169bc-8550-4fd5-8361-54c2e90aa86c] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=ade169bc-85
+== 7 openai with an unavailable model (genuine OpenAI 404)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- in 1.5s audit=NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST
+  draft: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:30:34.906Z  INFO 1 --- [dokene] [nio-8080-exec-2] [dc6c754b-519d-422c-b3a9-cd269e70bd58] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=dc6c754b
+    2026-10-19T05:30:43.826Z  INFO 1 --- [dokene] [nio-8080-exec-1] [8ab4eeb9-e63d-47e4-818e-d344276329b9] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=8ab4eeb9-e6
+== restore (compose without override)
+  backend healthy with the original .env configuration

@@ -1,0 +1,36 @@
+== RES-06 rec: drift while the provider call is in flight (injected 4 s latency)
+[rec] cadence changed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] cadence changed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] snoozed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] snoozed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] dismissed (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] dismissed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] manual follow-up recorded (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] manual follow-up recorded (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] new purchase recorded (non-versioned): change rc=201 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] new purchase recorded (non-versioned): result is STALE_STATE|INELIGIBLE|AVAILABLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] consent revoked (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/NO_CONTACT_CONSENT | provider requests=1
+PASS  RES-06  [rec] consent revoked (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] do-not-contact enabled (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/DO_NOT_CONTACT | provider requests=1
+PASS  RES-06  [rec] do-not-contact enabled (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] customer archived (non-versioned): change rc=204 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/CUSTOMER_ARCHIVED | provider requests=1
+PASS  RES-06  [rec] customer archived (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+== RES-06 draft: drift while the provider call is in flight (injected 4 s latency)
+[draft] cadence changed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] cadence changed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] snoozed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] snoozed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] dismissed (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] dismissed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] manual follow-up recorded (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] manual follow-up recorded (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] new purchase recorded (non-versioned): change rc=201 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] new purchase recorded (non-versioned): result is STALE_STATE|INELIGIBLE|AVAILABLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] consent revoked (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/NO_CONTACT_CONSENT | provider requests=1
+PASS  RES-06  [draft] consent revoked (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] do-not-contact enabled (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/DO_NOT_CONTACT | provider requests=1
+PASS  RES-06  [draft] do-not-contact enabled (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] customer archived (non-versioned): change rc=204 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/CUSTOMER_ARCHIVED | provider requests=1
+PASS  RES-06  [draft] customer archived (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+  note: for 'new purchase' an AVAILABLE result is acceptable only if the evaluation is still due; the delivered text is not asserted
+PASS=16 FAIL=0

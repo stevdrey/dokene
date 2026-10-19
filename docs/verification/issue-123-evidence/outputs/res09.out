@@ -1,0 +1,48 @@
+== A. Keycloak down
+PASS  RES-09  established session still reads data while Keycloak is down
+PASS  RES-09  established session can still write while Keycloak is down
+  new login start: 302 http://localhost:8081/realms/dokene/protocol/openid-connect/auth?response_type=code&client_id=dokene-bff&scope=openid%20profile&state=FnK4svufYSAmAOqH03kZytOkLxZ-4cZ43aPUje03EWQ%3D&redirect_uri=http://localhost:8080/login/oauth2/code/dokene&nonce=V7CUQ7h92CEgEN3NUIkvuIXBmr30MVgMex_Y0rEA7aY&code_challenge=KlZi-SPQNWYuERUPk6yo21yrafJgiqkAbkFYt-NilU0&code_challenge_method=S256
+PASS  RES-09  starting a new login does not hang or 5xx at the BFF (redirects to the IdP)
+  IdP discovery from the browser side while down: 000 (connection failure expected)
+  callback with a bogus code: 302 body_leak=0
+PASS  RES-09  bogus callback while the IdP is down returns no stack/credential text
+  Keycloak back healthy
+PASS  RES-09  after Keycloak returns a NEW login works and the established session is intact
+== B. PostgreSQL paused for 4 s during a write (network partition), then stopped
+  write during pause: http=201
+  rows named 'Res09 PG pause 494759311': 1
+PASS  RES-09  write during a 4 s pause completes consistently (0 or 1 rows, and 201 iff 1 row)
+== B2. PostgreSQL stopped
+  GET /api/customers during the outage -> 000 body_leak=0 body={"customers":[{"id":"33fe8d6d-aa85-4e14-af85-f6b6edb3cf73","displayName":"Res09 
+PASS  RES-09  GET /api/customers during the DB outage: sanitized (no SQL/credential/stack text)
+  GET /api/follow-up-queue during the outage -> 000 body_leak=0 body={"customers":[{"id":"33fe8d6d-aa85-4e14-af85-f6b6edb3cf73","displayName":"Res09 
+PASS  RES-09  GET /api/follow-up-queue during the DB outage: sanitized (no SQL/credential/stack text)
+  GET /api/session during the outage -> 200 body_leak=0 body={"authenticated":true,"identityId":"7379514c-8e2f-4f1a-b991-ba864b2f9439","csrfT
+PASS  RES-09  GET /api/session during the DB outage: sanitized (no SQL/credential/stack text)
+  write during the outage -> http=500 leak=0
+PASS  RES-09  write during the DB outage fails (5xx) without leaking internals
+  AI call during the outage -> http=500 leak=0
+PASS  RES-09  AI call during the DB outage fails safely (no provider content)
+  backend container during the outage: Up 7 minutes (healthy)
+  PostgreSQL back healthy
+== B3. recovery without restarting the backend
+  GET /api/customers after PostgreSQL returns -> 200 (attempts: 1)
+PASS  RES-09  the backend recovers by itself after PostgreSQL returns (same session, no backend restart)
+PASS  RES-09  the failed write left no partial row
+PASS  RES-09  writes work again after recovery
+== C. backend stopped (frontend proxy behavior) then started
+  frontend /api/session with the backend down -> 502: <html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>ngin
+PASS  RES-09  frontend proxy returns a generic 5xx (no internals) while the backend is down
+PASS  RES-09  the SPA shell is still served while the backend is down
+  backend back healthy
+  old session after the backend restart -> 401
+PASS  RES-09  after a backend restart the old session is rejected (401) and a new login works
+== D. logs: no credential/connection string leaked during the outages
+PASS  RES-09  backend log contains no database password
+PASS  RES-09  backend log contains no API key / session id text
+  log excerpt (outage errors, first 4):
+    2026-10-19T05:58:31.957Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@6971ca
+    2026-10-19T05:58:31.958Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@48cbe1
+    2026-10-19T05:58:31.958Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@19467d
+    2026-10-19T05:58:31.958Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@7e0114
+PASS=19 FAIL=0

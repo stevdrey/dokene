@@ -1,0 +1,27 @@
+== max-attempts=3, provider 503 always (injected)
+503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=1521ms | provider: 3 attempt(s); gaps_ms= [512, 487] | audit +1
+PASS  RES-04  max-attempts=3 -> exactly 3 provider attempt(s)
+429 Retry-After: 1 then success -> http=200 status=AVAILABLE reason=- retryable=- latency=1255ms | provider: 2 attempt(s); gaps_ms= [1019] | audit +1
+== max-attempts=1, provider 503 always (injected)
+503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=833ms | provider: 1 attempt(s); gaps_ms= [] | audit +1
+PASS  RES-04  max-attempts=1 -> exactly 1 provider attempt(s)
+429 Retry-After: 1 then success -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=63ms | provider: 1 attempt(s); gaps_ms= [] | audit +1
+== max-attempts=3 with the default 15 s deadline: 503 x2 then success
+503 twice then success -> http=200 status=AVAILABLE reason=- retryable=- latency=1515ms | provider: 3 attempt(s); gaps_ms= [511, 298] | audit +1
+PASS  RES-04  503 twice then success with max-attempts=3: 3 attempts
+== max-attempts=4 (above the hard limit of 3) must fail fast
+  backend status: Up Less than a second (health: starting)
+      Reason: java.lang.IllegalArgumentException: dokene.ai.retry.max-attempts must be between 1 and 3
+      Reason: java.lang.IllegalArgumentException: dokene.ai.retry.max-attempts must be between 1 and 3
+== RES-02 offline: connection refused (no listener) -- not a stub response, genuine network failure
+  http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=978ms audit +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-02  refused connection: unavailable, retryable, bounded
+== RES-02 offline: blackholed address (packets dropped; TCP connect never completes)
+  http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=4112ms audit +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-02  blackholed provider: unavailable/timeout, retryable, terminal latency bounded by the 15 s deadline
+  deterministic work during the outage: queue 5 items; manual follow-up on the baseline customer:
+  manual follow-up http=201
+PASS  RES-02  manual follow-up works while the provider is unreachable
+== restore the stub configuration (max-attempts 2)
+  backend healthy
+PASS=6 FAIL=0

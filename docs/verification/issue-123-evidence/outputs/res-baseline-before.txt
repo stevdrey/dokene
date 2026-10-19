@@ -1,0 +1,2 @@
+recommendation: http=200 status=AVAILABLE action=REPEAT_PURCHASE_FOLLOW_UP audit=NEXT_BEST_ACTION/GENERATED/NONE
+draft: http=200 status=AVAILABLE locale=es-419 audit=MESSAGE_DRAFT/GENERATED/NONE

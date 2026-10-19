@@ -1,0 +1,5 @@
+PASS  live recommendation displayed after the restoration
+PASS  live draft in es-419 displayed  -- "Hola, Dormant Té QA. Queríamos saber cómo te fue con el Té verde 500 g que compraste el 10 de enero."
+PASS  copy works (clipboard equals the editor text)
+PASS  supported manual workflow completes (follow-up recorded, dialog closed)  -- Dormant" en los 50 seguimientos cargados actualmente. Cargar más seguimientos Li
+PASS=4 FAIL=0

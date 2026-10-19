@@ -1,0 +1,44 @@
+== manual: response lost after commit
+  first request (response treated as lost): http=201 
+PASS  RES-08  manual: persisted rows after the first request
+PASS  RES-08  manual: the policy version advanced exactly once
+PASS  RES-08  manual: replay with the same key and the old If-Match returns the original record (200, same id)
+PASS  RES-08  manual: replay with different notes returns the original record unchanged
+PASS  RES-08  manual: still exactly 1 persisted row and 1 audit event; policy version unchanged by replays
+PASS  RES-08  manual: new key with the stale If-Match is rejected (409), no duplicate
+  new key with a fresh If-Match after the customer was already handled -> http=201 (-); rows now 2
+PASS  RES-08  manual: a deliberate second completion (new key, fresh If-Match) is allowed by design for an eligible customer (ADR 0013, early manual touch)
+PASS  RES-08  manual: reusing the key for another customer is rejected (409) and writes nothing
+  -- concurrent replays: 6 parallel identical requests
+  codes:       5 200       1 201 
+PASS  RES-08  manual: parallel identical requests persist exactly one record
+PASS  RES-08  manual: exactly one 201 among the parallel responses
+PASS  RES-08  manual: no 5xx among the parallel responses
+  -- AI calls after the disposition stay independent
+  recommendation after the disposition: {"status":"INELIGIBLE"}
+PASS  RES-08  manual: an AI call neither creates nor changes dispositions
+== dismissal: response lost after commit
+  first request (response treated as lost): http=201 
+PASS  RES-08  dismissal: persisted rows after the first request
+PASS  RES-08  dismissal: the policy version advanced exactly once
+PASS  RES-08  dismissal: replay with the same key and the old If-Match returns the original record (200, same id)
+PASS  RES-08  dismissal: replay with different notes returns the original record unchanged
+PASS  RES-08  dismissal: still exactly 1 persisted row and 1 audit event; policy version unchanged by replays
+PASS  RES-08  dismissal: new key with the stale If-Match is rejected (409), no duplicate
+  new key with a fresh If-Match after the customer was already handled -> http=409 (); rows now 1
+PASS  RES-08  dismissal: a second dismissal after the customer was handled is rejected (409), no duplicate
+PASS  RES-08  dismissal: reusing the key for another customer is rejected (409) and writes nothing
+  -- concurrent replays: 6 parallel identical requests
+  codes:       5 200       1 201 
+PASS  RES-08  dismissal: parallel identical requests persist exactly one record
+PASS  RES-08  dismissal: exactly one 201 among the parallel responses
+PASS  RES-08  dismissal: no 5xx among the parallel responses
+  -- AI calls after the disposition stay independent
+  recommendation after the disposition: {"status":"INELIGIBLE"}
+PASS  RES-08  dismissal: an AI call neither creates nor changes dispositions
+== snooze: response lost after commit
+  first snooze: http=200
+PASS  RES-08  snooze: replay with the stale If-Match is rejected (409)
+  re-snooze to the same date with the fresh If-Match: http=409, audit snooze events: 1
+PASS  RES-08  snooze: final state is the requested date, one policy row
+PASS=26 FAIL=0

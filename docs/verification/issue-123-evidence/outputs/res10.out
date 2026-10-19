@@ -1,0 +1,67 @@
+== meters present
+  dokene.ai.attempt.duration
+  dokene.ai.attempts
+  dokene.ai.gate.rejections
+  dokene.ai.outcomes
+  dokene.ai.retries
+  dokene.ai.tokens
+== invocations
+success -> http=200 status=AVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-10  success: 1 attempt, 1 outcome, 1 audit row
+PASS  RES-10  success: token usage counted (reported by the response: 1 input + 1 output)
+503 once then success (retry) -> http=200 status=AVAILABLE | provider requests=2 | meters: attempts +2 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-10  retry: attempts counted individually (2), exactly 1 outcome, 1 audit row
+503 always -> http=200 status=AI_UNAVAILABLE | provider requests=2 | meters: attempts +2 outcomes +1 tokens +0 | audit rows +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-10  failure after retry: 2 attempts, 1 outcome, 1 audit row
+PASS  RES-10  failed attempts add no token usage (none reported)
+401 rejected -> http=200 status=AI_UNAVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +0 | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-10  non-retryable failure: 1 attempt, 1 outcome, 1 audit row
+model refusal -> http=200 status=AI_UNAVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/FAILED/REFUSED)
+PASS  RES-10  refusal: 1 attempt, 1 outcome, 1 audit row
+gate rejection (rationale with a link) -> http=200 status=AI_UNAVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/GATE_REJECTED/INVALID_RECOMMENDATION)
+PASS  RES-10  gate rejection: 1 attempt, 1 outcome, 1 audit row (DENIED/INVALID_RECOMMENDATION)
+denied caller (VIEWER) -> http=403 | attempts +0 audit rows +0
+PASS  RES-10  denied before the provider: 0 attempts, 0 audit rows
+== meter details
+-- dokene.ai.attempts
+  {"name":"dokene.ai.attempts","baseUnit":null,"measurements":[{"statistic":"COUNT","value":16.0}],"availableTags":[{"tag":"provider","n":1},{"tag":"model","n":2},{"tag":"category","n":4},{"tag":"operation","n":1},{"tag":"outcome","n":2}]}
+-- dokene.ai.attempt.duration
+  {"name":"dokene.ai.attempt.duration","baseUnit":"seconds","measurements":[{"statistic":"COUNT","value":16.0},{"statistic":"TOTAL_TIME","value":0.687428233},{"statistic":"MAX","value":0.570564345}],"availableTags":[{"tag":"provider","n":1},{"tag":"model","n":2},{"tag":"category","n":4},{"tag":"operation","n":1},{"tag":"outcome","n":2}]}
+-- dokene.ai.outcomes
+  {"name":"dokene.ai.outcomes","baseUnit":null,"measurements":[{"statistic":"COUNT","value":12.0}],"availableTags":[{"tag":"provider","n":1},{"tag":"model","n":2},{"tag":"operation","n":1},{"tag":"outcome","n":3}]}
+-- outcomes by tag values
+  provider: openai
+  model: stub,gpt-6-luna
+  operation: NEXT_BEST_ACTION
+  outcome: FAILED,GATE_REJECTED,GENERATED
+-- every dokene meter and its tags (cardinality review)
+  {"name":"dokene.ai.attempt.duration","tags":[{"tag":"provider","values":1},{"tag":"model","values":2},{"tag":"category","values":4},{"tag":"operation","values":1},{"tag":"outcome","values":2}]}
+  {"name":"dokene.ai.attempts","tags":[{"tag":"provider","values":1},{"tag":"model","values":2},{"tag":"category","values":4},{"tag":"operation","values":1},{"tag":"outcome","values":2}]}
+  {"name":"dokene.ai.gate.rejections","tags":[{"tag":"reason","values":1},{"tag":"operation","values":1}]}
+  {"name":"dokene.ai.outcomes","tags":[{"tag":"provider","values":1},{"tag":"model","values":2},{"tag":"operation","values":1},{"tag":"outcome","values":3}]}
+  {"name":"dokene.ai.retries","tags":[{"tag":"provider","values":1},{"tag":"category","values":1},{"tag":"operation","values":1}]}
+  {"name":"dokene.ai.tokens","tags":[{"tag":"provider","values":1},{"tag":"model","values":1},{"tag":"operation","values":1},{"tag":"direction","values":2}]}
+  all tag keys: category direction model operation outcome provider reason 
+PASS  RES-10  no tenant/customer/actor/correlation tag on any dokene meter
+-- token usage meters (stub reports usage 1/1/2): dokene.ai.tokens 
+== logs: one outcome line per invocation, correlation continuity
+    INFO 1 --- [dokene] [io-8080-exec-10] [a64574b2-f1f7-4d8d-8d59-96472ae4ca76] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REFUSED, correlationId=a64574b2-f1
+    INFO 1 --- [dokene] [nio-8080-exec-8] [2e9c0ce4-e08e-4b9e-88bc-4d186fdac807] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GATE_REJECTED, detail=INVALID_RECOMMENDATION, cor
+    INFO 1 --- [dokene] [nio-8080-exec-8] [449354ec-8a93-44d5-a76a-6a4773ba061e] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=449354ec-8a
+    INFO 1 --- [dokene] [io-8080-exec-10] [72393c18-5996-45e0-972f-494ccd4dbf33] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=72393c18-59
+    INFO 1 --- [dokene] [nio-8080-exec-2] [891c9604-d9fc-4e60-ab56-5c9894dd8b26] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=UNAVAILABLE, correlationId=891c960
+    INFO 1 --- [dokene] [nio-8080-exec-3] [2974b2f4-8baa-43b9-af66-b10260b5e0b6] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=29
+    INFO 1 --- [dokene] [nio-8080-exec-5] [a037efd7-d523-4b75-8803-39b363b94bc3] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REFUSED, correlationId=a037efd7-d5
+    INFO 1 --- [dokene] [nio-8080-exec-6] [d771c77a-07cd-4e48-8ae3-0b62bb30abb3] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GATE_REJECTED, detail=INVALID_RECOMMENDATION, cor
+grep: warning: + at start of expression
+PASS  RES-10  logs hold no prompt, note, phone, draft body or provider text
+== audit rows (closed vocabulary, no content columns)
+  06:05:28 NEXT_BEST_ACTION GATE_REJECTED INVALID_RECOMMENDATION DENIED
+  06:05:24 NEXT_BEST_ACTION FAILED REFUSED FAILURE
+  06:05:20 NEXT_BEST_ACTION FAILED REJECTED_REQUEST FAILURE
+  06:05:16 NEXT_BEST_ACTION FAILED UNAVAILABLE FAILURE
+  06:05:12 NEXT_BEST_ACTION GENERATED NONE SUCCESS
+  06:05:08 NEXT_BEST_ACTION GENERATED NONE SUCCESS
+  06:04:41 NEXT_BEST_ACTION GATE_REJECTED INVALID_RECOMMENDATION DENIED
+  06:04:37 NEXT_BEST_ACTION FAILED REFUSED FAILURE
+PASS=11 FAIL=0
