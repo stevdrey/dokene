@@ -1,0 +1,49 @@
+PASS  BASE  GET /api/customers before the outage
+postgres stopped at 2026-10-20T18:12:25Z
+GET /api/customers (1st) -> http=503 after 3041 ms, Retry-After='5', X-Request-Id present=1, body bytes=0
+PASS  RES-09  GET /api/customers (1st): status 503
+PASS  RES-09  GET /api/customers (1st): Retry-After 5
+PASS  RES-09  GET /api/customers (1st): correlation header kept
+PASS  RES-09  GET /api/customers (1st): empty body, no leak
+PASS  RES-09  GET /api/customers (1st): fails fast (< 5000 ms)
+GET /api/customers (2nd) -> http=503 after 3029 ms, Retry-After='5', X-Request-Id present=1, body bytes=0
+PASS  RES-09  GET /api/customers (2nd): status 503
+PASS  RES-09  GET /api/customers (2nd): Retry-After 5
+PASS  RES-09  GET /api/customers (2nd): correlation header kept
+PASS  RES-09  GET /api/customers (2nd): empty body, no leak
+PASS  RES-09  GET /api/customers (2nd): fails fast (< 5000 ms)
+GET /api/follow-up-queue -> http=503 after 3032 ms, Retry-After='5', X-Request-Id present=1, body bytes=0
+PASS  RES-09  GET /api/follow-up-queue: status 503
+PASS  RES-09  GET /api/follow-up-queue: Retry-After 5
+PASS  RES-09  GET /api/follow-up-queue: correlation header kept
+PASS  RES-09  GET /api/follow-up-queue: empty body, no leak
+PASS  RES-09  GET /api/follow-up-queue: fails fast (< 5000 ms)
+POST /api/customers -> http=503 after 3027 ms, Retry-After='5', X-Request-Id present=1, body bytes=0
+PASS  RES-09  POST /api/customers: status 503
+PASS  RES-09  POST /api/customers: Retry-After 5
+PASS  RES-09  POST /api/customers: correlation header kept
+PASS  RES-09  POST /api/customers: empty body, no leak
+PASS  RES-09  POST /api/customers: fails fast (< 5000 ms)
+PASS  RES-09  backend container still running during the outage
+--- backend log lines during the outage (WARN/ERROR) ---
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@71e89a26 (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@3acdfeed (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@61cfd6b7 (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@547e58ba (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@7d39bc55 (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@28d60f89 (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@37331e4a (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@11ae3b9e (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@2145e6ea (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@39771f0c (This connect
+WARN 1 --- [dokene] [nio-8080-exec-6] [b2e1926c-f026-4c6b-851a-24fef6602b5c] i.g.s.d.database.DatabaseUnavailability  : Database unavailable at the HTTP boundary: exceptionClass=org.postgresql.util.PSQLException
+WARN 1 --- [dokene] [nio-8080-exec-7] [67715419-460d-47e5-b0cc-53fcd230527c] i.g.s.d.database.DatabaseUnavailability  : Database unavailable at the HTTP boundary: exceptionClass=org.postgresql.util.PSQLException
+WARN 1 --- [dokene] [nio-8080-exec-9] [78748822-f368-4953-bd5e-01006ed7ab41] i.g.s.d.database.DatabaseUnavailability  : Database unavailable at the HTTP boundary: exceptionClass=org.postgresql.util.PSQLException
+WARN 1 --- [dokene] [io-8080-exec-10] [5d3eadac-a52f-4208-b776-27bda9abd4f0] i.g.s.d.database.DatabaseUnavailability  : Database unavailable at the HTTP boundary: exceptionClass=org.postgresql.util.PSQLException
+PASS  RES-09  outage logged as 'Database unavailable' per request
+PASS  RES-09  no SQL/host/credential/exception text in backend log
+PASS  RES-09  no stray 500 in backend log
+PASS  RES-09  recovered without a backend restart (same session)
+  first call after recovery: 1442 ms
+PASS  RES-09  the refused POST left no row
+PASS=27 FAIL=0
