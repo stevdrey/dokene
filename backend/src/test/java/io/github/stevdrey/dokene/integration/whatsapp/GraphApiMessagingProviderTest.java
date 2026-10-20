@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
@@ -43,6 +44,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -538,14 +540,18 @@ class GraphApiMessagingProviderTest {
         assertThat(requests).hasValue(0);
     }
 
-    @Test
-    void noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs(CapturedOutput output) {
-        replay("tokenExpiredWithSecrets");
+    /** covers: spec 0009 AC-7 */
+    @ParameterizedTest
+    @CsvSource({"tokenExpiredWithSecrets", "tokenExpiredWithCanaries"})
+    void noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs(String fixture, CapturedOutput output) {
+        replay(fixture);
 
         ProviderSendResult result = provider.send(command(List.of("Hola Ana, tu pedido")));
 
         assertThat(result).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
-        for (String leaked : List.of(TOKEN, RECIPIENT, "50600000001", "Hola Ana", "Bearer", "SYNTHETIC-TRACE")) {
+        var leaks = new ArrayList<>(List.of(TOKEN, RECIPIENT, "50600000001", "Hola Ana", "Bearer", "SYNTHETIC-TRACE"));
+        leaks.addAll(SecretCanaries.fixedNeedles());
+        for (String leaked : leaks) {
             assertThat(result.toString()).doesNotContain(leaked);
             assertThat(output.getAll()).doesNotContain(leaked);
         }
