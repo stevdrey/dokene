@@ -42,14 +42,17 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-@SpringBootTest(properties = "dokene.datasource.unavailable-retry-after=7s")
+@SpringBootTest(properties = {"dokene.datasource.unavailable-retry-after=7s",
+        "dokene.security.cors.allowed-origins=" + DatabaseOutageIntegrationTest.SPA_ORIGIN})
 @ExtendWith(OutputCaptureExtension.class)
 class DatabaseOutageIntegrationTest {
+    static final String SPA_ORIGIN = "http://localhost:5173";
     private static final String CREATE_BODY = """
             {"displayName":"Outage customer","phones":[{"number":"8888 7777","region":"CR","primary":true}]}
             """;
@@ -95,6 +98,9 @@ class DatabaseOutageIntegrationTest {
             assertFailsFastWithRetryableUnavailable(post("/api/customers").with(csrf())
                     .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY));
             assertFailsFastWithRetryableUnavailable(get("/api/follow-up-queue"));
+            // A cross-origin SPA must be able to read the 503: the CORS headers survive the response reset.
+            assertFailsFastWithRetryableUnavailable(get("/api/customers").header("Origin", SPA_ORIGIN))
+                    .andExpect(header().string("Access-Control-Allow-Origin", SPA_ORIGIN));
         }
 
         assertThat(output.toString().substring(outputBeforeOutage))
@@ -111,14 +117,23 @@ class DatabaseOutageIntegrationTest {
                 .andExpect(content().string(not(containsString("Outage customer"))));
     }
 
-    private void assertFailsFastWithRetryableUnavailable(MockHttpServletRequestBuilder request) throws Exception {
+    private ResultActions assertFailsFastWithRetryableUnavailable(MockHttpServletRequestBuilder request)
+            throws Exception {
         long started = System.nanoTime();
-        mvc.perform(asOwner(request))
+        ResultActions result = mvc.perform(asOwner(request))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "7"))
                 .andExpect(header().exists(AuditRequestFilter.CORRELATION_HEADER))
                 .andExpect(content().string(""));
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+        return result;
+    }
+
+    @Test
+    void inFlightStatementsAndPooledConnectionChecksAreBoundedToo() {
+        // pgJDBC disables its socket timeout by default; without it a blackholed network path hangs a statement.
+        assertThat(runtimePool.getDataSourceProperties()).containsEntry("socketTimeout", "30");
+        assertThat(runtimePool.getValidationTimeout()).isEqualTo(1000);
     }
 
     private MockHttpServletRequestBuilder asOwner(MockHttpServletRequestBuilder request) {

@@ -111,7 +111,13 @@ class AuditRequestFilterTest {
 
         filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
             correlation.set(context.requireCurrent());
-            ((jakarta.servlet.http.HttpServletResponse) res).setHeader("X-Other", "dropped-by-reset");
+            var servlet = (jakarta.servlet.http.HttpServletResponse) res;
+            servlet.setHeader("X-Other", "dropped-by-reset");
+            // What Spring Security's CORS filter wrote for an allowed origin before tenant resolution failed.
+            servlet.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+            servlet.setHeader("Access-Control-Allow-Credentials", "true");
+            servlet.addHeader("Vary", "Origin");
+            servlet.addHeader("Vary", "Access-Control-Request-Method");
             throw new CannotCreateTransactionException("membership lookup",
                     new SQLTransientConnectionException("HikariPool-1 - Connection is not available"));
         });
@@ -120,8 +126,23 @@ class AuditRequestFilterTest {
         assertThat(response.getHeader("Retry-After")).isEqualTo("5");
         assertThat(response.getHeader("X-Request-Id")).isEqualTo(correlation.get().toString());
         assertThat(response.getHeader("X-Other")).isNull();
+        assertThat(response.getHeader("Access-Control-Allow-Origin")).isEqualTo("http://localhost:5173");
+        assertThat(response.getHeader("Access-Control-Allow-Credentials")).isEqualTo("true");
+        assertThat(response.getHeaders("Vary")).containsExactly("Origin", "Access-Control-Request-Method");
         assertThat(response.getContentAsString()).isEmpty();
         assertThat(context.current()).isEmpty();
+    }
+
+    @Test
+    void auditFailureKeepsTheCorsHeadersSoCrossOriginClientsSeeThe503() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+            ((jakarta.servlet.http.HttpServletResponse) res)
+                    .setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+            throw new ServletException("untrusted exception details", new AuditPersistenceException());
+        });
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("Access-Control-Allow-Origin")).isEqualTo("http://localhost:5173");
     }
 
     @Test

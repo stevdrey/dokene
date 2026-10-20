@@ -16,6 +16,8 @@ A database outage is an expected operational state, not a bug. A request can fir
 ## Decision
 
 1. **Bounded wait.** The runtime pool waits at most `spring.datasource.hikari.connection-timeout` for a connection. It is set from `DOKENE_DB_CONNECTION_TIMEOUT_MS`, default `3000` ms (Hikari's minimum is `250`). Flyway's migration connection is not affected.
+   - Idle pooled connections are checked for liveness within `validation-timeout` (`1000` ms) before they are handed out.
+   - A statement already in flight when the network path is lost (for example a blackholed route, where no TCP reset arrives) is not covered by the pool wait. It is bounded by the pgJDBC `socketTimeout`, set from `DOKENE_DB_SOCKET_TIMEOUT_SECONDS`, default `30` s; pgJDBC disables it by default. This is a hard ceiling rather than the fail-fast bound, because it must stay above the longest legitimate statement, including `FOR UPDATE` and advisory-lock waits. On expiry the driver fails with SQLState `08006`, which maps to the outage answer below.
 2. **One answer for an outage.** A failure is a database outage when its cause chain contains any of these:
    - `SQLTransientConnectionException` (the pool timeout);
    - Spring's `CannotGetJdbcConnectionException`;
@@ -25,7 +27,7 @@ A database outage is an expected operational state, not a bug. A request can fir
    `DatabaseUnavailability` (package `database`, module-neutral and enforced by ArchUnit) makes that decision. Such a failure answers an **empty `503 Service Unavailable` with `Retry-After`**. The value comes from `dokene.datasource.unavailable-retry-after` (`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`), in whole seconds rounded up.
 3. **Both boundaries.**
    - `DatabaseUnavailableExceptionHandler` is an unscoped advice that runs before the module-scoped advices, and it maps MVC failures.
-   - `AuditRequestFilter` maps failures thrown from filters, the same way it already maps audit failures. It also keeps the server-generated `X-Request-Id`.
+   - `AuditRequestFilter` maps failures thrown from filters, the same way it already maps audit failures. It also keeps the server-generated `X-Request-Id`, and the `Access-Control-*` and `Vary` headers that Spring Security's CORS filter already validated, so a cross-origin SPA can read the `503` instead of seeing a network error. The audit `503` keeps them too.
 
    A `CannotCreateTransactionException` with no connection-level cause is a defect. It stays an empty `500`.
 4. **Class-only logging.** The outage is logged at `WARN` with the class of the innermost connection-level failure and the MDC correlation id. The exception message and cause are never logged, because pool and driver messages can name hosts, users and statements.

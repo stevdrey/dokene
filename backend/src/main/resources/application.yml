@@ -10,6 +10,14 @@ spring:
       # Milliseconds a request waits for a pooled connection before failing with 503 (issue 246). Hikari's 30 s
       # default left callers hanging through a database outage. Hikari's minimum is 250.
       connection-timeout: ${DOKENE_DB_CONNECTION_TIMEOUT_MS:3000}
+      # Liveness check of an idle pooled connection before it is handed out; must stay below connection-timeout.
+      validation-timeout: 1000
+      data-source-properties:
+        # Hard ceiling, in seconds, on one blocking read from PostgreSQL. pgJDBC disables it by default, so a statement
+        # in flight when the network path is blackholed could hang indefinitely. It must exceed the longest legitimate
+        # statement, including row-lock and advisory-lock waits; on expiry the driver fails with SQLState 08006 and the
+        # request answers 503 (ADR 0029).
+        socketTimeout: ${DOKENE_DB_SOCKET_TIMEOUT_SECONDS:30}
   jpa:
     open-in-view: false
     hibernate:

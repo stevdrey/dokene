@@ -32,7 +32,9 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 While the database is unreachable, requests wait at most `DOKENE_DB_CONNECTION_TIMEOUT_MS` (default `3000`, Hikari
 minimum `250`) for a pooled connection. They then answer an empty `503` with `Retry-After`
 (`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`) instead of a generic `500` (ADR 0029). The same session works
-again as soon as the database is back, without restarting the backend.
+again as soon as the database is back, without restarting the backend. A statement already in flight when the
+network path to the database is lost is bounded by the driver socket timeout `DOKENE_DB_SOCKET_TIMEOUT_SECONDS`
+(default `30`), which must stay above the longest legitimate statement, including lock waits.
 
 ## Backend for Frontend (BFF) OIDC authentication
 

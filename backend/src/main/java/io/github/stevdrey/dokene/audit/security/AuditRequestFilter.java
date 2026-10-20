@@ -8,10 +8,14 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -21,6 +25,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class AuditRequestFilter extends OncePerRequestFilter {
     public static final String CORRELATION_HEADER = "X-Request-Id";
     public static final String CORRELATION_MDC_KEY = "correlationId";
+    private static final String CORS_HEADER_PREFIX = "Access-Control-";
 
     private final AuditExecutionContext execution;
     private final DatabaseUnavailability databaseUnavailability;
@@ -44,15 +49,12 @@ public class AuditRequestFilter extends OncePerRequestFilter {
             });
         } catch (Exception exception) {
             if (isAuditFailure(exception) && !response.isCommitted()) {
-                response.reset();
-                // reset() drops every header; the correlation id matters most on exactly this failure path.
-                response.setHeader(CORRELATION_HEADER, correlation.toString());
+                resetKeepingCorsAndCorrelation(response, correlation);
                 response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if (databaseUnavailability.isCause(exception) && !response.isCommitted()) {
                 // Filters such as tenant resolution reach the database before MVC, so no controller advice sees this.
                 databaseUnavailability.log(exception);
-                response.reset();
-                response.setHeader(CORRELATION_HEADER, correlation.toString());
+                resetKeepingCorsAndCorrelation(response, correlation);
                 databaseUnavailability.apply(response);
             } else if (exception instanceof IOException io) {
                 throw io;
@@ -66,6 +68,24 @@ public class AuditRequestFilter extends OncePerRequestFilter {
         } finally {
             MDC.remove(CORRELATION_MDC_KEY);
         }
+    }
+
+    /**
+     * reset() drops every header. The correlation id matters most on exactly these failure paths, and the CORS
+     * headers Spring Security already validated must survive too, or a cross-origin browser reports a network error
+     * instead of exposing the 503.
+     */
+    private void resetKeepingCorsAndCorrelation(HttpServletResponse response, UUID correlation) {
+        Map<String, List<String>> cors = new LinkedHashMap<>();
+        for (String name : response.getHeaderNames()) {
+            if (name.regionMatches(true, 0, CORS_HEADER_PREFIX, 0, CORS_HEADER_PREFIX.length())
+                    || name.equalsIgnoreCase(HttpHeaders.VARY)) {
+                cors.putIfAbsent(name, List.copyOf(response.getHeaders(name)));
+            }
+        }
+        response.reset();
+        cors.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
+        response.setHeader(CORRELATION_HEADER, correlation.toString());
     }
 
     private boolean isAuditFailure(Throwable failure) {
