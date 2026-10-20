@@ -188,6 +188,21 @@ Webhook handling should:
 7. update message state through valid transitions;
 8. create appropriate audit records.
 
+### Meta signature and handshake verification (spec 0007, issue 143)
+
+Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The route, tenant resolution, inbox and dedup (issue 139) compose it: read the body through `BoundedWebhookBodyReader`, pass the raw bytes and every `X-Hub-Signature-256` value to `WebhookSignatureVerifier`, and hand the resulting `VerifiedWebhookBody` to the parser. Nothing parses JSON before verification.
+
+**Meta's rules as checked on 2026-10-19** (Graph API webhooks getting started page, the Messenger Platform webhooks page, the WhatsApp Cloud API set up page and the Graph API versions changelog; current Graph API version v26.0, released 29 July 2026; no webhook page states a version and the Messenger page says to use the latest):
+
+- Signature: header `X-Hub-Signature-256`, value `sha256=` followed by the hex HMAC SHA-256 of the payload keyed with the App Secret. The digest is computed over the escaped unicode payload exactly as Meta sends it, so a decoded or reserialised body gives a different signature; Dokene therefore verifies the exact request bytes and never a reparsed object. The verifier accepts hex in either case (the Messenger page states lowercase; no WhatsApp page states the case), requires exactly one header value and exactly 64 ASCII hex digits, trims nothing, and never receives the legacy SHA-1 `X-Hub-Signature` header.
+- Handshake: `GET` with `hub.mode` (always `subscribe`), `hub.verify_token` and `hub.challenge`; the expected answer is the challenge value with `200`, and `403` on a mismatch. Meta describes the challenge as an integer and documents no length limit; Dokene accepts up to 256 printable ASCII characters so a format change does not silently break the subscription, and echoes only the validated input.
+- Payload size: up to 3 MB per the WhatsApp Cloud API set up page (generic webhook text, unconfirmed for WhatsApp specifically); batches of up to 1000 updates. Meta retries a non `200` answer for up to 7 days (WhatsApp changelog of 8 December 2022) or 36 hours (Graph API page); the sources conflict, so the bound keeps headroom above Meta's limit rather than refusing a large legitimate batch for days.
+- Not confirmed on an official page: a WhatsApp specific statement of the signature rule, the hex case for WhatsApp, and any `hub.challenge` length limit.
+
+**Configuration.** `dokene.integration.whatsapp.app-secret-ref` (`DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF`) and `dokene.integration.whatsapp.verify-token-ref` (`DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF`) hold the bare keys of the `APP_SECRET` and `WEBHOOK_VERIFY_TOKEN` deployment entries of the secret source above, never the secrets. Each is resolved on every call and closed before the call returns. A blank reference puts that path in the refusing state: the stack boots, logs `Webhook verification refusing: <property> is unset` once, and refuses every request on that path with `SECRET_UNAVAILABLE`; the two paths are independent. A malformed or whitespace padded reference fails startup naming only the property. `dokene.integration.whatsapp.webhook.max-body-bytes` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES`, default 4194304, range 1 to 16777216) bounds the body; a declared `Content-Length` above it is refused before a byte is read, and a stream is refused as soon as it passes the bound.
+
+**Refusals.** Every refusal is `WebhookVerificationException` with one closed reason (`MISSING_SIGNATURE`, `MALFORMED_SIGNATURE`, `SIGNATURE_MISMATCH`, `BODY_TOO_LARGE`, `SECRET_UNAVAILABLE`, `WRONG_MODE`, `INVALID_CHALLENGE`, `TOKEN_MISMATCH`), one `WARN` line `Webhook rejected reason=<R>` from the refusing class, and one increment of the counter `dokene.webhook.rejected{reason}`. No secret, header value, challenge or body byte reaches a log, an exception or a `toString`. The route answers every reason with the same status, so an operator diagnosing a misconfigured secret reads the counter or the log line.
+
 ## Integration configuration
 
 An integration record may contain non-secret metadata such as:

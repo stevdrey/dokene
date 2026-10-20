@@ -5,6 +5,9 @@ package io.github.stevdrey.dokene.architecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget;
+import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -16,6 +19,7 @@ import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnMessaging
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretFailureFixture;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretPortFixture;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretSourceFixture;
+import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnWebhookVerifyFixture;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException;
 import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEvent;
@@ -23,6 +27,11 @@ import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEventHan
 import io.github.stevdrey.dokene.integration.archfixture.FabricatedWebhookEventFixture;
 import io.github.stevdrey.dokene.integration.archfixture.RawReportBypassFixture;
 import io.github.stevdrey.dokene.integration.secrets.SecretSourceType;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.ForgedVerifiedBodyFixture;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.ForgedVerifiedBodyReferenceFixture;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWebhookBody;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookVerificationException;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import org.junit.jupiter.api.BeforeAll;
@@ -103,6 +112,24 @@ class ModuleDependencyArchitectureTest {
                                     && !javaClass.getPackageName().startsWith(ROOT + ".ai.domain")))
             .because("spec 0001: the aggregate is pure; Spring, JDBC and other modules stay in application and persistence");
 
+    private static final ArchRule ONLY_THE_SIGNATURE_VERIFIER_BUILDS_VERIFIED_BODIES = noClasses()
+            .that(DescribedPredicate.not(JavaClass.Predicates.belongToAnyOf(WebhookSignatureVerifier.class)))
+            // accessTargetWhere sees constructor references (VerifiedWebhookBody::new) as well as calls with new.
+            .should().accessTargetWhere(JavaAccess.Predicates.target(AccessTarget.Predicates.constructor()
+                    .and(HasOwner.Predicates.With.owner(JavaClass.Predicates.equivalentTo(VerifiedWebhookBody.class)))))
+            .because("spec 0007 AC-9: a verified body exists only after the HMAC comparison in the signature verifier");
+
+    private static final ArchRule WEBHOOK_VERIFY_STAYS_INSIDE_INTEGRATION = noClasses().that()
+            .resideOutsideOfPackage(ROOT + ".integration..")
+            .should().dependOnClassesThat().resideInAPackage(ROOT + ".integration.whatsapp.webhook.verify..")
+            .because("spec 0007 AC-9: the verifier is an integration adapter detail; the route in integration composes it");
+
+    private static final ArchRule WEBHOOK_VERIFY_IS_PLAIN = noClasses().that()
+            .resideInAPackage(ROOT + ".integration.whatsapp.webhook.verify..")
+            .should().dependOnClassesThat().resideInAnyPackage("com.fasterxml.jackson..",
+                    "org.springframework.security..", "..api..")
+            .because("spec 0007 AC-9 and AC-11: verification runs on raw bytes, adds no filter chain and touches no API");
+
     @Test
     void rateLimitPrimitivesDependOnNoModule() {
         RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL.check(production);
@@ -159,6 +186,48 @@ class ModuleDependencyArchitectureTest {
     @Test
     void messagingDomainIsPlainJavaPlusAiDomain() {
         MESSAGING_DOMAIN_IS_PURE.check(production);
+    }
+
+    @Test
+    void onlyTheSignatureVerifierBuildsVerifiedBodies() {
+        ONLY_THE_SIGNATURE_VERIFIER_BUILDS_VERIFIED_BODIES.check(production);
+    }
+
+    /** Negative proof (spec 0007 AC-9): a same package class forging a verified body is reported. */
+    @Test
+    void aForgedVerifiedBodyFailsTheConstructionRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(ForgedVerifiedBodyFixture.class, VerifiedWebhookBody.class);
+
+        assertThat(ONLY_THE_SIGNATURE_VERIFIER_BUILDS_VERIFIED_BODIES.evaluate(fixture).hasViolation()).isTrue();
+    }
+
+    /** Negative proof (spec 0007 AC-9): forging through {@code VerifiedWebhookBody::new} is reported as well. */
+    @Test
+    void aForgedVerifiedBodyByConstructorReferenceFailsTheConstructionRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(ForgedVerifiedBodyReferenceFixture.class, VerifiedWebhookBody.class);
+
+        assertThat(ONLY_THE_SIGNATURE_VERIFIER_BUILDS_VERIFIED_BODIES.evaluate(fixture).hasViolation()).isTrue();
+    }
+
+    @Test
+    void webhookVerifyIsReachableOnlyFromIntegration() {
+        WEBHOOK_VERIFY_STAYS_INSIDE_INTEGRATION.check(production);
+    }
+
+    /** Negative proof (spec 0007 AC-9): a followup class reaching the verifier's refusal is reported. */
+    @Test
+    void aClassOutsideIntegrationReachingWebhookVerifyFailsTheRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(UpstreamDependsOnWebhookVerifyFixture.class, WebhookVerificationException.class);
+
+        assertThat(WEBHOOK_VERIFY_STAYS_INSIDE_INTEGRATION.evaluate(fixture).hasViolation()).isTrue();
+    }
+
+    @Test
+    void webhookVerifyDependsOnNoJsonSecurityOrApiPackage() {
+        WEBHOOK_VERIFY_IS_PLAIN.check(production);
     }
 
     @Test

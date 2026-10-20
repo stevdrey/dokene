@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
-import io.github.stevdrey.dokene.integration.secrets.LogCapture;
+import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
 import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl.Blocked;
 import io.github.stevdrey.dokene.messaging.application.OutboundSafetyControl.Permitted;
 import io.github.stevdrey.dokene.messaging.application.OutboundSwitchProperties;
