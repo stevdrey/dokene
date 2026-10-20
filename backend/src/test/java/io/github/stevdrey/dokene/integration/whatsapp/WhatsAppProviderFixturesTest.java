@@ -52,6 +52,9 @@ class WhatsAppProviderFixturesTest {
     private static final List<String> WEBHOOK_IDS = List.of("delivered", "failed", "duplicateOfDelivered",
             "readBeforeDelivered", "deliveredAfterRead");
     private static final Set<String> HANDLINGS = Set.of("applied", "deduplicated", "ignoredTerminal");
+    private static final String FAILED_ERROR = "entry[0].changes[0].value.statuses[0].errors[0]";
+    private static final Set<String> CANARY_FIELDS = Set.of(FAILED_ERROR + ".title", FAILED_ERROR + ".message",
+            FAILED_ERROR + ".error_data.details");
     private static final Pattern SIGNATURE = Pattern.compile("sha256=[0-9a-f]{64}");
     /** A fixture id is the backticked first column of a README table row. */
     private static final Pattern README_ID = Pattern.compile("^\\| `([A-Za-z0-9]+)` \\|", Pattern.MULTILINE);
@@ -170,6 +173,15 @@ class WhatsAppProviderFixturesTest {
                 failedError().path("message").asString()).contains(SecretCanaries.PHONE)));
         tests.add(dynamicTest("failed.errors[0].error_data.details carries the body canary", () -> assertThat(
                 failedError().path("error_data").path("details").asString()).contains(SecretCanaries.BODY)));
+        tests.add(dynamicTest("failed carries canaries in no other field", () -> {
+            var strays = new ArrayList<String>();
+            strings(parse(entries.path("failed").path("body").asString()), "", (path, value) -> {
+                if (!CANARY_FIELDS.contains(path) && SecretCanaries.containsAny(value, SecretCanaries.fixedNeedles())) {
+                    strays.add(path);
+                }
+            });
+            assertThat(strays).as("failed body fields carrying a canary outside the three named ones").isEmpty();
+        }));
         WEBHOOK_IDS.stream().filter(id -> !id.equals("failed")).forEach(id -> tests.add(dynamicTest(
                 "webhook." + id + " carries no canary", () -> assertThat(SecretCanaries.containsAny(
                         entries.path(id).path("body").asString(), SecretCanaries.fixedNeedles())).isFalse())));
