@@ -113,6 +113,14 @@ class TransactionalAuditRecorder implements AuditRecorder {
     }
 
     @Override
+    public void outboundKillSwitchChanged(UUID integrationId, boolean enabled) {
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.OUTBOUND_KILL_SWITCH_CHANGED,
+                new AuditTarget(AuditTarget.Type.INTEGRATION, integrationId), AuditOutcome.SUCCESS,
+                new AuditMetadata.IntegrationToggle(enabled)), mandatory);
+    }
+
+    @Override
     public void templateMappingUpdated(UUID mappingId, boolean enabled) {
         TenantContext context = contexts.requireCurrent();
         append(context, event(context, AuditEventType.TEMPLATE_MAPPING_UPDATED,

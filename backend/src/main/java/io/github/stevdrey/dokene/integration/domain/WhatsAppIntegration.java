@@ -1,5 +1,5 @@
 // ABOUTME: A tenant's Meta WhatsApp sending identity and non-secret configuration (ADR 0023 §3.3, issue 134).
-// ABOUTME: Holds Meta ids, the human display number, a secret reference and when ownership was proven; never secrets.
+// ABOUTME: Holds Meta ids, the display number, a secret reference, both tenant flags and the ownership proof; never secrets.
 package io.github.stevdrey.dokene.integration.domain;
 
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
@@ -11,8 +11,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumberId, String businessAccountId,
-        String displayPhoneNumber, boolean enabled, String secretRef, long credentialRevision, Instant createdAt,
-        Instant updatedAt, long version, Instant ownershipVerifiedAt) {
+        String displayPhoneNumber, boolean enabled, boolean outboundEnabled, String secretRef, long credentialRevision,
+        Instant createdAt, Instant updatedAt, long version, Instant ownershipVerifiedAt) {
     /** Meta ids are numeric strings; they are identifiers, not phone numbers. */
     private static final Pattern META_ID = Pattern.compile("^[0-9]{5,32}$");
     private static final Pattern SECRET_REF = Pattern.compile("^[A-Za-z0-9_-]{1,128}$");
@@ -38,7 +38,7 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
     public static WhatsAppIntegration create(TenantId tenantId, String phoneNumberId, String businessAccountId,
             String displayPhoneNumber, boolean enabled, String secretRef, Instant now) {
         return new WhatsAppIntegration(UUID.randomUUID(), tenantId, phoneNumberId, businessAccountId,
-                displayPhoneNumber, enabled, secretRef, 1, now, now, 0, null);
+                displayPhoneNumber, enabled, false, secretRef, 1, now, now, 0, null);
     }
 
     /**
@@ -53,7 +53,7 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
         boolean sameIdentity = enabled && this.phoneNumberId.equals(phoneNumberId)
                 && this.businessAccountId.equals(businessAccountId) && revision == credentialRevision;
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
-                secretRef, revision, createdAt, now, version, sameIdentity ? ownershipVerifiedAt : null);
+                outboundEnabled, secretRef, revision, createdAt, now, version, sameIdentity ? ownershipVerifiedAt : null);
     }
 
     /**
@@ -63,7 +63,7 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
      */
     public WhatsAppIntegration rotateCredential(Instant now) {
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
-                secretRef, credentialRevision + 1, createdAt, now, version, null);
+                outboundEnabled, secretRef, credentialRevision + 1, createdAt, now, version, null);
     }
 
     /**
@@ -75,7 +75,17 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
             throw new IllegalStateException("A disabled integration cannot hold an ownership proof");
         }
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
-                secretRef, credentialRevision, createdAt, now, version, now);
+                outboundEnabled, secretRef, credentialRevision, createdAt, now, version, now);
+    }
+
+    /**
+     * The tenant outbound kill switch (spec 0008). Independent of {@code enabled} and of the ownership proof: it may be
+     * turned on while the integration is disabled or unproven, and nothing but this method changes it. The version is
+     * left for the repository to bump, as for every other write.
+     */
+    public WhatsAppIntegration withOutboundEnabled(boolean outboundEnabled, Instant now) {
+        return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
+                outboundEnabled, secretRef, credentialRevision, createdAt, now, version, ownershipVerifiedAt);
     }
 
     /** True only while a proof made with the current credential revision is stored. */
@@ -86,7 +96,7 @@ public record WhatsAppIntegration(UUID id, TenantId tenantId, String phoneNumber
     /** The same record with the version the store reported after a committed write. */
     public WhatsAppIntegration withVersion(long storedVersion) {
         return new WhatsAppIntegration(id, tenantId, phoneNumberId, businessAccountId, displayPhoneNumber, enabled,
-                secretRef, credentialRevision, createdAt, updatedAt, storedVersion, ownershipVerifiedAt);
+                outboundEnabled, secretRef, credentialRevision, createdAt, updatedAt, storedVersion, ownershipVerifiedAt);
     }
 
     /** True for a well-formed Meta identifier (a numeric string, not a phone number). */

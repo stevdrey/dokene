@@ -25,6 +25,17 @@ public final class IntegrationApiContract {
         return StrictRequests.read(body, IntegrationRequest.class).orElseThrow(InvalidRequestException::new);
     }
 
+    /**
+     * Binds the kill switch body: an object with exactly one member {@code enabled} holding a JSON boolean. Checked on
+     * the tree rather than through the strict reader, which would coerce a number or string standing in for the boolean.
+     */
+    public static OutboundRequest readOutbound(JsonNode body) {
+        if (body == null || !body.isObject() || body.size() != 1 || !body.path("enabled").isBoolean()) {
+            throw new InvalidRequestException();
+        }
+        return new OutboundRequest(body.get("enabled").booleanValue());
+    }
+
     /** A request that is not a valid integration body or carries an invalid precondition header. */
     public static final class InvalidRequestException extends RuntimeException {
         public InvalidRequestException() {
@@ -40,6 +51,13 @@ public final class IntegrationApiContract {
             Objects.requireNonNull(businessAccountId, "businessAccountId is required");
             Objects.requireNonNull(enabled, "enabled is required");
             Objects.requireNonNull(secretRef, "secretRef is required");
+        }
+    }
+
+    /** {@code PUT /api/integrations/whatsapp/outbound} (spec 0008): the tenant outbound kill switch target value. */
+    public record OutboundRequest(Boolean enabled) {
+        public OutboundRequest {
+            Objects.requireNonNull(enabled, "enabled is required");
         }
     }
 

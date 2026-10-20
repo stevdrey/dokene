@@ -104,8 +104,10 @@ public class GraphApiMessagingProvider implements MessagingProvider {
         }
         TenantId tenantId = contexts.requireCurrent().tenantId();
         Optional<WhatsAppIntegration> found = integrations.findByTenant(tenantId);
+        // The tenant switch, the integration state and the sender identity as they are now, after the claim committed.
         // Never send from a sender other than the one the approval bound, even if it was re-proven since.
-        if (found.isEmpty() || !found.get().enabled() || !found.get().ownershipVerified()
+        if (found.isEmpty() || !found.get().outboundEnabled() || !found.get().enabled()
+                || !found.get().ownershipVerified()
                 || !WhatsAppIntegration.isMetaId(found.get().phoneNumberId())
                 || !WhatsAppOutboundSafetyControl.senderRevision(found.get()).equals(command.expectedSender())) {
             return new Refused(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));

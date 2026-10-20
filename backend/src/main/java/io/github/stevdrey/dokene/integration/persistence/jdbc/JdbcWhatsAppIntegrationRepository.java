@@ -40,7 +40,7 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
                 """, (rs, row) -> new WhatsAppIntegration(rs.getObject("id", UUID.class),
                 new TenantId(rs.getObject("tenant_id", UUID.class)), rs.getString("phone_number_id"),
                 rs.getString("business_account_id"), rs.getString("display_phone_number"), rs.getBoolean("enabled"),
-                rs.getString("secret_ref"), rs.getLong("credential_revision"),
+                rs.getBoolean("outbound_enabled"), rs.getString("secret_ref"), rs.getLong("credential_revision"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
                 rs.getLong("version"), instant(rs.getTimestamp("ownership_verified_at"))), tenantId.value(), PROVIDER)
                 .stream().findFirst();
@@ -55,12 +55,12 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
         try {
             jdbc.update("""
                     INSERT INTO dokene.tenant_messaging_integrations (id, tenant_id, provider, phone_number_id,
-                        business_account_id, display_phone_number, enabled, secret_ref, credential_revision,
-                        created_at, updated_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        business_account_id, display_phone_number, enabled, outbound_enabled, secret_ref,
+                        credential_revision, created_at, updated_at, version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, integration.id(), integration.tenantId().value(), PROVIDER, integration.phoneNumberId(),
                     integration.businessAccountId(), integration.displayPhoneNumber(), integration.enabled(),
-                    integration.secretRef(), integration.credentialRevision(),
+                    integration.outboundEnabled(), integration.secretRef(), integration.credentialRevision(),
                     Timestamp.from(integration.createdAt()), Timestamp.from(integration.updatedAt()),
                     integration.version());
         } catch (DuplicateKeyException duplicate) {
@@ -79,12 +79,13 @@ public class JdbcWhatsAppIntegrationRepository implements WhatsAppIntegrationRep
             return jdbc.queryForList("""
                     UPDATE dokene.tenant_messaging_integrations
                     SET phone_number_id = ?, business_account_id = ?, display_phone_number = ?, enabled = ?,
-                        secret_ref = ?, credential_revision = ?, updated_at = ?, ownership_verified_at = ?,
-                        version = version + 1
+                        outbound_enabled = ?, secret_ref = ?, credential_revision = ?, updated_at = ?,
+                        ownership_verified_at = ?, version = version + 1
                     WHERE tenant_id = ? AND id = ? AND version = ?
                     RETURNING version
                     """, Long.class, integration.phoneNumberId(), integration.businessAccountId(),
-                    integration.displayPhoneNumber(), integration.enabled(), integration.secretRef(),
+                    integration.displayPhoneNumber(), integration.enabled(), integration.outboundEnabled(),
+                    integration.secretRef(),
                     integration.credentialRevision(), Timestamp.from(integration.updatedAt()),
                     integration.ownershipVerified() ? Timestamp.from(integration.ownershipVerifiedAt()) : null,
                     integration.tenantId().value(), integration.id(), expectedVersion)

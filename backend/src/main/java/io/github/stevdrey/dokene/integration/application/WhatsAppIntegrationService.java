@@ -34,7 +34,6 @@ public class WhatsAppIntegrationService {
     private final IntegrationAuditPort audit;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
-    private final IntegrationReadiness readiness;
     private final PhoneNumberOwnershipVerifier ownership;
     private final MappingRejectionLimiter rejections;
     private final Clock clock;
@@ -42,14 +41,13 @@ public class WhatsAppIntegrationService {
     private final TransactionTemplate writes;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
-            TenantAuthorizationService authorization, TenantContextProvider contexts, IntegrationReadiness readiness,
+            TenantAuthorizationService authorization, TenantContextProvider contexts,
             PhoneNumberOwnershipVerifier ownership, MappingRejectionLimiter rejections, Clock clock,
             PlatformTransactionManager transactions) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
-        this.readiness = Objects.requireNonNull(readiness, "Readiness is required");
         this.ownership = Objects.requireNonNull(ownership, "Ownership verifier is required");
         this.rejections = Objects.requireNonNull(rejections, "Rejection limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
@@ -60,10 +58,11 @@ public class WhatsAppIntegrationService {
     }
 
     /**
-     * The stored configuration plus the state reported with it. {@code webhookVerified} is the persisted ownership
-     * proof for the current phone number, business account and credential revision.
+     * The stored configuration, which carries the tenant kill switch (spec 0008), plus {@code webhookVerified}: the
+     * persisted ownership proof for the current phone number, business account and credential revision, read from the
+     * same row.
      */
-    public record IntegrationView(WhatsAppIntegration integration, boolean outboundEnabled, boolean webhookVerified) {
+    public record IntegrationView(WhatsAppIntegration integration, boolean webhookVerified) {
     }
 
     @Transactional(readOnly = true)
@@ -112,11 +111,8 @@ public class WhatsAppIntegrationService {
                     || current.version() != expectedVersion) {
                 throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
             }
-            WhatsAppIntegration next = validated(() -> current.update(phoneNumberId, businessAccountId,
-                    displayPhoneNumber, enabled, secretRef, clock.instant()));
-            long storedVersion = repository.update(next, expectedVersion).orElseThrow(
-                    () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-            saved = next.withVersion(storedVersion);
+            saved = store(validated(() -> current.update(phoneNumberId, businessAccountId, displayPhoneNumber,
+                    enabled, secretRef, clock.instant())), expectedVersion);
         }
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
@@ -168,10 +164,7 @@ public class WhatsAppIntegrationService {
     }
 
     private IntegrationView recordProof(WhatsAppIntegration current, long expectedVersion) {
-        WhatsAppIntegration next = current.verifyOwnership(clock.instant());
-        long storedVersion = repository.update(next, expectedVersion).orElseThrow(
-                () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-        WhatsAppIntegration saved = next.withVersion(storedVersion);
+        WhatsAppIntegration saved = store(current.verifyOwnership(clock.instant()), expectedVersion);
         audit.updated(saved.id(), saved.enabled());
         return view(saved);
     }
@@ -191,18 +184,46 @@ public class WhatsAppIntegrationService {
     @Transactional
     public IntegrationView rotateCredential(long expectedVersion) {
         authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
-        WhatsAppIntegration current = repository.findByTenant(tenantId)
+        WhatsAppIntegration current = requireVersion(expectedVersion);
+        WhatsAppIntegration saved = store(current.rotateCredential(clock.instant()), expectedVersion);
+        audit.updated(saved.id(), saved.enabled());
+        return view(saved);
+    }
+
+    /**
+     * The tenant outbound kill switch (spec 0008): the only write path for {@code outbound_enabled}. Version checked like
+     * every sibling write; a request that states the stored value writes nothing and audits nothing. Independent of
+     * {@code enabled} and of the ownership proof, so an admin can switch on while sends still refuse with
+     * {@code INTEGRATION_DISABLED}. The audit row is written in the same transaction, so a failed audit rolls the flip
+     * back.
+     */
+    @Transactional
+    public IntegrationView setOutboundEnabled(long expectedVersion, boolean enabled) {
+        authorization.requirePermission(TenantPermission.INTEGRATION_MANAGE);
+        WhatsAppIntegration current = requireVersion(expectedVersion);
+        if (current.outboundEnabled() == enabled) {
+            return view(current);
+        }
+        WhatsAppIntegration saved = store(current.withOutboundEnabled(enabled, clock.instant()), expectedVersion);
+        audit.outboundSwitchChanged(saved.id(), enabled);
+        return view(saved);
+    }
+
+    /** The current tenant's row at exactly the named version, else {@code NOT_FOUND} or {@code STALE_VERSION}. */
+    private WhatsAppIntegration requireVersion(long expectedVersion) {
+        WhatsAppIntegration current = repository.findByTenant(contexts.requireCurrent().tenantId())
                 .orElseThrow(() -> new IntegrationRefusedException(MessagingErrorCode.NOT_FOUND));
         if (current.version() != expectedVersion) {
             throw new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION);
         }
-        WhatsAppIntegration next = current.rotateCredential(clock.instant());
+        return current;
+    }
+
+    /** Compare-and-set against {@code expectedVersion}; a lost race is {@code STALE_VERSION}. The stored row. */
+    private WhatsAppIntegration store(WhatsAppIntegration next, long expectedVersion) {
         long storedVersion = repository.update(next, expectedVersion).orElseThrow(
                 () -> new IntegrationRefusedException(MessagingErrorCode.STALE_VERSION));
-        WhatsAppIntegration saved = next.withVersion(storedVersion);
-        audit.updated(saved.id(), saved.enabled());
-        return view(saved);
+        return next.withVersion(storedVersion);
     }
 
     /**
@@ -228,7 +249,6 @@ public class WhatsAppIntegrationService {
     }
 
     private IntegrationView view(WhatsAppIntegration integration) {
-        return new IntegrationView(integration, readiness.outboundEnabled(integration.tenantId()),
-                integration.ownershipVerified());
+        return new IntegrationView(integration, integration.ownershipVerified());
     }
 }
