@@ -61,9 +61,10 @@ class DatabaseOutageIntegrationTest {
     static void configure(DynamicPropertyRegistry registry) throws SQLException {
         TenantSecurityIntegrationFixture.configure(registry);
         // One connection, held by the test, makes the runtime pool unreachable exactly as an outage does for callers:
-        // every borrow waits connection-timeout and then fails with SQLTransientConnectionException.
+        // every borrow waits connection-timeout and then fails with SQLTransientConnectionException. The configured
+        // 1000 ms validation timeout is then capped at half of this wait (500 ms).
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
-        registry.add("spring.datasource.hikari.connection-timeout", () -> "250");
+        registry.add("spring.datasource.hikari.connection-timeout", () -> "1000");
     }
 
     @Autowired WebApplicationContext webApplicationContext;
@@ -133,7 +134,37 @@ class DatabaseOutageIntegrationTest {
     void inFlightStatementsAndPooledConnectionChecksAreBoundedToo() {
         // pgJDBC disables its socket timeout by default; without it a blackholed network path hangs a statement.
         assertThat(runtimePool.getDataSourceProperties()).containsEntry("socketTimeout", "30");
-        assertThat(runtimePool.getValidationTimeout()).isEqualTo(1000);
+        assertThat(runtimePool.getValidationTimeout()).isEqualTo(500);
+    }
+
+    @Test
+    void aStaleIdleConnectionAfterABlackholedOutageStillFailsWithinThePoolWait() throws Exception {
+        String container = TenantSecurityIntegrationFixture.POSTGRES.getContainerId();
+        var docker = TenantSecurityIntegrationFixture.POSTGRES.getDockerClient();
+        // Past Hikari's 500 ms alive-bypass window, so the next borrow validates the idle pooled connection.
+        Thread.sleep(700);
+        // A paused container accepts nothing and answers nothing, like a blackholed route: no TCP reset arrives.
+        docker.pauseContainerCmd(container).exec();
+        try {
+            long started = System.nanoTime();
+            mvc.perform(asOwner(get("/api/customers")))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string("Retry-After", "7"));
+            // Validation (500 ms) plus the rest of the pool wait, never the 30 s socket ceiling.
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(2_500));
+        } finally {
+            docker.unpauseContainerCmd(container).exec();
+        }
+        awaitRecovery();
+    }
+
+    private void awaitRecovery() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        int status;
+        do {
+            status = mvc.perform(asOwner(get("/api/customers"))).andReturn().getResponse().getStatus();
+        } while (status != 200 && System.nanoTime() < deadline);
+        assertThat(status).isEqualTo(200);
     }
 
     private MockHttpServletRequestBuilder asOwner(MockHttpServletRequestBuilder request) {
