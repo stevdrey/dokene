@@ -162,7 +162,7 @@ Recommendation and draft requests do not fail with an error status when the AI s
 | `DISALLOWED_ACTION`, `DISALLOWED_TEMPLATE_INTENT`, `INVALID_RECOMMENDATION` | `false` | The deterministic Action Gate rejected model output. Never shown as advice. |
 | `CONTEXT_TOO_LARGE`, `CONTEXT_UNSUPPORTED` | `false` | The customer context cannot be sent to the model safely. |
 
-Other statuses keep their meaning: `403` (not authorized), `404` (customer not in tenant), `409` (stale `If-Match`), `429` + `Retry-After` (per-tenant/actor AI rate limit). An unexpected server error returns an empty `500`/`503` body: provider and exception text never reaches the client.
+Other statuses keep their meaning: `403` (not authorized), `404` (customer not in tenant), `409` (stale `If-Match`), `429` + `Retry-After` (per-tenant/actor AI rate limit). An unexpected server error returns an empty `500`/`503` body: provider and exception text never reaches the client. A database outage answers an empty `503` with `Retry-After` within the bounded pool wait (ADR 0029).
 
 ### Retry
 

@@ -29,6 +29,11 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 - `DOKENE_TENANT_CONTEXT_SIGNING_KEY`, a 64-character hexadecimal encoding of 32 random bytes. Generate it with `openssl rand -hex 32`; keep the value out of source control.
 - `DOKENE_TENANT_CONTEXT_KEY_ID`, an identifier for the active signing key (defaults to `default`).
 
+While the database is unreachable, requests wait at most `DOKENE_DB_CONNECTION_TIMEOUT_MS` (default `3000`, Hikari
+minimum `250`) for a pooled connection. They then answer an empty `503` with `Retry-After`
+(`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`) instead of a generic `500` (ADR 0029). The same session works
+again as soon as the database is back, without restarting the backend.
+
 ## Backend for Frontend (BFF) OIDC authentication
 
 Dokene implements the Backend for Frontend (BFF) security pattern for browser authentication, using Spring Security's

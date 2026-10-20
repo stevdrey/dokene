@@ -3,7 +3,7 @@ package io.github.stevdrey.dokene.ratelimit;
 import java.time.Duration;
 import java.util.Objects;
 
-/** The {@code Retry-After} value of a rate-limit refusal. */
+/** The {@code Retry-After} value of a rate-limit or temporary-unavailability refusal. */
 public final class RetryAfter {
     private RetryAfter() {
     }

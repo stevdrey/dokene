@@ -7,19 +7,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import jakarta.servlet.ServletException;
+import java.sql.SQLTransientConnectionException;
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 class AuditRequestFilterTest {
     private final AuditExecutionContext context = new AuditExecutionContext();
-    private final AuditRequestFilter filter = new AuditRequestFilter(context);
+    private final AuditRequestFilter filter =
+            new AuditRequestFilter(context, new DatabaseUnavailability(Duration.ofSeconds(5)));
 
     @Test
     void ignoresClientCorrelationAndClearsRequestScope() throws Exception {
@@ -97,6 +102,26 @@ class AuditRequestFilterTest {
                 .addFilters(filter).build().perform(get("/failure"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString()).isEmpty());
+    }
+
+    @Test
+    void filterLevelDatabaseOutageIsAnEmptyRetryable503WithTheCorrelationHeader() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<UUID> correlation = new AtomicReference<>();
+
+        filter.doFilter(new MockHttpServletRequest(), response, (req, res) -> {
+            correlation.set(context.requireCurrent());
+            ((jakarta.servlet.http.HttpServletResponse) res).setHeader("X-Other", "dropped-by-reset");
+            throw new CannotCreateTransactionException("membership lookup",
+                    new SQLTransientConnectionException("HikariPool-1 - Connection is not available"));
+        });
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("5");
+        assertThat(response.getHeader("X-Request-Id")).isEqualTo(correlation.get().toString());
+        assertThat(response.getHeader("X-Other")).isNull();
+        assertThat(response.getContentAsString()).isEmpty();
+        assertThat(context.current()).isEmpty();
     }
 
     @Test

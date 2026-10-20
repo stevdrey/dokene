@@ -94,6 +94,16 @@ class ModuleDependencyArchitectureTest {
                                     && !javaClass.getPackageName().startsWith(ROOT + ".http")))
             .because("issue 209: every module's controllers share the If-Match grammar, so it depends on none of them");
 
+    private static final ArchRule DATABASE_BOUNDARY_STAYS_NEUTRAL = noClasses().that()
+            .resideInAPackage(ROOT + ".database..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "another Dokene module than ratelimit",
+                            javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".database")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".ratelimit")))
+            .because("issue 246: every module's requests share the database-outage answer, so it depends on none of them");
+
     private static final ArchRule SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION = noClasses().that()
             .resideOutsideOfPackage(ROOT + ".integration..")
             .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(IntegrationSecretResolver.class)
@@ -138,6 +148,11 @@ class ModuleDependencyArchitectureTest {
     @Test
     void httpPrimitivesDependOnNoModule() {
         HTTP_PRIMITIVES_STAY_NEUTRAL.check(production);
+    }
+
+    @Test
+    void databaseOutageBoundaryDependsOnNoModule() {
+        DATABASE_BOUNDARY_STAYS_NEUTRAL.check(production);
     }
 
     @Test

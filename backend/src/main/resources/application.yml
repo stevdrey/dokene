@@ -7,6 +7,9 @@ spring:
     password: ${DOKENE_DB_PASSWORD}
     hikari:
       connection-init-sql: SET search_path TO dokene
+      # Milliseconds a request waits for a pooled connection before failing with 503 (issue 246). Hikari's 30 s
+      # default left callers hanging through a database outage. Hikari's minimum is 250.
+      connection-timeout: ${DOKENE_DB_CONNECTION_TIMEOUT_MS:3000}
   jpa:
     open-in-view: false
     hibernate:
@@ -27,6 +30,9 @@ spring:
     clean-disabled: true
 
 dokene:
+  datasource:
+    # Retry-After on the empty 503 answered while the database is unreachable (issue 246, ADR 0029).
+    unavailable-retry-after: ${DOKENE_DB_UNAVAILABLE_RETRY_AFTER:5s}
   ai:
     provider: ${DOKENE_AI_PROVIDER:}
     rate-limit:

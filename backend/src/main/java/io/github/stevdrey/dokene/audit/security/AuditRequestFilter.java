@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.audit.security;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,9 +23,11 @@ public class AuditRequestFilter extends OncePerRequestFilter {
     public static final String CORRELATION_MDC_KEY = "correlationId";
 
     private final AuditExecutionContext execution;
+    private final DatabaseUnavailability databaseUnavailability;
 
-    public AuditRequestFilter(AuditExecutionContext execution) {
+    public AuditRequestFilter(AuditExecutionContext execution, DatabaseUnavailability databaseUnavailability) {
         this.execution = execution;
+        this.databaseUnavailability = databaseUnavailability;
     }
 
     @Override
@@ -45,6 +48,12 @@ public class AuditRequestFilter extends OncePerRequestFilter {
                 // reset() drops every header; the correlation id matters most on exactly this failure path.
                 response.setHeader(CORRELATION_HEADER, correlation.toString());
                 response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            } else if (databaseUnavailability.isCause(exception) && !response.isCommitted()) {
+                // Filters such as tenant resolution reach the database before MVC, so no controller advice sees this.
+                databaseUnavailability.log(exception);
+                response.reset();
+                response.setHeader(CORRELATION_HEADER, correlation.toString());
+                databaseUnavailability.apply(response);
             } else if (exception instanceof IOException io) {
                 throw io;
             } else if (exception instanceof ServletException servlet) {
