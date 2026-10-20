@@ -65,8 +65,9 @@ public class MappedGeneralFollowUpGateConfiguration {
     }
 
     /**
-     * One stable sender per tenant. Sending stays blocked, as in production until #144, unless a dispatch test sets
-     * {@code blockedWith} to null to permit it.
+     * One stable sender per tenant. Sending stays blocked, as a fresh deployment is with the global switch off, unless
+     * a dispatch test sets {@code blockedWith} to null to permit it. The real switches are proven end to end by
+     * {@code OutboundKillSwitchIntegrationTest}, which does not import this configuration.
      */
     public static final class StubSafetyControl implements OutboundSafetyControl {
         volatile boolean configured = true;

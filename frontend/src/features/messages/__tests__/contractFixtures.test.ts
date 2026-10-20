@@ -9,6 +9,7 @@ import {
   TEMPLATE_APPROVAL_STATUSES,
   type IntegrationRequest,
   type IntegrationResponse,
+  type OutboundRequest,
   type TemplateListResponse,
   type TemplateRequest,
   type TemplateResponse
@@ -165,6 +166,9 @@ const integrationRequestShape: Shape<IntegrationRequest> = {
   enabled: bool,
   secretRef: text
 };
+const outboundRequestShape: Shape<OutboundRequest> = {
+  enabled: bool
+};
 const integrationResponseShape: Shape<IntegrationResponse> = {
   enabled: bool,
   outboundEnabled: bool,
@@ -260,6 +264,7 @@ const messages = JSON.parse(messagesJson) as { details: Named; pages: Named; eve
 const requests = JSON.parse(requestsJson) as Record<keyof typeof requestShapes, { valid: Named; invalid: Named }>;
 const integration = JSON.parse(integrationJson) as {
   request: { valid: Named; invalid: Named };
+  outboundRequest: { valid: Named; invalid: Named };
   response: { valid: Named };
 };
 const templates = JSON.parse(templatesJson) as {
@@ -337,6 +342,14 @@ describe('messaging v1 contract fixtures', () => {
 
     it.each(Object.entries(integration.request.invalid))('rejects request %s', (_name, fixture) => {
       expect(violations(fixture, integrationRequestShape)).not.toEqual([]);
+    });
+
+    it.each(Object.entries(integration.outboundRequest.valid))('accepts outbound request %s', (_name, fixture) => {
+      expect(violations(fixture, outboundRequestShape)).toEqual([]);
+    });
+
+    it.each(Object.entries(integration.outboundRequest.invalid))('rejects outbound request %s', (_name, fixture) => {
+      expect(violations(fixture, outboundRequestShape)).not.toEqual([]);
     });
 
     it.each(Object.entries(integration.response.valid))('response %s matches IntegrationResponse', (_name, fixture) => {

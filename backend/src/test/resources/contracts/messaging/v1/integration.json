@@ -35,6 +35,32 @@
       }
     }
   },
+  "outboundRequest": {
+    "valid": {
+      "on": {
+        "enabled": true
+      },
+      "off": {
+        "enabled": false
+      }
+    },
+    "invalid": {
+      "missingEnabled": {},
+      "nullEnabled": {
+        "enabled": null
+      },
+      "stringEnabled": {
+        "enabled": "true"
+      },
+      "numericEnabled": {
+        "enabled": 1
+      },
+      "unknownMember": {
+        "enabled": true,
+        "global": true
+      }
+    }
+  },
   "response": {
     "valid": {
       "enabledWithDisplayNumber": {

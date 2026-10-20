@@ -4,7 +4,7 @@
 
 Accepted. Implements `POST /api/messages/{messageId}/sends` as frozen by [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) §3.1, §4.2 to §4.4 and [ADR 0024](0024-phase-3-messaging-contract-freeze.md) §2 and §5. Issue: [#138](https://github.com/stevdrey/dokene/issues/138), part of epic [#130](https://github.com/stevdrey/dokene/issues/130). Delivered in two pull requests. The first adds the claim, the gate, the synchronous dispatch and migration V25. The second adds the bounded recovery processor described in §5 and migration V26.
 
-Live sending stays off. The global kill switch is hardcoded to `OUTBOUND_DISABLED_GLOBALLY` until [#144](https://github.com/stevdrey/dokene/issues/144). [#218](https://github.com/stevdrey/dokene/issues/218) added the provider template component-schema verification that had to precede it: the registry now records `APPROVED` only when the template's parameter schema matches the mapping, together with its verified parameter format (ADR 0025 §2a).
+Live sending is off by default. The global kill switch `dokene.messaging.outbound.enabled` and the per tenant switch are configurable and off unless set ([#144](https://github.com/stevdrey/dokene/issues/144), spec 0008). [#218](https://github.com/stevdrey/dokene/issues/218) added the provider template component-schema verification that had to precede it: the registry now records `APPROVED` only when the template's parameter schema matches the mapping, together with its verified parameter format (ADR 0025 §2a).
 
 ## Context
 

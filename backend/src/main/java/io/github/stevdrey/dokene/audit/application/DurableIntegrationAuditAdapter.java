@@ -20,6 +20,11 @@ public class DurableIntegrationAuditAdapter implements IntegrationAuditPort {
     }
 
     @Override
+    public void outboundSwitchChanged(UUID integrationId, boolean enabled) {
+        recorder.outboundKillSwitchChanged(integrationId, enabled);
+    }
+
+    @Override
     public void mappingRejected() {
         recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.MAPPING_REJECTED);
     }

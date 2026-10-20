@@ -76,6 +76,14 @@ public interface AuditRecorder {
     }
 
     /**
+     * Requires an existing business transaction; failure must roll back the switch flip. Metadata carries the new
+     * switch value only: never identifiers, phone numbers, secret references or actor text.
+     */
+    default void outboundKillSwitchChanged(UUID integrationId, boolean enabled) {
+        throw new UnsupportedOperationException("Integration audit is not configured");
+    }
+
+    /**
      * Requires an existing business transaction; failure must roll back the mapping change. Metadata carries the
      * enabled flag only: never template names, parameters, statuses or provider text.
      */
