@@ -1,0 +1,399 @@
+# Suite #122: captured outputs of the scripts, one section per original file (sanitized, synthetic data).
+
+
+===== outputs/ff-long.txt =====
+Firefox 157.0.1, 1440x900, customer with a 70-char unbroken name and 180-char unbroken note/purchase: docScrollW=1711/1440 overflow=true beyond=8
+search icon vs input box while a query is active: {"inputTop":187,"inputBottom":231,"iconTop":199,"iconBottom":219}
+
+
+===== outputs/ux03-keyboard-chrome.txt =====
+== UX-03 keyboard, Chrome, 1440x900, user testoperator
+-- A. from page start: tab order of the shell and first cards (12 stops)
+  Tab 1: button "Seleccionar espacio de trabajo" fv=true outline=solid 2px
+  Tab 2: button "assignment_turned_inSeguimientos" fv=true outline=solid 2px
+  Tab 3: button "groupClientes" fv=true outline=solid 2px
+  Tab 4: button "settingsConfiguración" fv=true outline=solid 2px
+  Tab 5: button "logoutCerrar sesión" fv=true outline=solid 2px
+  Tab 6: button "Pendientes50" fv=true outline=solid 2px
+  Tab 7: button "Vencidos50" fv=true outline=solid 2px
+  Tab 8: input "Buscar seguimientos por nombre o teléfono" fv=true outline=none 3px
+  Tab 9: div[button] "Dormant Té QAcheck_circleverifiedContacto autori" fv=true outline=solid 2px +shadow
+  Tab 10: div[button] "Probe NoOffers QAverifiedContacto autorizado (Wh" fv=true outline=solid 2px
+  Tab 11: div[button] "Probe Nonsense QAverifiedContacto autorizado (Wh" fv=true outline=solid 2px
+  Tab 12: div[button] "Probe Return QAverifiedContacto autorizado (What" fv=true outline=solid 2px
+-- B. focus search box by tabbing, filter with the keyboard
+-- C. Tab from search to the first card, Enter selects it
+  Tab 1: button "Cargar más páginas" fv=true outline=solid 2px
+  Tab 2: div[button] "Dormant Té QAcheck_circleverifiedContacto autori" fv=true outline=solid 2px +shadow
+  Tab 3: button "Cargar más páginas y seguir buscando" fv=true outline=solid 2px
+   focused: button "Cargar más páginas y seguir buscando" fv=true outline=solid 2px
+   after Enter on card -> BODY "undefined" fv=undefined outline=undefined (off-screen) | detail shown: true
+-- D. Tab to "Obtener recomendación" (up to 25 stops), Enter
+   reached after 3 Tabs: button "Obtener recomendación" fv=true outline=solid 2px
+   Enter pressed; waiting for result
+   focus after the live result arrives: BODY "undefined" fv=undefined outline=undefined (off-screen)
+   live region(s) present: ["status/polite \"Recomendación lista\""]
+-- E. Tab to "Generar borrador", Enter
+   reached after 2 Tabs: button "Generar borrador" fv=true outline=solid 2px
+   focus after the draft arrives: textarea "Borrador del mensaje (editable)" fv=true outline=solid 2px  (focus moved to the editor)
+-- F. edit with the keyboard (type 12 chars at the caret), then Tab to Copiar / Regenerar
+   counter text now: 162 / 1000
+  Tab after-editor 1: button "Copiar borrador" fv=true outline=solid 2px
+  Tab after-editor 1: button "Regenerar borrador" fv=true outline=solid 2px
+  Tab after-editor 1: button "edit_calendarRegistrar seguimiento" fv=true outline=solid 2px
+-- G. Shift+Tab back to the editor
+  Shift+Tab back 1: button "Regenerar borrador" fv=true outline=solid 2px
+  Shift+Tab back 2: button "Copiar borrador" fv=true outline=solid 2px
+  Shift+Tab back 3: textarea "Borrador del mensaje (editable)" fv=true outline=solid 2px
+-- H. Regenerar with the keyboard: expect either regenerate directly or a discard confirmation when edited
+   after Enter on Regenerar -> BODY "undefined" fv=undefined outline=undefined (off-screen) | dialog open: false | body has confirm text: true
+-- I. modal dialogs from the keyboard: Posponer, Descartar, Registrar seguimiento (open with Enter, Tab cycle, Escape, focus return)
+   Posponer: dialog open=true; initial focus: button "Cerrar modal" fv=true outline=solid 2px (in dialog)
+     9 Tabs: button:"Mañana" > button:"En 3 días" > button:"En 1 semana" > button:"En 2 semanas" > input:"O elige una fech" > input:"O elige una fech" > input:"O elige una fech" > input:"O elige una fech" > button:"Cancelar"
+     2 Shift+Tabs: input:"O elige una fech" > input:"O elige una fech"
+     Escape closes: true; focus returns to: button "schedulePosponer" fv=true outline=solid 2px
+   Descartar: dialog open=true; initial focus: button "Cerrar modal" fv=true outline=solid 2px (in dialog)
+     9 Tabs: textarea:"Motivo o nota in" > button:"Cancelar" > button:"Descartar seguim" > button:"Cerrar modal" > textarea:"Motivo o nota in" > button:"Cancelar" > button:"Descartar seguim" > button:"Cerrar modal" > textarea:"Motivo o nota in"
+     2 Shift+Tabs: button:"Cerrar modal" > button:"Descartar seguim"
+     Escape closes: true; focus returns to: button "closeDescartar" fv=true outline=solid 2px
+   Registrar seguimiento: dialog open=true; initial focus: button "Cerrar modal" fv=true outline=solid 2px (in dialog)
+     9 Tabs: textarea:"Notas de la conv" > button:"Cancelar" > button:"Guardar seguimie" > button:"Cerrar modal" > textarea:"Notas de la conv" > button:"Cancelar" > button:"Guardar seguimie" > button:"Cerrar modal" > textarea:"Notas de la conv"
+     2 Shift+Tabs: button:"Cerrar modal" > button:"Guardar seguimie"
+     Escape closes: true; focus returns to: button "edit_calendarRegistrar seguimiento" fv=true outline=solid 2px
+-- J. logout with the keyboard
+   found logout button: true
+   after Enter: url=http://localhost:5173/ | text: spa Dokene Gestión de relaciones y seguimiento a clientes para pequeños negocio
+
+
+===== outputs/ux04-ax-chrome.txt =====
+== UX-04 accessibility-tree audit (Chrome 155 accessibility tree; NOT a screen-reader session)
+login page: title="Dokene" lang=es landmarks/headings: ["h1:Dokene"]
+-- queue + detail (before AI): landmarks and headings
+{
+ "lm": [
+  "aside aria-label=\"Barra lateral de navegación\"",
+  "nav aria-label=\"Navegación principal\"",
+  "nav aria-label=\"Ajustes\"",
+  "header",
+  "header",
+  "main",
+  "section",
+  "nav aria-label=\"Navegación móvil inferior\""
+ ],
+ "hs": [
+  "h1: Seguimientos",
+  "h3: Dormant Té QA",
+  "h2: Dormant Té QA",
+  "h3: ¿Por qué contactar hoy?",
+  "h3: Asistente IA",
+  "h3: Historial reciente de compras"
+ ],
+ "inputs": [
+  {
+   "type": "search",
+   "name": "Buscar seguimientos por nombre o teléfono",
+   "placeholderOnly": false,
+   "describedby": ""
+  }
+ ],
+ "roleBtn": 1,
+ "iconBtns": [],
+ "iconsWithoutAriaHidden": 0,
+ "lang": "es",
+ "title": "Dokene"
+}
+-- keyboard activation of role=button cards: Space and Enter
+   Space on card "Dormant Té QAcheck_c" -> detail text present: true
+-- AI panel state announcements (live regions) while loading, result, error
+   during loading: ["status/polite \"Consultando al asistente…\""]
+   after result: ["status/polite \"Recomendación lista\""]
+   after draft: ["status/polite \"Borrador listo para revisar\""]
+   editor: {"label":"Borrador del mensaje (editable)","describedby":null,"desc":[null],"maxlength":null,"counterLive":true}
+-- AX tree of the AI panel (roles/names as exposed to assistive technology)
+          heading "Dormant Té QA"
+          button "Ver cliente"
+          button "Copiar número de teléfono"
+      heading "¿Por qué contactar hoy?"
+    paragraph
+  region "Asistente IA"
+      heading "Asistente IA"
+    paragraph
+    status
+    region "Recomendación de la IA"
+      heading "Recomendación de la IA"
+        paragraph
+        paragraph
+      paragraph
+        button "Consultar de nuevo"
+      LabelText
+      textbox "Borrador del mensaje (editable)"
+        list
+          listitem
+            ListMarker "• "
+          listitem
+            ListMarker "• "
+          listitem
+            ListMarker "• "
+        button "Copiar borrador"
+        button "Regenerar borrador"
+        heading "Historial reciente de compras"
+    paragraph
+    button "Registrar seguimiento"
+      button "Posponer"
+      button "Descartar"
+-- Spanish copy check: strings on screen that look English/untranslated
+   ["Estado de seguimiento: OVERDUE"]
+
+
+===== outputs/ux05-viewer.txt =====
+== UX-05 VIEWER (testviewer) experience
+role label in the sidebar: Lector
+buttons visible: ["storeQA Café Norteunfold_more","assignment_turned_inSeguimient","groupClientes","settingsConfiguración","logoutCerrar sesión","Pendientes50","Vencidos50","Cargar más páginas","Cargar más páginas y seguir bu","Ver clientearrow_forward","content_copy","Obtener recomendación [disabled]","edit_calendarRegistrar seguimi [disabled]","schedulePosponer [disabled]","closeDescartar [disabled]"]
+AI panel text for the viewer: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Tu rol no permite usar el asistente IA en este espacio de trabajo. Obtener recomendación
+permission explanation anywhere: ["Tu rol no permite usar el asistente IA en este espacio de trabajo","Tu rol en este espacio es de sólo lectura"]
+tooltips/aria-disabled controls: ["Obtener recomendación title=","edit_calendarRegistrar seguimi title=","schedulePosponer title=","closeDescartar title="]
+customers screen for viewer, create/edit buttons: []
+
+
+===== outputs/ux06-stress.txt =====
+== UX-06 content stress (live OpenAI for the AI text; fixtures are labelled synthetic UI data)
+-- live AI on the emoji customer at 1440x900: recommendation, draft, counter, copy
+  live draft: "Hola, queríamos saber cómo te fue con el Café 1 kg que compraste el 1 de agosto. Si necesitas reponerlo, estamos aquí para ayudarte. ¿Te gustaría hacer un nuevo"
+  typed 780 code points of emoji/ZWJ/flag/combining text; textarea holds 780 code points (1140 UTF-16 units); counter shows "780 / 1000"; first/last code points intact: true
+  lone surrogate in editor value: false
+  clipboard after Copiar: equals editor value = true (780 code points), toast/feedback: copiado
+
+
+===== outputs/ux07-errors-chrome.txt =====
+== UX-07 loading and error states (Chrome 155; provider is the FAULT-INJECTION stub except where stated; Dokene HTTP failures are injected by wrapping window.fetch)
+-- A slow provider (8 s) then success
+   at 2.5 s: status: Consultando al asistente… | buttons ["Obtener recomendación[disabled]","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]
+PASS  loading is announced and manual actions stay usable while waiting
+   panel: auto_awesome Asistente IA  Recomendación lista Recomendación de la IA ACCIÓN SUGERIDA Reactivación de cliente inactivo · Cliente inactivo POR QUÉ LO SUGIERE LA IA La última compra fue hace meses; conviene retomar el contacto. Confianza del modelo: 80 % Consultar de nuevo Generar borrador
+   buttons: ["Consultar de nuevo","Generar borrador","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: Recomendación lista"]
+PASS  after the slow response the result is shown (no endless spinner)
+-- B provider timeout (20 s > 15 s)
+   panel: auto_awesome Asistente IA  El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   buttons: ["Reintentar","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento ma"]
+PASS  timeout ends in an unavailable message (no spinner left)  -- ual y la decisión es tuya. El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+PASS  retry is offered for a retryable failure
+-- C no recommendation (valid refusal)
+   panel: auto_awesome Asistente IA  Sin recomendación de la IA Recomendación de la IA La IA no recomienda una acción por ahora: la intención del cliente no es clara. No hay datos suficientes para sugerir una acción segura. Consultar de nuevo
+   buttons: ["Consultar de nuevo","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: Sin recomendación de la IA"]
+PASS  no-recommendation is shown as an informational outcome with the reason, not as an error  -- ecomendación de la IA Recomendación de la IA La IA no recomienda una acción por ahora: la intención del cliente no es clara. No hay datos suficientes para sugerir una acción segura. Consultar de nuevo
+-- D no draft (valid refusal)
+   panel: auto_awesome Asistente IA  Borrador no disponible Recomendación de la IA ACCIÓN SUGERIDA Reactivación de cliente inactivo · Cliente inactivo POR QUÉ LO SUGIERE LA IA La última compra fue hace meses; conviene retomar el contacto. Confianza del modelo: 80 % Consultar de nuevo La IA no pudo redactar un borrador: esta acción no admi
+   buttons: ["Consultar de nuevo","Regenerar borrador","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: Borrador no disponible"]
+PASS  no-draft outcome is explained and manual actions remain
+-- E provider unavailable 503 (retryable)
+   panel: auto_awesome Asistente IA  El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   buttons: ["Reintentar","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento ma"]
+PASS  503: message is generic, in Spanish, without provider text  -- anal habitual y la decisión es tuya. El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   retry action offered: true
+PASS  503: manual actions remain usable
+-- F provider rejects the request 401 (not retryable)
+   panel: auto_awesome Asistente IA  El asistente IA no pudo generar una sugerencia utilizable. Puedes continuar con el seguimiento manual.
+   buttons: ["edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no pudo generar una sugerencia utilizable. Puedes continuar con el seguimi"]
+FAIL  401: message is generic, in Spanish, without provider text  -- da. El envío es manual por tu canal habitual y la decisión es tuya. El asistente IA no pudo generar una sugerencia utilizable. Puedes continuar con el seguimiento manual.
+   retry action offered: false
+PASS  401: manual actions remain usable
+-- G provider throttled 429 (retryable)
+   panel: auto_awesome Asistente IA  El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   buttons: ["Reintentar","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento ma"]
+PASS  429: message is generic, in Spanish, without provider text  -- anal habitual y la decisión es tuya. El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar. Reintentar
+   retry action offered: true
+PASS  429: manual actions remain usable
+-- H Dokene API 500 (injected)
+   panel: auto_awesome Asistente IA  No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual."]
+PASS  500: generic error, manual actions usable, retry offered  -- a. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+-- I Dokene API 429 with Retry-After (injected)
+   panel: auto_awesome Asistente IA  Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo."]
+PASS  429: tells the operator to wait/retry later (per-app limit), not a generic failure  -- A · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+-- J malformed 200 response (injected)
+   panel: auto_awesome Asistente IA  No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual."]
+PASS  malformed/untrusted response is rejected with a generic error (no content shown)  -- a. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación
+-- K permission revoked mid-session (403)
+   panel: auto_awesome Asistente IA  Tu rol no permite usar el asistente IA en este espacio de trabajo. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: Tu rol no permite usar el asistente IA en este espacio de trabajo."]
+PASS  403: clear role message  --  ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Tu rol no permite usar el asistente IA en este espacio de trabajo. Obtener recomendación
+-- L real Dokene rate limit (20/min per actor)
+   burst from another tab: 200,200,200,200,200,200,200,200,200,200,200,200,200,200,200,200,200,429,429,429,429,429,429,429
+   panel: auto_awesome Asistente IA  Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+   buttons: ["Obtener recomendación","edit_calendarRegistrar seguimiento","schedulePosponer","closeDescartar"]   live: ["status: ","alert: Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo."]
+PASS  429 from Dokene: understandable wait/retry message  -- A · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo de nuevo. Obtener recomendación
+PASS=16 FAIL=1
+
+
+===== outputs/ux08-stale-chrome.txt =====
+== UX-08 stale edited draft (Chrome 155, live OpenAI for recommendation/draft; queue-refresh failure is FAULT-INJECTED by wrapping window.fetch)
+original draft: "Hola, Dormant Té QA. Hace un tiempo compraste Té verde 500 g y queríamos saber cómo te fue. Si podemos ayudarte con algo"
+PASS  operator edit is in the editor
+other tab: policy etag 4, changing cadence
+PASS  policy changed in the other tab  -- status 200
+-- arm ONE queue refresh failure (FAULT INJECTION), then regenerate the draft in the first tab (stale ETag)
+inline confirm text: Regenerar reemplazará tus cambios en el borrador.
+panel text after the stale event: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos actualizar la lista de seguimientos. Tu borrador editado (la recomendación ya no está actualizada) Edición local: no se guarda ni se envía. 186 / 1000 Copiar borrador Reintentar actualizar lista
+injected failures: 1
+dialog open: false
+PASS  stale: previous recommendation text is hidden
+PASS  stale: edited text remains in an editable area  -- [" QA Café Norte! EDICIÓN-QA-122"]
+PASS  stale: panel says the list refresh failed
+PASS  stale: offers "Reintentar actualizar lista" instead of "Actualizar recomendación"
+PASS  copy works while stale and copies the edited text
+buttons: ["Copiar borrador","Reintentar actualizar lista","closeDescartar"]
+panel after retry: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Borrador copiado El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación. Tu borrador editado (la recomendación ya no está actualizada) Edición local: no se guarda ni se envía. 186 / 1000 Copiar borrador Actualizar recomendación
+PASS  retry succeeded: panel offers "Actualizar recomendación"
+PASS  edited text still present after the successful refresh
+-- explicit confirmation before discarding edits
+after "Actualizar recomendación": dialog=false | spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(a) logout Cerrar sesión Dokene chevron_right Seguimientos person GESTIÓN DE RELACIONES Ciclo de atención Seguimientos Ten presente a quién c
+confirmation buttons: ["Descartar y consultar","Cancelar","closeDescartar"]
+PASS  discarding edits requires an explicit inline confirmation ("Descartar y consultar" / "Cancelar") before any new request
+PASS  cancelling the confirmation keeps the edited text
+confirm button used: Descartar y consultar
+PASS  after confirming, a NEW live recommendation is shown and the edited text is gone
+PASS=12 FAIL=0
+
+
+===== outputs/ux09-pagination-chrome.txt =====
+== UX-09 queue pagination (Chrome 155, 1440x900, 81 due customers in 2 pages of 50 + 31; live OpenAI for AI-driven refresh)
+initial list: 50 cards, buttons: ["Cargar más seguimientos"]
+PASS  first page shows exactly 50 cards
+PASS  initial load made one queue request  -- ["/api/follow-up-queue?limit=50"]
+PASS  "Cargar más" appends the second page: 81 cards in total  -- 81 cards
+PASS  exactly one extra request with a cursor  -- /api/follow-up-queue?cursor=MjAyNi0wOC0zMXxhYzlmZDJlNy05ZGYyLTQ1OGItOWI1NC02MDM5ZTg4NGRiN2I&limit=50
+PASS  cursor exhausted: no further "Cargar más" button  -- []
+PASS  end-of-list text is shown or nothing misleading  -- (no end marker)
+PASS  UI list equals the API list, same order, nothing truncated or duplicated  -- api 81 vs ui 81
+selecting a page-2 customer: "SideEffects QA" (index 70)
+PASS  detail shows the selected later-page customer  -- SideEffects QA
+PASS  live recommendation for the page-2 customer
+PASS  policy changed in the other tab (cadence 12 days: due date moves, queue reorders)  -- status 200
+during the refresh, buttons: ["Actualizar recomendación"]
+queue requests during the AI-driven refresh: 2: ["/api/follow-up-queue?limit=50","/api/follow-up-queue?cursor=MjAyNi0wOC0zMXw5ZmRmZDhiYS0yY2RlLTQ4OTItOTY1OS1iNTIxMDc1ZTA3ZTg&limit=50"]
+PASS  refresh reloaded the pages already loaded (2 requests: first page + cursor page), no duplicates  -- 2 requests
+PASS  list is not truncated after the refresh (81 cards)  -- 81 -> 81
+PASS  selection retained: detail still shows the same customer  -- SideEffects QA
+customer moved in the list: index 70 -> 4
+PASS  customer reordered by the new due date and still highlighted
+panel after refresh: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. El seguimiento cambió mientras consultabas al asistente. Actualizamos la lista; actualiza la recomendación. Actualizar recomendación
+-- filters: "Vencidos" tab and text search keep the selection and exhaust cursors
+Vencidos tab: 50 cards; selected: SideEffects QA
+PASS  Vencidos filter lists only overdue items and keeps/falls back the selection coherently
+"Cargar más" on Vencidos: ["Cargar más seguimientos"]
+Vencidos after exhausting: 81 cards
+PASS  Vencidos UI count equals the API OVERDUE count  -- ui 81 vs api 81
+Pendientes tab: 50 cards
+search "Grounding": 18 cards: ["Grounding Sin Precio","Grounding Agrupado","Grounding NBSP","Grounding NBSP 021399423","Grounding Sin Precio","Grounding Unicode","Grounding Diez","Grounding Unicode 021399423"]; helper text: Buscando en 50 cargados
+PASS  search filters across all loaded pages
+PASS=17 FAIL=0
+
+
+===== outputs/ux10-11-chrome.txt =====
+== UX-10 ineligibility notice (consent revoked without a policy-version change; Chrome 155, live OpenAI)
+-- variant: queue refresh success, customer "Chars Test C2…"
+  customer not in the loaded page
+-- variant: queue refresh refresh-failure, customer "Chars Test C4…"
+PASS  refresh-failure: consent revoked in the other tab  -- status 200
+  policy ETag unchanged by the revoke: "0"; panel: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Recomendación no disponible para este cliente No pudimos actualizar la lista de seguimientos. Reintentar actualizar lista Ahora no se puede sugerir un contacto: el seguimiento ya no está pendiente.
+PASS  refresh failed: panel says the list could not be updated and offers "Reintentar actualizar lista"
+PASS  refresh failed: the "ya no es elegible… se ha actualizado" notice is NOT shown yet
+PASS  after a successful retry the customer notice appears
+== UX-11 navigation and races (live OpenAI; the in-flight result is the real provider call)
+-- (a) workspace change while a recommendation is pending
+workspace options: ["QA Café NorteOperador(a)check","QA Café NorteOperador(a)","QA Café Norte","QA Café SurOperador(a)","QA Café Sur"]
+PASS  after switching workspace no content of the first workspace/customer remains  -- UI Sur QA
+PASS  no AI panel text from the previous tenant
+active workspace now: ad083076-ada1-4a78-acd1-4ffb04c467c7
+-- (b) logout while a recommendation is pending
+PASS  after logout during a pending request: login screen, no advice shown  -- spa Dokene Gestión de relaciones y seguimiento a clientes para pequeños negocios
+-- (c) browser Back / Forward
+history after navigating to Clientes: before=5 http://localhost:5173/ after=5 http://localhost:5173/ (SPA state-based navigation: the URL does not change)
+after Back: url=http://localhost:5173/ | text starts: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos gr
+   Back leaves the application page (no in-app history entry) and stays in the app
+after Forward: url=http://localhost:5173/ | session intact: true | text: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos gr
+-- (d) crossing the responsive breakpoint (1440 -> 900 -> 390 -> 1440) with a draft being edited
+PASS  edited text present at 1440
+   at 900px: editor value kept=false; panel mentions: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Obtener recome; selected: Dormant Té QA
+   at 390px: editor value kept=false; panel mentions: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Obtener recome; selected: Dormant Té QA
+   at 1440px: editor value kept=false; panel mentions: auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Obtener recome; selected: Dormant Té QA
+PASS=8 FAIL=0
+
+
+===== outputs/ux10-only.txt =====
+== UX-10 ineligibility notice (consent revoked without a policy-version change; Chrome 155, live OpenAI)
+-- variant: queue refresh success, customer "UX10 Fresh…"
+PASS  success: consent revoked in the other tab  -- status 200
+  policy ETag unchanged by the revoke: "0"; panel: 
+PASS  notice names the customer and says the list was updated, after the successful refresh
+PASS  automatic selection fallback: the ineligible customer left the list  -- now selected: "Sin resultados en los seguimientos cargados"
+PASS  notice survives the automatic selection fallback  -- selected now: Sin resultados en los seguimientos cargados
+  after clearing the search the notice is gone
+PASS  notice clears when the operator selects another customer
+PASS=5 FAIL=0
+
+
+===== outputs/ux11d.txt =====
+recommendation visible at 1440; page marker set (a reload would clear it)
+width 1100: marker=12345 (same document: true); recommendation still shown: true; detail header node preserved: true; selected: Dormant Té QA
+width 1023: marker=12345 (same document: true); recommendation still shown: false; detail header node preserved: false; selected: Dormant Té QA
+width 1024: marker=12345 (same document: true); recommendation still shown: false; detail header node preserved: false; selected: Dormant Té QA
+
+
+===== outputs-retest-7069914/ret-191-192-193-196.txt =====
+== Retest on main @ 7069914 (Chrome 155)
+-- #191 fresh load, unfiltered queue with the long-name customers present
+   320px docScrollW=305/320 overflow=false
+   360px docScrollW=345/360 overflow=false
+   390px docScrollW=375/390 overflow=false
+   480px docScrollW=465/480 overflow=false
+   560px docScrollW=545/560 overflow=false
+   600px docScrollW=585/600 overflow=false
+   700px docScrollW=685/700 overflow=false
+   760px docScrollW=745/760 overflow=false
+   768px docScrollW=753/768 overflow=false
+   780px docScrollW=765/780 overflow=false
+   800px docScrollW=785/800 overflow=false
+   820px docScrollW=805/820 overflow=false
+   860px docScrollW=845/860 overflow=false
+   1024px docScrollW=1009/1024 overflow=false
+   1440px docScrollW=1425/1440 overflow=false
+PASS  #191 no horizontal overflow from 320 to 1440 px on a fresh load
+-- #192 long unbroken name/notes/purchase (detail and profile)
+PASS  #192 detail at 1440px without horizontal overflow  -- docScrollW=1425/1440
+PASS  #192 profile at 1440px without horizontal overflow  -- docScrollW=1425/1440
+PASS  #192 detail at 390px without horizontal overflow  -- docScrollW=375/390
+PASS  #192 profile at 390px without horizontal overflow  -- docScrollW=375/390
+-- #196 320 px and 400 % zoom contact row
+PASS  #196 detail at 320x568 (dpr 1) without horizontal overflow  -- docScrollW=305/320
+PASS  #196 detail at 320x256 (dpr 4) without horizontal overflow  -- docScrollW=305/320
+-- #193 breakpoint crossing with AI result and edited draft (live)
+PASS  #193 at 1100px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 1023px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 1024px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 390px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 768px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS  #193 at 1440px the edited draft and the recommendation are kept (same document: true)  -- draft kept=true rec=true
+PASS=13 FAIL=0
+
+
+===== outputs-retest-7069914/ret-195-194-197.txt =====
+== Retest on main @ 7069914 (Chrome 155, live OpenAI)
+-- #195 search icon
+PASS  #195 icon centered on the input while the query/helper row is shown  -- {"inTop":183,"inBottom":227,"icTop":195,"icBottom":215,"centerDelta":0,"helper":true}
+-- #197 focus after activated button is removed (keyboard)
+PASS  #197 focus is not BODY after the recommendation arrives  -- {"tag":"h4","role":"","name":"Recomendación de la IA","focusVisible":true,"outline":"solid 2px","shadow":"","inViewport":true,"inDialog":false}
+   next Tab -> {"tag":"button","name":"Consultar de nuevo"}
+PASS  focus on the editor when the draft arrives (unchanged)
+-- #194 evidence presentation
+   evidence block: 
+PASS  #194 no raw ISO timestamp
+PASS  #194 no English status value
+-- #197 focus on Regenerar / Cargar más
+   after Enter on Regenerar -> {"tag":"BODY"}
+FAIL  #197 focus not BODY after Regenerar
+   after Enter on Cargar más -> {"tag":"div","name":"Injection Notes QAverifiedContacto autorizado (W"}
+PASS  #197 focus not BODY after paging
+PASS=6 FAIL=1
