@@ -13,7 +13,8 @@ const log = []; const L = (s) => { console.log(s); log.push(s); }; let pass = 0,
 W('fail', ''); W('delay.ms', '0'); W('delay-ok.ms', '6000');
 const c = await launchChrome(); const b = await new Browser(c.ws).open(); const p = await (await b.newPage()).init();
 await p.viewport(1440, 900); await login(p); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000);
-const search = (q) => p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');if(!i)return;const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(q)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+const safeJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+const search = (q) => p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');if(!i)return;const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${safeJson(q)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
 const open = async () => { await p.goto('http://localhost:5173/'); await p.waitFor('document.body.innerText.includes("Seguimientos")'); await sleep(900); if (await p.ev(`!!document.querySelector('aside')&&/QA Café Sur/.test(document.querySelector('aside').innerText.split('RELACIONES')[0])`)) { await p.ev(`[...document.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='Seleccionar espacio de trabajo').click()`); await sleep(500); await p.clickText('QA Café Norte', '*'); await sleep(2500); } await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000); await search('Dormant'); await sleep(1100); await p.clickText('Dormant Té QA', '*'); await sleep(900); };
 const text = () => p.ev(`document.body.innerText.replace(/\\s+/g,' ')`);
 const settle = async () => { await sleep(8000); };

@@ -5,7 +5,8 @@ const log = []; const L = (s) => { console.log(s); log.push(s); }; let pass = 0,
 const c = await launchChrome(); const b = await new Browser(c.ws).open(); const p = await (await b.newPage()).init();
 await b.send('Browser.grantPermissions', { origin: 'http://localhost:5173', permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
 await p.viewport(1440, 900); await login(p); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000);
-const search = (q) => p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(q)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+const safeJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+const search = (q) => p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${safeJson(q)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
 await search('Dormant'); await sleep(1200); await p.clickText('Dormant Té QA', '*'); await sleep(900);
 await p.clickText('Obtener recomendación'); await p.waitFor('document.body.innerText.includes("Recomendación de la IA")||document.body.innerText.includes("no está disponible")', 45000); const rec = await p.ev('document.body.innerText.includes("Recomendación de la IA")'); chk('live recommendation displayed after the restoration', rec);
 await p.clickText('Generar borrador'); await p.waitFor('!!document.querySelector("textarea")', 45000); const d = await p.ev('document.querySelector("textarea").value'); chk('live draft in es-419 displayed', d.length > 20 && /[áéíóúñ¿¡]|hola|compra/i.test(d), JSON.stringify(d.slice(0, 100)));
