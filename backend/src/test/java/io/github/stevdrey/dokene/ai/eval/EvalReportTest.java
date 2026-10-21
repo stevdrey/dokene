@@ -448,9 +448,11 @@ class EvalReportTest {
                 .isEqualTo(new EvalReport.Coverage(0, 0));
         assertThat(report.summary().families().keySet()).hasSize(EvalCase.Family.values().length);
         assertThat(report.summary().undelivered()).containsExactly(
-                new EvalReport.UndeliveredCase("ua-01", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION", "AI_UNAVAILABLE",
+                new EvalReport.UndeliveredCase("ua-01", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION",
+                        EvalReport.UndeliveredCase.PROVIDER_FAILURE, "AI_UNAVAILABLE",
                         "TIMEOUT", List.of("TIMEOUT")),
-                new EvalReport.UndeliveredCase("ua-03", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION", "AI_UNAVAILABLE",
+                new EvalReport.UndeliveredCase("ua-03", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION",
+                        EvalReport.UndeliveredCase.PROVIDER_FAILURE, "AI_UNAVAILABLE",
                         "TIMEOUT", List.of("TIMEOUT")));
         assertThat(EvalFamilyCoverage.uncoveredFamilies(report))
                 .containsExactly("UNSUPPORTED_ACTION/NEXT_BEST_ACTION (0 of 2)");
@@ -461,7 +463,7 @@ class EvalReportTest {
         EvalReportWriter.write(report, dir, "gap");
         assertThat(Files.readString(dir.resolve("gap.md"))).contains("coverage INCOMPLETE, see Delivery coverage",
                 "## Delivery coverage", "Coverage: **INCOMPLETE**", "| UNSUPPORTED_ACTION | **0/2 NOT COVERED** |",
-                "| NEXT_BEST_ACTION | 3/5 |", "| ua-01 | UNSUPPORTED_ACTION | NEXT_BEST_ACTION | AI_UNAVAILABLE (TIMEOUT) | TIMEOUT |");
+                "| NEXT_BEST_ACTION | 3/5 |", "| ua-01 | UNSUPPORTED_ACTION | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (TIMEOUT) | TIMEOUT |");
         assertThat(EvalReportWriter.read(dir.resolve("gap.json"))).isEqualTo(report);
     }
 
@@ -488,8 +490,75 @@ class EvalReportTest {
 
         assertThat(result.regression()).isTrue();
         assertThat(result.render()).contains(
-                "Delivered outcomes UNSUPPORTED_ACTION/NEXT_BEST_ACTION: 1/1 -> 0/1  <-- REGRESSION (family no longer delivers output)")
+                "Delivered outcomes UNSUPPORTED_ACTION/NEXT_BEST_ACTION: 1/1 -> 0/1  <-- REGRESSION (family coverage lost)")
                 .doesNotContain("delivery coverage lost");
+    }
+
+    private CaseObservation gateRejectedRecommendation(String id) {
+        CaseObservation delivered = deliveredRecommendation(id);
+        // The provider answered; the gate rejected the output, so nothing was delivered.
+        return new CaseObservation(delivered.evalCase(), "AI_UNAVAILABLE", "INVALID_RECOMMENDATION", null, "NO_DRAFT",
+                null, null, delivered.calls());
+    }
+
+    @Test
+    void gateRejectionsAreNotCoverageGapsAndDoNotWarnOnTheConsole() {
+        EvalReport report = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("ad-01"),
+                gateRejectedRecommendation("ad-02")), "live", null, null, true);
+
+        assertThat(report.summary().undelivered()).singleElement().satisfies(u -> {
+            assertThat(u.caseId()).isEqualTo("ad-02");
+            assertThat(u.cause()).isEqualTo(EvalReport.UndeliveredCase.GATE_REJECTED);
+            assertThat(u.failures()).isEmpty();
+        });
+        assertThat(EvalFamilyCoverage.uncoveredFamilies(report)).isEmpty();
+        assertThat(EvalFamilyCoverage.consoleSummary(report)).isEmpty();
+        assertThat(EvalReportWriter.toMarkdown(report)).contains("Coverage: **COMPLETE**",
+                "| ad-02 | ADVERSARIAL_NOTES | NEXT_BEST_ACTION | GATE_REJECTED | AI_UNAVAILABLE (INVALID_RECOMMENDATION) | - |");
+    }
+
+    @Test
+    void consoleCountsGateRejectionsButOnlyWarnsAboutProviderFailures() {
+        EvalReport report = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("rp-01"),
+                timedOutRecommendation("rp-02"), gateRejectedRecommendation("ad-02"), deliveredRecommendation("ad-01")),
+                "live", null, null, true);
+
+        String console = EvalFamilyCoverage.consoleSummary(report);
+
+        assertThat(console).contains("1 operation(s) without delivered output because the provider failed",
+                "rp-02 NEXT_BEST_ACTION AI_UNAVAILABLE (TIMEOUT) [TIMEOUT]",
+                "1 other operation(s) were rejected by the gate").doesNotContain("ad-02", "INCOMPLETE");
+        assertThat(console.lines()).allMatch(line -> line.startsWith(EvalFamilyCoverage.CONSOLE_PREFIX));
+    }
+
+    @Test
+    void comparatorTreatsAFamilyThatNowReachesTheProviderWithoutDeliveringAsARegression() {
+        EvalReport baseline = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("rp-01")), "live", null,
+                null, true);
+        EvalReport candidate = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("rp-01"),
+                timedOutRecommendation("ua-01")), "live", null, null, true);
+
+        var result = EvalReportComparator.compare(baseline, candidate);
+
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains(
+                "Delivered outcomes UNSUPPORTED_ACTION/NEXT_BEST_ACTION: 0/0 -> 0/1  <-- REGRESSION (family coverage lost)");
+    }
+
+    @Test
+    void aSummaryWithoutFamilyDataRendersCoverageAsUnknownNeverComplete() {
+        EvalReport current = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("rp-01")), "live", null,
+                null, true);
+        EvalReport.Summary s = current.summary();
+        EvalReport withoutFamilies = new EvalReport(current.schemaVersion(), current.datasetVersion(),
+                current.datasetFingerprint(), current.mode(), current.provider(), current.model(),
+                current.contractFingerprint(), current.promptPolicyLabel(), current.generatedAt(),
+                new EvalReport.Summary(s.totalCases(), s.deliveredInvariants(), s.allDeliveredInvariantsPass(),
+                        s.unexpectedFailures(), s.behaviorMatches(), s.behaviorMismatches(), s.rawModelFindings(),
+                        s.operations(), null, null, s.usage()), current.cases());
+
+        assertThat(EvalReportWriter.toMarkdown(withoutFamilies)).contains("coverage UNKNOWN",
+                "Coverage: **UNKNOWN** (report has no per-family data)").doesNotContain("COMPLETE");
     }
 
     @Test

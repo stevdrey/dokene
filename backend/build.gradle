@@ -88,9 +88,22 @@ tasks.register('aiEvalLive', Test) {
     testLogging {
         exceptionFormat = 'full'
     }
+    // Output events are not guaranteed to hold whole lines: buffer stdout and match complete lines only.
     def coverageLogger = logger
+    def pendingStdout = new StringBuilder()
     addTestOutputListener({ descriptor, event ->
-        event.message.readLines().findAll { it.startsWith('[ai-eval] ') }.each { coverageLogger.lifecycle(it) }
+        if (event.destination != TestOutputEvent.Destination.StdOut) {
+            return
+        }
+        pendingStdout.append(event.message)
+        int newline
+        while ((newline = pendingStdout.indexOf('\n')) >= 0) {
+            String line = pendingStdout.substring(0, newline)
+            pendingStdout.delete(0, newline + 1)
+            if (line.startsWith('[ai-eval] ')) {
+                coverageLogger.lifecycle(line)
+            }
+        }
     } as TestOutputListener)
     outputs.upToDateWhen { false }
 }

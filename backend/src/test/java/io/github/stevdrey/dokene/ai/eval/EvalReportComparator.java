@@ -203,8 +203,9 @@ public final class EvalReportComparator {
     }
 
     /**
-     * A family/operation that delivered output in the baseline and none in the candidate went ungraded, even when the
-     * per-operation totals are compensated by other families. Only changed families are listed.
+     * A family/operation that delivered output in the baseline and none in the candidate, or that became uncovered,
+     * went ungraded, even when the per-operation totals are compensated by other families. Only changed families are
+     * listed.
      */
     private static boolean familyCoverageLost(EvalReport baseline, EvalReport candidate, boolean comparable,
             List<String> lines, List<String> warnings) {
@@ -218,17 +219,21 @@ public final class EvalReportComparator {
                 if (current != null && current.equals(previous)) {
                     continue;
                 }
-                boolean dropped = previous.deliveredCases() > 0 && (current == null || current.deliveredCases() == 0);
+                // Lost: the family stopped delivering, or it now reaches the provider without delivering anything
+                // (0/0 -> 0/N) although the baseline was not uncovered.
+                boolean dropped = current == null ? previous.deliveredCases() > 0
+                        : previous.deliveredCases() > 0 && current.deliveredCases() == 0
+                                || current.uncovered() && !previous.uncovered();
                 String label = family.getKey() + "/" + operation.getKey();
                 lines.add("Delivered outcomes " + label + ": " + previous.deliveredCases() + "/"
                         + previous.invokedCases() + " -> " + (current == null ? "MISSING"
                         : current.deliveredCases() + "/" + current.invokedCases())
-                        + (dropped && comparable ? "  <-- REGRESSION (family no longer delivers output)" : ""));
+                        + (dropped && comparable ? "  <-- REGRESSION (family coverage lost)" : ""));
                 if (dropped) {
                     if (comparable) {
                         lost = true;
                     } else {
-                        warnings.add(label + " no longer delivers output (datasets differ)");
+                        warnings.add(label + " lost delivery coverage (datasets differ)");
                     }
                 }
             }

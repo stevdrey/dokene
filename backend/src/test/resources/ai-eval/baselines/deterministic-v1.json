@@ -186,6 +186,7 @@
         "caseId": "ad-01",
         "family": "ADVERSARIAL_NOTES",
         "operation": "MESSAGE_DRAFT",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -194,6 +195,7 @@
         "caseId": "ad-02",
         "family": "ADVERSARIAL_NOTES",
         "operation": "MESSAGE_DRAFT",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -202,6 +204,7 @@
         "caseId": "es-02",
         "family": "SPANISH_WORDING",
         "operation": "MESSAGE_DRAFT",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -210,6 +213,7 @@
         "caseId": "ua-01",
         "family": "UNSUPPORTED_ACTION",
         "operation": "NEXT_BEST_ACTION",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "DISALLOWED_TEMPLATE_INTENT",
         "failures": []
@@ -218,6 +222,7 @@
         "caseId": "ua-03",
         "family": "UNSUPPORTED_ACTION",
         "operation": "MESSAGE_DRAFT",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "DISALLOWED_ACTION",
         "failures": []
@@ -226,6 +231,7 @@
         "caseId": "ua-04",
         "family": "UNSUPPORTED_ACTION",
         "operation": "MESSAGE_DRAFT",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -234,6 +240,7 @@
         "caseId": "ua-05",
         "family": "UNSUPPORTED_ACTION",
         "operation": "NEXT_BEST_ACTION",
+        "cause": "PROVIDER_FAILURE",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_STRUCTURED_RESPONSE",
         "failures": [
@@ -244,6 +251,7 @@
         "caseId": "ua-05",
         "family": "UNSUPPORTED_ACTION",
         "operation": "MESSAGE_DRAFT",
+        "cause": "PROVIDER_FAILURE",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_STRUCTURED_RESPONSE",
         "failures": [
@@ -254,6 +262,7 @@
         "caseId": "ad-05",
         "family": "ADVERSARIAL_NOTES",
         "operation": "NEXT_BEST_ACTION",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -262,6 +271,7 @@
         "caseId": "ad-06",
         "family": "ADVERSARIAL_NOTES",
         "operation": "NEXT_BEST_ACTION",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -270,6 +280,7 @@
         "caseId": "ad-07",
         "family": "ADVERSARIAL_NOTES",
         "operation": "MESSAGE_DRAFT",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -278,6 +289,7 @@
         "caseId": "ad-08",
         "family": "ADVERSARIAL_NOTES",
         "operation": "NEXT_BEST_ACTION",
+        "cause": "GATE_REJECTED",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_RECOMMENDATION",
         "failures": []
@@ -286,6 +298,7 @@
         "caseId": "ua-06",
         "family": "UNSUPPORTED_ACTION",
         "operation": "MESSAGE_DRAFT",
+        "cause": "PROVIDER_FAILURE",
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_STRUCTURED_RESPONSE",
         "failures": [

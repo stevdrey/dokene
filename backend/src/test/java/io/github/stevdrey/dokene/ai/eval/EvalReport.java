@@ -56,11 +56,16 @@ public record EvalReport(
     }
 
     /**
-     * One operation that reached the provider without a delivered outcome, with the distinct failure categories of
-     * its provider attempts (for example {@code TIMEOUT}), so a gap is visible without reading the per-case table.
+     * One operation that reached the provider without a delivered outcome, with its cause and the distinct failure
+     * categories of its provider attempts (for example {@code TIMEOUT}), so a gap is visible without reading the
+     * per-case table.
      */
-    public record UndeliveredCase(String caseId, String family, String operation, String status, String rejection,
-            List<String> failures) {
+    public record UndeliveredCase(String caseId, String family, String operation, String cause, String status,
+            String rejection, List<String> failures) {
+        /** Every provider attempt failed (timeout, throttling, outage, invalid output): a coverage problem. */
+        public static final String PROVIDER_FAILURE = "PROVIDER_FAILURE";
+        /** The provider answered but the gate or service delivered nothing: the controls working. */
+        public static final String GATE_REJECTED = "GATE_REJECTED";
     }
 
     public record Tally(int applicable, int passed, int failed) {

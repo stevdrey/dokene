@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.ai.eval;
 
+import io.github.stevdrey.dokene.ai.application.AiOperation;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -55,8 +56,11 @@ public final class EvalReportWriter {
         row(md, "Cases", String.valueOf(summary.totalCases()));
         md.append("\n## Hard invariants (delivered layer, pass/fail)\n\n");
         List<String> uncovered = EvalFamilyCoverage.uncoveredFamilies(report);
+        String coverageState = !EvalFamilyCoverage.hasFamilyData(report) ? "UNKNOWN"
+                : uncovered.isEmpty() ? "COMPLETE" : "INCOMPLETE";
         md.append("Result: **").append(summary.allDeliveredInvariantsPass() ? "ALL PASS" : "FAILURES PRESENT").append("**")
-                .append(uncovered.isEmpty() ? "" : " (delivered output only; coverage INCOMPLETE, see Delivery coverage)")
+                .append("COMPLETE".equals(coverageState) ? ""
+                        : " (delivered output only; coverage " + coverageState + ", see Delivery coverage)")
                 .append("\n\n");
         md.append("| Invariant | Applicable | Passed | Failed |\n| --- | ---: | ---: | ---: |\n");
         summary.deliveredInvariants().forEach((id, tally) -> md.append("| ").append(id).append(" | ")
@@ -66,7 +70,7 @@ public final class EvalReportWriter {
             md.append("\nPinned platform behavior: ").append(summary.behaviorMatches()).append(" match, ")
                     .append(summary.behaviorMismatches()).append(" mismatch.\n");
         }
-        deliveryCoverage(md, summary, uncovered);
+        deliveryCoverage(md, summary, coverageState, uncovered);
         EvalReport.RawTotals raw = summary.rawModelFindings();
         md.append("\n## Raw model findings (before the gate; informational, never traded against invariants)\n\n");
         md.append("| Finding | Cases |\n| --- | ---: |\n");
@@ -140,9 +144,13 @@ public final class EvalReportWriter {
      * Delivered outcomes per operation and per scenario family. A family/operation that reached the provider without
      * any delivered outcome was not graded at all, which the global per-operation ratio alone can hide.
      */
-    private static void deliveryCoverage(StringBuilder md, EvalReport.Summary summary, List<String> uncovered) {
+    private static void deliveryCoverage(StringBuilder md, EvalReport.Summary summary, String coverageState,
+            List<String> uncovered) {
         md.append("\n## Delivery coverage (delivered / provider-invoked cases)\n\n");
-        md.append("Coverage: **").append(uncovered.isEmpty() ? "COMPLETE" : "INCOMPLETE").append("**");
+        md.append("Coverage: **").append(coverageState).append("**");
+        if (summary.families() == null) {
+            md.append(" (report has no per-family data)");
+        }
         if (!uncovered.isEmpty()) {
             md.append(", families without delivered output (not graded): ").append(String.join(", ", uncovered));
         }
@@ -152,15 +160,16 @@ public final class EvalReportWriter {
         md.append("\n| Family | Recommendation | Draft |\n| --- | ---: | ---: |\n");
         Objects.requireNonNullElse(summary.families(), Map.<String, Map<String, EvalReport.Coverage>>of())
                 .forEach((family, operations) -> md.append("| ").append(family).append(" | ")
-                .append(coverage(operations.get("NEXT_BEST_ACTION"))).append(" | ")
-                .append(coverage(operations.get("MESSAGE_DRAFT"))).append(" |\n"));
+                .append(coverage(operations.get(AiOperation.NEXT_BEST_ACTION.name()))).append(" | ")
+                .append(coverage(operations.get(AiOperation.MESSAGE_DRAFT.name()))).append(" |\n"));
         if (summary.undelivered() != null && !summary.undelivered().isEmpty()) {
             md.append("\nProvider-invoked operations without delivered output:\n\n")
-                    .append("| Case | Family | Operation | Status | Provider failures |\n")
-                    .append("| --- | --- | --- | --- | --- |\n");
+                    .append("| Case | Family | Operation | Cause | Status | Provider failures |\n")
+                    .append("| --- | --- | --- | --- | --- | --- |\n");
             for (EvalReport.UndeliveredCase u : summary.undelivered()) {
                 md.append("| ").append(u.caseId()).append(" | ").append(u.family()).append(" | ")
-                        .append(u.operation()).append(" | ").append(status(u.status(), u.rejection())).append(" | ")
+                        .append(u.operation()).append(" | ").append(u.cause()).append(" | ")
+                        .append(status(u.status(), u.rejection())).append(" | ")
                         .append(u.failures().isEmpty() ? "-" : String.join(", ", u.failures())).append(" |\n");
             }
         }
@@ -226,7 +235,7 @@ public final class EvalReportWriter {
         md.append("| ").append(key).append(" | ").append(value == null || value.isBlank() ? "-" : value).append(" |\n");
     }
 
-    private static String status(String status, String detail) {
+    static String status(String status, String detail) {
         return detail == null ? status : status + " (" + detail + ")";
     }
 
