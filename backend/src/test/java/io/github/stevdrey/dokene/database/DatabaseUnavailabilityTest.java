@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.jdbc.support.SQLStateSQLExceptionTranslator;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -93,6 +95,23 @@ class DatabaseUnavailabilityTest {
         assertThat(output).doesNotContain(SECRET_TEXT);
     }
 
+    @Test
+    void jdbcTemplateTranslationOfALostConnectionIsAnEmptyRetryable503(CapturedOutput output) throws Exception {
+        mvc().perform(get("/socket-timeout"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(content().string(""));
+        assertThat(output).contains("exceptionClass=java.sql.SQLException").doesNotContain(SECRET_TEXT);
+    }
+
+    @Test
+    void aResourceFailureThatIsNotALostConnectionIsAnEmpty500() throws Exception {
+        mvc().perform(get("/disk-full"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(header().doesNotExist("Retry-After"))
+                .andExpect(content().string(""));
+    }
+
     private MockMvc mvc() {
         return MockMvcBuilders.standaloneSetup(new FailingController())
                 .setControllerAdvice(new DatabaseUnavailableExceptionHandler(unavailability)).build();
@@ -105,6 +124,23 @@ class DatabaseUnavailabilityTest {
             throw new CannotCreateTransactionException("Could not open JPA EntityManager for transaction",
                     new JDBCConnectionException("Unable to acquire JDBC Connection",
                             new SQLTransientConnectionException(SECRET_TEXT)));
+        }
+
+        /** What JdbcTemplate throws when the driver socket timeout fires on a statement in flight. */
+        @GetMapping("/socket-timeout")
+        public void socketTimeout() {
+            throw translate(new SQLException(SECRET_TEXT, "08006"));
+        }
+
+        @GetMapping("/disk-full")
+        public void diskFull() {
+            throw translate(new SQLException(SECRET_TEXT, "53100"));
+        }
+
+        private static RuntimeException translate(SQLException failure) {
+            RuntimeException translated = new SQLStateSQLExceptionTranslator().translate("query", "SELECT 1", failure);
+            assertThat(translated).isInstanceOf(DataAccessResourceFailureException.class);
+            return translated;
         }
 
         @GetMapping("/defect")

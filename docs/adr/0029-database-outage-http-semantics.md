@@ -34,7 +34,9 @@ A database outage is an expected operational state, not a bug. A request can fir
 
      It drops every other header. The audit `503` keeps the same set. `Retry-After` is listed in the CORS `Access-Control-Expose-Headers`, because it is not CORS-safelisted and the SPA must be able to read it.
 
-   A `CannotCreateTransactionException` with no connection-level cause is a defect. It stays an empty `500`.
+   The MVC advice handles the types these failures arrive as: the pool timeout, Hibernate's `JDBCConnectionException`, `CannotCreateTransactionException`, and `DataAccessResourceFailureException`, which is what `JdbcTemplate` translates SQLState class `08` into (for example the socket timeout on a statement in flight). Spring matches the declared types on causes too. Plain `SQLException` is not declared, so that wrapped SQL failures still reach their module's mapping.
+
+   A `CannotCreateTransactionException` or `DataAccessResourceFailureException` with no connection-level cause (for example a full disk) is not an outage. It stays an empty `500`.
 4. **Class-only logging.** The outage is logged at `WARN` with the class of the innermost connection-level failure and the MDC correlation id. The exception message and cause are never logged, because pool and driver messages can name hosts, users and statements.
 5. **Unchanged.**
    - An audit write that fails because of the outage is still the audit `503` of ADR 0006, without `Retry-After`.
