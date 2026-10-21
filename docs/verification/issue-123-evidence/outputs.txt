@@ -335,16 +335,16 @@ PASS=2 FAIL=0
 manual: after the lost response -> dialog still open: true; error text: (none)
 PASS  manual: server committed exactly one record although the client saw a failure
 PASS  manual: the UI does not claim success after the lost response
-manual: client requests: [{"url":"customers/2fcae67b-5d60-4ec4-aef8-542fe42b482e/manual-follow-ups","method":"POST","key":"995561db-ba84-476c-bc64-2d46dc844d41","ifMatch":"\"0\""},{"url":"customers/2fcae67b-5d60-4ec4-aef8-542fe42b482e/manual-follow-ups","method":"POST","key":"995561db-ba84-476c-bc64-2d46dc844d41","ifMatch":"\"1\""}]
-PASS  manual: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)  -- keys: 995561db-ba84-476c-bc64-2d46dc844d41 | 995561db-ba84-476c-bc64-2d46dc844d41
+manual: client requests: [{"url":"customers/2fcae67b-5d60-4ec4-aef8-542fe42b482e/manual-follow-ups","method":"POST","idem":"995561db-ba84-476c-bc64-2d46dc844d41","ifMatch":"\"0\""},{"url":"customers/2fcae67b-5d60-4ec4-aef8-542fe42b482e/manual-follow-ups","method":"POST","idem":"995561db-ba84-476c-bc64-2d46dc844d41","ifMatch":"\"1\""}]
+PASS  manual: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)  -- ids: 995561db-ba84-476c-bc64-2d46dc844d41 | 995561db-ba84-476c-bc64-2d46dc844d41
 PASS  manual: still exactly one persisted record after the operator retried  -- rows=1; second request If-Match: "1"
 PASS  manual: exactly one audit event  -- audit=1
 manual: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(
 dismiss: after the lost response -> dialog still open: true; error text: (none)
 PASS  dismiss: server committed exactly one record although the client saw a failure
 PASS  dismiss: the UI does not claim success after the lost response
-dismiss: client requests: [{"url":"customers/a4eb4dca-1ef8-40ca-b3a6-2b9b0639d8d4/follow-up-dismissals","method":"POST","key":"fd791ace-93aa-4828-b9ed-d3d9beb0998b","ifMatch":"\"0\""},{"url":"customers/a4eb4dca-1ef8-40ca-b3a6-2b9b0639d8d4/follow-up-dismissals","method":"POST","key":"fd791ace-93aa-4828-b9ed-d3d9beb0998b","ifMatch":"\"1\""}]
-PASS  dismiss: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)  -- keys: fd791ace-93aa-4828-b9ed-d3d9beb0998b | fd791ace-93aa-4828-b9ed-d3d9beb0998b
+dismiss: client requests: [{"url":"customers/a4eb4dca-1ef8-40ca-b3a6-2b9b0639d8d4/follow-up-dismissals","method":"POST","idem":"fd791ace-93aa-4828-b9ed-d3d9beb0998b","ifMatch":"\"0\""},{"url":"customers/a4eb4dca-1ef8-40ca-b3a6-2b9b0639d8d4/follow-up-dismissals","method":"POST","idem":"fd791ace-93aa-4828-b9ed-d3d9beb0998b","ifMatch":"\"1\""}]
+PASS  dismiss: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)  -- ids: fd791ace-93aa-4828-b9ed-d3d9beb0998b | fd791ace-93aa-4828-b9ed-d3d9beb0998b
 PASS  dismiss: still exactly one persisted record after the operator retried  -- rows=1; second request If-Match: "1"
 PASS  dismiss: exactly one audit event  -- audit=1
 dismiss: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(

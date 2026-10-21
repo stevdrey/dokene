@@ -5,7 +5,7 @@ const QA = '/home/stevdrey/Projects/Java/dokene-qa-run'; const sql = (q) => exec
 const ids = Object.fromEntries(readFileSync('/home/stevdrey/qa123/out/res08ui.ids', 'utf8').trim().split('\n').map((l) => l.split(' ')));
 const log = []; const L = (s) => { console.log(s); log.push(s); }; let pass = 0, fail = 0; const chk = (n, ok, extra = '') => { ok ? pass++ : fail++; L(`${ok ? 'PASS' : 'FAIL'}  ${n}${extra ? '  -- ' + extra : ''}`); };
 const c = await launchChrome(); const b = await new Browser(c.ws).open(); const p = await (await b.newPage()).init();
-const reqs = []; b.listeners.push((d) => { if (d.sessionId === p.sid && d.method === 'Network.requestWillBeSent' && /manual-follow-ups|follow-up-dismissals|follow-up-snooze/.test(d.params.request.url) && d.params.request.method !== 'OPTIONS') reqs.push({ url: d.params.request.url.split('/api/')[1], method: d.params.request.method, key: d.params.request.headers['Idempotency-Key'], ifMatch: d.params.request.headers['If-Match'] }); });
+const reqs = []; b.listeners.push((d) => { if (d.sessionId === p.sid && d.method === 'Network.requestWillBeSent' && /manual-follow-ups|follow-up-dismissals|follow-up-snooze/.test(d.params.request.url) && d.params.request.method !== 'OPTIONS') reqs.push({ url: d.params.request.url.split('/api/')[1], method: d.params.request.method, idem: d.params.request.headers['Idempotency-Key'], ifMatch: d.params.request.headers['If-Match'] }); });
 await p.viewport(1440, 900); await login(p); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000);
 const search = (q) => p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(q)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
 const text = () => p.ev(`document.body.innerText.replace(/\\s+/g,' ')`);
@@ -20,7 +20,7 @@ if (!process.env.SNOOZE_ONLY) for (const [kind, modalBtn, confirmBtn, table, re]
   chk(`${kind}: the UI does not claim success after the lost response`, dlg || /No pudimos|No se pudo|error/i.test(t));
   if (dlg) { await p.clickText(confirmBtn); await sleep(2500); } t = await text();
   const mine = reqs.filter((r) => r.method === 'POST'); L(`${kind}: client requests: ${JSON.stringify(mine)}`);
-  chk(`${kind}: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)`, mine.length < 2 || mine[0].key === mine[1].key, `keys: ${mine.map((r) => r.key).join(' | ')}`);
+  chk(`${kind}: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)`, mine.length < 2 || mine[0].key === mine[1].key, `ids: ${mine.map((r) => r.idem).join(' | ')}`);
   const rows = sql(`select count(*) from dokene.${table} where customer_id='${id}';`); chk(`${kind}: still exactly one persisted record after the operator retried`, rows === '1', `rows=${rows}; second request If-Match: ${mine[1]?.ifMatch}`);
   const aud = sql(`select count(*) from dokene.audit_events where target_id='${id}' and event_type in ('MANUAL_FOLLOW_UP_RECORDED','FOLLOW_UP_DISMISSED');`); chk(`${kind}: exactly one audit event`, aud === '1', `audit=${aud}`);
   L(`${kind}: UI after the retry: ${(await text()).slice(0, 160)}`);
