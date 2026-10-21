@@ -8,5 +8,9 @@ package io.github.stevdrey.dokene.integration.application;
  * verification, stored-identifier tenant resolution or dedup.
  */
 public interface VerifiedWebhookEventHandler {
-    void handle(VerifiedWebhookEvent event);
+    /** Runs inside the caller's transaction, so the inbox row and the message change commit or roll back together. */
+    Handling handle(VerifiedWebhookEvent event);
+
+    /** APPLIED moved the message; IGNORED recorded a non applied event; NOT_FOUND matched no message in the tenant. */
+    enum Handling { APPLIED, IGNORED, NOT_FOUND }
 }

@@ -109,7 +109,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("28");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("29");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -119,7 +119,7 @@ class TenantPersistenceIntegrationTest {
                 "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions", "oidc_identity_mappings",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
                 "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
-                "purchase_history", "purchases",
+                "provider_webhook_events", "purchase_history", "purchases",
                 "tenant_context_signing_keys", "tenant_follow_up_policies", "tenant_memberships",
                 "tenant_messaging_integrations", "tenant_provider_templates", "tenants",
                 "workspace_provisioning_records");
@@ -132,7 +132,7 @@ class TenantPersistenceIntegrationTest {
                 "follow_up_dismissals", "manual_follow_up_completions",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
                 "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
-                "purchase_history", "purchases",
+                "provider_webhook_events", "purchase_history", "purchases",
                 "tenant_follow_up_policies", "tenant_memberships", "tenant_messaging_integrations",
                 "tenant_provider_templates", "tenants");
         assertThat(tableOwner("customer_consent_history")).isEqualTo(MIGRATION_ROLE);

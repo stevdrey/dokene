@@ -1,4 +1,4 @@
-// ABOUTME: Port the webhook verifier reports refusals through; the reason is the only dimension (spec 0007 AC-8).
+// ABOUTME: Port the webhook route reports refusals and dropped events through; the reason is the only dimension.
 // ABOUTME: Implemented by MicrometerWebhookTelemetry and NoOpWebhookTelemetry, chosen by the configuration.
 package io.github.stevdrey.dokene.integration.whatsapp.webhook.verify;
 
@@ -6,4 +6,19 @@ import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookVeri
 
 public interface WebhookTelemetry {
     void rejected(Reason reason);
+
+    /**
+     * An acknowledged event that changed nothing (issue 139, ADR 0030); the route answers 200 either way. A default,
+     * so a refusal-only telemetry stays a lambda; only the Micrometer implementation counts drops.
+     */
+    default void dropped(DropReason reason) {
+        dropped(reason, 1);
+    }
+
+    /** {@code count} drops of one reason at once, so a body with many unsupported items is one increment. */
+    default void dropped(DropReason reason, long count) {
+        // Not counted unless the implementation records it.
+    }
+
+    enum DropReason { UNKNOWN_PHONE_NUMBER, DUPLICATE, UNMATCHED_MESSAGE, UNSUPPORTED_EVENT, PROCESSING_ABANDONED }
 }

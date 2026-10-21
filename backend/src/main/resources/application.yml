@@ -68,6 +68,19 @@ dokene:
       webhook:
         # Largest webhook body read, in bytes (1 to 16777216). Meta documents payloads up to 3 MB.
         max-body-bytes: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES:4194304}
+        # Durable webhook inbox (issue 139, ADR 0030): the sweeper applies PENDING rows and purges old terminal ones.
+        inbox:
+          enabled: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_ENABLED:true}
+          interval: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_INTERVAL:PT30S}
+          # How long a report whose message is not found yet is retried before it is dropped (0 to 1 hour).
+          park-window: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_PARK_WINDOW:PT15M}
+          # A row still failing this long after receipt is abandoned (at least 1 hour and the park window).
+          abandon-after: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_ABANDON_AFTER:P1D}
+          # How long processed rows are kept for deduplication; at least 8 days (beyond Meta's 7 day retries) and abandon-after.
+          retention: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_RETENTION:P30D}
+          batch-size: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_BATCH_SIZE:100}
+          # New rows a request applies before answering (0 to 1000); the sweeper applies the rest.
+          inline-limit: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_INLINE_LIMIT:50}
       # Phone numbers already mapped by another tenant, per sliding window, before mapping changes get 429 (issue 208).
       mapping-rejection-limit:
         tenant-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_TENANT_LIMIT:10}
