@@ -153,6 +153,26 @@ class MetaWebhookPayloadParserTest {
                         refusal -> assertThat(refusal.reason()).isEqualTo(Reason.TOO_MANY_STATUSES));
     }
 
+    /** Untracked statuses count toward the bound too, and so do statuses split across several changes. */
+    @Test
+    void untrackedStatusesAndStatusesAcrossChangesCountTowardTheBound() {
+        String untracked = IntStream.range(0, MetaWebhookPayloadParser.MAX_STATUSES + 1)
+                .mapToObj(i -> "{\"id\":\"wamid." + i + "\",\"status\":\"warning\",\"timestamp\":\"1760000000\"}")
+                .collect(Collectors.joining(","));
+        String half = IntStream.range(0, MetaWebhookPayloadParser.MAX_STATUSES / 2 + 1)
+                .mapToObj(i -> "{\"id\":\"wamid." + i + "\",\"status\":\"sent\",\"timestamp\":\"1760000000\"}")
+                .collect(Collectors.joining(","));
+        String change = "{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":"
+                + "{\"phone_number_id\":\"" + PHONE + "\"},\"statuses\":[" + half + "]}}";
+        String split = envelope("{\"id\":\"1\",\"changes\":[" + change + "," + change + "]}");
+
+        for (String json : List.of(body("", untracked), split)) {
+            assertThatThrownBy(() -> parser.parse(verified(json)))
+                    .isInstanceOfSatisfying(WebhookPayloadException.class,
+                            refusal -> assertThat(refusal.reason()).isEqualTo(Reason.TOO_MANY_STATUSES));
+        }
+    }
+
     private VerifiedWebhookBody verified(String json) {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         return verifier.verify(bytes, List.of(WebhookSigning.sign(bytes,

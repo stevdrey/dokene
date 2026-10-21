@@ -68,8 +68,7 @@ public class MetaWebhookPayloadParser {
         if (!"whatsapp_business_account".equals(text(root, "object"))) {
             throw new WebhookPayloadException(Reason.SCHEMA);
         }
-        List<StatusUpdate> updates = new ArrayList<>();
-        int unsupported = 0;
+        Batch batch = new Batch();
         for (JsonNode entry : array(root, "entry", true)) {
             requireObject(entry);
             allowOnly(entry, ENTRY);
@@ -81,27 +80,26 @@ public class MetaWebhookPayloadParser {
                     throw new WebhookPayloadException(Reason.SCHEMA);
                 }
                 if (!"messages".equals(field)) {
-                    unsupported++;
+                    batch.unsupported++;
                     continue;
                 }
-                unsupported += value(change.get("value"), updates);
+                value(change.get("value"), batch);
             }
         }
-        return new ParsedWebhook(updates, unsupported);
+        return new ParsedWebhook(batch.updates, batch.unsupported);
     }
 
-    /** Adds the value's delivery statuses to {@code updates} and returns how many other items it carried. */
-    private int value(JsonNode value, List<StatusUpdate> updates) {
+    /** Adds the value's delivery statuses to the batch and counts every other item it carried. */
+    private void value(JsonNode value, Batch batch) {
         requireObject(value);
         allowOnly(value, VALUE);
-        int unsupported = 0;
         for (String inbound : List.of("messages", "contacts", "errors")) {
             if (value.has(inbound)) {
-                unsupported += array(value, inbound, false).size();
+                batch.unsupported += array(value, inbound, false).size();
             }
         }
         if (!value.has("statuses")) {
-            return unsupported;
+            return;
         }
         if (!"whatsapp".equals(text(value, "messaging_product"))) {
             throw new WebhookPayloadException(Reason.SCHEMA);
@@ -113,18 +111,20 @@ public class MetaWebhookPayloadParser {
         if (phoneNumberId == null || !PHONE_NUMBER_ID.matcher(phoneNumberId).matches()) {
             throw new WebhookPayloadException(Reason.SCHEMA);
         }
-        for (JsonNode status : array(value, "statuses", false)) {
+        List<JsonNode> statuses = array(value, "statuses", false);
+        // Every status element counts toward the bound, tracked or not, before any of them is parsed.
+        batch.statuses += statuses.size();
+        if (batch.statuses > MAX_STATUSES) {
+            throw new WebhookPayloadException(Reason.TOO_MANY_STATUSES);
+        }
+        for (JsonNode status : statuses) {
             Optional<StatusUpdate> update = status(phoneNumberId, status);
             if (update.isEmpty()) {
-                unsupported++;
+                batch.unsupported++;
                 continue;
             }
-            if (updates.size() == MAX_STATUSES) {
-                throw new WebhookPayloadException(Reason.TOO_MANY_STATUSES);
-            }
-            updates.add(update.get());
+            batch.updates.add(update.get());
         }
-        return unsupported;
     }
 
     private Optional<StatusUpdate> status(String phoneNumberId, JsonNode status) {
@@ -171,6 +171,13 @@ public class MetaWebhookPayloadParser {
             return FailureCategory.UNKNOWN;
         }
         return GraphApiSendErrors.categoryFor(code.intValue());
+    }
+
+    /** Accumulates one body's parse: the tracked updates, the untracked item count and every status seen. */
+    private static final class Batch {
+        private final List<StatusUpdate> updates = new ArrayList<>();
+        private int unsupported;
+        private int statuses;
     }
 
     private static void allowOnly(JsonNode node, Set<String> allowed) {

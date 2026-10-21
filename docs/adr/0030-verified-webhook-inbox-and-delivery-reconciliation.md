@@ -67,7 +67,7 @@ The application must:
 - status values other than the four delivery states.
 
 **Bounds:**
-- More than 1000 statuses in one body is `400`.
+- More than 1000 statuses in one body is `400`. Every status element counts, tracked or not, across all changes, before any is parsed.
 - Provider message ids are 1 to 128 characters with no NUL.
 - Phone number ids match `^[0-9]{5,32}$`.
 - Timestamps are epoch-second strings.
