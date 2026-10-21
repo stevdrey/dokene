@@ -209,7 +209,7 @@ Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The 
 
 **Filter chain.** Both run on their own `SecurityFilterChain`, which is:
 - stateless;
-- without CSRF, session, login or tenant filter;
+- without session, login or tenant filter, with CSRF exempting only the exact callback path;
 - ordered before the BFF chain.
 
 Every other path under `/webhooks/` is `403`. The nginx and Vite proxies forward `/webhooks`; nginx caps the body at 4 MiB.

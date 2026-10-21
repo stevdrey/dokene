@@ -1,4 +1,4 @@
-// ABOUTME: The /webhooks/** filter chain (ADR 0023 §6): stateless, no CSRF, no login, ordered before the session chain.
+// ABOUTME: The /webhooks/** filter chain (ADR 0023 §6): stateless, CSRF-exempt callback only, no login, ordered first.
 // ABOUTME: The HMAC over the raw body is the only trust decision; a session cookie on this route proves nothing.
 package io.github.stevdrey.dokene.integration.whatsapp.webhook;
 
@@ -31,7 +31,9 @@ class WebhookSecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(WhatsAppWebhookController.PATH).permitAll()
                         .anyRequest().denyAll())
-                .csrf(csrf -> csrf.disable())
+                // CSRF stays on for the chain and exempts only the callback, whose HMAC over the raw body is its
+                // credential; it carries no cookie-based authority a forged cross-site request could ride on.
+                .csrf(csrf -> csrf.ignoringRequestMatchers(WhatsAppWebhookController.PATH))
                 .cors(cors -> cors.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .securityContext(context -> context.disable())

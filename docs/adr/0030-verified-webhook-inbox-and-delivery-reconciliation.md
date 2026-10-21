@@ -31,7 +31,7 @@ The application must:
 
 - **`WebhookSecurityConfiguration`** adds a `SecurityFilterChain` for `/webhooks/**`, ordered before the BFF chain. It is:
   - stateless;
-  - CSRF off for that matcher only;
+  - CSRF protection on, exempting only the exact callback path `/webhooks/whatsapp`;
   - with no session context, request cache, login or logout.
 - **Access.** Only `/webhooks/whatsapp` is permitted; any other path under `/webhooks/` is `403`. A session cookie on the route proves nothing (P3-HOOK-11). Every other route keeps the BFF chain with CSRF and the tenant filter.
 - **`WhatsAppWebhookController`** handles, in this fixed order:
