@@ -179,6 +179,7 @@ public final class EvalReportComparator {
         // Fewer delivered outcomes per operation means less output was checked, even when every case-level
         // invariant verdict still applies through the other operation.
         regression |= operationCoverageLost;
+        regression |= familyCoverageLost(baseline, candidate, comparable, lines, warnings);
         lines.add("Wall latency p50/p95 ms (end to end, retries included): " + wall(ub) + " -> " + wall(uc));
         if ((ub.wallLatencyP50Ms() == null) != (uc.wallLatencyP50Ms() == null)) {
             warnings.add("wall latency is recorded in only one of the reports (deterministic runs have none)");
@@ -199,6 +200,40 @@ public final class EvalReportComparator {
         lines.add("Cost USD: " + ub.estimatedCostUsd() + " -> " + uc.estimatedCostUsd());
         lines.add("Human rubric dimensions are compared by reviewers; no aggregate score is computed.");
         return new Comparison(regression, comparable, warnings, lines);
+    }
+
+    /**
+     * A family/operation that delivered output in the baseline and none in the candidate went ungraded, even when the
+     * per-operation totals are compensated by other families. Only changed families are listed.
+     */
+    private static boolean familyCoverageLost(EvalReport baseline, EvalReport candidate, boolean comparable,
+            List<String> lines, List<String> warnings) {
+        Map<String, Map<String, EvalReport.Coverage>> before = Objects.requireNonNullElse(baseline.summary().families(), Map.of());
+        Map<String, Map<String, EvalReport.Coverage>> after = Objects.requireNonNullElse(candidate.summary().families(), Map.of());
+        boolean lost = false;
+        for (var family : before.entrySet()) {
+            for (var operation : family.getValue().entrySet()) {
+                EvalReport.Coverage previous = operation.getValue();
+                EvalReport.Coverage current = after.getOrDefault(family.getKey(), Map.of()).get(operation.getKey());
+                if (current != null && current.equals(previous)) {
+                    continue;
+                }
+                boolean dropped = previous.deliveredCases() > 0 && (current == null || current.deliveredCases() == 0);
+                String label = family.getKey() + "/" + operation.getKey();
+                lines.add("Delivered outcomes " + label + ": " + previous.deliveredCases() + "/"
+                        + previous.invokedCases() + " -> " + (current == null ? "MISSING"
+                        : current.deliveredCases() + "/" + current.invokedCases())
+                        + (dropped && comparable ? "  <-- REGRESSION (family no longer delivers output)" : ""));
+                if (dropped) {
+                    if (comparable) {
+                        lost = true;
+                    } else {
+                        warnings.add(label + " no longer delivers output (datasets differ)");
+                    }
+                }
+            }
+        }
+        return lost;
     }
 
     private static String wall(EvalReport.Usage usage) {

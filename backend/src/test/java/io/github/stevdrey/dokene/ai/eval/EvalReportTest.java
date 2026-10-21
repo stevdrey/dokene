@@ -3,10 +3,12 @@ package io.github.stevdrey.dokene.ai.eval;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
+import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiTokenUsage;
 import io.github.stevdrey.dokene.ai.application.RecommendationContext;
+import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.DraftVariables;
 import io.github.stevdrey.dokene.ai.domain.RecommendationConfidence;
@@ -158,7 +160,7 @@ class EvalReportTest {
         EvalReport candidate = new EvalReport(baseline.schemaVersion(), baseline.datasetVersion(), baseline.datasetFingerprint(), baseline.mode(),
                 baseline.provider(), baseline.model(), baseline.contractFingerprint(), baseline.promptPolicyLabel(),
                 baseline.generatedAt(), new EvalReport.Summary(s.totalCases(), invariants, true, s.unexpectedFailures(), s.behaviorMatches(),
-                s.behaviorMismatches(), s.rawModelFindings(), s.operations(), s.usage()), baseline.cases());
+                s.behaviorMismatches(), s.rawModelFindings(), s.operations(), s.families(), s.undelivered(), s.usage()), baseline.cases());
 
         var result = EvalReportComparator.compare(baseline, candidate);
 
@@ -230,7 +232,7 @@ class EvalReportTest {
         EvalReport legacy = new EvalReport(1, current.datasetVersion(), current.datasetFingerprint(), current.mode(),
                 current.provider(), current.model(), current.contractFingerprint(), current.promptPolicyLabel(),
                 current.generatedAt(), new EvalReport.Summary(s.totalCases(), s.deliveredInvariants(), true,
-                s.unexpectedFailures(), s.behaviorMatches(), s.behaviorMismatches(), s.rawModelFindings(), null, null),
+                s.unexpectedFailures(), s.behaviorMatches(), s.behaviorMismatches(), s.rawModelFindings(), null, null, null, null),
                 current.cases());
 
         for (var result : List.of(EvalReportComparator.compare(legacy, current),
@@ -401,6 +403,93 @@ class EvalReportTest {
 
         assertThat(operations.get("NEXT_BEST_ACTION")).isEqualTo(new EvalReport.Coverage(1, 1));
         assertThat(operations.get("MESSAGE_DRAFT")).isEqualTo(new EvalReport.Coverage(1, 0));
+    }
+
+    private CaseObservation timedOutRecommendation(String id) {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals(id)).findFirst().orElseThrow();
+        var context = call(c.displayName(), null, 1).context();
+        // The resilient service retried once; both attempts hit the provider deadline.
+        List<EvalProviderCall> attempts = List.of(
+                new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION, context, null,
+                        AiFailureCategory.TIMEOUT, null, 15_000_000_000L),
+                new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION, context, null,
+                        AiFailureCategory.TIMEOUT, null, 15_000_000_000L));
+        return new CaseObservation(c, "AI_UNAVAILABLE", "TIMEOUT", null, "NO_DRAFT", null, null, attempts);
+    }
+
+    private CaseObservation deliveredRecommendation(String id) {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals(id)).findFirst().orElseThrow();
+        var rec = new ActionRecommendation(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE, "Cadencia cumplida", RecommendationConfidence.of(0.8),
+                DraftVariables.empty());
+        EvalProviderCall draftShaped = call(c.displayName(), rec, 10);
+        EvalProviderCall recCall = new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION,
+                draftShaped.context(), rec, null, draftShaped.metadata(), 1);
+        return new CaseObservation(c, "AVAILABLE", null, rec, "NO_DRAFT", null, null, List.of(recCall));
+    }
+
+    @Test
+    void aFamilyWithoutDeliveredOutputIsReportedEvenWhenTheGlobalRatioPasses(@TempDir Path dir) throws Exception {
+        CaseObservation contactForbidden = new CaseObservation(
+                dataset.cases().stream().filter(x -> x.id().equals("cr-01")).findFirst().orElseThrow(),
+                "INELIGIBLE", "CONSENT_NOT_GRANTED", null, "INELIGIBLE", "CONSENT_NOT_GRANTED", null, List.of());
+        List<CaseObservation> observations = List.of(deliveredRecommendation("rp-01"),
+                deliveredRecommendation("dc-01"), deliveredRecommendation("es-01"), timedOutRecommendation("ua-01"),
+                timedOutRecommendation("ua-03"), contactForbidden);
+
+        EvalReport report = EvalReportBuilder.build(dataset, observations, "live", null, null, true);
+
+        // 3 of 5 recommendations delivered: the global per-operation ratio (default 0.5) alone would stay green.
+        assertThat(report.summary().operations().get("NEXT_BEST_ACTION")).isEqualTo(new EvalReport.Coverage(5, 3));
+        assertThat(report.summary().families().get("UNSUPPORTED_ACTION").get("NEXT_BEST_ACTION"))
+                .isEqualTo(new EvalReport.Coverage(2, 0));
+        // A family whose cases never reach the provider is not a coverage gap.
+        assertThat(report.summary().families().get("CONSENT_REVOKED").get("NEXT_BEST_ACTION"))
+                .isEqualTo(new EvalReport.Coverage(0, 0));
+        assertThat(report.summary().families().keySet()).hasSize(EvalCase.Family.values().length);
+        assertThat(report.summary().undelivered()).containsExactly(
+                new EvalReport.UndeliveredCase("ua-01", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION", "AI_UNAVAILABLE",
+                        "TIMEOUT", List.of("TIMEOUT")),
+                new EvalReport.UndeliveredCase("ua-03", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION", "AI_UNAVAILABLE",
+                        "TIMEOUT", List.of("TIMEOUT")));
+        assertThat(EvalFamilyCoverage.uncoveredFamilies(report))
+                .containsExactly("UNSUPPORTED_ACTION/NEXT_BEST_ACTION (0 of 2)");
+        assertThat(EvalFamilyCoverage.consoleSummary(report)).contains("coverage INCOMPLETE",
+                "UNSUPPORTED_ACTION/NEXT_BEST_ACTION (0 of 2)", "ua-01 NEXT_BEST_ACTION AI_UNAVAILABLE (TIMEOUT) [TIMEOUT]",
+                "ua-03");
+
+        EvalReportWriter.write(report, dir, "gap");
+        assertThat(Files.readString(dir.resolve("gap.md"))).contains("coverage INCOMPLETE, see Delivery coverage",
+                "## Delivery coverage", "Coverage: **INCOMPLETE**", "| UNSUPPORTED_ACTION | **0/2 NOT COVERED** |",
+                "| NEXT_BEST_ACTION | 3/5 |", "| ua-01 | UNSUPPORTED_ACTION | NEXT_BEST_ACTION | AI_UNAVAILABLE (TIMEOUT) | TIMEOUT |");
+        assertThat(EvalReportWriter.read(dir.resolve("gap.json"))).isEqualTo(report);
+    }
+
+    @Test
+    void completeCoverageHasNoConsoleWarningAndIsMarkedComplete() {
+        EvalReport report = EvalReportBuilder.build(dataset,
+                List.of(deliveredRecommendation("rp-01"), deliveredRecommendation("ua-01")), "live", null, null, true);
+
+        assertThat(EvalFamilyCoverage.uncoveredFamilies(report)).isEmpty();
+        assertThat(EvalFamilyCoverage.consoleSummary(report)).isEmpty();
+        assertThat(EvalReportWriter.toMarkdown(report)).contains("Coverage: **COMPLETE**")
+                .doesNotContain("INCOMPLETE", "NOT COVERED");
+    }
+
+    @Test
+    void comparatorTreatsAFamilyThatStopsDeliveringAsARegressionEvenWhenOperationTotalsHold() {
+        EvalReport baseline = EvalReportBuilder.build(dataset,
+                List.of(deliveredRecommendation("rp-01"), deliveredRecommendation("ua-01")), "live", null, null, true);
+        // Same number of delivered recommendations overall, but the unsupported-action family is no longer graded.
+        EvalReport candidate = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("rp-01"),
+                timedOutRecommendation("ua-01"), deliveredRecommendation("dc-01")), "live", null, null, true);
+
+        var result = EvalReportComparator.compare(baseline, candidate);
+
+        assertThat(result.regression()).isTrue();
+        assertThat(result.render()).contains(
+                "Delivered outcomes UNSUPPORTED_ACTION/NEXT_BEST_ACTION: 1/1 -> 0/1  <-- REGRESSION (family no longer delivers output)")
+                .doesNotContain("delivery coverage lost");
     }
 
     @Test

@@ -46,4 +46,16 @@ class EvalLiveSettingsTest {
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }
+
+    @Test
+    void familyCoverageDefaultsToWarnAndOnlyAcceptsWarnOrFail() {
+        assertThat(EvalLiveSettings.familyCoverageMode(null)).isEqualTo(EvalLiveSettings.FamilyCoverageMode.WARN);
+        assertThat(EvalLiveSettings.familyCoverageMode(" ")).isEqualTo(EvalLiveSettings.FamilyCoverageMode.WARN);
+        assertThat(EvalLiveSettings.familyCoverageMode(" Warn ")).isEqualTo(EvalLiveSettings.FamilyCoverageMode.WARN);
+        assertThat(EvalLiveSettings.familyCoverageMode("FAIL")).isEqualTo(EvalLiveSettings.FamilyCoverageMode.FAIL);
+        for (String bad : new String[] {"error", "true", "0", "warn,fail"}) {
+            assertThatThrownBy(() -> EvalLiveSettings.familyCoverageMode(bad)).as(bad)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }

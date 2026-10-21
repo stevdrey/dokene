@@ -22,7 +22,7 @@ public record EvalReport(
         Summary summary,
         List<CaseReport> cases) {
 
-    public static final int SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION = 4;
 
     /** Report for the pinned evaluation date (see {@link EvalRunner#EVAL_DATE}). */
     public EvalReport(int schemaVersion, String datasetVersion, String datasetFingerprint, String mode,
@@ -42,11 +42,25 @@ public record EvalReport(
             Integer behaviorMismatches,
             RawTotals rawModelFindings,
             Map<String, Coverage> operations,
+            Map<String, Map<String, Coverage>> families,
+            List<UndeliveredCase> undelivered,
             Usage usage) {
     }
 
     /** Per operation: cases that reached the provider and cases with a delivered outcome (action/draft or refusal). */
     public record Coverage(int invokedCases, int deliveredCases) {
+        /** The operation reached the provider for at least one case and none of them delivered an outcome. */
+        public boolean uncovered() {
+            return invokedCases > 0 && deliveredCases == 0;
+        }
+    }
+
+    /**
+     * One operation that reached the provider without a delivered outcome, with the distinct failure categories of
+     * its provider attempts (for example {@code TIMEOUT}), so a gap is visible without reading the per-case table.
+     */
+    public record UndeliveredCase(String caseId, String family, String operation, String status, String rejection,
+            List<String> failures) {
     }
 
     public record Tally(int applicable, int passed, int failed) {

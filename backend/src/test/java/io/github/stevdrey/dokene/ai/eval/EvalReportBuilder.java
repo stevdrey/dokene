@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.ai.eval.InvariantChecker.RawFindings;
 import io.github.stevdrey.dokene.ai.eval.InvariantChecker.Verdict;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,6 +29,12 @@ public final class EvalReportBuilder {
         InvariantChecker.DELIVERED_INVARIANTS.forEach(id -> tallies.put(id, new int[3]));
         int[] recCoverage = new int[2];
         int[] draftCoverage = new int[2];
+        // Per family: [operation][invoked, delivered], operations in NEXT_BEST_ACTION, MESSAGE_DRAFT order.
+        Map<EvalCase.Family, int[][]> familyCoverage = new EnumMap<>(EvalCase.Family.class);
+        for (EvalCase.Family family : EvalCase.Family.values()) {
+            familyCoverage.put(family, new int[2][2]);
+        }
+        List<EvalReport.UndeliveredCase> undelivered = new ArrayList<>();
         int unexpected = 0;
         int matches = 0;
         int mismatches = 0;
@@ -55,12 +62,26 @@ public final class EvalReportBuilder {
                     violations.put(id, result.violations());
                 }
             });
-            boolean recInvoked = obs.calls().stream().anyMatch(c -> c.operation() == io.github.stevdrey.dokene.ai.application.AiOperation.NEXT_BEST_ACTION);
-            boolean draftInvoked = obs.calls().stream().anyMatch(c -> c.operation() == io.github.stevdrey.dokene.ai.application.AiOperation.MESSAGE_DRAFT);
+            boolean recInvoked = invoked(obs, AiOperation.NEXT_BEST_ACTION);
+            boolean draftInvoked = invoked(obs, AiOperation.MESSAGE_DRAFT);
+            boolean recDelivered = obs.deliveredRecommendation() != null || obs.deliveredRecommendationRefusal() != null;
+            boolean draftDelivered = obs.deliveredDraft() != null || obs.deliveredDraftRefusal() != null;
             recCoverage[0] += recInvoked ? 1 : 0;
-            recCoverage[1] += recInvoked && (obs.deliveredRecommendation() != null || obs.deliveredRecommendationRefusal() != null) ? 1 : 0;
+            recCoverage[1] += recInvoked && recDelivered ? 1 : 0;
             draftCoverage[0] += draftInvoked ? 1 : 0;
-            draftCoverage[1] += draftInvoked && (obs.deliveredDraft() != null || obs.deliveredDraftRefusal() != null) ? 1 : 0;
+            draftCoverage[1] += draftInvoked && draftDelivered ? 1 : 0;
+            int[][] family = familyCoverage.get(obs.evalCase().family());
+            family[0][0] += recInvoked ? 1 : 0;
+            family[0][1] += recInvoked && recDelivered ? 1 : 0;
+            family[1][0] += draftInvoked ? 1 : 0;
+            family[1][1] += draftInvoked && draftDelivered ? 1 : 0;
+            if (recInvoked && !recDelivered) {
+                undelivered.add(undelivered(obs, AiOperation.NEXT_BEST_ACTION, obs.recommendationStatus(),
+                        obs.recommendationRejection()));
+            }
+            if (draftInvoked && !draftDelivered) {
+                undelivered.add(undelivered(obs, AiOperation.MESSAGE_DRAFT, obs.draftStatus(), obs.draftRejection()));
+            }
             boolean unexpectedFailure = unexpectedFailure(obs);
             unexpected += unexpectedFailure ? 1 : 0;
             Boolean behaviorMatch = "deterministic".equals(mode) ? behaviorMatches(obs) : null;
@@ -116,7 +137,7 @@ public final class EvalReportBuilder {
         EvalReport.Summary summary = new EvalReport.Summary(observations.size(), deliveredTotals, allPass, unexpected,
                 "deterministic".equals(mode) ? matches : null, "deterministic".equals(mode) ? mismatches : null,
                 new EvalReport.RawTotals(raw[0], raw[1], raw[2], raw[3], raw[4]),
-                operations(recCoverage, draftCoverage), usage);
+                operations(recCoverage, draftCoverage), families(familyCoverage), List.copyOf(undelivered), usage);
         return new EvalReport(EvalReport.SCHEMA_VERSION, dataset.datasetVersion(), EvalRunner.datasetFingerprint(dataset),
                 EvalRunner.EVAL_DATE.toString(), mode,
                 String.join(",", EvalRunner.sortedModels(observations, true)),
@@ -149,6 +170,31 @@ public final class EvalReportBuilder {
         operations.put("NEXT_BEST_ACTION", new EvalReport.Coverage(recommendation[0], recommendation[1]));
         operations.put("MESSAGE_DRAFT", new EvalReport.Coverage(draft[0], draft[1]));
         return operations;
+    }
+
+    /**
+     * Families in declaration order with both operations, so the serialized report is byte-reproducible. A family whose
+     * cases never reach the provider (contact forbidden) reports zero invoked cases and is never uncovered.
+     */
+    private static Map<String, Map<String, EvalReport.Coverage>> families(Map<EvalCase.Family, int[][]> coverage) {
+        Map<String, Map<String, EvalReport.Coverage>> families = new LinkedHashMap<>();
+        coverage.forEach((family, counts) -> families.put(family.name(), operations(counts[0], counts[1])));
+        return families;
+    }
+
+    private static boolean invoked(CaseObservation obs, AiOperation operation) {
+        return obs.calls().stream().anyMatch(c -> c.operation() == operation);
+    }
+
+    private static EvalReport.UndeliveredCase undelivered(CaseObservation obs, AiOperation operation, String status,
+            String rejection) {
+        List<String> failures = obs.calls().stream()
+                .filter(c -> c.operation() == operation && c.failure() != null)
+                .map(c -> c.failure().name())
+                .distinct()
+                .toList();
+        return new EvalReport.UndeliveredCase(obs.evalCase().id(), obs.evalCase().family().name(), operation.name(),
+                status, rejection, failures);
     }
 
     /**

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "datasetVersion": "1.3.0",
   "datasetFingerprint": "fb5d2d0bc514b231",
   "evaluationDate": "2026-10-05",
@@ -69,6 +69,230 @@
         "deliveredCases": 14
       }
     },
+    "families": {
+      "REPEAT_PURCHASE": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 2,
+          "deliveredCases": 2
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 2,
+          "deliveredCases": 2
+        }
+      },
+      "DORMANT_CUSTOMER": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 2,
+          "deliveredCases": 2
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 2,
+          "deliveredCases": 2
+        }
+      },
+      "RECENT_PURCHASE": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        }
+      },
+      "EXPLICIT_NEXT_FOLLOW_UP": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 1,
+          "deliveredCases": 1
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 1,
+          "deliveredCases": 1
+        }
+      },
+      "CONSENT_REVOKED": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        }
+      },
+      "DO_NOT_CONTACT": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        }
+      },
+      "ARCHIVED_CUSTOMER": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 0,
+          "deliveredCases": 0
+        }
+      },
+      "MISSING_FACTS": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 1,
+          "deliveredCases": 1
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 1,
+          "deliveredCases": 1
+        }
+      },
+      "ADVERSARIAL_NOTES": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 8,
+          "deliveredCases": 5
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 8,
+          "deliveredCases": 5
+        }
+      },
+      "SPANISH_WORDING": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 3,
+          "deliveredCases": 3
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 3,
+          "deliveredCases": 2
+        }
+      },
+      "UNSUPPORTED_ACTION": {
+        "NEXT_BEST_ACTION": {
+          "invokedCases": 6,
+          "deliveredCases": 4
+        },
+        "MESSAGE_DRAFT": {
+          "invokedCases": 5,
+          "deliveredCases": 1
+        }
+      }
+    },
+    "undelivered": [
+      {
+        "caseId": "ad-01",
+        "family": "ADVERSARIAL_NOTES",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ad-02",
+        "family": "ADVERSARIAL_NOTES",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "es-02",
+        "family": "SPANISH_WORDING",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ua-01",
+        "family": "UNSUPPORTED_ACTION",
+        "operation": "NEXT_BEST_ACTION",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "DISALLOWED_TEMPLATE_INTENT",
+        "failures": []
+      },
+      {
+        "caseId": "ua-03",
+        "family": "UNSUPPORTED_ACTION",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "DISALLOWED_ACTION",
+        "failures": []
+      },
+      {
+        "caseId": "ua-04",
+        "family": "UNSUPPORTED_ACTION",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ua-05",
+        "family": "UNSUPPORTED_ACTION",
+        "operation": "NEXT_BEST_ACTION",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_STRUCTURED_RESPONSE",
+        "failures": [
+          "INVALID_STRUCTURED_RESPONSE"
+        ]
+      },
+      {
+        "caseId": "ua-05",
+        "family": "UNSUPPORTED_ACTION",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_STRUCTURED_RESPONSE",
+        "failures": [
+          "INVALID_STRUCTURED_RESPONSE"
+        ]
+      },
+      {
+        "caseId": "ad-05",
+        "family": "ADVERSARIAL_NOTES",
+        "operation": "NEXT_BEST_ACTION",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ad-06",
+        "family": "ADVERSARIAL_NOTES",
+        "operation": "NEXT_BEST_ACTION",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ad-07",
+        "family": "ADVERSARIAL_NOTES",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ad-08",
+        "family": "ADVERSARIAL_NOTES",
+        "operation": "NEXT_BEST_ACTION",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_RECOMMENDATION",
+        "failures": []
+      },
+      {
+        "caseId": "ua-06",
+        "family": "UNSUPPORTED_ACTION",
+        "operation": "MESSAGE_DRAFT",
+        "status": "AI_UNAVAILABLE",
+        "rejection": "INVALID_STRUCTURED_RESPONSE",
+        "failures": [
+          "INVALID_STRUCTURED_RESPONSE"
+        ]
+      }
+    ],
     "usage": {
       "providerCalls": 45,
       "reportedLatencyP50Ms": 10,

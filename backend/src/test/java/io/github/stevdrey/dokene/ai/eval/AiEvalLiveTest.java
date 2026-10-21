@@ -33,6 +33,8 @@ import org.springframework.test.context.DynamicPropertySource;
  * sends only invented synthetic data. The application services, Action Gate and database are the production ones.
  *
  * <p>Pass/fail is decided by the delivered-layer hard invariants only. Quality is assessed by humans from the report.
+ * A scenario family that reached the provider without any delivered output is always reported; it fails the run only
+ * with {@code DOKENE_AI_EVAL_FAMILY_COVERAGE=fail} (default {@code warn}).
  */
 @Tag("ai-eval-live")
 @EnabledIfEnvironmentVariable(named = "DOKENE_AI_EVAL_LIVE", matches = "true")
@@ -69,6 +71,8 @@ class AiEvalLiveTest {
         double minSuccessRatio = EvalLiveSettings.minSuccessRatio(env("DOKENE_AI_EVAL_MIN_SUCCESS_RATIO"));
         EvalReportBuilder.Pricing pricing = pricing();
         String reportName = EvalLiveSettings.reportName(env("DOKENE_AI_EVAL_REPORT_NAME"));
+        EvalLiveSettings.FamilyCoverageMode familyCoverage =
+                EvalLiveSettings.familyCoverageMode(env("DOKENE_AI_EVAL_FAMILY_COVERAGE"));
         EvalDataset dataset = EvalDatasetLoader.loadDefault();
         List<CaseObservation> observations = new EvalRunner(followUps, recommendations, drafts, customers, contacts,
                 purchases, tenants, memberships, contexts, auditExecution, provider).run(dataset);
@@ -78,11 +82,23 @@ class AiEvalLiveTest {
         Path json = EvalReportWriter.write(report, Path.of("build", "reports", "ai-eval"), reportName);
 
         assertThat(json).exists();
+        // Missing coverage must never look green: the gap is printed even when the run passes (warn mode).
+        String coverageWarning = EvalFamilyCoverage.consoleSummary(report);
+        if (!coverageWarning.isEmpty()) {
+            System.out.print(coverageWarning + EvalFamilyCoverage.CONSOLE_PREFIX + "See " + json.toAbsolutePath() + " (summary.families, summary.undelivered)"
+                    + " and the 'Delivery coverage' section of the Markdown report.\n");
+        }
         assertThat(report.summary().unexpectedFailures())
                 .as("unexpected runtime exceptions break the experiment: %s", report.cases().stream()
                         .filter(EvalReport.CaseReport::unexpectedFailure).map(EvalReport.CaseReport::id).toList())
                 .isZero();
         assertEnoughSuccessfulOutputs(report, minSuccessRatio);
+        if (familyCoverage == EvalLiveSettings.FamilyCoverageMode.FAIL) {
+            assertThat(EvalFamilyCoverage.uncoveredFamilies(report))
+                    .as("scenario families without any delivered output (DOKENE_AI_EVAL_FAMILY_COVERAGE=fail); "
+                            + "undelivered: %s", EvalFamilyCoverage.undeliveredCases(report))
+                    .isEmpty();
+        }
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.violations())
                 .as("hard invariant violations for case %s", c.id()).isEmpty());
     }

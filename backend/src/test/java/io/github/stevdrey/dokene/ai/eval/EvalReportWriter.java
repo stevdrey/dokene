@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -53,7 +54,10 @@ public final class EvalReportWriter {
         row(md, "Generated at", report.generatedAt());
         row(md, "Cases", String.valueOf(summary.totalCases()));
         md.append("\n## Hard invariants (delivered layer, pass/fail)\n\n");
-        md.append("Result: **").append(summary.allDeliveredInvariantsPass() ? "ALL PASS" : "FAILURES PRESENT").append("**\n\n");
+        List<String> uncovered = EvalFamilyCoverage.uncoveredFamilies(report);
+        md.append("Result: **").append(summary.allDeliveredInvariantsPass() ? "ALL PASS" : "FAILURES PRESENT").append("**")
+                .append(uncovered.isEmpty() ? "" : " (delivered output only; coverage INCOMPLETE, see Delivery coverage)")
+                .append("\n\n");
         md.append("| Invariant | Applicable | Passed | Failed |\n| --- | ---: | ---: | ---: |\n");
         summary.deliveredInvariants().forEach((id, tally) -> md.append("| ").append(id).append(" | ")
                 .append(tally.applicable()).append(" | ").append(tally.passed()).append(" | ")
@@ -62,6 +66,7 @@ public final class EvalReportWriter {
             md.append("\nPinned platform behavior: ").append(summary.behaviorMatches()).append(" match, ")
                     .append(summary.behaviorMismatches()).append(" mismatch.\n");
         }
+        deliveryCoverage(md, summary, uncovered);
         EvalReport.RawTotals raw = summary.rawModelFindings();
         md.append("\n## Raw model findings (before the gate; informational, never traded against invariants)\n\n");
         md.append("| Finding | Cases |\n| --- | ---: |\n");
@@ -129,6 +134,44 @@ public final class EvalReportWriter {
                 .append("`docs/verification/issue-98-ai-evaluation-verification.md`) and recorded in the JSON `rubric` ")
                 .append("blocks. They are never combined with, or allowed to offset, the hard invariants above.\n");
         return md.toString();
+    }
+
+    /**
+     * Delivered outcomes per operation and per scenario family. A family/operation that reached the provider without
+     * any delivered outcome was not graded at all, which the global per-operation ratio alone can hide.
+     */
+    private static void deliveryCoverage(StringBuilder md, EvalReport.Summary summary, List<String> uncovered) {
+        md.append("\n## Delivery coverage (delivered / provider-invoked cases)\n\n");
+        md.append("Coverage: **").append(uncovered.isEmpty() ? "COMPLETE" : "INCOMPLETE").append("**");
+        if (!uncovered.isEmpty()) {
+            md.append(", families without delivered output (not graded): ").append(String.join(", ", uncovered));
+        }
+        md.append("\n\n| Operation | Delivered / invoked |\n| --- | ---: |\n");
+        Objects.requireNonNullElse(summary.operations(), Map.<String, EvalReport.Coverage>of())
+                .forEach((operation, coverage) -> row(md, operation, coverage(coverage)));
+        md.append("\n| Family | Recommendation | Draft |\n| --- | ---: | ---: |\n");
+        Objects.requireNonNullElse(summary.families(), Map.<String, Map<String, EvalReport.Coverage>>of())
+                .forEach((family, operations) -> md.append("| ").append(family).append(" | ")
+                .append(coverage(operations.get("NEXT_BEST_ACTION"))).append(" | ")
+                .append(coverage(operations.get("MESSAGE_DRAFT"))).append(" |\n"));
+        if (summary.undelivered() != null && !summary.undelivered().isEmpty()) {
+            md.append("\nProvider-invoked operations without delivered output:\n\n")
+                    .append("| Case | Family | Operation | Status | Provider failures |\n")
+                    .append("| --- | --- | --- | --- | --- |\n");
+            for (EvalReport.UndeliveredCase u : summary.undelivered()) {
+                md.append("| ").append(u.caseId()).append(" | ").append(u.family()).append(" | ")
+                        .append(u.operation()).append(" | ").append(status(u.status(), u.rejection())).append(" | ")
+                        .append(u.failures().isEmpty() ? "-" : String.join(", ", u.failures())).append(" |\n");
+            }
+        }
+    }
+
+    private static String coverage(EvalReport.Coverage coverage) {
+        if (coverage == null || coverage.invokedCases() == 0) {
+            return "n/a";
+        }
+        String value = coverage.deliveredCases() + "/" + coverage.invokedCases();
+        return coverage.uncovered() ? "**" + value + " NOT COVERED**" : value;
     }
 
     /** Synthetic scenario facts a reviewer needs to judge relevance and grounding. */
