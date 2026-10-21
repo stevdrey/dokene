@@ -1,0 +1,137 @@
+##### ret246.out
+PASS  RES-09  pre: GET /api/customers works
+GET /api/customers during the outage -> http=503 after 3035 ms Retry-After='5' body_len=0
+PASS  RES-09  GET /api/customers: 503
+PASS  RES-09  GET /api/customers: Retry-After present
+PASS  RES-09  GET /api/customers: fails fast (< 8000 ms)
+PASS  RES-09  GET /api/customers: empty/sanitized body
+GET /api/follow-up-queue during the outage -> http=503 after 3024 ms Retry-After='5' body_len=0
+PASS  RES-09  GET /api/follow-up-queue: 503
+PASS  RES-09  GET /api/follow-up-queue: Retry-After present
+PASS  RES-09  GET /api/follow-up-queue: fails fast (< 8000 ms)
+PASS  RES-09  GET /api/follow-up-queue: empty/sanitized body
+GET /api/session during the outage -> http=200 after 23 ms Retry-After='' body_len=185
+FAIL  RES-09  GET /api/session: 503  (expected '503', got '200')
+FAIL  RES-09  GET /api/session: Retry-After present  (expected 'yes', got 'no')
+PASS  RES-09  GET /api/session: fails fast (< 8000 ms)
+PASS  RES-09  GET /api/session: empty/sanitized body
+POST /api/customers during the outage -> http=503 after 3024 ms Retry-After='5' body=''
+PASS  RES-09  POST during the outage: 503 + Retry-After, fast, sanitized
+AI recommendation during the outage -> http=503 after 3022 ms Retry-After='5'
+PASS  RES-09  AI call during the outage: 503/5xx, fast, no leak
+log lines 'Database unavailable at the HTTP boundary': 4
+2026-10-21T17:09:19.538Z  WARN 1 --- [dokene] [nio-8080-exec-7] [3283364d-24db-4e50-93ee-3c336f6a5671] i.g.s.d.database.DatabaseUnavailability  : Database unavailable at the HTTP boundary: exceptionClass=org.postgresql.util.PSQLException
+2026-10-21T17:09:22.580Z  WARN 1 --- [dokene] [nio-8080-exec-9] [e20973c8-aade-4b2f-a162-8b802d6518de] i.g.s.d.database.DatabaseUnavailability  : Database unavailable at the HTTP boundary: exceptionClass=org.postgresql.util.PSQLException
+PASS  RES-09  log has class-only outage line
+recovery: GET /api/customers -> 200 (attempts 1)
+PASS  RES-09  recovered without a backend restart
+FAIL  RES-09  writes work after recovery  (expected '201', got '400')
+backend restarts: Up About a minute (healthy)
+PASS=15 FAIL=3
+
+##### ret246b.out
+valid POST during the outage -> 503 after 3066 ms body=''
+PASS  RES-09  valid write during the outage: 503 within 8 s
+valid POST after recovery -> 201 (attempt 1)
+PASS  RES-09  write works after recovery with the same session
+PASS  RES-09  no row from the failed write
+PASS=3 FAIL=0
+
+##### retest253-warn: console output relevant lines (Gradle)
+[ai-eval] WARNING: AI evaluation coverage INCOMPLETE, families without delivered output (not graded): DORMANT_CUSTOMER/NEXT_BEST_ACTION (0 of 2), DORMANT_CUSTOMER/MESSAGE_DRAFT (0 of 2), EXPLICIT_NEXT_FOLLOW_UP/NEXT_BEST_ACTION (0 of 1), EXPLICIT_NEXT_FOLLOW_UP/MESSAGE_DRAFT (0 of 1), MISSING_FACTS/NEXT_BEST_ACTION (0 of 1), MISSING_FACTS/MESSAGE_DRAFT (0 of 1)
+[ai-eval] WARNING: 15 operation(s) without delivered output because the provider failed:
+[ai-eval]   - rp-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - rp-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - en-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - en-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - mf-03 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - mf-03 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-03 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval] See /home/stevdrey/Projects/Java/dokene-qa-run/backend/build/reports/ai-eval/retest253-warn.json (summary.families, summary.undelivered) and the 'Delivery coverage' section of the Markdown report.
+BUILD SUCCESSFUL in 27s
+exit=0
+
+##### retest253-fail: console output relevant lines (Gradle)
+[ai-eval] WARNING: AI evaluation coverage INCOMPLETE, families without delivered output (not graded): REPEAT_PURCHASE/NEXT_BEST_ACTION (0 of 2), REPEAT_PURCHASE/MESSAGE_DRAFT (0 of 2), DORMANT_CUSTOMER/NEXT_BEST_ACTION (0 of 2), DORMANT_CUSTOMER/MESSAGE_DRAFT (0 of 2), EXPLICIT_NEXT_FOLLOW_UP/NEXT_BEST_ACTION (0 of 1), EXPLICIT_NEXT_FOLLOW_UP/MESSAGE_DRAFT (0 of 1), MISSING_FACTS/NEXT_BEST_ACTION (0 of 1), MISSING_FACTS/MESSAGE_DRAFT (0 of 1)
+[ai-eval] WARNING: 15 operation(s) without delivered output because the provider failed:
+[ai-eval]   - rp-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - rp-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - rp-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - rp-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - dc-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - en-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - en-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - mf-03 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - mf-03 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval]   - ad-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE]
+[ai-eval] See /home/stevdrey/Projects/Java/dokene-qa-run/backend/build/reports/ai-eval/retest253-fail.json (summary.families, summary.undelivered) and the 'Delivery coverage' section of the Markdown report.
+    java.lang.AssertionError: [scenario families without any delivered output (DOKENE_AI_EVAL_FAMILY_COVERAGE=fail); undelivered: [rp-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], rp-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], rp-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], rp-02 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], dc-01 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], dc-01 MESSAGE_DRAFT AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], dc-02 NEXT_BEST_ACTION AI_UNAVAILABLE (UNAVAILABLE) [UNAVAILABLE], dc-02 MES
+    Expecting empty but was: ["REPEAT_PURCHASE/NEXT_BEST_ACTION (0 of 2)",
+BUILD FAILED in 1m 5s
+exit=1
+
+##### retest253-warn.md (Delivery coverage section)
+## Delivery coverage (delivered / provider-invoked cases)
+
+Coverage: **INCOMPLETE**, families without delivered output (not graded): DORMANT_CUSTOMER/NEXT_BEST_ACTION (0 of 2), DORMANT_CUSTOMER/MESSAGE_DRAFT (0 of 2), EXPLICIT_NEXT_FOLLOW_UP/NEXT_BEST_ACTION (0 of 1), EXPLICIT_NEXT_FOLLOW_UP/MESSAGE_DRAFT (0 of 1), MISSING_FACTS/NEXT_BEST_ACTION (0 of 1), MISSING_FACTS/MESSAGE_DRAFT (0 of 1)
+
+| Operation | Delivered / invoked |
+| --- | ---: |
+| NEXT_BEST_ACTION | 15/23 |
+| MESSAGE_DRAFT | 15/22 |
+
+| Family | Recommendation | Draft |
+| --- | ---: | ---: |
+| REPEAT_PURCHASE | 1/2 | 1/2 |
+| DORMANT_CUSTOMER | **0/2 NOT COVERED** | **0/2 NOT COVERED** |
+| RECENT_PURCHASE | n/a | n/a |
+| EXPLICIT_NEXT_FOLLOW_UP | **0/1 NOT COVERED** | **0/1 NOT COVERED** |
+| CONSENT_REVOKED | n/a | n/a |
+| DO_NOT_CONTACT | n/a | n/a |
+| ARCHIVED_CUSTOMER | n/a | n/a |
+| MISSING_FACTS | **0/1 NOT COVERED** | **0/1 NOT COVERED** |
+| ADVERSARIAL_NOTES | 5/8 | 6/8 |
+| SPANISH_WORDING | 3/3 | 3/3 |
+| UNSUPPORTED_ACTION | 6/6 | 5/5 |
+
+Provider-invoked operations without delivered output:
+
+| Case | Family | Operation | Cause | Status | Provider failures |
+| --- | --- | --- | --- | --- | --- |
+| rp-02 | REPEAT_PURCHASE | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| rp-02 | REPEAT_PURCHASE | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| dc-01 | DORMANT_CUSTOMER | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| dc-01 | DORMANT_CUSTOMER | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| dc-02 | DORMANT_CUSTOMER | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| dc-02 | DORMANT_CUSTOMER | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| en-02 | EXPLICIT_NEXT_FOLLOW_UP | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| en-02 | EXPLICIT_NEXT_FOLLOW_UP | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| mf-03 | MISSING_FACTS | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| mf-03 | MISSING_FACTS | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| ad-01 | ADVERSARIAL_NOTES | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| ad-01 | ADVERSARIAL_NOTES | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| ad-02 | ADVERSARIAL_NOTES | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| ad-02 | ADVERSARIAL_NOTES | MESSAGE_DRAFT | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+| ad-03 | ADVERSARIAL_NOTES | NEXT_BEST_ACTION | PROVIDER_FAILURE | AI_UNAVAILABLE (UNAVAILABLE) | UNAVAILABLE |
+
+## Raw model findings (before the gate; informational, never traded against invariants)
+##### deterministic suite: ./gradlew test --tests '*ai.eval*'
+BUILD SUCCESSFUL in 24s
+5 actionable tasks: 1 executed, 4 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.8.1/userguide/configuration_cache_enabling.html
+exit=0
+##### rejected setting (before any provider call): DOKENE_AI_EVAL_MIN_SUCCESS_RATIO=0
+    java.lang.IllegalArgumentException: DOKENE_AI_EVAL_MIN_SUCCESS_RATIO must be finite and in (0, 1]: 0
