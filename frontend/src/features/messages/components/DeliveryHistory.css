@@ -1,0 +1,222 @@
+/* ABOUTME: Layout for the delivery history list and its rows, built only from the tokens in tokens.css.
+   ABOUTME: Rows are full width buttons with wrapping text, so a long body or label never forces a horizontal scroll. */
+
+.delivery-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  padding: var(--space-24);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-outline-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-main);
+  min-width: 0;
+}
+
+.delivery-history :is(h2, h3, p, dl, ol) {
+  margin: 0;
+}
+
+.delivery-history__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.delivery-history__heading {
+  font-size: var(--font-size-section-heading);
+  line-height: var(--line-height-section-heading);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.delivery-history__heading:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Kept in the DOM while empty so screen readers already track it when an outcome arrives. */
+.delivery-history__live {
+  min-height: var(--line-height-dense);
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  color: var(--color-text-supporting);
+}
+
+.delivery-history__rows {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-outline-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.delivery-history__more {
+  display: flex;
+  justify-content: center;
+}
+
+.delivery-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 1px solid var(--color-outline-subtle);
+}
+
+.delivery-row:first-child {
+  border-top: none;
+}
+
+.delivery-row--open {
+  background-color: var(--color-surface-inset);
+}
+
+.delivery-row__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12) var(--space-8) 0;
+}
+
+/* The whole row is the disclosure control; it inherits the body type and wraps like text. */
+.delivery-row__toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-12);
+  min-height: 44px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Neutral on purpose: a brand tinted hover would read as success on a failed or uncertain row. */
+.delivery-row__toggle:hover {
+  background-color: var(--color-surface-inset);
+}
+
+.delivery-row--open .delivery-row__toggle:hover {
+  background-color: var(--color-surface);
+}
+
+.delivery-row__toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.delivery-row__toggle[aria-disabled='true'] {
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
+.delivery-row__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  min-width: 0;
+}
+
+.delivery-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-8);
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  color: var(--color-text-supporting);
+  overflow-wrap: anywhere;
+}
+
+.delivery-row__secondary {
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  color: var(--color-text-supporting);
+  overflow-wrap: anywhere;
+}
+
+.delivery-row--uncertain .delivery-row__secondary,
+.delivery-row--failed .delivery-row__secondary {
+  color: var(--color-error-text);
+}
+
+.delivery-row__tag {
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+  color: var(--color-warning-text);
+}
+
+.delivery-row > .message-review__notice {
+  margin: 0 var(--space-12) var(--space-8);
+}
+
+.delivery-row__panel[hidden] {
+  display: none;
+}
+
+.delivery-row__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  padding: var(--space-8) var(--space-12) var(--space-16);
+  border-top: 1px solid var(--color-outline-subtle);
+  min-width: 0;
+}
+
+.delivery-row__panel > .message-review__muted,
+.delivery-row__panel > .message-review__inline-error {
+  margin: var(--space-8) var(--space-12) var(--space-16);
+}
+
+.delivery-row__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.delivery-row__outcome-label {
+  font-size: var(--font-size-component-heading);
+  line-height: var(--line-height-component-heading);
+  font-weight: 600;
+}
+
+.delivery-row__guidance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-12);
+  border-radius: var(--radius-md);
+  background-color: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  color: var(--color-text-main);
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .delivery-history {
+    padding: var(--space-16);
+  }
+
+  .delivery-row__header {
+    flex-direction: column;
+    align-items: stretch;
+    padding-right: 0;
+  }
+
+  .delivery-row__header > .interactive-target {
+    margin: 0 var(--space-12) var(--space-8);
+  }
+}

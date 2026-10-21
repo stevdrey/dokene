@@ -4,7 +4,7 @@ import messagesJson from '../../../../../backend/src/test/resources/contracts/me
 import problemsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/problems.json?raw';
 import requestsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/requests.json?raw';
 import { vi } from 'vitest';
-import type { MessageEventItem, MessageEventsResponse, MessageResponse } from '../types';
+import type { MessageEventItem, MessageEventsResponse, MessagePageResponse, MessageResponse } from '../types';
 
 const messages = JSON.parse(messagesJson);
 const problems = JSON.parse(problemsJson);
@@ -12,6 +12,7 @@ const problems = JSON.parse(problemsJson);
 export const requests = JSON.parse(requestsJson);
 export const details: Record<string, MessageResponse> = messages.details;
 export const eventsFixtures: Record<string, MessageEventsResponse> = messages.events;
+export const pages: Record<string, MessagePageResponse> = messages.pages;
 
 export interface Reply {
   status: number;
@@ -33,6 +34,8 @@ export interface Captured {
   key: string;
   headers: Record<string, string>;
   body: string | undefined;
+  /** The request's own signal, so a test can prove a read was aborted rather than merely ignored. */
+  signal: AbortSignal | undefined;
 }
 
 export const ok = (body: unknown, etag?: string): Reply => ({ status: 200, body, etag });
@@ -64,6 +67,11 @@ function toResponse(reply: Reply): Response {
   return new Response(reply.body === undefined ? null : JSON.stringify(reply.body), { status: reply.status, headers });
 }
 
+export const historyPath = (customerId: string, cursor: string | null = null) => {
+  const query = new URLSearchParams({ customerId, limit: '20' });
+  if (cursor !== null) query.set('cursor', cursor);
+  return `GET /api/messages?${query.toString()}`;
+};
 export const detailPath = (id: string) => `GET /api/messages/${id}`;
 export const eventsPath = (id: string) => `GET /api/messages/${id}/events`;
 export const approvalsPath = (id: string) => `POST /api/messages/${id}/approvals`;
@@ -102,7 +110,8 @@ export class FakeServer {
       this.calls.push({
         key,
         headers: (init?.headers as Record<string, string>) ?? {},
-        body: init?.body as string | undefined
+        body: init?.body as string | undefined,
+        signal
       });
       const queue = this.routes.get(key);
       if (!queue || queue.length === 0) {
