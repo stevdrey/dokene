@@ -72,6 +72,8 @@ Internal reads require `AUDIT_READ` and tenant RLS. Servlet requests receive a
 server-generated correlation scope; jobs establish correlation explicitly.
 [ADR 0006](../adr/0006-durable-append-only-audit.md) defines metadata privacy, global
 denial isolation, rollback behavior, and the explicit 503 policy for persistence failures.
+[ADR 0029](../adr/0029-database-outage-http-semantics.md) bounds the runtime pool wait and answers a
+database outage with an empty `503` plus `Retry-After`, both in filters and in MVC.
 
 ## Customer memory boundary
 

@@ -7,6 +7,12 @@ spring:
     password: ${DOKENE_DB_PASSWORD}
     hikari:
       connection-init-sql: SET search_path TO dokene
+      # Milliseconds a request waits for a pooled connection before failing with 503 (issue 246). Hikari's 30 s
+      # default left callers hanging through a database outage. Startup refuses less than 500.
+      connection-timeout: ${DOKENE_DB_CONNECTION_TIMEOUT_MS:3000}
+      # Liveness check of an idle pooled connection before it is handed out. Hikari does not keep it below
+      # connection-timeout, so TenantPersistenceConfiguration caps it at half the pool wait (never below 250).
+      validation-timeout: 1000
   jpa:
     open-in-view: false
     hibernate:
@@ -27,6 +33,15 @@ spring:
     clean-disabled: true
 
 dokene:
+  datasource:
+    # Retry-After on the empty 503 answered while the database is unreachable (issue 246, ADR 0029).
+    unavailable-retry-after: ${DOKENE_DB_UNAVAILABLE_RETRY_AFTER:5s}
+    # Ceiling on one blocking read from PostgreSQL (pgJDBC socketTimeout, whole seconds rounded up; off by default in
+    # the driver). Only a silent network reaches it: the driver then reports a lost connection, answered with 503.
+    socket-timeout: ${DOKENE_DB_SOCKET_TIMEOUT:30s}
+    # Server-side statement_timeout of the runtime pool, shorter than socket-timeout, so a statement or lock wait that
+    # is merely long is cancelled as query_canceled (not an outage) and keeps its connection. Startup checks the order.
+    statement-timeout: ${DOKENE_DB_STATEMENT_TIMEOUT:25s}
   ai:
     provider: ${DOKENE_AI_PROVIDER:}
     rate-limit:

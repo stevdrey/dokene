@@ -20,6 +20,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
@@ -30,12 +31,15 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.sql.SQLTransientConnectionException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 
@@ -48,7 +52,8 @@ class TransactionalAuditRecorderOutboundSwitchTest {
     private final AuditExecutionContext execution = new AuditExecutionContext();
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private final TransactionalAuditRecorder recorder = new TransactionalAuditRecorder(store, contexts,
-            mock(ProviderContextProvider.class), signer, execution, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+            mock(ProviderContextProvider.class), signer, execution, Clock.fixed(NOW, ZoneOffset.UTC), transactions,
+            new DatabaseUnavailability(Duration.ofSeconds(5)));
     private final TenantContext member = new TenantContext(TenantId.random(), new IdentityId(UUID.randomUUID()),
             TenantMembershipId.random(), TenantRole.OWNER);
     private final UUID integrationId = UUID.randomUUID();
@@ -133,10 +138,30 @@ class TransactionalAuditRecorderOutboundSwitchTest {
                     () -> recorder.outboundKillSwitchChanged(integrationId, true)))
                     .isInstanceOf(AuditPersistenceException.class)
                     .hasNoCause()
-                    .hasMessage("Audit persistence unavailable");
+                    .hasMessage("Audit persistence unavailable")
+                    .satisfies(failure -> assertThat(((AuditPersistenceException) failure).databaseUnavailable())
+                            .isFalse());
 
             assertThat(logs.text()).contains("Audit persistence failed")
                     .doesNotContain("secret-ref-123").doesNotContain("INSERT INTO");
         }
+    }
+
+    /** covers: issue 246 (ADR 0029 §5) */
+    @Test
+    void aStoreFailureFromALostConnectionIsFlaggedSoTheBoundaryCanAddRetryAfter() {
+        when(contexts.requireCurrent()).thenReturn(member);
+        when(signer.issueAuditContext(any(), any(), any()))
+                .thenReturn(new SignedDatabaseContext("payload", "signature", NOW.plusSeconds(30)));
+        doThrow(new CannotGetJdbcConnectionException("HikariPool-1 - Connection is not available",
+                new SQLTransientConnectionException("jdbc:postgresql://db.internal:5432/dokene")))
+                .when(store).append(any(), any());
+
+        assertThatThrownBy(() -> execution.runWithCorrelation(correlationId,
+                () -> recorder.outboundKillSwitchChanged(integrationId, true)))
+                .isInstanceOf(AuditPersistenceException.class)
+                .hasNoCause()
+                .satisfies(failure -> assertThat(((AuditPersistenceException) failure).databaseUnavailable())
+                        .isTrue());
     }
 }
