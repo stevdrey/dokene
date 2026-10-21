@@ -38,7 +38,7 @@ No new defects in this re-execution. Every defect found in this campaign so far 
 - The AI "unreachable" mode is fault injection and is not live-provider evidence.
 
 ### Live OpenAI usage in this re-execution
-1 recommendation and 1 draft (UI) plus 2 recommendations and 2 drafts for the real-Chrome copy test. Campaign total: 16 provider calls; token counts are not exposed by the app; estimated cost well below US$0.05.
+1 recommendation and 1 draft (UI) plus 2 recommendations and 2 drafts for the real-Chrome copy test. Campaign total: 18 provider calls (10 up to the `a97dc74` run, 2 in the `d04eb0b` verification, 6 in this run); token counts are not exposed by the app; estimated cost well below US$0.05.
 
 ### Scoped verdict
 **No unresolved defects were found in the executed scope on `07e0136`, and no scenario of the suite is left blocked or pending**: the copy-draft success path was verified in a real Chrome and the recurrence scenario was verified with simulated time (stored dates shifted in the database; the app has no clock control). Everything ran on a clean stack with the unmodified `dev-env.sh`. Remaining coverage gaps are explicitly out of scope of this run: the backend Gradle test suite, browsers other than Chrome, real devices and keyboard/screen-reader accessibility (suite #122).
@@ -127,7 +127,7 @@ Not a defect; kept visible for a maintainer decision.
 Second recurrence cycle (REG-06), clipboard copy success (REG-07), browsers other than the in-app Chrome and real devices, keyboard/screen-reader accessibility (suite #122), OPERATOR archive control visibility in the UI.
 
 ### Evidence files
-[sections `rerun-a97dc74/…` of `issue-119-evidence/outputs.txt`](issue-119-evidence/rerun-a97dc74/): `api-checks-output.txt` (77 checks incl. OBS-01 info lines: 75 pass; the 2 automated date-boundary expectations were wrong for the time of day and are covered by `timezone-boundary-recheck.txt`), AI side-effect snapshots and audit counts. All sanitized (synthetic data; no cookies, tokens, passwords or API keys).
+[sections `rerun-a97dc74/…` of `issue-119-evidence/outputs.txt`](issue-119-evidence/outputs.txt): `api-checks-output.txt` (77 checks incl. OBS-01 info lines: 75 pass; the 2 automated date-boundary expectations were wrong for the time of day and are covered by `timezone-boundary-recheck.txt`), AI side-effect snapshots and audit counts. All sanitized (synthetic data; no cookies, tokens, passwords or API keys).
 
 ---
 
@@ -167,7 +167,7 @@ Environment: Fedora (Linux 7.2), Docker 29.8.2, Compose 5.6.0, containers: postg
 Second recurrence cycle (REG-06), clipboard copy success (REG-07), browsers other than the in-app Chrome and real devices, keyboard/screen-reader accessibility (suite #122), OPERATOR archive control visibility in the UI. Observation kept open: an OPERATOR can change the tenant-wide follow-up policy (`FOLLOWUP_WRITE`); not documented as owner-only.
 
 ### Evidence files
-[sections `rerun-90045a1/…` of `issue-119-evidence/outputs.txt`](issue-119-evidence/rerun-90045a1/): `api-checks-output.txt` (76 API checks: 76 pass, with the one harness quoting error re-verified), AI side-effect snapshots and audit counts, and the text of the findings. All sanitized (synthetic data; no cookies, tokens, passwords or API keys).
+[sections `rerun-90045a1/…` of `issue-119-evidence/outputs.txt`](issue-119-evidence/outputs.txt): `api-checks-output.txt` (76 API checks: 76 pass, with the one harness quoting error re-verified), AI side-effect snapshots and audit counts, and the text of the findings. All sanitized (synthetic data; no cookies, tokens, passwords or API keys).
 
 ---
 

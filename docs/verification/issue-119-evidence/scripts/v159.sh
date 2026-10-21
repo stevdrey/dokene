@@ -41,3 +41,4 @@ api testoperator PUT /api/customers/$C4/follow-up-policy '{"cadenceDays":14,"exp
 api testviewer PUT /api/customers/$C4/follow-up-policy '{"cadenceDays":7,"explicitNextDate":null}' -H "If-Match: \"$(pv $C4)\""; chk T159 "VIEWER per-customer policy -> 403" 403 "$CODE"
 api testoperator GET /api/follow-up-queue ''; chk T159 "OPERATOR reads the queue" 200 "$CODE"
 echo; echo "SUMMARY pass=$PASSN fail=$FAILN"
+[ "$FAILN" -eq 0 ]  # non-zero exit status when any check failed

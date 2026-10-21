@@ -43,3 +43,4 @@ api testoperator PUT /api/customers/$CID "{\"displayName\":\"T162 Fixture 2\",\"
 api testoperator POST /api/customers/$CID/purchases '{"purchasedAt":"2026-08-12T14:00:00Z","description":"Cafe 2"}' -H "Idempotency-Key: t162-ok-$RUN"; chk T162 "OPERATOR valid purchase -> 201" 201 "$CODE"
 api testviewer GET /api/customers ''; chk T162 "VIEWER read -> 200" 200 "$CODE"
 echo; echo "SUMMARY pass=$PASSN fail=$FAILN"
+[ "$FAILN" -eq 0 ]  # non-zero exit status when any check failed

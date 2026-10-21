@@ -34,3 +34,4 @@ chk REC "cycle 4 due again (+31 days)" OVERDUE "$(ev .status)"
 comp 4; chk REC "cycle 4: completion after a dismissal re-anchors on the completion" "201 NOT_YET_DUE $(d $TODAY 30) LAST_MANUAL_FOLLOW_UP" "$CODE $(ev '[.status,.nextFollowUpDate,.timingSource]|join(" ")')"
 chk REC "history: 3 completions + 1 dismissal" "3 1" "$(psqlq "select (select count(*) from dokene.manual_follow_up_completions where customer_id='$CID'), (select count(*) from dokene.follow_up_dismissals where customer_id='$CID')" | tr '|' ' ')"
 echo; echo "SUMMARY pass=$PASSN fail=$FAILN"
+[ "$FAILN" -eq 0 ]  # non-zero exit status when any check failed

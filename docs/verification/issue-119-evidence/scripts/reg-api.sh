@@ -59,7 +59,7 @@ last() { getj testoperator $PURCH/last | jq -r .description; }
 chk REG-05 "last purchase = latest valid by date" "Compra septiembre" "$(last)"
 mkp 2026-08-01T15:00:00Z "Compra agosto" p-a; chk REG-05 "idempotent replay returns 200" 200 "$CODE"
 api testoperator POST $PURCH '{"purchasedAt":"2026-08-02T15:00:00Z","description":"X"}' -H "Idempotency-Key: p-a"; chk REG-05 "same key + different body -> 409" 409 "$CODE"
-mkp 2030-01-01T00:00:00Z "futuro" p-d; chk REG-05 "future date rejected" 400 "$CODE"
+mkp "$(date -u -d '+10 years' +%Y-%m-%dT00:00:00Z)" "futuro" p-d; chk REG-05 "future date rejected" 400 "$CODE"
 api testoperator PUT $PURCH/$PB '{"purchasedAt":"2026-07-01T15:00:00Z","description":"Septiembre corregida"}' -H 'If-Match: "0"'; chk REG-05 "correct purchase date" 200 "$CODE"
 chk REG-05 "last purchase after correction" "Compra agosto" "$(last)"
 api testoperator DELETE $PURCH/$PA '' -H 'If-Match: "0"'; chk REG-05 "void latest purchase" 204 "$CODE"
@@ -103,3 +103,4 @@ api testuser GET /api/follow-up-policy ''; TV=$(etag)
 api testoperator PUT /api/follow-up-policy '{"cadenceDays":30,"timeZone":"UTC"}' -H "If-Match: \"$TV\""; chk REG-06 "OPERATOR cannot change the tenant-wide policy (#159)" 403 "$CODE"
 api testviewer PUT /api/follow-up-policy '{"cadenceDays":30,"timeZone":"UTC"}' -H "If-Match: \"$TV\""; chk REG-06 "VIEWER cannot change the tenant-wide policy" 403 "$CODE"
 echo; echo "SUMMARY pass=$PASSN fail=$FAILN"
+[ "$FAILN" -eq 0 ]  # non-zero exit status when any check failed
