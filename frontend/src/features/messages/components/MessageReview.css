@@ -1,0 +1,287 @@
+/* ABOUTME: Layout and type for the message review component, built only from the tokens in tokens.css.
+   ABOUTME: Lives in a bundled file because the CSP forbids inline <style> elements; mirrors the integration panel's look. */
+
+.message-review-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.message-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  padding: var(--space-24);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-outline-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-main);
+  min-width: 0;
+}
+
+/* Spacing comes from the flex gaps, not from browser default margins. */
+.message-review :is(h2, h3, p, dl, ol) {
+  margin: 0;
+}
+
+.message-review__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-12);
+}
+
+.message-review__title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.message-review__heading {
+  font-size: var(--font-size-section-heading);
+  line-height: var(--line-height-section-heading);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.message-review__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.message-review__section-heading {
+  font-size: var(--font-size-component-heading);
+  line-height: var(--line-height-component-heading);
+  font-weight: 600;
+}
+
+.message-review__muted {
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  color: var(--color-text-supporting);
+}
+
+.message-review__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-12) var(--space-24);
+}
+
+.message-review__facts dt {
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.message-review__facts dd {
+  margin: 0;
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  overflow-wrap: anywhere;
+}
+
+/* The body is shown verbatim: line breaks kept, long tokens wrapped, never interpreted. */
+.message-review__body {
+  padding: var(--space-16);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-inset);
+  border: 1px solid var(--color-outline-subtle);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-review__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-16);
+  border: 1px solid var(--color-outline-subtle);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-inset);
+}
+
+.message-review__failure {
+  font-size: var(--font-size-dense);
+  color: var(--color-error-text);
+}
+
+.message-review__placeholder {
+  padding: var(--space-16);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-inset);
+  color: var(--color-text-supporting);
+}
+
+.message-review__notice {
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+}
+
+.message-review__notice--warning {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border: 1px solid var(--color-warning-border);
+}
+
+.message-review__notice--error,
+.message-review__inline-error {
+  background-color: var(--color-error-bg);
+  color: var(--color-error-text);
+  border: 1px solid var(--color-error-border);
+}
+
+.message-review__inline-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-dense);
+}
+
+/* Kept in the DOM while empty so screen readers already track it when an outcome arrives. */
+.message-review__live {
+  margin: 0;
+  font-size: var(--font-size-dense);
+  line-height: var(--line-height-dense);
+  color: var(--color-success-text);
+}
+
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.message-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-16);
+  border-radius: var(--radius-md);
+  background-color: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-text-main);
+}
+
+.message-confirm p {
+  margin: 0;
+}
+
+.message-confirm__recipient {
+  font-weight: 600;
+}
+
+.message-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.message-field__label {
+  font-size: var(--font-size-dense);
+  font-weight: 500;
+}
+
+.message-field__input {
+  min-height: 132px;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  color: var(--color-text-main);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  resize: vertical;
+}
+
+.message-field__input--note {
+  min-height: 72px;
+}
+
+.message-field__input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.message-field__input[aria-invalid='true'] {
+  border-color: var(--color-error-text);
+}
+
+.message-field__counter {
+  align-self: flex-end;
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+  color: var(--color-text-muted);
+}
+
+.message-field__counter--over {
+  color: var(--color-error-text);
+}
+
+.message-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: 0 0 0 var(--space-16);
+  list-style: none;
+  border-left: 1px solid var(--color-outline-subtle);
+}
+
+.message-timeline__row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.message-timeline__row::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--space-16) - 4px);
+  top: var(--space-8);
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary);
+}
+
+.message-timeline__row--failed::before {
+  background-color: var(--color-error-text);
+}
+
+.message-timeline__text {
+  font-size: var(--font-size-secondary);
+  line-height: var(--line-height-secondary);
+}
+
+.message-timeline__time {
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-meta);
+  color: var(--color-text-muted);
+}
+
+.message-timeline__failure {
+  font-size: var(--font-size-meta);
+  color: var(--color-error-text);
+}
+
+@media (max-width: 480px) {
+  .message-review {
+    padding: var(--space-16);
+  }
+}
