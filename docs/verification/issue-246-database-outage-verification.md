@@ -135,5 +135,8 @@ credential or SQL text may appear anywhere. Both pass for that window.
     `FATAL: terminating connection due to administrator command`.
 - `DispatchRecoveryProcessor` logs its scheduled run failing during the outage as
   `errorType=CannotGetJdbcConnectionException`, class only.
-- An audit write that fails because of the outage keeps the ADR 0006 audit `503`, without `Retry-After`. This is out of
-  scope by design (ADR 0029 §5).
+- Audit persistence failures follow ADR 0029 §5:
+  - An audit write that fails because of the database outage answers the empty ADR 0006 audit `503` **with**
+    `Retry-After`. `AuditPersistenceException.databaseUnavailable()` carries that as a boolean, still with no cause or
+    text.
+  - Any other audit persistence failure keeps the empty `503` **without** `Retry-After`.
