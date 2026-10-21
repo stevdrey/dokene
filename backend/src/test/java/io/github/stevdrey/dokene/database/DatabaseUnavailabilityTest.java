@@ -1,10 +1,6 @@
 package io.github.stevdrey.dokene.database;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.sql.SQLException;
 import java.sql.SQLTransientConnectionException;
@@ -19,11 +15,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.support.SQLStateSQLExceptionTranslator;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.CannotCreateTransactionException;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 @ExtendWith(OutputCaptureExtension.class)
 class DatabaseUnavailabilityTest {
@@ -56,6 +48,14 @@ class DatabaseUnavailabilityTest {
     }
 
     @Test
+    void readsJdbcTemplateTranslationsByTheSqlStateTheyWrap() {
+        // What JdbcTemplate throws for a socket timeout in flight, a server shutdown, and a full disk.
+        assertThat(unavailability.isCause(translate("08006"))).isTrue();
+        assertThat(unavailability.isCause(translate("57P01"))).isTrue();
+        assertThat(unavailability.isCause(translate("53100"))).isFalse();
+    }
+
+    @Test
     void leavesOtherFailuresAlone() {
         assertThat(unavailability.isCause(new DataIntegrityViolationException("duplicate"))).isFalse();
         assertThat(unavailability.isCause(new CannotCreateTransactionException("begin failed",
@@ -85,89 +85,18 @@ class DatabaseUnavailabilityTest {
     }
 
     @Test
-    void mvcOutageIsAnEmptyRetryable503AndLogsOnlyTheFailureClass(CapturedOutput output) throws Exception {
-        mvc().perform(get("/outage"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(header().string("Retry-After", "5"))
-                .andExpect(content().string(""));
+    void logsOnlyTheInnermostConnectionFailureClass(CapturedOutput output) {
+        unavailability.log(new CannotCreateTransactionException("Could not open JPA EntityManager for transaction",
+                new JDBCConnectionException("Unable to acquire JDBC Connection",
+                        new SQLTransientConnectionException(SECRET_TEXT))));
         assertThat(output).contains("exceptionClass=java.sql.SQLTransientConnectionException")
                 .doesNotContain(SECRET_TEXT).doesNotContain("db.internal");
     }
 
-    @Test
-    void transactionThatCannotStartForAnotherReasonIsAnEmpty500(CapturedOutput output) throws Exception {
-        mvc().perform(get("/defect"))
-                .andExpect(status().isInternalServerError())
-                .andExpect(header().doesNotExist("Retry-After"))
-                .andExpect(content().string(""));
-        assertThat(output).doesNotContain(SECRET_TEXT);
-    }
-
-    @Test
-    void jdbcTemplateTranslationOfALostConnectionIsAnEmptyRetryable503(CapturedOutput output) throws Exception {
-        mvc().perform(get("/socket-timeout"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(header().string("Retry-After", "5"))
-                .andExpect(content().string(""));
-        assertThat(output).contains("exceptionClass=java.sql.SQLException").doesNotContain(SECRET_TEXT);
-    }
-
-    @Test
-    void aStatementCutOffByAServerShutdownIsAnEmptyRetryable503() throws Exception {
-        mvc().perform(get("/admin-shutdown"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(header().string("Retry-After", "5"))
-                .andExpect(content().string(""));
-    }
-
-    @Test
-    void aResourceFailureThatIsNotALostConnectionIsAnEmpty500() throws Exception {
-        mvc().perform(get("/disk-full"))
-                .andExpect(status().isInternalServerError())
-                .andExpect(header().doesNotExist("Retry-After"))
-                .andExpect(content().string(""));
-    }
-
-    private MockMvc mvc() {
-        return MockMvcBuilders.standaloneSetup(new FailingController())
-                .setControllerAdvice(new DatabaseUnavailableExceptionHandler(unavailability)).build();
-    }
-
-    @RestController
-    static class FailingController {
-        @GetMapping("/outage")
-        public void outage() {
-            throw new CannotCreateTransactionException("Could not open JPA EntityManager for transaction",
-                    new JDBCConnectionException("Unable to acquire JDBC Connection",
-                            new SQLTransientConnectionException(SECRET_TEXT)));
-        }
-
-        /** What JdbcTemplate throws when the driver socket timeout fires on a statement in flight. */
-        @GetMapping("/socket-timeout")
-        public void socketTimeout() {
-            throw translate(new SQLException(SECRET_TEXT, "08006"));
-        }
-
-        /** What JdbcTemplate throws when PostgreSQL stops while a statement is running (admin_shutdown). */
-        @GetMapping("/admin-shutdown")
-        public void adminShutdown() {
-            throw translate(new SQLException(SECRET_TEXT, "57P01"));
-        }
-
-        @GetMapping("/disk-full")
-        public void diskFull() {
-            throw translate(new SQLException(SECRET_TEXT, "53100"));
-        }
-
-        private static RuntimeException translate(SQLException failure) {
-            RuntimeException translated = new SQLStateSQLExceptionTranslator().translate("query", "SELECT 1", failure);
-            assertThat(translated).isInstanceOf(DataAccessResourceFailureException.class);
-            return translated;
-        }
-
-        @GetMapping("/defect")
-        public void defect() {
-            throw new CannotCreateTransactionException(SECRET_TEXT, new IllegalStateException(SECRET_TEXT));
-        }
+    private static RuntimeException translate(String sqlState) {
+        RuntimeException translated = new SQLStateSQLExceptionTranslator()
+                .translate("query", "SELECT 1", new SQLException(SECRET_TEXT, sqlState));
+        assertThat(translated).isInstanceOf(DataAccessResourceFailureException.class);
+        return translated;
     }
 }

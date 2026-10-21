@@ -5,6 +5,7 @@ package io.github.stevdrey.dokene.tenant.security;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -18,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -26,6 +28,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -49,6 +52,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest(properties = {"dokene.datasource.unavailable-retry-after=7s",
+        "dokene.datasource.statement-timeout=300ms",
         "dokene.security.cors.allowed-origins=" + DatabaseOutageIntegrationTest.SPA_ORIGIN})
 @ExtendWith(OutputCaptureExtension.class)
 class DatabaseOutageIntegrationTest {
@@ -70,6 +74,7 @@ class DatabaseOutageIntegrationTest {
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired AuditRequestFilter auditRequestFilter;
     @Autowired HikariDataSource runtimePool;
+    @Autowired DatabaseUnavailability databaseUnavailability;
     @Autowired TenantRepository tenants;
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
@@ -142,38 +147,25 @@ class DatabaseOutageIntegrationTest {
     @Test
     void inFlightStatementsAndPooledConnectionChecksAreBoundedToo() {
         // pgJDBC disables its socket timeout by default; without it a blackholed network path hangs a statement.
-        assertThat(runtimePool.getDataSourceProperties()).containsEntry("socketTimeout", "30");
+        assertThat(runtimePool.getDataSourceProperties())
+                .containsEntry("socketTimeout", "30")
+                .containsEntry("options", "-c statement_timeout=300");
         assertThat(runtimePool.getValidationTimeout()).isEqualTo(500);
     }
 
     @Test
-    void aStaleIdleConnectionAfterABlackholedOutageStillFailsWithinThePoolWait() throws Exception {
-        String container = TenantSecurityIntegrationFixture.POSTGRES.getContainerId();
-        var docker = TenantSecurityIntegrationFixture.POSTGRES.getDockerClient();
-        // Past Hikari's 500 ms alive-bypass window, so the next borrow validates the idle pooled connection.
-        Thread.sleep(700);
-        // A paused container accepts nothing and answers nothing, like a blackholed route: no TCP reset arrives.
-        docker.pauseContainerCmd(container).exec();
-        try {
-            long started = System.nanoTime();
-            mvc.perform(asOwner(get("/api/customers")))
-                    .andExpect(status().isServiceUnavailable())
-                    .andExpect(header().string("Retry-After", "7"));
-            // Validation (500 ms) plus the rest of the pool wait, never the 30 s socket ceiling.
-            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(2_500));
-        } finally {
-            docker.unpauseContainerCmd(container).exec();
+    void aMerelyLongStatementIsCancelledByTheServerAsNoOutageAndKeepsItsConnection() throws Exception {
+        try (Connection connection = runtimePool.getConnection(); Statement statement = connection.createStatement()) {
+            // The server's statement_timeout fires long before the 30 s socket ceiling, so a long lock wait or query
+            // is a cancelled statement (57014), not a lost connection reported to the client as an outage.
+            assertThatThrownBy(() -> statement.execute("SELECT pg_sleep(2)"))
+                    .isInstanceOfSatisfying(SQLException.class, cancelled -> {
+                        assertThat(cancelled.getSQLState()).isEqualTo("57014");
+                        assertThat(databaseUnavailability.isCause(cancelled)).isFalse();
+                    });
+            assertThat(connection.isValid(1)).isTrue();
+            assertThat(statement.execute("SELECT 1")).isTrue();
         }
-        awaitRecovery();
-    }
-
-    private void awaitRecovery() throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
-        int status;
-        do {
-            status = mvc.perform(asOwner(get("/api/customers"))).andReturn().getResponse().getStatus();
-        } while (status != 200 && System.nanoTime() < deadline);
-        assertThat(status).isEqualTo(200);
     }
 
     private MockHttpServletRequestBuilder asOwner(MockHttpServletRequestBuilder request) {

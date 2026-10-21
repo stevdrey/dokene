@@ -29,12 +29,16 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 - `DOKENE_TENANT_CONTEXT_SIGNING_KEY`, a 64-character hexadecimal encoding of 32 random bytes. Generate it with `openssl rand -hex 32`; keep the value out of source control.
 - `DOKENE_TENANT_CONTEXT_KEY_ID`, an identifier for the active signing key (defaults to `default`).
 
-While the database is unreachable, requests wait at most `DOKENE_DB_CONNECTION_TIMEOUT_MS` (default `3000`; keep it
-at `500` or more so the stale-connection check, capped at half of it, fits) for a pooled connection. They then answer an empty `503` with `Retry-After`
-(`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`) instead of a generic `500` (ADR 0029). The same session works
-again as soon as the database is back, without restarting the backend. A statement already in flight when the
-network path to the database is lost is bounded by the driver socket timeout `DOKENE_DB_SOCKET_TIMEOUT_SECONDS`
-(default `30`), which must stay above the longest legitimate statement, including lock waits.
+While the database is unreachable, requests wait at most `DOKENE_DB_CONNECTION_TIMEOUT_MS` (default `3000`) for a
+pooled connection. Startup refuses less than `500`, because the stale-connection check is capped at half the wait.
+Requests then answer an empty `503` with `Retry-After` (`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`) instead
+of a generic `500` (ADR 0029). The same session works again as soon as the database is back, without restarting the
+backend.
+
+A statement already in flight when the network path to the database goes silent is bounded by the driver socket
+timeout `DOKENE_DB_SOCKET_TIMEOUT` (default `30s`), which is then also answered with `503`. The runtime pool's
+server-side `statement_timeout` (`DOKENE_DB_STATEMENT_TIMEOUT`, default `25s`) must be shorter, and startup checks
+that, so a statement or lock wait that is merely long is cancelled by PostgreSQL and is not reported as an outage.
 
 ## Backend for Frontend (BFF) OIDC authentication
 

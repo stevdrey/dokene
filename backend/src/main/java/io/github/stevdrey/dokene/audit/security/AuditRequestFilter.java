@@ -8,9 +8,13 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
@@ -54,11 +58,17 @@ public class AuditRequestFilter extends OncePerRequestFilter {
                 return null;
             });
         } catch (Exception exception) {
-            if (isAuditFailure(exception) && !response.isCommitted()) {
+            Optional<AuditPersistenceException> auditFailure = auditFailure(exception);
+            if (auditFailure.isPresent() && !response.isCommitted()) {
                 resetKeepingResponsePolicyHeaders(response, correlation);
-                response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+                if (auditFailure.get().databaseUnavailable()) {
+                    databaseUnavailability.apply(response);
+                } else {
+                    response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+                }
             } else if (databaseUnavailability.isCause(exception) && !response.isCommitted()) {
-                // Filters such as tenant resolution reach the database before MVC, so no controller advice sees this.
+                // The one outage boundary (ADR 0029): filters such as tenant resolution reach the database before MVC,
+                // and MVC failures no advice resolves leave the DispatcherServlet before the response is committed.
                 databaseUnavailability.log(exception);
                 resetKeepingResponsePolicyHeaders(response, correlation);
                 databaseUnavailability.apply(response);
@@ -99,12 +109,14 @@ public class AuditRequestFilter extends OncePerRequestFilter {
                 || POLICY_HEADERS.stream().anyMatch(name::equalsIgnoreCase);
     }
 
-    private boolean isAuditFailure(Throwable failure) {
-        for (Throwable current = failure; current != null; current = current.getCause()) {
-            if (current instanceof AuditPersistenceException) {
-                return true;
+    private Optional<AuditPersistenceException> auditFailure(Throwable failure) {
+        // Identity set: a cause chain can be cyclic, and this runs on every failure that reaches the filter.
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable current = failure; current != null && seen.add(current); current = current.getCause()) {
+            if (current instanceof AuditPersistenceException audit) {
+                return Optional.of(audit);
             }
         }
-        return false;
+        return Optional.empty();
     }
 }

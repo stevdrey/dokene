@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
@@ -42,11 +43,13 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private final Clock clock;
     private final TransactionTemplate independent;
     private final TransactionTemplate mandatory;
+    private final DatabaseUnavailability databaseUnavailability;
 
     TransactionalAuditRecorder(JdbcAuditStore store, TenantContextProvider contexts,
             ProviderContextProvider providerContexts, DatabaseContextSigner signer, AuditExecutionContext execution,
-            Clock clock, PlatformTransactionManager transactions) {
+            Clock clock, PlatformTransactionManager transactions, DatabaseUnavailability databaseUnavailability) {
         this.store = store;
+        this.databaseUnavailability = databaseUnavailability;
         this.contexts = contexts;
         this.providerContexts = providerContexts;
         this.signer = signer;
@@ -200,7 +203,7 @@ class TransactionalAuditRecorder implements AuditRecorder {
             mandatory.executeWithoutResult(status -> store.append(event, capability));
         } catch (RuntimeException exception) {
             log.error("Audit persistence failed; correlationId={}", event.correlationId());
-            throw new AuditPersistenceException();
+            throw new AuditPersistenceException(databaseUnavailability.isCause(exception));
         }
     }
 
@@ -220,7 +223,7 @@ class TransactionalAuditRecorder implements AuditRecorder {
         } catch (RuntimeException exception) {
             // SQL/driver exceptions can include row values and statements. Never log their messages or causes.
             log.error("Audit persistence failed; correlationId={}", event.correlationId());
-            throw new AuditPersistenceException();
+            throw new AuditPersistenceException(databaseUnavailability.isCause(exception));
         }
     }
 }

@@ -1,5 +1,5 @@
 // ABOUTME: Recognises a database outage (no connection could be obtained or kept) anywhere in a failure's cause chain
-// ABOUTME: and shapes the one HTTP answer for it: an empty 503 with Retry-After (issue 246, ADR 0029).
+// ABOUTME: and shapes the one HTTP answer AuditRequestFilter gives it: an empty 503 with Retry-After (ADR 0029).
 package io.github.stevdrey.dokene.database;
 
 import io.github.stevdrey.dokene.ratelimit.RetryAfter;
