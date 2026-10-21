@@ -229,7 +229,9 @@ class TenantIsolationSecurityIntegrationTest {
                 "outbound_message_cancellations", Set.of("SELECT", "INSERT"),
                 "outbound_send_attempts", Set.of("SELECT", "INSERT", "UPDATE"),
                 "outbound_message_events", Set.of("SELECT", "INSERT"),
-                "outbound_message_idempotency_keys", Set.of("SELECT", "INSERT"));
+                "outbound_message_idempotency_keys", Set.of("SELECT", "INSERT"),
+                // Issue 139: the webhook inbox; rows leave only through the retention purge function.
+                "provider_webhook_events", Set.of("SELECT", "INSERT", "UPDATE"));
         for (var entry : expectedGrants.entrySet()) {
             String table = entry.getKey();
             Map<String, Object> rls = jdbc.queryForMap("""

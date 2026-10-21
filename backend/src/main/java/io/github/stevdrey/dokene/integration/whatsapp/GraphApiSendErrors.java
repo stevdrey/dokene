@@ -1,5 +1,5 @@
 // ABOUTME: Maps a non-2xx Graph API answer to a send result from its status and Meta error code only (ADR 0027).
-// ABOUTME: A 4xx is a definitive refusal; every 5xx is uncertain, whatever Meta code it carries.
+// ABOUTME: A 4xx is a definitive refusal; every 5xx is uncertain. The code table also classifies webhook failures.
 package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
@@ -11,7 +11,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 
-final class GraphApiSendErrors {
+public final class GraphApiSendErrors {
     /** Meta throttling codes: the request was refused before sending, so another attempt later is safe. */
     private static final Set<Integer> RATE_LIMITED = Set.of(4, 80007, 130429, 131048, 131056);
     /** Meta "service unavailable" codes; in a 4xx the refusal is definitive, so retrying is safe. */
@@ -44,25 +44,42 @@ final class GraphApiSendErrors {
                 default -> new RejectedPermanently(FailureCategory.UNKNOWN);
             };
         }
-        int value = code.getAsInt();
-        if (RATE_LIMITED.contains(value) || status == 429) {
+        FailureCategory category = categoryFor(code.getAsInt());
+        if (category == FailureCategory.RATE_LIMITED || status == 429) {
             return new FailedTransiently(FailureCategory.RATE_LIMITED);
         }
-        if (UNAVAILABLE.contains(value)) {
+        if (category == FailureCategory.PROVIDER_UNAVAILABLE) {
             return new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE);
         }
-        if (AUTHENTICATION.contains(value) || (value >= 200 && value <= 299) || status == 401) {
+        if (status == 401) {
             return new RejectedPermanently(FailureCategory.AUTHENTICATION);
         }
-        if (INVALID_RECIPIENT.contains(value)) {
-            return new RejectedPermanently(FailureCategory.INVALID_RECIPIENT);
+        return new RejectedPermanently(category);
+    }
+
+    /**
+     * The failure category of a Meta error code alone, shared by the send adapter and the webhook parser so a code
+     * means the same thing whether Meta refused the send or reported the failure later in a status callback.
+     */
+    public static FailureCategory categoryFor(int code) {
+        if (RATE_LIMITED.contains(code)) {
+            return FailureCategory.RATE_LIMITED;
         }
-        if (POLICY_VIOLATION.contains(value)) {
-            return new RejectedPermanently(FailureCategory.POLICY_VIOLATION);
+        if (UNAVAILABLE.contains(code)) {
+            return FailureCategory.PROVIDER_UNAVAILABLE;
         }
-        if (TEMPLATE_REJECTED.contains(value) || (value >= 132000 && value <= 132999)) {
-            return new RejectedPermanently(FailureCategory.TEMPLATE_REJECTED);
+        if (AUTHENTICATION.contains(code) || (code >= 200 && code <= 299)) {
+            return FailureCategory.AUTHENTICATION;
         }
-        return new RejectedPermanently(FailureCategory.UNKNOWN);
+        if (INVALID_RECIPIENT.contains(code)) {
+            return FailureCategory.INVALID_RECIPIENT;
+        }
+        if (POLICY_VIOLATION.contains(code)) {
+            return FailureCategory.POLICY_VIOLATION;
+        }
+        if (TEMPLATE_REJECTED.contains(code) || (code >= 132000 && code <= 132999)) {
+            return FailureCategory.TEMPLATE_REJECTED;
+        }
+        return FailureCategory.UNKNOWN;
     }
 }

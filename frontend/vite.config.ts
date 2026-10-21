@@ -34,6 +34,11 @@ export default defineConfig({
       '/logout': {
         target: 'http://localhost:8080',
         changeOrigin: true
+      },
+      // Meta WhatsApp callbacks (issue 139); the backend verifies the HMAC over the raw body.
+      '/webhooks': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   },

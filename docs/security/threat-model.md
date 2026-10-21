@@ -15,7 +15,7 @@
 - Cross-tenant data access / IDOR
 - Privilege escalation
 - Credential leakage
-- Forged or replayed webhooks. Verification happens on the raw request bytes before any parsing (spec 0007): the `X-Hub-Signature-256` HMAC is checked against the deployment app secret resolved per call, the handshake token is resolved per call, every refusal is one closed reason with no request data, and the route maps every reason to one status.
+- Forged or replayed webhooks. Verification happens on the raw request bytes before any parsing (spec 0007): the `X-Hub-Signature-256` HMAC is checked against the deployment app secret resolved per call, the handshake token is resolved per call, every refusal is one closed reason with no request data, and the route maps every reason to one status. Replays are absorbed by the inbox (issue 139, ADR 0030): statuses are deduplicated on a hash of provider message id and state, a supplied tenant or any other member outside the Meta schema refuses the body, and an out of order or late report is recorded without moving the message backwards.
 - Prompt injection through imported or user-controlled content
 - Unauthorized or duplicate outbound messages
 - Abuse of the platform for spam
@@ -26,7 +26,7 @@
 - Preemptive phone-number-id registration through the WhatsApp integration API: any `INTEGRATION_MANAGE` user can map any well-formed Meta id. Mitigated (issue 210, ADR 0024 addendum):
   - Uniqueness binds only verified mappings, so an unverified claim never blocks the real owner.
   - Ownership is proven by the provider adapter with the tenant's own credential: the stored business account must list the number at Meta. The proof is cleared whenever the number, business account or credential revision changes or the integration is disabled, and a database trigger rejects any write that would keep it.
-  - Webhook routing (#139) may resolve a tenant only through `VerifiedPhoneNumberMappings`, which returns a verified, enabled mapping's tenant id and nothing else.
+  - Webhook routing (#139) resolves a tenant only through `VerifiedPhoneNumberMappings`, which returns a verified, enabled mapping's tenant id and nothing else. A signed event for a number that only an unverified mapping claims is acknowledged, counted as dropped and never processed in that tenant's context (ADR 0030).
   - The send gate treats a mapping without a current proof as `INTEGRATION_DISABLED`.
 
   Residual risks:
