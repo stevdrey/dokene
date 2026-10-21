@@ -15,7 +15,7 @@
 - Cross-tenant data access / IDOR
 - Privilege escalation
 - Credential leakage
-- Forged or replayed webhooks. Verification happens on the raw request bytes before any parsing (spec 0007): the `X-Hub-Signature-256` HMAC is checked against the deployment app secret resolved per call, the handshake token is resolved per call, every refusal is one closed reason with no request data, and the route maps every reason to one status. Replays are absorbed by the inbox (issue 139, ADR 0030): statuses are deduplicated on a hash of provider message id and state, a supplied tenant or any other member outside the Meta schema refuses the body, and an out of order or late report is recorded without moving the message backwards.
+- Forged or replayed webhooks. Verification happens on the raw request bytes before any parsing (spec 0007): the `X-Hub-Signature-256` HMAC is checked against the deployment app secret resolved per call, the handshake token is resolved per call, every refusal is one closed reason with no request data, and the route maps every reason to one status. Replays are absorbed by the inbox (issue 139, ADR 0030): statuses are deduplicated on a hash of tenant, provider message id and state, a supplied tenant or any other member outside the Meta schema refuses the body, and an out of order or late report is recorded without moving the message backwards.
 - Prompt injection through imported or user-controlled content
 - Unauthorized or duplicate outbound messages
 - Abuse of the platform for spam

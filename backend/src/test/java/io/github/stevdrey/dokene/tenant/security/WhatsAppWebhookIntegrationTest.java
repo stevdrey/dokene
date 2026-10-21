@@ -88,7 +88,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
-@SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.integration.whatsapp.webhook.inbox.enabled=false"})
+@SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.integration.whatsapp.webhook.inbox.enabled=false",
+        "dokene.integration.whatsapp.webhook.inbox.inline-limit=2"})
 @Import(MappedGeneralFollowUpGateConfiguration.class)
 class WhatsAppWebhookIntegrationTest {
     /** The synthetic key of contracts/whatsapp/graph-webhook-events.json; never a real Meta app secret. */
@@ -213,6 +214,12 @@ class WhatsAppWebhookIntegrationTest {
         assertThat(message(b, messageB).status()).isEqualTo(MessageStatus.SENT);
         assertThat(message(b, messageB).version()).isEqualTo(5);
         assertThat(dropped("UNMATCHED_MESSAGE")).isEqualTo(unmatchedBefore + 1);
+
+        // The dedup key is per tenant, so the row left in A never blocks B's own report of the same id and state.
+        postSigned(statuses(b.phoneNumberId, report(wamid(b, messageB), "delivered", 0, null)))
+                .andExpect(status().isOk());
+        assertThat(inboxStates(b)).containsExactly("APPLIED");
+        assertThat(message(b, messageB).status()).isEqualTo(MessageStatus.DELIVERED);
     }
 
     /**
@@ -312,6 +319,11 @@ class WhatsAppWebhookIntegrationTest {
                 report(wamid(a, second), "delivered", 10, null),
                 report(wamid(a, second), "warning", 11, null)))
                 .andExpect(status().isOk());
+        // The inline limit is 2 in this class: the third tracked status waits for the sweeper.
+        assertThat(inboxStates(a)).containsExactlyInAnyOrder("APPLIED", "IGNORED", "PENDING");
+        makeDue(a);
+        inbox.sweep();
+        assertThat(message(a, second).status()).isEqualTo(MessageStatus.DELIVERED);
         postSigned(statuses(a.phoneNumberId, report(wamid(a, second), "failed", 30, 131026)))
                 .andExpect(status().isOk());
 
@@ -366,6 +378,36 @@ class WhatsAppWebhookIntegrationTest {
         assertThat(inboxStates(a)).containsExactly("APPLIED");
         assertThat(message(a, messageId).status()).isEqualTo(MessageStatus.DELIVERED);
         assertThat(deliveryAudits(messageId)).isEqualTo(1);
+    }
+
+    /** A row that keeps failing past the abandon window stops retrying: ABANDONED, with its provider id cleared. */
+    @Test
+    void aRowThatKeepsFailingIsAbandonedAfterTheAbandonWindow() throws Exception {
+        UUID messageId = sent(a, "wamid.A-" + UUID.randomUUID());
+        double abandonedBefore = dropped("PROCESSING_ABANDONED");
+        doThrow(new AuditPersistenceException()).when(auditRecorder).messageDeliveryUpdated(any(), any(), any());
+        try {
+            postSigned(statuses(a.phoneNumberId, report(wamid(a, messageId), "delivered", 0, null)))
+                    .andExpect(status().isOk());
+            assertThat(inboxStates(a)).containsExactly("PENDING");
+
+            try (Connection migration = migrationConnection()) {
+                executeUpdate(migration, "UPDATE dokene.provider_webhook_events SET received_at = now() - interval "
+                        + "'2 days', next_attempt_at = now() - interval '1 second' WHERE tenant_id = ?",
+                        a.tenant.id().value());
+            }
+            inbox.sweep();
+        } finally {
+            doCallRealMethod().when(auditRecorder).messageDeliveryUpdated(any(), any(), any());
+        }
+
+        assertThat(inboxStates(a)).containsExactly("ABANDONED");
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, "SELECT count(*) FROM dokene.provider_webhook_events WHERE tenant_id = ? "
+                    + "AND provider_message_id IS NOT NULL", a.tenant.id().value())).isZero();
+        }
+        assertThat(message(a, messageId).status()).isEqualTo(MessageStatus.SENT);
+        assertThat(dropped("PROCESSING_ABANDONED")).isEqualTo(abandonedBefore + 1);
     }
 
     /** P3-RLS-04 and retention: rows are invisible without their tenant and purged once past retention. */

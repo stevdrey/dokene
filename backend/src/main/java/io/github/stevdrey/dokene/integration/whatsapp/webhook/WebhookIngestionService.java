@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,10 +32,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Each status is inserted in its own transaction under the resolved tenant. Any failure propagates, so the route does
- * not acknowledge and Meta redelivers the batch; rows already committed then deduplicate. Once every status is
- * recorded, the new rows are applied inline as a best effort: a failure there leaves them PENDING for the sweeper and
- * never turns an acknowledged batch into a provider retry.
+ * The statuses of each resolved tenant are inserted in one transaction under that tenant. Any failure propagates, so
+ * the route does not acknowledge and Meta redelivers the batch; groups already committed then deduplicate. Once every
+ * status is recorded, up to the inline limit of the new rows are applied inline as a best effort: a failure there
+ * leaves them PENDING for the sweeper and never turns an acknowledged batch into a provider retry.
  */
 @Service
 public class WebhookIngestionService {
@@ -46,27 +47,27 @@ public class WebhookIngestionService {
     private final TenantContextProvider tenantContexts;
     private final WebhookTelemetry telemetry;
     private final TransactionTemplate transactions;
+    private final WebhookInboxProperties properties;
     private final Clock clock;
 
     public WebhookIngestionService(VerifiedPhoneNumberMappings mappings, WebhookInboxRepository inbox,
             WebhookInboxProcessor processor, TenantContextProvider tenantContexts, WebhookTelemetry telemetry,
-            PlatformTransactionManager transactionManager, Clock clock) {
+            WebhookInboxProperties properties, PlatformTransactionManager transactionManager, Clock clock) {
         this.mappings = Objects.requireNonNull(mappings);
         this.inbox = Objects.requireNonNull(inbox);
         this.processor = Objects.requireNonNull(processor);
         this.tenantContexts = Objects.requireNonNull(tenantContexts);
         this.telemetry = Objects.requireNonNull(telemetry);
+        this.properties = Objects.requireNonNull(properties);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.clock = Objects.requireNonNull(clock);
     }
 
     /** Returns once every status is durably recorded or dropped; the caller may acknowledge after that. */
     public void ingest(ParsedWebhook parsed) {
-        for (int i = 0; i < parsed.unsupportedCount(); i++) {
-            telemetry.dropped(DropReason.UNSUPPORTED_EVENT);
-        }
+        telemetry.dropped(DropReason.UNSUPPORTED_EVENT, parsed.unsupportedCount());
         Map<String, Optional<TenantId>> tenants = new HashMap<>();
-        List<DueEvent> recorded = new ArrayList<>();
+        Map<TenantId, List<StatusUpdate>> byTenant = new LinkedHashMap<>();
         for (StatusUpdate update : parsed.updates()) {
             Optional<TenantId> tenant = tenants.computeIfAbsent(update.phoneNumberId(), mappings::tenantFor);
             if (tenant.isEmpty()) {
@@ -74,30 +75,46 @@ public class WebhookIngestionService {
                 telemetry.dropped(DropReason.UNKNOWN_PHONE_NUMBER);
                 continue;
             }
-            Instant now = clock.instant();
-            InboxEvent event = new InboxEvent(UUID.randomUUID(), tenant.get(), PROVIDER,
-                    eventId(update.providerMessageId(), update.status()), update.providerMessageId(),
-                    update.status(), update.occurredAt(), update.failure(), 0, now);
-            boolean inserted = Boolean.TRUE.equals(tenantContexts.callWithTenantId(tenant.get(),
-                    () -> transactions.execute(status -> inbox.insertPending(event))));
-            if (inserted) {
-                recorded.add(new DueEvent(tenant.get(), event.id()));
-            } else {
-                telemetry.dropped(DropReason.DUPLICATE);
-            }
+            byTenant.computeIfAbsent(tenant.get(), ignored -> new ArrayList<>()).add(update);
         }
-        processor.process(recorded);
+        List<DueEvent> recorded = new ArrayList<>();
+        for (Map.Entry<TenantId, List<StatusUpdate>> group : byTenant.entrySet()) {
+            List<DueEvent> inserted = record(group.getKey(), group.getValue());
+            recorded.addAll(inserted);
+            telemetry.dropped(DropReason.DUPLICATE, group.getValue().size() - inserted.size());
+        }
+        // The sweeper applies anything beyond the inline limit, so a large batch does not hold the acknowledgement.
+        processor.process(recorded.subList(0, Math.min(recorded.size(), properties.inlineLimit())));
+    }
+
+    /** One transaction per tenant: every status of that tenant is recorded, or none is and the route answers 503. */
+    private List<DueEvent> record(TenantId tenantId, List<StatusUpdate> updates) {
+        Instant now = clock.instant();
+        return tenantContexts.callWithTenantId(tenantId, () -> transactions.execute(status -> {
+            List<DueEvent> inserted = new ArrayList<>();
+            for (StatusUpdate update : updates) {
+                InboxEvent event = new InboxEvent(UUID.randomUUID(), tenantId, PROVIDER,
+                        eventId(tenantId, update.providerMessageId(), update.status()), update.providerMessageId(),
+                        update.status(), update.occurredAt(), update.failure(), 0, now);
+                if (inbox.insertPending(event)) {
+                    inserted.add(new DueEvent(tenantId, event.id()));
+                }
+            }
+            return inserted;
+        }));
     }
 
     /**
-     * Meta statuses carry no event id. One message reaches each delivery state once, so (message, state) is the
-     * identity: a byte-identical redelivery and a re-sent state with another timestamp both deduplicate. The hash
-     * keeps the id fixed length and keeps the provider message id out of the key.
+     * Meta statuses carry no event id. One message reaches each delivery state once, so (tenant, message, state) is
+     * the identity: a byte-identical redelivery and a re-sent state with another timestamp both deduplicate. The
+     * tenant keeps a report parked in one tenant from ever blocking the same id in another. The hash keeps the id
+     * fixed length and keeps the provider message id out of the key.
      */
-    static String eventId(String providerMessageId, DeliveryStatus status) {
+    static String eventId(TenantId tenantId, String providerMessageId, DeliveryStatus status) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest((PROVIDER.name() + '|' + providerMessageId + '|' + status.name())
+            byte[] hash = digest.digest((PROVIDER.name() + '|' + tenantId.value() + '|' + providerMessageId + '|'
+                    + status.name())
                     .getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException exception) {

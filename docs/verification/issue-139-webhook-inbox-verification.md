@@ -14,18 +14,19 @@ Status: single PR. It delivers the `/webhooks/whatsapp` route, the strict parser
 
 ## Automated coverage
 
-### `WhatsAppWebhookIntegrationTest` (PostgreSQL, MockMvc with the real filter chains)
+### `WhatsAppWebhookIntegrationTest` (PostgreSQL, MockMvc with the real filter chains; 10 tests)
 
 | Acceptance item or case | Test |
 | --- | --- |
 | P3-HOOK-15: the tenant comes from the verified mapping and only that tenant's message moves. P3-HOOK-06: a replay changes nothing and writes no second audit row. History shows `DELIVERY_UPDATED` / `PROVIDER` with no raw content | `aSignedDeliveryMovesOnlyTheMappedTenantsMessageOnceAndAReplayChangesNothing` |
-| P3-HOOK-05: another tenant's provider message id is parked, then `UNMATCHED` with the id cleared; the other tenant is untouched | `anotherTenantsProviderMessageIdIsParkedThenDroppedWithoutTouchingIt` |
+| P3-HOOK-05: another tenant's provider message id is parked, then `UNMATCHED` with the id cleared; the other tenant is untouched, and its own later report of the same id and state still applies (tenant-scoped dedup key) | `anotherTenantsProviderMessageIdIsParkedThenDroppedWithoutTouchingIt` |
 | P3-HOOK-08 and the #210 gate: tenant B pre-registers tenant A's phone id, and a signed event for that number is never processed in B's context; unknown and unverified-only numbers get `200` and store nothing | `unknownAndUnverifiedNumbersAreAcknowledgedButNeverRouted` |
 | P3-HOOK-04: a supplied `tenantId` member gets `400` before tenant resolution, and nothing is stored | `aMemberOutsideTheProviderSchemaIsRefusedBeforeAnyTenantIsResolved` |
 | P3-HOOK-11, P3-CSRF-04/05, and the body limit: a session cookie without a signature gets `403`; no CSRF token is needed on the webhook while `/api` still requires one; there is no `Set-Cookie` and no redirect; `/webhooks/other` gets `403`; an oversized body gets `403`; and the handshake answers right and wrong tokens | `onlyTheSignatureAuthenticatesTheRouteWhichAloneSkipsCsrfAndBoundsItsBody` |
-| A reordered multi-status batch: only forward transitions apply; a late failure keeps the delivery; an untracked status is only counted | `aReorderedMultiStatusBatchAppliesOnlyForwardTransitionsAndALateFailureKeepsTheDelivery` |
+| A reordered multi-status batch: only forward transitions apply; a late failure keeps the delivery; an untracked status is only counted; rows beyond the inline limit (2 in this class) wait for the sweeper | `aReorderedMultiStatusBatchAppliesOnlyForwardTransitionsAndALateFailureKeepsTheDelivery` |
 | The T8 race and restart: a report that arrives before the provider id is committed stays `PENDING`, and the sweeper applies it afterwards | `aReportArrivingBeforeTheProviderIdIsCommittedIsAppliedOnceItIs` |
 | Audit outage: the event is still acknowledged with `200`, the row stays `PENDING` and the message is unchanged; after recovery the sweeper applies it with exactly one audit row | `anAuditOutageKeepsTheAcknowledgedEventPendingUntilItCanBeApplied` |
+| A row that keeps failing past the abandon window becomes `ABANDONED` with its provider message id cleared, the message is unchanged and `PROCESSING_ABANDONED` is counted | `aRowThatKeepsFailingIsAbandonedAfterTheAbandonWindow` |
 | P3-RLS-04 for `provider_webhook_events` and retention: no rows are visible without context or from another tenant, RLS is forced, and rows are purged after 31 days | `inboxRowsAreTenantIsolatedAndPurgedAfterRetention` |
 
 ### `MetaWebhookPayloadParserTest` (unit)
@@ -35,7 +36,7 @@ Status: single PR. It delivers the `/webhooks/whatsapp` route, the strict parser
 - An unknown member at each allowlisted level is refused.
 - Malformed or mistyped bodies and duplicate keys are refused.
 - Unsupported fields and statuses are counted.
-- A failure without a usable code is `UNKNOWN`.
+- A failure without a usable code, a non-object error entry or a non-array `errors` is `UNKNOWN`; blank, over-long and NUL provider message ids are refused through `DeliveryStatusReport`.
 - More than 1000 statuses are refused.
 
 ### Schema, architecture and telemetry
@@ -51,7 +52,7 @@ Status: single PR. It delivers the `/webhooks/whatsapp` route, the strict parser
 
 | Command (working directory) | Result |
 | --- | --- |
-| `./gradlew check` (`backend/`) | **Passed**: 178 suites, 2193 tests, 0 failures, 0 errors, 0 skipped. Per-test listing for the relevant suites: [issue-139-evidence/test-results.txt](issue-139-evidence/test-results.txt) |
+| `./gradlew check` (`backend/`) | **Passed** (after the code review fixes): 178 suites, 2195 tests, 0 failures, 0 errors, 0 skipped. Per-test listing for the relevant suites: [issue-139-evidence/test-results.txt](issue-139-evidence/test-results.txt) |
 | `npx tsc -b` (`frontend/`) | **Passed** after the Vite `/webhooks` proxy entry |
 | `npx vitest run src/securityHeaders.test.ts` (`frontend/`) | **Passed**: 3 tests; the nginx header snippets are unchanged |
 

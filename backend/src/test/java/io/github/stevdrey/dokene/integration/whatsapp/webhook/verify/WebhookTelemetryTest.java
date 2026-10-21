@@ -51,9 +51,14 @@ class WebhookTelemetryTest {
         telemetry.dropped(WebhookTelemetry.DropReason.DUPLICATE);
         telemetry.dropped(WebhookTelemetry.DropReason.UNKNOWN_PHONE_NUMBER);
         telemetry.dropped(WebhookTelemetry.DropReason.DUPLICATE);
+        telemetry.dropped(WebhookTelemetry.DropReason.UNSUPPORTED_EVENT, 7);
+        telemetry.dropped(WebhookTelemetry.DropReason.UNMATCHED_MESSAGE, 0);
 
         assertThat(registry.get("dokene.webhook.dropped").tag("reason", "DUPLICATE").counter().count())
                 .isEqualTo(2.0);
+        assertThat(registry.get("dokene.webhook.dropped").tag("reason", "UNSUPPORTED_EVENT").counter().count())
+                .isEqualTo(7.0);
+        assertThat(registry.find("dokene.webhook.dropped").tag("reason", "UNMATCHED_MESSAGE").counter()).isNull();
         assertThat(registry.get("dokene.webhook.dropped").tag("reason", "UNKNOWN_PHONE_NUMBER").counter()
                 .getId().getTags()).hasSize(1);
         assertThat(registry.find("dokene.webhook.rejected").counter()).isNull();

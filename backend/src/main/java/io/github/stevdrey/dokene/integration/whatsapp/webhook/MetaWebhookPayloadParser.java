@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.integration.whatsapp.webhook.ParsedWebhook.Stat
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Reason;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWebhookBody;
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatus;
+import io.github.stevdrey.dokene.messaging.domain.DeliveryStatusReport;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -133,9 +134,7 @@ public class MetaWebhookPayloadParser {
         String id = text(status, "id");
         String state = text(status, "status");
         String timestamp = text(status, "timestamp");
-        if (id == null || id.isBlank() || id.length() > StatusUpdate.MAX_PROVIDER_MESSAGE_ID_LENGTH
-                || id.indexOf('\0') >= 0 || state == null || timestamp == null
-                || !EPOCH_SECONDS.matcher(timestamp).matches()) {
+        if (id == null || state == null || timestamp == null || !EPOCH_SECONDS.matcher(timestamp).matches()) {
             throw new WebhookPayloadException(Reason.SCHEMA);
         }
         DeliveryStatus delivery = DELIVERY_STATES.get(state.toLowerCase(Locale.ROOT));
@@ -152,21 +151,26 @@ public class MetaWebhookPayloadParser {
         Optional<FailureCategory> failure = delivery == DeliveryStatus.FAILED
                 ? Optional.of(failureCategory(status))
                 : Optional.empty();
-        return Optional.of(new StatusUpdate(phoneNumberId, id, delivery, occurredAt, failure));
+        try {
+            return Optional.of(new StatusUpdate(phoneNumberId,
+                    new DeliveryStatusReport(id, delivery, occurredAt, failure)));
+        } catch (IllegalArgumentException malformedId) {
+            // The messaging rule for provider message ids (length, blank, NUL) is the only one applied.
+            throw new WebhookPayloadException(Reason.SCHEMA);
+        }
     }
 
-    /** The first error's numeric code only; titles, messages and details may carry phones or bodies. */
+    /**
+     * The first error's numeric code only; titles, messages and details may carry phones or bodies. Error entries are
+     * not allowlisted, so an unusable one (not an array, not an object, no integer code) is UNKNOWN rather than a
+     * refusal that would lose every other status in the batch.
+     */
     private FailureCategory failureCategory(JsonNode status) {
-        if (!status.has("errors")) {
+        JsonNode errors = status.get("errors");
+        if (errors == null || !errors.isArray() || errors.isEmpty()) {
             return FailureCategory.UNKNOWN;
         }
-        List<JsonNode> errors = array(status, "errors", false);
-        if (errors.isEmpty()) {
-            return FailureCategory.UNKNOWN;
-        }
-        JsonNode first = errors.getFirst();
-        requireObject(first);
-        JsonNode code = first.get("code");
+        JsonNode code = errors.get(0).isObject() ? errors.get(0).get("code") : null;
         if (code == null || !code.isIntegralNumber() || !code.canConvertToInt()) {
             return FailureCategory.UNKNOWN;
         }

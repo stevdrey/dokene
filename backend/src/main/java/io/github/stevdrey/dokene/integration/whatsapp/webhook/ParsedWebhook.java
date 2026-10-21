@@ -3,6 +3,7 @@
 package io.github.stevdrey.dokene.integration.whatsapp.webhook;
 
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatus;
+import io.github.stevdrey.dokene.messaging.domain.DeliveryStatusReport;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import java.time.Instant;
 import java.util.List;
@@ -17,23 +18,36 @@ public record ParsedWebhook(List<StatusUpdate> updates, int unsupportedCount) {
         }
     }
 
-    /** One status of one provider message, as Meta reported it for the business phone number it names. */
-    public record StatusUpdate(String phoneNumberId, String providerMessageId, DeliveryStatus status,
-            Instant occurredAt, Optional<FailureCategory> failure) {
-        static final int MAX_PROVIDER_MESSAGE_ID_LENGTH = 128;
-
+    /**
+     * One status of one provider message, as Meta reported it for the business phone number it names. The report is
+     * built here, so the messaging rule for provider message ids is the only one that decides validity.
+     */
+    public record StatusUpdate(String phoneNumberId, DeliveryStatusReport report) {
         public StatusUpdate {
             Objects.requireNonNull(phoneNumberId, "Phone number id is required");
-            Objects.requireNonNull(providerMessageId, "Provider message id is required");
-            Objects.requireNonNull(status, "Status is required");
-            Objects.requireNonNull(occurredAt, "Report time is required");
-            Objects.requireNonNull(failure, "Failure option is required");
+            Objects.requireNonNull(report, "Report is required");
+        }
+
+        public String providerMessageId() {
+            return report.providerMessageId();
+        }
+
+        public DeliveryStatus status() {
+            return report.status();
+        }
+
+        public Instant occurredAt() {
+            return report.occurredAt();
+        }
+
+        public Optional<FailureCategory> failure() {
+            return report.failure();
         }
 
         @Override
         public String toString() {
             // Ids are opaque provider data; keep them out of any accidental log line.
-            return "StatusUpdate[status=" + status + ", failure=" + failure.map(Enum::name).orElse("none") + "]";
+            return "StatusUpdate[status=" + status() + ", failure=" + failure().map(Enum::name).orElse("none") + "]";
         }
     }
 }

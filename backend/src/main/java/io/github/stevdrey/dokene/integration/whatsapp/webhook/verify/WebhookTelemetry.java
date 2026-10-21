@@ -12,8 +12,13 @@ public interface WebhookTelemetry {
      * so a refusal-only telemetry stays a lambda; only the Micrometer implementation counts drops.
      */
     default void dropped(DropReason reason) {
+        dropped(reason, 1);
+    }
+
+    /** {@code count} drops of one reason at once, so a body with many unsupported items is one increment. */
+    default void dropped(DropReason reason, long count) {
         // Not counted unless the implementation records it.
     }
 
-    enum DropReason { UNKNOWN_PHONE_NUMBER, DUPLICATE, UNMATCHED_MESSAGE, UNSUPPORTED_EVENT }
+    enum DropReason { UNKNOWN_PHONE_NUMBER, DUPLICATE, UNMATCHED_MESSAGE, UNSUPPORTED_EVENT, PROCESSING_ABANDONED }
 }

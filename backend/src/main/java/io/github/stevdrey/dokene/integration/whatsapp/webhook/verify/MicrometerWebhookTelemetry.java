@@ -22,7 +22,9 @@ public final class MicrometerWebhookTelemetry implements WebhookTelemetry {
     }
 
     @Override
-    public void dropped(DropReason reason) {
-        registry.counter(DROPPED, "reason", reason.name()).increment();
+    public void dropped(DropReason reason, long count) {
+        if (count > 0) {
+            registry.counter(DROPPED, "reason", reason.name()).increment(count);
+        }
     }
 }

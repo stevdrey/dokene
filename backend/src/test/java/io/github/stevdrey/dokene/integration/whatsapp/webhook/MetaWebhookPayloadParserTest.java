@@ -98,6 +98,8 @@ class MetaWebhookPayloadParserTest {
                 body("", "{\"id\":\"wamid.X\",\"status\":\"sent\",\"timestamp\":1760000000}"),
                 body("", "{\"status\":\"sent\",\"timestamp\":\"1760000000\"}"),
                 body("", "{\"id\":\"" + "w".repeat(129) + "\",\"status\":\"sent\",\"timestamp\":\"1760000000\"}"),
+                body("", "{\"id\":\" \",\"status\":\"sent\",\"timestamp\":\"1760000000\"}"),
+                body("", "{\"id\":\"wamid.\\u0000\",\"status\":\"sent\",\"timestamp\":\"1760000000\"}"),
                 "{\"object\":\"whatsapp_business_account\",\"object\":\"whatsapp_business_account\",\"entry\":[]}",
                 envelope("{\"id\":\"1\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":"
                         + "\"whatsapp\",\"metadata\":{\"phone_number_id\":\"12\"},\"statuses\":[]}}]}"));
@@ -129,16 +131,23 @@ class MetaWebhookPayloadParserTest {
         assertThat(parsed.updates()).extracting(StatusUpdate::status).containsExactly(DeliveryStatus.READ);
     }
 
+    /** Error entries are not allowlisted: an unusable one is UNKNOWN and never loses the rest of the batch. */
     @Test
     void aFailedStatusWithoutAnUsableCodeIsUnknownAndOtherStatesCarryNoFailure() {
-        ParsedWebhook parsed = parser.parse(verified(body("",
-                "{\"id\":\"wamid.A\",\"status\":\"failed\",\"timestamp\":\"1760000000\"},"
-                        + "{\"id\":\"wamid.B\",\"status\":\"failed\",\"timestamp\":\"1760000000\","
-                        + "\"errors\":[{\"code\":\"131026\"}]},"
-                        + "{\"id\":\"wamid.C\",\"status\":\"delivered\",\"timestamp\":\"1760000000\","
-                        + "\"errors\":[{\"code\":131026}]}")));
+        String failed = "{\"id\":\"wamid.%s\",\"status\":\"failed\",\"timestamp\":\"1760000000\"%s}";
+        ParsedWebhook parsed = parser.parse(verified(body("", String.join(",",
+                failed.formatted("A", ""),
+                failed.formatted("B", ",\"errors\":[{\"code\":\"131026\"}]"),
+                failed.formatted("C", ",\"errors\":[\"not an object\"]"),
+                failed.formatted("D", ",\"errors\":[null]"),
+                failed.formatted("E", ",\"errors\":{\"code\":131026}"),
+                failed.formatted("F", ",\"errors\":[]"),
+                "{\"id\":\"wamid.G\",\"status\":\"delivered\",\"timestamp\":\"1760000000\","
+                        + "\"errors\":[{\"code\":131026}]}"))));
 
         assertThat(parsed.updates()).extracting(StatusUpdate::failure).containsExactly(
+                Optional.of(FailureCategory.UNKNOWN), Optional.of(FailureCategory.UNKNOWN),
+                Optional.of(FailureCategory.UNKNOWN), Optional.of(FailureCategory.UNKNOWN),
                 Optional.of(FailureCategory.UNKNOWN), Optional.of(FailureCategory.UNKNOWN), Optional.empty());
     }
 

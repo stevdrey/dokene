@@ -129,49 +129,76 @@ public class WebhookInboxProcessor {
     }
 
     private boolean processOne(TenantId tenantId, UUID id) {
-        return auditExecution.callWithCorrelation(UUID.randomUUID(),
+        Outcome outcome = auditExecution.callWithCorrelation(UUID.randomUUID(),
                 () -> providerContexts.callWithContext(new ProviderContext(tenantId),
                         () -> tenantContexts.callWithTenantId(tenantId,
-                                () -> Boolean.TRUE.equals(transactions.execute(status -> apply(tenantId, id))))));
+                                () -> transactions.execute(status -> apply(tenantId, id)))));
+        // Counted only once the transaction committed, so a failed commit that is retried is not counted twice.
+        if (outcome == Outcome.UNMATCHED) {
+            telemetry.dropped(DropReason.UNMATCHED_MESSAGE);
+            log.info("Webhook event unmatched after the park window; eventId={}, tenantId={}", id, tenantId.value());
+        }
+        return outcome == Outcome.SETTLED || outcome == Outcome.UNMATCHED;
     }
 
-    private boolean apply(TenantId tenantId, UUID id) {
+    private Outcome apply(TenantId tenantId, UUID id) {
         InboxEvent event = inbox.lockPending(tenantId, id).orElse(null);
         if (event == null) {
-            return false;
+            return Outcome.SKIPPED;
         }
         Instant now = clock.instant();
         DeliveryStatusReport report = new DeliveryStatusReport(event.providerMessageId(), event.status(),
                 event.occurredAt(), event.failure());
         Handling handling = handler.handle(new VerifiedWebhookEvent(event.provider(), event.providerEventId(),
                 event.tenantId(), report));
-        switch (handling) {
-            case APPLIED -> inbox.markProcessed(tenantId, id, InboxState.APPLIED, now);
-            case IGNORED -> inbox.markProcessed(tenantId, id, InboxState.IGNORED, now);
+        return switch (handling) {
+            case APPLIED -> {
+                inbox.markProcessed(tenantId, id, InboxState.APPLIED, now);
+                yield Outcome.SETTLED;
+            }
+            case IGNORED -> {
+                inbox.markProcessed(tenantId, id, InboxState.IGNORED, now);
+                yield Outcome.SETTLED;
+            }
             case NOT_FOUND -> {
                 if (now.isBefore(event.receivedAt().plus(properties.parkWindow()))) {
                     inbox.reschedule(tenantId, id, now, RETRY_BASE, RETRY_CAP);
-                    return false;
+                    yield Outcome.PARKED;
                 }
                 inbox.markUnmatched(tenantId, id, now);
-                telemetry.dropped(DropReason.UNMATCHED_MESSAGE);
-                log.info("Webhook event unmatched after the park window; eventId={}, tenantId={}", id,
-                        tenantId.value());
+                yield Outcome.UNMATCHED;
             }
-        }
-        return true;
+        };
     }
 
-    /** Backs a failed row off in its own transaction; if even that fails, the row is simply due again. */
+    /**
+     * After a failure, in its own transaction: a row received before the abandon window is given up (ABANDONED, id
+     * cleared) so a row that can never be applied does not retry forever; any other row is backed off. If even that
+     * fails, the row is simply due again.
+     */
     private void deferQuietly(DueEvent event) {
         try {
-            tenantContexts.callWithTenantId(event.tenantId(), () -> transactions.execute(status -> {
-                inbox.reschedule(event.tenantId(), event.id(), clock.instant(), RETRY_BASE, RETRY_CAP);
-                return null;
-            }));
+            Instant now = clock.instant();
+            boolean abandoned = Boolean.TRUE.equals(tenantContexts.callWithTenantId(event.tenantId(),
+                    () -> transactions.execute(status -> {
+                        if (inbox.abandonIfReceivedBefore(event.tenantId(), event.id(),
+                                now.minus(properties.abandonAfter()), now)) {
+                            return true;
+                        }
+                        inbox.reschedule(event.tenantId(), event.id(), now, RETRY_BASE, RETRY_CAP);
+                        return false;
+                    })));
+            if (abandoned) {
+                telemetry.dropped(DropReason.PROCESSING_ABANDONED);
+                log.error("Webhook event abandoned after failing past the abandon window; eventId={}, tenantId={}",
+                        event.id(), event.tenantId().value());
+            }
         } catch (RuntimeException exception) {
             log.warn("Webhook event backoff not recorded; eventId={}, errorType={}", event.id(),
                     exception.getClass().getSimpleName());
         }
     }
+
+    /** What one transaction did with a row: SKIPPED when another worker held or settled it first. */
+    private enum Outcome { SETTLED, PARKED, UNMATCHED, SKIPPED }
 }

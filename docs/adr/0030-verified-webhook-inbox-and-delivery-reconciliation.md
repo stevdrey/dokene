@@ -73,7 +73,8 @@ The application must:
 - Timestamps are epoch-second strings.
 
 **What survives parsing.** The result holds only `(phoneNumberId, providerMessageId, status, occurredAt, failure)`.
-- The failure is the closed `FailureCategory` of the first error's numeric code, through the same table the send adapter uses (`GraphApiSendErrors.categoryFor`). A missing or non-numeric code is `UNKNOWN`.
+- The failure is the closed `FailureCategory` of the first error's numeric code, through the same table the send adapter uses (`GraphApiSendErrors.categoryFor`). Error entries are not allowlisted: a missing or non-numeric code, a non-object first entry or a non-array `errors` is `UNKNOWN`, never a refusal that would lose the rest of the batch.
+- The provider message id is validated by building the messaging `DeliveryStatusReport` at parse time, so one rule decides validity and no stored row can later fail to become a report.
 - Error titles, messages and details, recipient phones, conversation and pricing data are never read into it.
 
 ### 3. Tenant resolution and the durable inbox
@@ -82,15 +83,16 @@ The application must:
 - An unknown, unverified or disabled mapping stores nothing and counts `dropped{reason=UNKNOWN_PHONE_NUMBER}`. The answer is still `200`.
 - A tenant that pre-registers another tenant's number therefore never receives its events (P3-HOOK-08 and the #210 acceptance test).
 
-**Inbox insert.** Each resolved status is inserted into `provider_webhook_events` in its own transaction, under the resolved tenant only, as a `PENDING` row.
+**Inbox insert.** The statuses of each resolved tenant are inserted into `provider_webhook_events` in one transaction per tenant, under that tenant only, as `PENDING` rows.
 - The row is typed: tenant, provider, event id, provider message id, delivery status, occurrence time, failure category, state, attempt count, receipt and next attempt times.
 - Raw JSON and free text are never stored.
-- The route answers `200` only after every status is recorded or dropped. A failure on any insert propagates, so Meta redelivers the batch and the rows already committed deduplicate.
+- The route answers `200` only after every status is recorded or dropped. A failure on any insert rolls back that tenant's group and propagates, so Meta redelivers the batch and the groups already committed deduplicate.
 
 **Table.** Tenant RLS is forced, with the five standard policies. The runtime role has `SELECT, INSERT, UPDATE` only.
 
 **Deduplication.**
-- **Key.** Meta statuses have no event id, so the event id is `hex(SHA-256("META_WHATSAPP|" + providerMessageId + "|" + status))`. A message reaches each delivery state once, so (message, state) is the identity.
+- **Key.** Meta statuses have no event id, so the event id is `hex(SHA-256("META_WHATSAPP|" + tenantId + "|" + providerMessageId + "|" + status))`. A message reaches each delivery state once, so (tenant, message, state) is the identity.
+  - The tenant is part of the key, so a report parked or left `UNMATCHED` in one tenant never blocks the same id and state reported for another.
   - A byte-identical redelivery deduplicates.
   - So does a re-sent state with another timestamp.
   - The key never contains the raw provider message id.
@@ -122,9 +124,10 @@ This settles the spec 0001 webhook race: a report that arrives before T8 commits
 **Cross-tenant ids.** A provider message id belonging to another tenant is parked in the routed tenant's own inbox, under its RLS. It can never match there, because the sink looks up `(tenant, providerMessageId)` only. It ends `UNMATCHED` with the id cleared. The other tenant is never touched (P3-HOOK-05).
 
 **Retries:**
-- Any exception, for example an audit outage, rolls the row back to `PENDING` and backs it off in a separate transaction. The acknowledgement never depends on audit health, and acknowledged work is never lost.
-- The request applies the rows it inserted inline as a best effort.
-- A scheduled sweeper (`dokene.integration.whatsapp.webhook.inbox.*`: `enabled`, `interval` default 30 s, `batch-size` default 100) resumes everything else, including rows left by a restart.
+- Any exception, for example an audit outage, rolls the row back to `PENDING` and backs it off in a separate transaction. The acknowledgement never depends on audit health.
+- **Abandoning.** A row still failing once `received_at + abandon-after` has passed (default 1 day, at least 1 hour and the park window) becomes `ABANDONED` with its provider message id cleared, is counted `dropped{reason=PROCESSING_ABANDONED}` and is logged at `ERROR` with ids only. An ordinary outage never reaches that window, but a row that can never be applied stops retrying and is purged like any terminal row.
+- The request applies up to `inline-limit` (default 50, range 0 to 1000) of the rows it inserted inline as a best effort, so a large batch does not hold the acknowledgement.
+- A scheduled sweeper (`dokene.integration.whatsapp.webhook.inbox.*`: `enabled`, `interval` default 30 s, `batch-size` default 100) resumes everything else, including rows left by a restart and rows beyond the inline limit.
   - Only one instance runs it, through a Postgres advisory lock.
   - It starts without a tenant scope and reads due rows through the security-definer function `dokene.find_due_webhook_events`, which returns `(tenant_id, event_id)` only.
 
@@ -132,10 +135,10 @@ This settles the spec 0001 webhook race: a report that arrives before T8 commits
 
 ### 5. Retention
 
-- Terminal rows (`APPLIED`, `IGNORED`, `UNMATCHED`) are kept for deduplication for `retention` (default 30 days, at least 8 days, beyond Meta's longest documented retry window of 7 days).
+- Terminal rows (`APPLIED`, `IGNORED`, `UNMATCHED`, `ABANDONED`) are kept for deduplication for `retention` (default 30 days, at least 8 days, beyond Meta's longest documented retry window of 7 days, and at least `abandon-after`).
 - The sweeper then deletes them through `dokene.purge_webhook_events`, at most 1000 per run. This is the only way a row leaves the table.
 - `PENDING` rows are never purged.
-- The table never holds raw provider JSON, error texts, recipient phones, conversation or pricing data. An `UNMATCHED` row holds no provider message id either.
+- The table never holds raw provider JSON, error texts, recipient phones, conversation or pricing data. An `UNMATCHED` or `ABANDONED` row holds no provider message id either.
 
 ### 6. Delivery history
 

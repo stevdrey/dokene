@@ -219,21 +219,23 @@ Every other path under `/webhooks/` is `403`. The nginx and Vite proxies forward
 2. The HMAC is checked on those raw bytes. Any refusal is `403`.
 3. `MetaWebhookPayloadParser` checks every member against an allowlist per level. A supplied `tenantId` or any other unknown member is `400`, before any tenant lookup. Inbound messages, other change fields and untracked statuses are only counted.
 4. Each delivery status is resolved to a tenant through the verified mapping resolver only.
-5. Each status is stored as a typed `PENDING` row in `provider_webhook_events`, under that tenant's RLS.
+5. Each tenant's statuses are stored as typed `PENDING` rows in `provider_webhook_events`, in one transaction under that tenant's RLS.
 6. Then the route answers `200` with an empty body.
 
 A database or audit failure while recording answers `503` (ADR 0029), and Meta retries.
 
-**Deduplication.** The key is `hex(SHA-256("META_WHATSAPP|" + providerMessageId + "|" + status))`, unique per provider. A replay changes nothing and writes no audit row.
+**Deduplication.** The key is `hex(SHA-256("META_WHATSAPP|" + tenantId + "|" + providerMessageId + "|" + status))`, unique per provider. A replay changes nothing and writes no audit row.
 
 **Applying rows.** Rows are applied under a provider context with no member, in one transaction with the transition and its audit:
 - **Applied:** the row becomes `APPLIED`.
 - **Ignored:** an out of order or late report is recorded as a non applied event and the row becomes `IGNORED`. A late failure never erases a delivery.
 - **Not found:** the row stays `PENDING` and is retried with backoff for the park window. This covers a report that beat the dispatch commit. After the window the row becomes `UNMATCHED` with its provider message id cleared.
 
-The request applies what it stored inline. A scheduled sweeper (single instance via an advisory lock) resumes the rest, including after a restart or an audit outage, and purges terminal rows after the retention period.
+A row that keeps failing past the abandon window becomes `ABANDONED` with its provider message id cleared.
 
-**Counters.** `dokene.webhook.dropped{reason}` counts acknowledged events that changed nothing: `UNKNOWN_PHONE_NUMBER`, `DUPLICATE`, `UNMATCHED_MESSAGE` and `UNSUPPORTED_EVENT`.
+The request applies up to the inline limit of what it stored. A scheduled sweeper (single instance via an advisory lock) resumes the rest, including after a restart or an audit outage, and purges terminal rows after the retention period.
+
+**Counters.** `dokene.webhook.dropped{reason}` counts acknowledged events that changed nothing: `UNKNOWN_PHONE_NUMBER`, `DUPLICATE`, `UNMATCHED_MESSAGE`, `UNSUPPORTED_EVENT` and `PROCESSING_ABANDONED`.
 
 **Privacy.** The inbox never holds raw JSON, error texts, recipient phones, conversation or pricing data. Delivery history stays `GET /api/messages/{messageId}/events`, where webhook transitions appear as `DELIVERY_UPDATED` events with `actorKind=PROVIDER`.
 
@@ -242,8 +244,10 @@ The request applies what it stored inline. A scheduled sweeper (single instance 
 | `enabled` | `true` | Runs the sweeper. Inline processing always runs. |
 | `interval` | `PT30S` | Delay between sweeper runs. |
 | `park-window` | `PT15M` | How long a report whose message is not found is retried. Allowed range: 0 to 1 hour. |
-| `retention` | `P30D` | How long processed rows are kept for deduplication. At least 8 days. |
+| `abandon-after` | `P1D` | How long after receipt a row that keeps failing is abandoned. At least 1 hour and the park window. |
+| `retention` | `P30D` | How long processed rows are kept for deduplication. At least 8 days and `abandon-after`. |
 | `batch-size` | `100` | Due rows per run. Allowed range: 1 to 500. |
+| `inline-limit` | `50` | New rows a request applies before answering. Allowed range: 0 to 1000. |
 
 ## Integration configuration
 

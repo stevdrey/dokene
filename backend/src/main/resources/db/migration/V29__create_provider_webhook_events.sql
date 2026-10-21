@@ -4,8 +4,9 @@
 -- A row holds only the typed facts parsed from a verified, schema valid callback for a verified mapping: never the raw
 -- provider JSON, error texts, recipient phone, conversation or pricing data. PENDING rows are applied by the inbox
 -- processor; NotFound reports stay PENDING for a bounded park window (the race with T8 committing the provider id)
--- and then become UNMATCHED with the provider message id cleared. Terminal rows are kept only for deduplication until
--- the retention purge removes them.
+-- and then become UNMATCHED with the provider message id cleared. A row that keeps failing for longer than the
+-- abandon window becomes ABANDONED, also with the id cleared. Terminal rows are kept only for deduplication until the
+-- retention purge removes them.
 CREATE TABLE dokene.provider_webhook_events (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES dokene.tenants(id) ON DELETE RESTRICT,
@@ -27,9 +28,10 @@ CREATE TABLE dokene.provider_webhook_events (
         (failure_category IS NULL OR delivery_status = 'FAILED')
         AND (failure_category IS NULL OR failure_category IN ('INVALID_RECIPIENT', 'TEMPLATE_REJECTED',
             'RATE_LIMITED', 'PROVIDER_UNAVAILABLE', 'AUTHENTICATION', 'POLICY_VIOLATION', 'UNKNOWN'))),
-    CONSTRAINT ck_provider_webhook_events_state CHECK (state IN ('PENDING', 'APPLIED', 'IGNORED', 'UNMATCHED')),
+    CONSTRAINT ck_provider_webhook_events_state CHECK (state IN ('PENDING', 'APPLIED', 'IGNORED', 'UNMATCHED',
+        'ABANDONED')),
     CONSTRAINT ck_provider_webhook_events_message_id CHECK (
-        (state = 'UNMATCHED') = (provider_message_id IS NULL)),
+        (state IN ('UNMATCHED', 'ABANDONED')) = (provider_message_id IS NULL)),
     CONSTRAINT ck_provider_webhook_events_processed CHECK ((state = 'PENDING') = (processed_at IS NULL)),
     CONSTRAINT ck_provider_webhook_events_attempts CHECK (attempts >= 0),
     CONSTRAINT uq_provider_webhook_events_event UNIQUE (provider, provider_event_id)

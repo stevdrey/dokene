@@ -27,6 +27,12 @@ public interface WebhookInboxRepository {
     /** Ends the park window: UNMATCHED, with the provider message id cleared; the event id stays for dedup. */
     void markUnmatched(TenantId tenantId, UUID id, Instant processedAt);
 
+    /**
+     * Gives up on a PENDING row received at or before {@code cutoff}: ABANDONED, with the provider message id cleared.
+     * True when the row was abandoned; false leaves it untouched.
+     */
+    boolean abandonIfReceivedBefore(TenantId tenantId, UUID id, Instant cutoff, Instant processedAt);
+
     /** Keeps the row PENDING and moves its next attempt out by {@code base} doubled per attempt, up to {@code cap}. */
     void reschedule(TenantId tenantId, UUID id, Instant now, Duration base, Duration cap);
 
@@ -39,7 +45,7 @@ public interface WebhookInboxRepository {
     /** Runs {@code run} only if no other instance holds the sweeper lock; empty when it does. */
     <T> Optional<T> runAsSoleSweeper(Supplier<T> run);
 
-    enum InboxState { PENDING, APPLIED, IGNORED, UNMATCHED }
+    enum InboxState { PENDING, APPLIED, IGNORED, UNMATCHED, ABANDONED }
 
     record DueEvent(TenantId tenantId, UUID id) {
         public DueEvent {

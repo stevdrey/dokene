@@ -83,6 +83,15 @@ public class JdbcWebhookInboxRepository implements WebhookInboxRepository {
     }
 
     @Override
+    public boolean abandonIfReceivedBefore(TenantId tenantId, UUID id, Instant cutoff, Instant processedAt) {
+        return jdbc.update("""
+                UPDATE dokene.provider_webhook_events
+                SET state = 'ABANDONED', provider_message_id = NULL, processed_at = ?, attempts = attempts + 1
+                WHERE tenant_id = ? AND id = ? AND state = 'PENDING' AND received_at <= ?
+                """, Timestamp.from(processedAt), tenantId.value(), id, Timestamp.from(cutoff)) == 1;
+    }
+
+    @Override
     public void reschedule(TenantId tenantId, UUID id, Instant now, Duration base, Duration cap) {
         jdbc.update("""
                 UPDATE dokene.provider_webhook_events
