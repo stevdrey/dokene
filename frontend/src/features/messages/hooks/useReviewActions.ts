@@ -76,6 +76,8 @@ export interface ReviewActions {
   alert: string | null;
   sendLocked: boolean;
   lockSeconds: number;
+  /** The intent of an attempt that may have landed; until the version moves, only its retry may open. */
+  unsureIntent: ReviewIntent | null;
   open: (intent: ReviewIntent) => void;
   close: () => void;
   setNote: (note: string) => void;
@@ -88,6 +90,8 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
   const [alert, setAlert] = useState<string | null>(null);
   const [lockUntil, setLockUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // An unsure attempt closed with Cerrar, held so reopening it retries on the same key.
+  const [heldUnsure, setHeldUnsure] = useState<ConfirmState | null>(null);
   const groupRef = useRef(group);
   groupRef.current = group;
 
@@ -98,6 +102,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
   // A version that moves under an open group (a poll tick or a read) closes it, and ends any send lockout.
   useEffect(() => {
     setLockUntil(null);
+    setHeldUnsure(null);
     const open = groupRef.current;
     if (open && version !== null && open.step.kind !== 'submitting' && open.openedOnVersion !== version) {
       setGroup(null);
@@ -125,15 +130,25 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
 
   const open = useCallback(
     (intent: ReviewIntent) => {
-      if (version === null || groupRef.current?.step.kind === 'submitting') return;
+      const current = groupRef.current;
+      if (version === null || current?.step.kind === 'submitting') return;
+      const unsure = current?.step.kind === 'uncertain' ? current : heldUnsure;
+      if (unsure) {
+        if (unsure.intent !== intent) return;
+        setHeldUnsure(null);
+        setGroup(unsure);
+        return;
+      }
       setAlert(null);
       setGroup({ intent, openedOnVersion: version, key: crypto.randomUUID(), note: '', step: { kind: 'open' } });
     },
-    [version]
+    [heldUnsure, version]
   );
 
   const close = useCallback(() => {
-    if (groupRef.current?.step.kind === 'submitting') return;
+    const current = groupRef.current;
+    if (current?.step.kind === 'submitting') return;
+    if (current?.step.kind === 'uncertain') setHeldUnsure(current);
     setGroup(null);
   }, []);
 
@@ -282,6 +297,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
     alert,
     sendLocked: lockUntil !== null,
     lockSeconds,
+    unsureIntent: group?.step.kind === 'uncertain' ? group.intent : heldUnsure?.intent ?? null,
     open,
     close,
     setNote,

@@ -329,6 +329,45 @@ describe('review actions', () => {
       expect(server.count(sendsPath(approved.messageId))).toBe(1);
     });
 
+    it('locks every other action while an attempt is unsure, so only its own retry can follow', async () => {
+      await openMessage(approved);
+      server.on(sendsPath(approved.messageId), status(502)).on(detailPath(approved.messageId), detailReply(approved));
+      click('Enviar');
+      const confirm = group('Confirmar envío');
+      click('Confirmar envío', confirm);
+      expect(await within(confirm).findByRole('alert')).toHaveTextContent('No se pudo confirmar la acción.');
+
+      expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Corregir' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
+      click('Cancelar');
+      click('Enviar');
+      expect(group('Confirmar envío')).toHaveTextContent('No se pudo confirmar la acción.');
+      expect(screen.queryByRole('group', { name: 'Confirmar cancelación' })).toBeNull();
+      expect(server.count(cancellationsPath(approved.messageId))).toBe(0);
+    });
+
+    it('keeps the unsure attempt after Cerrar, and reopening it retries on the same key', async () => {
+      await openMessage(approved);
+      server
+        .on(sendsPath(approved.messageId), status(502), created(deliveredFromApproved))
+        .on(detailPath(approved.messageId), detailReply(approved));
+      click('Enviar');
+      click('Confirmar envío', group('Confirmar envío'));
+      expect(await within(group('Confirmar envío')).findByRole('alert')).toHaveTextContent('No se pudo confirmar la acción.');
+      click('Cerrar', group('Confirmar envío'));
+      expect(screen.queryByRole('group')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+
+      click('Enviar');
+      const reopened = group('Confirmar envío');
+      expect(reopened).toHaveTextContent('No se pudo confirmar la acción.');
+      click('Reintentar', reopened);
+      expect(await screen.findByText('Revisión 7')).toBeInTheDocument();
+      const [first, second] = server.all(sendsPath(approved.messageId));
+      expect(second.headers['Idempotency-Key']).toBe(first.headers['Idempotency-Key']);
+    });
+
     it('stays unsure when the read again fails, and shows not found when it is a 404', async () => {
       await openMessage(approved);
       server.on(sendsPath(approved.messageId), status(500)).on(detailPath(approved.messageId), status(500), status(404));

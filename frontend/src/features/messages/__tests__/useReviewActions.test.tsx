@@ -17,7 +17,8 @@ function handle(version: number, run: MessageDetailHandle['run']): MessageDetail
     poll: 'idle',
     retry: vi.fn(),
     loadEvents: vi.fn(),
-    readAgain: vi.fn(),
+    // A failed read keeps an unsure attempt unsure.
+    readAgain: vi.fn(async () => ({ kind: 'failed', failure: { kind: 'unexpected' } }) as Outcome<never>),
     apply: vi.fn(),
     markNotFound: vi.fn(),
     run,
@@ -88,6 +89,28 @@ describe('useReviewActions', () => {
     act(() => result.current.setNote('Cliente pidió esperar una semana'));
     expect(result.current.group?.key).not.toBe(opened);
     expect(result.current.group?.step.kind).toBe('open');
+  });
+
+  it('holds an unsure attempt through Cerrar and lets it go once the version moves', async () => {
+    const run = failing({ kind: 'uncertain' });
+    const { result, rerender } = setup(run);
+    act(() => result.current.open('approve'));
+    const key = result.current.group!.key;
+    await act(() => result.current.confirm());
+    expect(result.current.group?.step.kind).toBe('uncertain');
+    expect(result.current.unsureIntent).toBe('approve');
+
+    act(() => result.current.close());
+    act(() => result.current.open('reject'));
+    expect(result.current.group).toBeNull();
+    act(() => result.current.open('approve'));
+    expect(result.current.group).toMatchObject({ intent: 'approve', key, step: { kind: 'uncertain' } });
+
+    act(() => result.current.close());
+    rerender({ version: 2 });
+    expect(result.current.unsureIntent).toBeNull();
+    act(() => result.current.open('reject'));
+    expect(result.current.group).toMatchObject({ intent: 'reject', openedOnVersion: 2, step: { kind: 'open' } });
   });
 
   it('treats a 429 on approve as a refusal and leaves Enviar unlocked', async () => {
