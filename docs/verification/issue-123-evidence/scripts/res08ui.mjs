@@ -20,7 +20,7 @@ if (!process.env.SNOOZE_ONLY) for (const [kind, modalBtn, confirmBtn, table, re]
   chk(`${kind}: the UI does not claim success after the lost response`, dlg || /No pudimos|No se pudo|error/i.test(t));
   if (dlg) { await p.clickText(confirmBtn); await sleep(2500); } t = await text();
   const mine = reqs.filter((r) => r.method === 'POST'); L(`${kind}: client requests: ${JSON.stringify(mine)}`);
-  chk(`${kind}: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)`, mine.length < 2 || mine[0].key === mine[1].key, `ids: ${mine.map((r) => r.idem).join(' | ')}`);
+  chk(`${kind}: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)`, mine.length < 2 || mine[0].idem === mine[1].idem, `ids: ${mine.map((r) => r.idem).join(' | ')}`);
   const rows = sql(`select count(*) from dokene.${table} where customer_id='${id}';`); chk(`${kind}: still exactly one persisted record after the operator retried`, rows === '1', `rows=${rows}; second request If-Match: ${mine[1]?.ifMatch}`);
   const aud = sql(`select count(*) from dokene.audit_events where target_id='${id}' and event_type in ('MANUAL_FOLLOW_UP_RECORDED','FOLLOW_UP_DISMISSED');`); chk(`${kind}: exactly one audit event`, aud === '1', `audit=${aud}`);
   L(`${kind}: UI after the retry: ${(await text()).slice(0, 160)}`);
