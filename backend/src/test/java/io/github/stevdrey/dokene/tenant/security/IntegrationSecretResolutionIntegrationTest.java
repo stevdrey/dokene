@@ -2,7 +2,7 @@
 // ABOUTME: tenants, tenant A resolves its token, tenant B is MISSING, the deployment token resolves, logs stay clean.
 package io.github.stevdrey.dokene.tenant.security;
 
-import static io.github.stevdrey.dokene.integration.secrets.SecretCanaries.containsAny;
+import static io.github.stevdrey.dokene.integration.testsupport.SecretCanaries.containsAny;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -15,8 +15,8 @@ import io.github.stevdrey.dokene.integration.application.SecretUnavailableExcept
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.Category;
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.ScopeKind;
 import io.github.stevdrey.dokene.integration.secrets.LocalIntegrationSecretResolver;
-import io.github.stevdrey.dokene.integration.secrets.LogCapture;
-import io.github.stevdrey.dokene.integration.secrets.SecretCanaries;
+import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;

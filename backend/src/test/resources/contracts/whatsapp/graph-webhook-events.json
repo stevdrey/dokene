@@ -1,0 +1,71 @@
+{
+  "signingKey": "SYNTHETIC-APP-SECRET-NOT-REAL-0001",
+  "phoneNumberId": "100000000000001",
+  "entries": {
+    "delivered": {
+      "signature": "sha256=125a1b0aceab24723e17f67442cbb16d207a89a2e4c8a83154e800969bf1c5b0",
+      "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"100000000000001\"},\"statuses\":[{\"id\":\"wamid.SYNTHETIC-HOOK-0001\",\"status\":\"delivered\",\"timestamp\":\"1760000000\",\"recipient_id\":\"50600000001\",\"conversation\":{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}}}]}}]}]}",
+      "expected": {
+        "providerMessageId": "wamid.SYNTHETIC-HOOK-0001",
+        "status": "DELIVERED",
+        "occurredAt": "2025-10-09T08:53:20Z",
+        "failure": null,
+        "handling": "applied",
+        "after": null,
+        "statusBefore": "SENT"
+      }
+    },
+    "failed": {
+      "signature": "sha256=e87da0baad4c6299a087d416b5a0cf4d28abdc0a1abb14d490e648531eb6d01a",
+      "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"100000000000001\"},\"statuses\":[{\"id\":\"wamid.SYNTHETIC-HOOK-0002\",\"status\":\"failed\",\"timestamp\":\"1760000100\",\"recipient_id\":\"50600000001\",\"errors\":[{\"code\":131026,\"title\":\"Message undeliverable CANARY-TOKEN\",\"message\":\"Recipient CANARY-PHONE cannot receive messages\",\"error_data\":{\"details\":\"CANARY-BODY\"}}]}]}}]}]}",
+      "expected": {
+        "providerMessageId": "wamid.SYNTHETIC-HOOK-0002",
+        "status": "FAILED",
+        "occurredAt": "2025-10-09T08:55:00Z",
+        "failure": "INVALID_RECIPIENT",
+        "handling": "applied",
+        "after": null,
+        "statusBefore": "SENT"
+      }
+    },
+    "duplicateOfDelivered": {
+      "signature": "sha256=125a1b0aceab24723e17f67442cbb16d207a89a2e4c8a83154e800969bf1c5b0",
+      "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"100000000000001\"},\"statuses\":[{\"id\":\"wamid.SYNTHETIC-HOOK-0001\",\"status\":\"delivered\",\"timestamp\":\"1760000000\",\"recipient_id\":\"50600000001\",\"conversation\":{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}}}]}}]}]}",
+      "expected": {
+        "providerMessageId": "wamid.SYNTHETIC-HOOK-0001",
+        "status": "DELIVERED",
+        "occurredAt": "2025-10-09T08:53:20Z",
+        "failure": null,
+        "handling": "deduplicated",
+        "after": "delivered",
+        "statusBefore": "DELIVERED"
+      }
+    },
+    "readBeforeDelivered": {
+      "signature": "sha256=7d07810d9a069b58df145733345a5a301afdd3e2c649069f9df5dbbc0108ac85",
+      "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"100000000000001\"},\"statuses\":[{\"id\":\"wamid.SYNTHETIC-HOOK-0003\",\"status\":\"read\",\"timestamp\":\"1760000200\",\"recipient_id\":\"50600000001\"}]}}]}]}",
+      "expected": {
+        "providerMessageId": "wamid.SYNTHETIC-HOOK-0003",
+        "status": "READ",
+        "occurredAt": "2025-10-09T08:56:40Z",
+        "failure": null,
+        "handling": "applied",
+        "after": null,
+        "statusBefore": "SENT"
+      }
+    },
+    "deliveredAfterRead": {
+      "signature": "sha256=f4be4e05a805edebc1cfe57c0189a487e4e452a403edf3a2782b1cd31767fbcb",
+      "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"100000000000001\"},\"statuses\":[{\"id\":\"wamid.SYNTHETIC-HOOK-0003\",\"status\":\"delivered\",\"timestamp\":\"1760000150\",\"recipient_id\":\"50600000001\"}]}}]}]}",
+      "expected": {
+        "providerMessageId": "wamid.SYNTHETIC-HOOK-0003",
+        "status": "DELIVERED",
+        "occurredAt": "2025-10-09T08:55:50Z",
+        "failure": null,
+        "handling": "ignoredTerminal",
+        "after": "readBeforeDelivered",
+        "statusBefore": "READ"
+      }
+    }
+  }
+}

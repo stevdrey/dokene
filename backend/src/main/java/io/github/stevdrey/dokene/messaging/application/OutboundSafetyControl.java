@@ -16,7 +16,11 @@ public interface OutboundSafetyControl {
      */
     Optional<ApprovalFingerprint.SenderRevision> configuredSender(TenantId tenantId);
 
-    /** Read at send time, never cached across requests; implementations throw rather than guess on missing state. */
+    /**
+     * Send policy steps 3 and 4 in order: the global switch, the tenant switch, then the integration state. The gate
+     * that calls this does not check either switch itself, so every implementation enforces both. Read at send time,
+     * never cached across requests; implementations throw rather than guess on missing state.
+     */
     Decision evaluate(TenantId tenantId);
 
     sealed interface Decision permits Permitted, Blocked {

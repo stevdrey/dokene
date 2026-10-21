@@ -2,7 +2,7 @@
 // ABOUTME: Many denials across tenants and the deployment scope produce one WARN line and no leaked reference.
 package io.github.stevdrey.dokene.integration.secrets;
 
-import static io.github.stevdrey.dokene.integration.secrets.SecretCanaries.containsAny;
+import static io.github.stevdrey.dokene.integration.testsupport.SecretCanaries.containsAny;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -13,6 +13,8 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException;
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.Category;
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.ScopeKind;
+import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.List;
 import org.junit.jupiter.api.Test;

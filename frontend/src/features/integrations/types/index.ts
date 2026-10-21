@@ -11,6 +11,11 @@ export interface IntegrationRequest {
   secretRef: string;
 }
 
+// Body of PUT /api/integrations/whatsapp/outbound, the tenant outbound kill switch (spec 0008).
+export interface OutboundRequest {
+  enabled: boolean;
+}
+
 export interface IntegrationResponse {
   enabled: boolean;
   outboundEnabled: boolean;

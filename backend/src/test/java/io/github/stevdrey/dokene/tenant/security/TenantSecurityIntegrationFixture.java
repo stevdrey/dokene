@@ -44,23 +44,38 @@ public final class TenantSecurityIntegrationFixture {
 
     public static void configure(DynamicPropertyRegistry registry) throws SQLException {
         startWithDatabaseRoles();
+        configure(registry, POSTGRES);
+    }
 
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+    /** Points the application at {@code database}, which must already have the migration and runtime roles. */
+    public static void configure(DynamicPropertyRegistry registry, PostgreSQLContainer database) {
+        registry.add("spring.datasource.url", database::getJdbcUrl);
         registry.add("spring.datasource.username", () -> RUNTIME_ROLE);
         registry.add("spring.datasource.password", () -> RUNTIME_PASSWORD);
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "1");
-        registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.flyway.url", database::getJdbcUrl);
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
+    }
+
+    /**
+     * A started PostgreSQL of its own, with the same roles as the shared one, for tests that disrupt the server
+     * (pause, stop) and must not take every other integration class down with it. The caller stops it.
+     */
+    public static PostgreSQLContainer startDedicatedWithDatabaseRoles() throws SQLException {
+        PostgreSQLContainer database = new PostgreSQLContainer("postgres:17-alpine");
+        database.start();
+        createDatabaseRoles(database);
+        return database;
     }
 
     private static void startWithDatabaseRoles() throws SQLException {
         POSTGRES.start();
         if (DATABASE_ROLES_CREATED.compareAndSet(false, true)) {
             try {
-                createDatabaseRoles();
+                createDatabaseRoles(POSTGRES);
             } catch (SQLException exception) {
                 DATABASE_ROLES_CREATED.set(false);
                 throw exception;
@@ -185,9 +200,9 @@ public final class TenantSecurityIntegrationFixture {
         }
     }
 
-    private static void createDatabaseRoles() throws SQLException {
+    private static void createDatabaseRoles(PostgreSQLContainer database) throws SQLException {
         try (Connection connection = DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                database.getJdbcUrl(), database.getUsername(), database.getPassword());
                 Statement statement = connection.createStatement()) {
             statement.execute("""
                     CREATE ROLE dokene_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
@@ -197,9 +212,9 @@ public final class TenantSecurityIntegrationFixture {
                     CREATE ROLE dokene_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
                     PASSWORD '%s'
                     """.formatted(RUNTIME_PASSWORD));
-            statement.execute("REVOKE ALL ON DATABASE %s FROM PUBLIC".formatted(POSTGRES.getDatabaseName()));
-            statement.execute("GRANT CONNECT, CREATE ON DATABASE %s TO dokene_migration".formatted(POSTGRES.getDatabaseName()));
-            statement.execute("GRANT CONNECT ON DATABASE %s TO dokene_runtime".formatted(POSTGRES.getDatabaseName()));
+            statement.execute("REVOKE ALL ON DATABASE %s FROM PUBLIC".formatted(database.getDatabaseName()));
+            statement.execute("GRANT CONNECT, CREATE ON DATABASE %s TO dokene_migration".formatted(database.getDatabaseName()));
+            statement.execute("GRANT CONNECT ON DATABASE %s TO dokene_runtime".formatted(database.getDatabaseName()));
             statement.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
         }
     }

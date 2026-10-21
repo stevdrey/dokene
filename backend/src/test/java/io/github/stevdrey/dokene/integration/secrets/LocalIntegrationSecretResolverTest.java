@@ -2,7 +2,7 @@
 // ABOUTME: Spec 0006 AC-4, AC-5 and AC-6 with random canaries and a boolean log check that never prints them.
 package io.github.stevdrey.dokene.integration.secrets;
 
-import static io.github.stevdrey.dokene.integration.secrets.SecretCanaries.containsAny;
+import static io.github.stevdrey.dokene.integration.testsupport.SecretCanaries.containsAny;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -17,6 +17,8 @@ import io.github.stevdrey.dokene.integration.application.SecretUnavailableExcept
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.Category;
 import io.github.stevdrey.dokene.integration.application.SecretUnavailableException.ScopeKind;
 import io.github.stevdrey.dokene.integration.secrets.LocalIntegrationSecretResolver.ConfiguredEntry;
+import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;

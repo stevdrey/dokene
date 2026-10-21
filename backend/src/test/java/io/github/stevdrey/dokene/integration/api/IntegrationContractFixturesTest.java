@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationRequest;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.IntegrationResponse;
+import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.OutboundRequest;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -62,6 +63,31 @@ class IntegrationContractFixturesTest {
         }));
     }
 
+    /** The kill switch body (spec 0008): the production reader accepts a JSON boolean and nothing standing in for it. */
+    @TestFactory
+    Stream<DynamicTest> outboundRequestsAcceptOnlyAOneMemberBooleanBody() {
+        var tests = new ArrayList<DynamicTest>();
+        Map<String, JsonNode> valid = named(fixture.get("outboundRequest").get("valid"));
+        assertThat(valid.keySet()).containsExactlyInAnyOrder("on", "off");
+        valid.forEach((name, node) -> tests.add(dynamicTest("outboundRequest.valid." + name, () -> {
+            assertThat(IntegrationApiContract.readOutbound(node)).isEqualTo(new OutboundRequest(node.get("enabled")
+                    .asBoolean()));
+            assertThat(written(node, OutboundRequest.class)).isEqualTo(node);
+        })));
+        Map<String, JsonNode> invalid = named(fixture.get("outboundRequest").get("invalid"));
+        assertThat(invalid.keySet()).containsExactlyInAnyOrder("missingEnabled", "nullEnabled", "stringEnabled",
+                "numericEnabled", "unknownMember");
+        invalid.forEach((name, node) -> tests.add(dynamicTest("outboundRequest.invalid." + name, () -> assertThat(
+                catchThrowable(() -> IntegrationApiContract.readOutbound(node)))
+                .isInstanceOf(IntegrationApiContract.InvalidRequestException.class))));
+        for (String shape : List.of("null", "[]", "true", "\"enabled\"")) {
+            tests.add(dynamicTest("outboundRequest.invalid.shape " + shape, () -> assertThat(
+                    catchThrowable(() -> IntegrationApiContract.readOutbound(mapper.readTree(shape))))
+                    .isInstanceOf(IntegrationApiContract.InvalidRequestException.class)));
+        }
+        return tests.stream();
+    }
+
     @TestFactory
     Stream<DynamicTest> responsesRoundTripUnchanged() {
         return named(fixture.get("response").get("valid")).entrySet().stream().map(entry -> dynamicTest(
@@ -90,6 +116,7 @@ class IntegrationContractFixturesTest {
         expected.put(IntegrationRequest.class, List.of("phoneNumberId: java.lang.String",
                 "businessAccountId: java.lang.String", "displayPhoneNumber: java.lang.String",
                 "enabled: java.lang.Boolean", "secretRef: java.lang.String"));
+        expected.put(OutboundRequest.class, List.of("enabled: java.lang.Boolean"));
         expected.put(IntegrationResponse.class, List.of("enabled: boolean", "outboundEnabled: boolean",
                 "phoneNumberId: java.lang.String", "businessAccountId: java.lang.String",
                 "displayPhoneNumber: java.lang.String", "secretRef: java.lang.String", "webhookVerified: boolean",

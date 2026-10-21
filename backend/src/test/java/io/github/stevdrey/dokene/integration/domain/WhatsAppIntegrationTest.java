@@ -55,6 +55,39 @@ class WhatsAppIntegrationTest {
     }
 
     @Test
+    void theOutboundSwitchStartsOffAndChangesOnlyThroughItsOwnMethod() {
+        assertThat(created.outboundEnabled()).isFalse();
+
+        WhatsAppIntegration on = created.verifyOwnership(T1).withOutboundEnabled(true, T1);
+        assertThat(on.outboundEnabled()).isTrue();
+        assertThat(on.updatedAt()).isEqualTo(T1);
+        // Everything else, including the version and the proof, is as it was.
+        assertThat(on).usingRecursiveComparison().ignoringFields("outboundEnabled", "updatedAt")
+                .isEqualTo(created.verifyOwnership(T1));
+        assertThat(on.withOutboundEnabled(false, T1).outboundEnabled()).isFalse();
+
+        // The switch is independent of the enabled flag and of the proof; it can be on while the integration is off.
+        assertThat(created.update(PHONE, WABA, null, false, "wa-token", T1).withOutboundEnabled(true, T1)
+                .outboundEnabled()).isTrue();
+    }
+
+    @Test
+    void everyOtherChangePreservesTheOutboundSwitch() {
+        WhatsAppIntegration on = created.verifyOwnership(T1).withOutboundEnabled(true, T1);
+        assertThat(on.update("100000000000002", "200000000000002", null, false, "wa-token-two", T1)
+                .outboundEnabled()).isTrue();
+        assertThat(on.rotateCredential(T1).outboundEnabled()).isTrue();
+        assertThat(on.update(PHONE, WABA, null, true, "wa-token", T1).verifyOwnership(T1).outboundEnabled()).isTrue();
+        assertThat(on.withVersion(7).outboundEnabled()).isTrue();
+
+        WhatsAppIntegration off = on.withOutboundEnabled(false, T1);
+        assertThat(off.update(PHONE, WABA, null, true, "wa-token-two", T1).outboundEnabled()).isFalse();
+        assertThat(off.rotateCredential(T1).outboundEnabled()).isFalse();
+        assertThat(off.verifyOwnership(T1).outboundEnabled()).isFalse();
+        assertThat(off.withVersion(7).outboundEnabled()).isFalse();
+    }
+
+    @Test
     void changingOnlyTheDisplayNumberKeepsTheProof() {
         WhatsAppIntegration verified = created.verifyOwnership(T1);
         assertThat(verified.update(PHONE, WABA, null, true, "wa-token", T1).ownershipVerifiedAt()).isEqualTo(T1);

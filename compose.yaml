@@ -148,6 +148,10 @@ services:
       DOKENE_DB_PASSWORD: ${DOKENE_DB_PASSWORD:?Set DOKENE_DB_PASSWORD in .env}
       DOKENE_DB_MIGRATION_USERNAME: ${DOKENE_DB_MIGRATION_USERNAME:-dokene_migration}
       DOKENE_DB_MIGRATION_PASSWORD: ${DOKENE_DB_MIGRATION_PASSWORD:?Set DOKENE_DB_MIGRATION_PASSWORD in .env}
+      DOKENE_DB_CONNECTION_TIMEOUT_MS: ${DOKENE_DB_CONNECTION_TIMEOUT_MS:-3000}
+      DOKENE_DB_UNAVAILABLE_RETRY_AFTER: ${DOKENE_DB_UNAVAILABLE_RETRY_AFTER:-5s}
+      DOKENE_DB_SOCKET_TIMEOUT: ${DOKENE_DB_SOCKET_TIMEOUT:-30s}
+      DOKENE_DB_STATEMENT_TIMEOUT: ${DOKENE_DB_STATEMENT_TIMEOUT:-25s}
       DOKENE_TENANT_CONTEXT_SIGNING_KEY: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY:?Set DOKENE_TENANT_CONTEXT_SIGNING_KEY in .env}
       DOKENE_TENANT_CONTEXT_KEY_ID: ${DOKENE_TENANT_CONTEXT_KEY_ID:-default}
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_PROVIDER: dokene
@@ -177,6 +181,13 @@ services:
       # entries boots a resolver that refuses everything as MISSING. To give the container entries, add the indexed
       # variables (or a volume plus SPRING_CONFIG_ADDITIONAL_LOCATION) in a compose override file (spec 0006).
       DOKENE_INTEGRATION_SECRETS_SOURCE: ${DOKENE_INTEGRATION_SECRETS_SOURCE:-}
+      # Bare keys of the deployment entries the webhook verifier resolves (spec 0007). Blank keeps each path refusing.
+      DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF: ${DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF:-}
+      DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF: ${DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF:-}
+      # Largest webhook body accepted, in bytes; a blank .env value falls back to the application default.
+      DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES:-4194304}
+      # Global outbound kill switch (spec 0008): off unless set to true; a change needs a container restart.
+      DOKENE_MESSAGING_OUTBOUND_ENABLED: ${DOKENE_MESSAGING_OUTBOUND_ENABLED:-false}
     read_only: true
     tmpfs:
       - /tmp

@@ -47,6 +47,10 @@
     "status": 401,
     "body": {"error": {"message": "Error validating access token SYNTHETIC-NOT-A-REAL-TOKEN for +50600000001: Session has expired", "type": "OAuthException", "code": 190, "error_data": {"messaging_product": "whatsapp", "details": "Authorization: Bearer SYNTHETIC-NOT-A-REAL-TOKEN; text=Hola Ana, tu pedido"}, "fbtrace_id": "SYNTHETIC-TRACE"}}
   },
+  "tokenExpiredWithCanaries": {
+    "status": 401,
+    "body": {"error": {"message": "Error validating access token CANARY-TOKEN for CANARY-PHONE: Session has expired", "type": "OAuthException", "code": 190, "error_data": {"messaging_product": "whatsapp", "details": "Authorization: Bearer CANARY-TOKEN; text=CANARY-BODY"}, "fbtrace_id": "SYNTHETIC-TRACE"}}
+  },
   "permissionMissing": {
     "status": 403,
     "body": {"error": {"message": "(#200) Permission not granted", "type": "OAuthException", "code": 200, "fbtrace_id": "SYNTHETIC-TRACE"}}

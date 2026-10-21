@@ -1,0 +1,16 @@
+import { launchChrome, Browser, login, sleep } from './cdp.mjs';
+import { writeFileSync } from 'node:fs';
+const c = await launchChrome(); const b = await new Browser(c.ws).open(); const p = await (await b.newPage()).init();
+const log = []; const L = (s) => { console.log(s); log.push(s); };
+await p.viewport(1440, 900); await login(p, 'testviewer'); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000); await sleep(600);
+L('== UX-05 VIEWER (testviewer) experience');
+await p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'Dormant');i.dispatchEvent(new Event('input',{bubbles:true}))})()`); await sleep(1200);
+await p.clickText('Dormant Té QA', '*'); await sleep(1500); await p.shot('/home/stevdrey/qa122/shots/ux05-viewer-detail.png');
+L('role label in the sidebar: ' + await p.ev(`(document.body.innerText.match(/Lector|Visualizador|Solo lectura|Viewer|Observador/gi)||[]).join(',')`));
+L('buttons visible: ' + JSON.stringify(await p.ev(`[...document.querySelectorAll('main button, aside button')].filter(b=>b.offsetParent!==null).map(b=>b.textContent.replace(/\\s+/g,' ').trim().slice(0,30)+(b.disabled?' [disabled]':'')).filter(Boolean)`)));
+L('AI panel text for the viewer: ' + (await p.ev(`(()=>{const h=[...document.querySelectorAll('h3')].find(e=>e.textContent.includes('Asistente IA'));return h?h.closest('section,div').parentElement.innerText.replace(/\\s+/g,' ').slice(0,400):'(no AI panel)'})()`)));
+L('permission explanation anywhere: ' + JSON.stringify(await p.ev(`(document.body.innerText.match(/[^.\\n]*(permiso|rol|solo lectura|administrador|no tienes)[^.\\n]*/gi)||[]).slice(0,6)`)));
+L('tooltips/aria-disabled controls: ' + JSON.stringify(await p.ev(`[...document.querySelectorAll('[aria-disabled=true],[disabled]')].filter(e=>e.offsetParent!==null).map(e=>(e.getAttribute('aria-label')||e.textContent).trim().slice(0,30)+' title='+(e.getAttribute('title')||''))`)));
+await p.clickText('Clientes', 'button,a'); await sleep(1500); await p.shot('/home/stevdrey/qa122/shots/ux05-viewer-customers.png');
+L('customers screen for viewer, create/edit buttons: ' + JSON.stringify(await p.ev(`[...document.querySelectorAll('button')].filter(b=>b.offsetParent!==null).map(b=>b.textContent.replace(/\\s+/g,' ').trim().slice(0,30)).filter(t=>/Nuevo|Agregar|Editar|Archivar|Registrar/.test(t))`)));
+writeFileSync('/home/stevdrey/qa122/out/ux05-viewer.txt', log.join('\n')); c.proc.kill(); process.exit(0);

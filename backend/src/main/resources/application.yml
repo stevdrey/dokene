@@ -7,6 +7,12 @@ spring:
     password: ${DOKENE_DB_PASSWORD}
     hikari:
       connection-init-sql: SET search_path TO dokene
+      # Milliseconds a request waits for a pooled connection before failing with 503 (issue 246). Hikari's 30 s
+      # default left callers hanging through a database outage. Startup refuses less than 500.
+      connection-timeout: ${DOKENE_DB_CONNECTION_TIMEOUT_MS:3000}
+      # Liveness check of an idle pooled connection before it is handed out. Hikari does not keep it below
+      # connection-timeout, so TenantPersistenceConfiguration caps it at half the pool wait (never below 250).
+      validation-timeout: 1000
   jpa:
     open-in-view: false
     hibernate:
@@ -27,6 +33,15 @@ spring:
     clean-disabled: true
 
 dokene:
+  datasource:
+    # Retry-After on the empty 503 answered while the database is unreachable (issue 246, ADR 0029).
+    unavailable-retry-after: ${DOKENE_DB_UNAVAILABLE_RETRY_AFTER:5s}
+    # Ceiling on one blocking read from PostgreSQL (pgJDBC socketTimeout, whole seconds rounded up; off by default in
+    # the driver). Only a silent network reaches it: the driver then reports a lost connection, answered with 503.
+    socket-timeout: ${DOKENE_DB_SOCKET_TIMEOUT:30s}
+    # Server-side statement_timeout of the runtime pool, shorter than socket-timeout, so a statement or lock wait that
+    # is merely long is cancelled as query_canceled (not an outage) and keeps its connection. Startup checks the order.
+    statement-timeout: ${DOKENE_DB_STATEMENT_TIMEOUT:25s}
   ai:
     provider: ${DOKENE_AI_PROVIDER:}
     rate-limit:
@@ -46,6 +61,13 @@ dokene:
       min-attempt-budget: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:1s}
   integration:
     whatsapp:
+      # Deployment secret references for the Meta webhook verifier (spec 0007): bare keys of the APP_SECRET and
+      # WEBHOOK_VERIFY_TOKEN entries, never the secrets. Blank keeps that path refusing every request.
+      verify-token-ref: ${DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF:}
+      app-secret-ref: ${DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF:}
+      webhook:
+        # Largest webhook body read, in bytes (1 to 16777216). Meta documents payloads up to 3 MB.
+        max-body-bytes: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES:4194304}
       # Phone numbers already mapped by another tenant, per sliding window, before mapping changes get 429 (issue 208).
       mapping-rejection-limit:
         tenant-rejections: ${DOKENE_WHATSAPP_MAPPING_REJECTION_TENANT_LIMIT:10}
@@ -56,11 +78,15 @@ dokene:
       # DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_<n>_* or a mounted file (spec 0006).
       source: ${DOKENE_INTEGRATION_SECRETS_SOURCE:}
   messaging:
-    # Manual dispatch send policy bounds (issue 138, ADR 0028); sending stays off until the kill switches allow it.
+    # Manual dispatch send policy bounds (issue 138, ADR 0028); the kill switches below and per tenant decide whether a send may go out.
     max-send-attempts: ${DOKENE_MESSAGING_MAX_SEND_ATTEMPTS:3}
     min-contact-interval: ${DOKENE_MESSAGING_MIN_CONTACT_INTERVAL:24h}
     send-rate-per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
     send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
+    outbound:
+      # Global kill switch (spec 0008): off unless the deployment sets it; read once at startup, so changing it needs
+      # a restart. No API, tenant setting or header can turn it on.
+      enabled: ${DOKENE_MESSAGING_OUTBOUND_ENABLED:false}
     recovery:
       # Turns STARTED claims older than claim-timeout into unknown outcomes (ADR 0028 §5); never calls the provider.
       # While enabled, startup fails unless claim-timeout >= dokene.messaging.send-timeout + 1m; keep it well above.

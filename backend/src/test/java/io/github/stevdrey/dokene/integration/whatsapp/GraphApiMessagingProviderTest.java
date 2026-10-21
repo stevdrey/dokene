@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
@@ -43,6 +44,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -436,6 +438,11 @@ class GraphApiMessagingProviderTest {
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(integration(true, false)));
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
 
+        // The tenant kill switch turned off after the claim committed: enabled and proven, yet refused (spec 0008).
+        when(integrations.findByTenant(tenantId))
+                .thenReturn(Optional.of(configured.withOutboundEnabled(false, Instant.now())));
+        assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.POLICY_VIOLATION));
+
         when(integrations.findByTenant(tenantId)).thenReturn(Optional.of(configured));
         when(secrets.getIfAvailable()).thenReturn(null);
         assertThat(send()).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
@@ -533,14 +540,18 @@ class GraphApiMessagingProviderTest {
         assertThat(requests).hasValue(0);
     }
 
-    @Test
-    void noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs(CapturedOutput output) {
-        replay("tokenExpiredWithSecrets");
+    /** covers: spec 0009 AC-7 */
+    @ParameterizedTest
+    @CsvSource({"tokenExpiredWithSecrets", "tokenExpiredWithCanaries"})
+    void noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs(String fixture, CapturedOutput output) {
+        replay(fixture);
 
         ProviderSendResult result = provider.send(command(List.of("Hola Ana, tu pedido")));
 
         assertThat(result).isEqualTo(new RejectedPermanently(FailureCategory.AUTHENTICATION));
-        for (String leaked : List.of(TOKEN, RECIPIENT, "50600000001", "Hola Ana", "Bearer", "SYNTHETIC-TRACE")) {
+        var leaks = new ArrayList<>(List.of(TOKEN, RECIPIENT, "50600000001", "Hola Ana", "Bearer", "SYNTHETIC-TRACE"));
+        leaks.addAll(SecretCanaries.fixedNeedles());
+        for (String leaked : leaks) {
             assertThat(result.toString()).doesNotContain(leaked);
             assertThat(output.getAll()).doesNotContain(leaked);
         }
@@ -571,9 +582,10 @@ class GraphApiMessagingProviderTest {
                 new GraphApiHttp(new GraphApiProperties(baseUrl, Duration.ofMillis(500), List.of())));
     }
 
+    /** A sendable row unless told otherwise: the tenant switch is on, which {@code create} leaves off. */
     private WhatsAppIntegration integration(boolean enabled, boolean verified) {
         WhatsAppIntegration created = WhatsAppIntegration.create(tenantId, PHONE_NUMBER_ID, "400000000000001", null,
-                true, "synthetic-wa-token", Instant.now());
+                true, "synthetic-wa-token", Instant.now()).withOutboundEnabled(true, Instant.now());
         WhatsAppIntegration proven = verified ? created.verifyOwnership(Instant.now()) : created;
         return enabled ? proven : proven.update(PHONE_NUMBER_ID, "400000000000001", null, false,
                 "synthetic-wa-token", Instant.now());

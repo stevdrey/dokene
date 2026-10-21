@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.domain.AuditMessageStatus;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.ProviderContext;
 import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
@@ -22,6 +23,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextUnavailableException;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -41,7 +43,7 @@ class TransactionalAuditRecorderProviderBindingTest {
     private final AuditExecutionContext execution = new AuditExecutionContext();
     private final TransactionalAuditRecorder recorder = new TransactionalAuditRecorder(store, contexts,
             providerContexts, signer, execution, Clock.fixed(NOW, ZoneOffset.UTC),
-            mock(PlatformTransactionManager.class));
+            mock(PlatformTransactionManager.class), new DatabaseUnavailability(Duration.ofSeconds(5)));
     private final TenantId tenantId = new TenantId(UUID.randomUUID());
     private final UUID messageId = UUID.randomUUID();
 

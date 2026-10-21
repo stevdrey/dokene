@@ -1,0 +1,736 @@
+# Suite #119: captured outputs of the scripts, one section per original file (sanitized, synthetic data).
+
+
+===== ai-side-effects-business-state-after.txt =====
+{"v":0,"u":"2026-10-07T17:07:20.744508Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"a439539a-7fa1-4796-8e0f-c8eeff904017","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"OVERDUE","dueDate":"2026-10-05","policyVersion":0}]
+
+
+===== ai-side-effects-business-state-before.txt =====
+{"v":0,"u":"2026-10-07T17:07:20.744508Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"a439539a-7fa1-4796-8e0f-c8eeff904017","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"OVERDUE","dueDate":"2026-10-05","policyVersion":0}]
+
+
+===== audit-event-counts-after-ai.txt =====
+AI_INVOCATION_OUTCOME|2
+AUTHORIZATION_DENIED|21
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|5
+CUSTOMER_CREATED|19
+CUSTOMER_DO_NOT_CONTACT_CHANGED|4
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|1
+CUSTOMER_UPDATED|2
+MANUAL_FOLLOW_UP_RECORDED|1
+MEMBERSHIP_CREATED|2
+PURCHASE_CORRECTED|1
+PURCHASE_RECORDED|5
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|3
+
+
+===== audit-event-counts-before-ai.txt =====
+AUTHORIZATION_DENIED|21
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|5
+CUSTOMER_CREATED|19
+CUSTOMER_DO_NOT_CONTACT_CHANGED|4
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|1
+CUSTOMER_UPDATED|2
+MANUAL_FOLLOW_UP_RECORDED|1
+MEMBERSHIP_CREATED|2
+PURCHASE_CORRECTED|1
+PURCHASE_RECORDED|5
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|3
+
+
+===== rerun-07e0136/ai-side-effects-business-state-after.txt =====
+{"v":0,"u":"2026-10-11T03:57:59.777757Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"117fa32b-52c8-456c-a256-02a13cc1612b","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"VALID","version":1},{"status":"VALID","version":0}]
+[{"status":"OVERDUE","dueDate":"2026-09-27","policyVersion":0}]
+
+
+===== rerun-07e0136/ai-side-effects-business-state-before.txt =====
+{"v":0,"u":"2026-10-11T03:57:59.777757Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"117fa32b-52c8-456c-a256-02a13cc1612b","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"VALID","version":1},{"status":"VALID","version":0}]
+[{"status":"OVERDUE","dueDate":"2026-09-27","policyVersion":0}]
+
+
+===== rerun-07e0136/audit-event-counts-after-ai.txt =====
+AI_INVOCATION_OUTCOME|2
+AUTHORIZATION_DENIED|111
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|24
+CUSTOMER_CREATED|37
+CUSTOMER_DO_NOT_CONTACT_CHANGED|2
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|4
+CUSTOMER_UPDATED|5
+FOLLOW_UP_DISMISSED|3
+FOLLOW_UP_SNOOZED|4
+MANUAL_FOLLOW_UP_RECORDED|3
+MEMBERSHIP_CREATED|2
+MEMBERSHIP_ROLE_CHANGED|8
+PURCHASE_CORRECTED|2
+PURCHASE_RECORDED|26
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|19
+
+
+===== rerun-07e0136/audit-event-counts-before-ai.txt =====
+AUTHORIZATION_DENIED|111
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|24
+CUSTOMER_CREATED|37
+CUSTOMER_DO_NOT_CONTACT_CHANGED|2
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|4
+CUSTOMER_UPDATED|5
+FOLLOW_UP_DISMISSED|3
+FOLLOW_UP_SNOOZED|4
+MANUAL_FOLLOW_UP_RECORDED|3
+MEMBERSHIP_CREATED|2
+MEMBERSHIP_ROLE_CHANGED|8
+PURCHASE_CORRECTED|2
+PURCHASE_RECORDED|26
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|19
+
+
+===== rerun-07e0136/copy-draft-real-chrome.txt =====
+REG-07 "Copy draft" success path in a real Chrome (Claude in Chrome extension, Linux), stack from ./scripts/dev-env.sh, main @ 07e0136.
+Synthetic user testoperator; live OpenAI recommendation + draft for a synthetic due customer; real user clicks.
+
+1. Draft: "Hola, ¿cómo estás? Queríamos saber si necesitas reponer el Café 1 kg que compraste el 10 de agosto. En QA Café Norte estamos para ayudarte cuando lo necesites. ¡Saludos!"
+   click "Copiar borrador" -> status "Borrador copiado"; navigator.clipboard.readText() === draft  (true)
+2. Edited draft (appended " (editado por QA en Chrome)"): click "Copiar borrador" -> "Borrador copiado"; clipboard === edited text (true), differs from the original draft (true).
+3. First attempt (before the clipboard-read permission was granted): the success message appeared, but a Ctrl+V sent by the automation tool pasted an older clipboard value (a URL), and a clipboard-read call hung on the browser permission prompt. After the maintainer allowed the prompt and the draft was regenerated, readText returned exactly the draft. The earlier mismatch was an artifact of the automation paste path, not of the app.
+4. In the in-app browser the same button showed "No se pudo copiar el borrador" because clipboard-write is denied there (environment limitation).
+Signed out and closed the tab afterwards.
+
+
+===== rerun-07e0136/recurrence-output.txt =====
+PASS  REC  cycle 1: overdue from the old purchase
+PASS  REC  cycle 1: completion recorded today
+PASS  REC  cycle 1: NOT_YET_DUE, next = today+30 (LAST_MANUAL_FOLLOW_UP)
+PASS  REC  cycle 1: customer left the queue
+PASS  REC  after +31 days: OVERDUE by one day, still anchored on the manual follow-up
+PASS  REC  after +31 days: back in the queue as OVERDUE
+PASS  REC  replaying the cycle-1 key returns the first record, not a new completion
+PASS  REC  cycle 2: second completion recorded today
+PASS  REC  cycle 2: NOT_YET_DUE, next = today+30
+PASS  REC  two completions stored (history kept)
+PASS  REC  cycle 3 due again (+31 days)
+PASS  REC  cycle 3: dismissal recorded
+PASS  REC  after the dismissal the anchor is the dismissal (latest of the anchors)
+PASS  REC  cycle 4 due again (+31 days)
+PASS  REC  cycle 4: completion after a dismissal re-anchors on the completion
+PASS  REC  history: 3 completions + 1 dismissal
+
+SUMMARY pass=16 fail=0
+
+
+===== rerun-07e0136/reg-api-output.txt =====
+PASS  REG-01  flyway: at least 15 migrations applied
+PASS  REG-01  flyway: every migration successful
+PASS  REG-01  runtime role is not superuser and does not bypass RLS
+PASS  REG-01  migration role is not superuser
+PASS  REG-01  BFF returns 401 without a session
+PASS  REG-01  operator is OPERATOR in Norte
+PASS  REG-01  viewer is VIEWER in Norte
+PASS  REG-01  second tenant provisioned (owner)
+PASS  REG-01  owner is OWNER in both tenants
+PASS  REG-01  operator has no access to tenant Sur
+PASS  REG-03  create CL customer
+PASS  REG-03  create CR customer
+PASS  REG-03  CR number normalized to E.164
+PASS  REG-03  create international (US) customer
+PASS  REG-03  duplicate phone in same tenant
+PASS  REG-03  invalid CL phone -> 400 field phones[0].number (#72)
+PASS  REG-03  invalid CR phone -> 400 field phones[0].number
+PASS  REG-03  missing region -> 400 field phones[0].region
+PASS  REG-03  blank name -> 400 field displayName (#127)
+PASS  REG-03  161-char name rejected (#127)
+PASS  REG-03  160-char name accepted
+PASS  REG-03  update without If-Match -> 400 field version
+PASS  REG-03  update with current version
+PASS  REG-03  stale If-Match -> 409
+PASS  REG-03  OPERATOR cannot archive (CUSTOMER_DELETE is OWNER/ADMIN)
+PASS  REG-03  VIEWER cannot create
+PASS  REG-03  OWNER archives customer
+PASS  REG-03  phone of an archived customer stays reserved
+PASS  REG-03  archived customer listed with status filter
+PASS  REG-03  same phone allowed in another tenant
+PASS  REG-03  search by phone finds the customer
+PASS  REG-03  search by name
+PASS  REG-04  initial consent UNKNOWN / not eligible
+PASS  REG-04  grant consent
+PASS  REG-04  granted -> eligible
+PASS  REG-04  do-not-contact on
+PASS  REG-04  DNC overrides granted consent
+PASS  REG-04  revoke consent while DNC on
+PASS  REG-04  clear DNC
+PASS  REG-04  cleared DNC with revoked consent stays not eligible
+PASS  REG-04  stale policy If-Match -> 409
+PASS  REG-04  VIEWER cannot change policy
+PASS  REG-04  change contact identity
+PASS  REG-04  consent not transferred to the new contact
+PASS  REG-05  record purchase
+PASS  REG-05  record backdated purchase
+PASS  REG-05  last purchase = latest valid by date
+PASS  REG-05  idempotent replay returns 200
+PASS  REG-05  same key + different body -> 409
+PASS  REG-05  future date rejected
+PASS  REG-05  correct purchase date
+PASS  REG-05  last purchase after correction
+PASS  REG-05  void latest purchase
+PASS  REG-05  last purchase after voiding the latest
+PASS  REG-05  history keeps RECORDED and VOIDED
+PASS  REG-05  list shows VOID and VALID statuses
+PASS  REG-06  overdue from last valid purchase + tenant cadence
+PASS  REG-06  queue lists the overdue customer
+PASS  REG-06  set explicit next date = tenant today
+PASS  REG-06  explicit date today -> DUE
+PASS  REG-06  tenant timezone Pacific/Kiritimati accepted
+PASS  REG-06  date boundary UTC+14 (expected computed from the real zone)
+PASS  REG-06  date boundary UTC-11 (expected computed from the real zone)
+PASS  REG-06  invalid timezone -> 400
+PASS  REG-06  restore UTC
+PASS  REG-06  cadence 0 rejected
+PASS  REG-06  snooze to the past -> 400
+PASS  REG-06  snooze a DUE customer
+PASS  REG-06  snoozed customer is NOT_YET_DUE
+PASS  REG-06  dismiss a NOT_YET_DUE customer -> 409
+PASS  REG-06  dismiss a DUE/OVERDUE customer (201)
+PASS  REG-06  dismissal replay (same key) -> 200, same record
+PASS  REG-06  dismissed customer advances to NOT_YET_DUE
+PASS  REG-06  manual completion (201)
+PASS  REG-06  completion replay returns original record (200)
+PASS  REG-06  stale If-Match on disposition -> 409
+PASS  REG-06  invalid idempotency key -> 400
+PASS  REG-06  single completion recorded (no duplicate on replay)
+PASS  REG-06  OPERATOR cannot change the tenant-wide policy (#159)
+PASS  REG-06  VIEWER cannot change the tenant-wide policy
+
+SUMMARY pass=80 fail=0
+
+
+===== rerun-07e0136/verify-159-output.txt =====
+PASS  T159  baseline tenant policy
+PASS  T159  OPERATOR PUT tenant policy -> 403
+PASS  T159  VIEWER PUT tenant policy -> 403
+PASS  T159  denied attempts changed nothing
+PASS  T159  OPERATOR PUT without If-Match -> 403 (#162)
+PASS  T159  OPERATOR PUT with an invalid body -> 403 (#162)
+PASS  T159  4 denials audited with TENANT_UPDATE
+PASS  T159  OPERATOR GET tenant policy -> 200
+PASS  T159  VIEWER GET tenant policy -> 200
+PASS  T159  OWNER PUT tenant policy -> 200
+PASS  T159  OWNER change applied, version +1
+PASS  T159  OWNER stale If-Match -> 409
+PASS  T159  OWNER invalid time zone -> 400
+PASS  T159  OWNER cadence 0 -> 400
+PASS  T159  OWNER promotes testoperator to ADMIN
+PASS  T159  ADMIN PUT tenant policy -> 200
+PASS  T159  ADMIN change applied
+PASS  T159  OWNER demotes testoperator back to OPERATOR
+PASS  T159  demoted OPERATOR PUT -> 403 again
+PASS  T159  restore baseline (OWNER)
+PASS  T159  baseline restored
+PASS  T159  3 successful changes audited (OWNER, ADMIN, restore)
+PASS  T159  OPERATOR snooze still works
+PASS  T159  OPERATOR dismissal still works
+PASS  T159  OPERATOR manual completion still works
+PASS  T159  OPERATOR per-customer policy still works
+PASS  T159  VIEWER per-customer policy -> 403
+PASS  T159  OPERATOR reads the queue
+
+SUMMARY pass=28 fail=0
+
+
+===== rerun-07e0136/verify-162-output.txt =====
+== unauthorized (VIEWER) + malformed requests: expect 403 and one denial audit row each ==
+PASS  T162  VIEWER POST customer, invalid body -> 403
+PASS  T162    denial audited (POST customer, invalid body)
+PASS  T162  VIEWER PUT customer without If-Match -> 403
+PASS  T162    denial audited (PUT customer without If-Match)
+PASS  T162  VIEWER DELETE customer without If-Match -> 403
+PASS  T162    denial audited (DELETE customer without If-Match)
+PASS  T162  VIEWER PUT consent without If-Match -> 403
+PASS  T162    denial audited (PUT consent without If-Match)
+PASS  T162  VIEWER PUT consent with garbage body -> 403
+PASS  T162    denial audited (PUT consent with garbage body)
+PASS  T162  VIEWER PUT do-not-contact without If-Match -> 403
+PASS  T162    denial audited (PUT do-not-contact without If-Match)
+PASS  T162  VIEWER POST purchase without Idempotency-Key -> 403
+PASS  T162    denial audited (POST purchase without Idempotency-Key)
+PASS  T162  VIEWER POST purchase invalid body -> 403
+PASS  T162    denial audited (POST purchase invalid body)
+PASS  T162  VIEWER PUT purchase without If-Match -> 403
+PASS  T162    denial audited (PUT purchase without If-Match)
+PASS  T162  VIEWER DELETE purchase without If-Match -> 403
+PASS  T162    denial audited (DELETE purchase without If-Match)
+PASS  T162  VIEWER PUT tenant policy without If-Match -> 403
+PASS  T162    denial audited (PUT tenant policy without If-Match)
+PASS  T162  VIEWER PUT tenant policy invalid body -> 403
+PASS  T162    denial audited (PUT tenant policy invalid body)
+PASS  T162  VIEWER PUT customer follow-up policy without If-Match -> 403
+PASS  T162    denial audited (PUT customer follow-up policy without If-Match)
+PASS  T162  VIEWER PUT snooze without If-Match -> 403
+PASS  T162    denial audited (PUT snooze without If-Match)
+PASS  T162  VIEWER POST manual follow-up without headers -> 403
+PASS  T162    denial audited (POST manual follow-up without headers)
+PASS  T162  VIEWER POST dismissal without headers -> 403
+PASS  T162    denial audited (POST dismissal without headers)
+== OPERATOR on administration endpoints, malformed ==
+PASS  T162  OPERATOR POST membership with invalid body -> 403
+PASS  T162    denial audited
+PASS  T162  OPERATOR change role with invalid body -> 403
+PASS  T162    denial audited
+== unauthenticated ==
+PASS  T162  no session, malformed -> 401
+== authorized callers keep validation errors (400) after authorization ==
+PASS  T162  OPERATOR PUT customer without If-Match -> 400 field version
+PASS  T162  OPERATOR POST purchase without Idempotency-Key -> 400
+PASS  T162  OPERATOR POST customer blank name -> 400
+PASS  T162  OWNER tenant policy cadence 0 -> 400
+PASS  T162  OWNER tenant policy without If-Match -> 400
+== valid requests still work ==
+PASS  T162  OPERATOR valid customer update -> 200
+PASS  T162  OPERATOR valid purchase -> 201
+PASS  T162  VIEWER read -> 200
+
+SUMMARY pass=45 fail=0
+
+
+===== rerun-90045a1/ai-side-effects-business-state-after.txt =====
+{"v":0,"u":"2026-10-08T22:56:41.644117Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"4f85e79b-5e9a-48e4-a873-8c84d157e69c","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"VALID","version":1},{"status":"VALID","version":0}]
+[{"status":"OVERDUE","dueDate":"2026-09-27","policyVersion":0}]
+
+
+===== rerun-90045a1/ai-side-effects-business-state-before.txt =====
+{"v":0,"u":"2026-10-08T22:56:41.644117Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"4f85e79b-5e9a-48e4-a873-8c84d157e69c","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"VALID","version":1},{"status":"VALID","version":0}]
+[{"status":"OVERDUE","dueDate":"2026-09-27","policyVersion":0}]
+
+
+===== rerun-90045a1/api-checks-output.txt =====
+PASS  REG-01  flyway migrations all successful (15 versions)
+ERROR:  trailing junk after numeric literal at or near "228dokene_runtime228"
+LINE 1: ...rolsuper,rolbypassrls from pg_roles where rolname=228dokene_...
+                                                             ^
+FAIL  REG-01  runtime role is not superuser and does not bypass RLS  (harness quoting error; re-verified directly: dokene_runtime|f|f)
+PASS  REG-01  BFF returns 401 without a session
+PASS  REG-01  operator sees Norte as OPERATOR
+PASS  REG-01  viewer sees Norte as VIEWER
+PASS  REG-01  second tenant provisioned (owner)
+PASS  REG-01  owner has OWNER in both tenants
+PASS  REG-01  operator has no access to tenant Sur
+PASS  REG-03  create CL customer
+PASS  REG-03  create CR customer (region added in #153)
+PASS  REG-03  CR number normalized to E.164
+PASS  REG-03  create international (US) customer
+PASS  REG-03  duplicate phone in same tenant
+PASS  REG-03  invalid CL phone -> 400 field phones[0].number (#72)
+PASS  REG-03  invalid CR phone -> 400 field phones[0].number
+PASS  REG-03  missing region -> 400 field phones[0].region
+PASS  REG-03  blank name -> 400 field displayName (#127)
+PASS  REG-03  161-char name rejected (#127)
+PASS  REG-03  160-char name accepted
+PASS  REG-03  update without If-Match -> 400 field version
+PASS  REG-03  update with current version
+PASS  REG-03  stale If-Match -> 409
+PASS  REG-03  OPERATOR cannot archive (CUSTOMER_DELETE is OWNER/ADMIN)
+PASS  REG-03  VIEWER cannot create
+PASS  REG-03  OWNER archives customer
+PASS  REG-03  phone of an archived customer stays reserved
+PASS  REG-03  archived customer listed with status filter
+PASS  REG-03  same phone allowed in another tenant
+PASS  REG-03  search by phone finds the customer
+PASS  REG-03  search by name
+PASS  REG-04  initial consent is UNKNOWN / not eligible
+PASS  REG-04  grant consent
+PASS  REG-04  granted -> eligible
+PASS  REG-04  do-not-contact on
+PASS  REG-04  DNC overrides granted consent
+PASS  REG-04  revoke consent while DNC on
+PASS  REG-04  clear DNC
+PASS  REG-04  cleared DNC with revoked consent stays not eligible
+PASS  REG-04  stale policy If-Match -> 409
+PASS  REG-04  VIEWER cannot change policy
+PASS  REG-04  change contact identity
+PASS  REG-04  consent not transferred to the new contact
+PASS  REG-05  record purchase
+PASS  REG-05  record backdated purchase
+PASS  REG-05  last purchase = latest valid by date
+PASS  REG-05  idempotent replay returns 200
+PASS  REG-05  same key + different body -> 409
+PASS  REG-05  future date rejected
+PASS  REG-05  correct purchase date
+PASS  REG-05  last purchase after correction
+PASS  REG-05  void latest purchase
+PASS  REG-05  last purchase after voiding the latest
+PASS  REG-05  history keeps RECORDED and VOIDED
+PASS  REG-05  list shows VOID and VALID statuses
+PASS  REG-06  overdue from last valid purchase + tenant cadence
+PASS  REG-06  queue lists the overdue customer
+PASS  REG-06  set explicit next date = tenant today
+PASS  REG-06  explicit date today -> DUE
+PASS  REG-06  tenant timezone Pacific/Kiritimati accepted
+PASS  REG-06  date boundary: UTC+14 tenant date moves forward -> OVERDUE
+PASS  REG-06  date boundary: UTC-11 tenant date -> DUE or earlier
+PASS  REG-06  invalid timezone -> 400
+PASS  REG-06  restore UTC
+PASS  REG-06  cadence 0 rejected
+PASS  REG-06  snooze to the past -> 400
+PASS  REG-06  snooze a DUE customer
+PASS  REG-06  snoozed customer is NOT_YET_DUE and leaves the queue
+PASS  REG-06  dismiss a NOT_YET_DUE customer -> 409
+PASS  REG-06  dismiss a DUE/OVERDUE customer (201)
+PASS  REG-06  dismissal replay (same key) -> 200, same record
+PASS  REG-06  dismissed customer advances to NOT_YET_DUE with LAST_DISMISSAL anchor
+PASS  REG-06  manual completion (201)
+PASS  REG-06  completion replay returns original record (200)
+PASS  REG-06  stale If-Match on disposition -> 409
+PASS  REG-06  invalid idempotency key -> 400
+PASS  REG-06  single completion recorded (no duplicate on replay)
+
+SUMMARY pass=75 fail=1
+
+
+===== rerun-90045a1/audit-event-counts-after-ai.txt =====
+AI_INVOCATION_OUTCOME|2
+AUTHORIZATION_DENIED|34
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|6
+CUSTOMER_CREATED|19
+CUSTOMER_DO_NOT_CONTACT_CHANGED|2
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|1
+CUSTOMER_UPDATED|2
+FOLLOW_UP_DISMISSED|1
+FOLLOW_UP_SNOOZED|1
+MANUAL_FOLLOW_UP_RECORDED|1
+MEMBERSHIP_CREATED|2
+PURCHASE_CORRECTED|2
+PURCHASE_RECORDED|7
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|3
+
+
+===== rerun-90045a1/audit-event-counts-before-ai.txt =====
+AUTHORIZATION_DENIED|34
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|6
+CUSTOMER_CREATED|19
+CUSTOMER_DO_NOT_CONTACT_CHANGED|2
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|1
+CUSTOMER_UPDATED|2
+FOLLOW_UP_DISMISSED|1
+FOLLOW_UP_SNOOZED|1
+MANUAL_FOLLOW_UP_RECORDED|1
+MEMBERSHIP_CREATED|2
+PURCHASE_CORRECTED|2
+PURCHASE_RECORDED|7
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|3
+
+
+===== rerun-a97dc74/ai-side-effects-business-state-after.txt =====
+{"v":0,"u":"2026-10-09T06:09:00.727769Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"fc8d756b-1ea8-4a3b-898e-2602501a7c7e","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"VALID","version":1},{"status":"VALID","version":0}]
+[{"status":"OVERDUE","dueDate":"2026-09-27","policyVersion":0}]
+
+
+===== rerun-a97dc74/ai-side-effects-business-state-before.txt =====
+{"v":0,"u":"2026-10-09T06:09:00.727769Z"}
+{"cp":1,"dnc":false,"c":["GRANTED"]}
+{"customerId":"fc8d756b-1ea8-4a3b-898e-2602501a7c7e","cadenceDays":null,"explicitNextDate":null,"snoozedUntil":null,"lastManualFollowUpDate":null,"lastDismissedDate":null}
+[{"status":"VALID","version":1},{"status":"VALID","version":0}]
+[{"status":"OVERDUE","dueDate":"2026-09-27","policyVersion":0}]
+
+
+===== rerun-a97dc74/api-checks-output.txt =====
+PASS  REG-01  flyway migrations all successful (15 versions)
+PASS  REG-01  runtime role is not superuser and does not bypass RLS
+PASS  REG-01  migration role is not superuser
+PASS  REG-01  BFF returns 401 without a session
+PASS  REG-01  operator sees Norte as OPERATOR
+PASS  REG-01  viewer sees Norte as VIEWER
+PASS  REG-01  second tenant provisioned (owner)
+PASS  REG-01  owner has OWNER in both tenants
+PASS  REG-01  operator has no access to tenant Sur
+PASS  REG-03  create CL customer
+PASS  REG-03  create CR customer
+PASS  REG-03  CR number normalized to E.164
+PASS  REG-03  create international (US) customer
+PASS  REG-03  duplicate phone in same tenant
+PASS  REG-03  invalid CL phone -> 400 field phones[0].number (#72)
+PASS  REG-03  invalid CR phone -> 400 field phones[0].number
+PASS  REG-03  missing region -> 400 field phones[0].region
+PASS  REG-03  blank name -> 400 field displayName (#127)
+PASS  REG-03  161-char name rejected (#127)
+PASS  REG-03  160-char name accepted
+PASS  REG-03  update without If-Match -> 400 field version
+PASS  REG-03  update with current version
+PASS  REG-03  stale If-Match -> 409
+PASS  REG-03  OPERATOR cannot archive (CUSTOMER_DELETE is OWNER/ADMIN)
+PASS  REG-03  VIEWER cannot create
+PASS  REG-03  OWNER archives customer
+PASS  REG-03  phone of an archived customer stays reserved
+PASS  REG-03  archived customer listed with status filter
+PASS  REG-03  same phone allowed in another tenant
+PASS  REG-03  search by phone finds the customer
+PASS  REG-03  search by name
+PASS  REG-04  initial consent is UNKNOWN / not eligible
+PASS  REG-04  grant consent
+PASS  REG-04  granted -> eligible
+PASS  REG-04  do-not-contact on
+PASS  REG-04  DNC overrides granted consent
+PASS  REG-04  revoke consent while DNC on
+PASS  REG-04  clear DNC
+PASS  REG-04  cleared DNC with revoked consent stays not eligible
+PASS  REG-04  stale policy If-Match -> 409
+PASS  REG-04  VIEWER cannot change policy
+PASS  REG-04  change contact identity
+PASS  REG-04  consent not transferred to the new contact
+PASS  REG-05  record purchase
+PASS  REG-05  record backdated purchase
+PASS  REG-05  last purchase = latest valid by date
+PASS  REG-05  idempotent replay returns 200
+PASS  REG-05  same key + different body -> 409
+PASS  REG-05  future date rejected
+PASS  REG-05  correct purchase date
+PASS  REG-05  last purchase after correction
+PASS  REG-05  void latest purchase
+PASS  REG-05  last purchase after voiding the latest
+PASS  REG-05  history keeps RECORDED and VOIDED
+PASS  REG-05  list shows VOID and VALID statuses
+PASS  REG-06  overdue from last valid purchase + tenant cadence
+PASS  REG-06  queue lists the overdue customer
+PASS  REG-06  set explicit next date = tenant today
+PASS  REG-06  explicit date today -> DUE
+PASS  REG-06  tenant timezone Pacific/Kiritimati accepted
+FAIL  REG-06  date boundary: UTC+14 tenant date moves forward -> OVERDUE  (expected 'OVERDUE', got 'DUE')
+FAIL  REG-06  date boundary: UTC-11 tenant date -> DUE  (expected 'DUE', got 'NOT_YET_DUE')
+PASS  REG-06  invalid timezone -> 400
+PASS  REG-06  restore UTC
+PASS  REG-06  cadence 0 rejected
+PASS  REG-06  snooze to the past -> 400
+PASS  REG-06  snooze a DUE customer
+PASS  REG-06  snoozed customer is NOT_YET_DUE and leaves the queue
+PASS  REG-06  dismiss a NOT_YET_DUE customer -> 409
+PASS  REG-06  dismiss a DUE/OVERDUE customer (201)
+PASS  REG-06  dismissal replay (same key) -> 200, same record
+PASS  REG-06  dismissed customer advances to NOT_YET_DUE
+PASS  REG-06  manual completion (201)
+PASS  REG-06  completion replay returns original record (200)
+PASS  REG-06  stale If-Match on disposition -> 409
+PASS  REG-06  invalid idempotency key -> 400
+PASS  REG-06  single completion recorded (no duplicate on replay)
+INFO  OBS-01  OPERATOR PUT /api/follow-up-policy -> HTTP 200 (200 means an OPERATOR can change the tenant-wide policy)
+INFO  OBS-01  VIEWER PUT /api/follow-up-policy -> HTTP 403
+
+SUMMARY pass=75 fail=2
+
+
+===== rerun-a97dc74/audit-event-counts-after-ai.txt =====
+AI_INVOCATION_OUTCOME|2
+AUTHORIZATION_DENIED|35
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|9
+CUSTOMER_CREATED|22
+CUSTOMER_DO_NOT_CONTACT_CHANGED|2
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|2
+CUSTOMER_UPDATED|2
+FOLLOW_UP_DISMISSED|1
+FOLLOW_UP_SNOOZED|1
+MANUAL_FOLLOW_UP_RECORDED|1
+MEMBERSHIP_CREATED|2
+PURCHASE_CORRECTED|2
+PURCHASE_RECORDED|10
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|7
+
+
+===== rerun-a97dc74/audit-event-counts-before-ai.txt =====
+AUTHORIZATION_DENIED|35
+CUSTOMER_ARCHIVED|1
+CUSTOMER_CONSENT_CHANGED|7
+CUSTOMER_CREATED|20
+CUSTOMER_DO_NOT_CONTACT_CHANGED|2
+CUSTOMER_FOLLOW_UP_POLICY_CHANGED|2
+CUSTOMER_UPDATED|2
+FOLLOW_UP_DISMISSED|1
+FOLLOW_UP_SNOOZED|1
+MANUAL_FOLLOW_UP_RECORDED|1
+MEMBERSHIP_CREATED|2
+PURCHASE_CORRECTED|2
+PURCHASE_RECORDED|8
+PURCHASE_VOIDED|1
+TENANT_FOLLOW_UP_POLICY_CHANGED|7
+
+
+===== rerun-a97dc74/timezone-boundary-recheck.txt =====
+REG-06 timezone date boundary, re-check with expected values computed from the real zone
+(the first automated check hard-coded the expected status for the time of day of the previous run;
+at 06:07 UTC the UTC-11 tenant is still on the previous calendar day, so NOT_YET_DUE is the correct result)
+
+UTC now: 2026-10-09 06:07:17
+explicit next follow-up date = UTC date (2026-10-09)
+Pacific/Kiritimati: expected tenantDate=2026-10-09 status=DUE         | got: 2026-10-09 DUE
+Pacific/Pago_Pago : expected tenantDate=2026-10-08 status=NOT_YET_DUE | got: 2026-10-08 NOT_YET_DUE
+UTC               : expected tenantDate=2026-10-09 status=DUE         | got: 2026-10-09 DUE
+
+
+===== verify-159-f46dc33/api-checks-output.txt =====
+PASS  T159  baseline tenant policy
+PASS  T159  OPERATOR PUT tenant policy -> 403
+PASS  T159  VIEWER PUT tenant policy -> 403
+PASS  T159  denied attempts changed nothing (policy)
+PASS  T159  denied attempts changed nothing (version)
+FAIL  T159  OPERATOR PUT without If-Match -> still 403 (authorization before validation)  (expected '403', got '400')
+FAIL  T159  OPERATOR PUT with an invalid body -> 403, not 400  (expected '403', got '400')
+PASS  T159  OPERATOR GET tenant policy -> 200
+PASS  T159  VIEWER GET tenant policy -> 200
+PASS  T159  OWNER PUT tenant policy -> 200
+PASS  T159  OWNER change applied
+PASS  T159  version advanced
+PASS  T159  OWNER stale If-Match -> 409
+PASS  T159  OWNER invalid time zone -> 400
+PASS  T159  OWNER cadence 0 -> 400
+PASS  T159  OWNER promotes testoperator to ADMIN
+PASS  T159  ADMIN PUT tenant policy -> 200
+PASS  T159  ADMIN change applied
+PASS  T159  OWNER demotes testoperator back to OPERATOR
+PASS  T159  demoted OPERATOR PUT -> 403 again
+PASS  T159  restore baseline (OWNER)
+PASS  T159  baseline restored
+PASS  T159  OPERATOR snooze still works
+PASS  T159  OPERATOR dismissal still works
+PASS  T159  OPERATOR manual completion still works
+PASS  T159  OPERATOR per-customer policy still works
+PASS  T159  VIEWER per-customer policy -> 403
+PASS  T159  OPERATOR reads the queue
+FAIL  T159  denials audited with the required permission (TENANT_UPDATE)  (expected '5', got '3')
+FAIL  T159  successful tenant policy changes audited  (expected '4', got '3')
+-- audit rows (denials):
+      3 DENIED|TENANT_UPDATE|INSUFFICIENT_PERMISSION
+
+SUMMARY pass=26 fail=4
+
+
+===== verify-159-f46dc33/validation-before-authorization.txt =====
+Characterization of the 400-before-403 ordering (finding #162). VIEWER session, valid CSRF token, synthetic data, main @ f46dc33:
+POST   /api/customers (invalid body)                  -> 403
+POST   /api/customers (valid body)                    -> 403
+PUT    /api/customers/{id} without If-Match           -> 400
+DELETE /api/customers/{id} without If-Match           -> 400
+PUT    /api/customers/{id}/do-not-contact w/o If-Match -> 400
+POST   /api/customers/{id}/manual-follow-ups no hdrs  -> 400
+PUT    /api/follow-up-policy without If-Match         -> 400
+
+
+===== verify-162-163-164-d04eb0b/162-api-checks-output.txt =====
+== unauthorized (VIEWER) + malformed requests: expect 403 and one denial audit row each ==
+PASS  T162  VIEWER POST customer, invalid body -> 403
+PASS  T162    denial audited (POST customer, invalid body)
+PASS  T162  VIEWER PUT customer without If-Match -> 403
+PASS  T162    denial audited (PUT customer without If-Match)
+PASS  T162  VIEWER DELETE customer without If-Match -> 403
+PASS  T162    denial audited (DELETE customer without If-Match)
+PASS  T162  VIEWER PUT consent without If-Match -> 403
+PASS  T162    denial audited (PUT consent without If-Match)
+PASS  T162  VIEWER PUT consent with garbage body -> 403
+PASS  T162    denial audited (PUT consent with garbage body)
+PASS  T162  VIEWER PUT do-not-contact without If-Match -> 403
+PASS  T162    denial audited (PUT do-not-contact without If-Match)
+PASS  T162  VIEWER POST purchase without Idempotency-Key -> 403
+PASS  T162    denial audited (POST purchase without Idempotency-Key)
+PASS  T162  VIEWER POST purchase invalid body -> 403
+PASS  T162    denial audited (POST purchase invalid body)
+PASS  T162  VIEWER PUT purchase without If-Match -> 403
+PASS  T162    denial audited (PUT purchase without If-Match)
+PASS  T162  VIEWER DELETE purchase without If-Match -> 403
+PASS  T162    denial audited (DELETE purchase without If-Match)
+PASS  T162  VIEWER PUT tenant policy without If-Match -> 403
+PASS  T162    denial audited (PUT tenant policy without If-Match)
+PASS  T162  VIEWER PUT tenant policy invalid body -> 403
+PASS  T162    denial audited (PUT tenant policy invalid body)
+PASS  T162  VIEWER PUT customer follow-up policy without If-Match -> 403
+PASS  T162    denial audited (PUT customer follow-up policy without If-Match)
+PASS  T162  VIEWER PUT snooze without If-Match -> 403
+PASS  T162    denial audited (PUT snooze without If-Match)
+PASS  T162  VIEWER POST manual follow-up without headers -> 403
+PASS  T162    denial audited (POST manual follow-up without headers)
+PASS  T162  VIEWER POST dismissal without headers -> 403
+PASS  T162    denial audited (POST dismissal without headers)
+== OPERATOR on administration endpoints, malformed ==
+PASS  T162  OPERATOR POST membership with invalid body -> 403
+PASS  T162    denial audited
+PASS  T162  OPERATOR change role with invalid body -> 403
+PASS  T162    denial audited
+PASS  T162  OPERATOR tenant policy invalid body -> 403 (not 400)
+PASS  T162    denial audited
+== unauthenticated ==
+PASS  T162  no session, malformed -> 401
+== authorized callers keep validation errors (400) after authorization ==
+PASS  T162  OPERATOR PUT customer without If-Match -> 400 field version
+PASS  T162  OPERATOR POST purchase without Idempotency-Key -> 400
+PASS  T162  OPERATOR POST customer blank name -> 400
+PASS  T162  OWNER tenant policy cadence 0 -> 400
+PASS  T162  OWNER tenant policy invalid time zone -> 400
+PASS  T162  OWNER tenant policy without If-Match -> 400
+== valid requests still work ==
+PASS  T162  OWNER valid tenant policy -> 200
+PASS  T162  OPERATOR valid customer update -> 200
+PASS  T162  OPERATOR valid purchase -> 201
+PASS  T162  VIEWER read -> 200
+
+-- denial audit rows by permission:
+CUSTOMER_DELETE|INSUFFICIENT_PERMISSION|1
+CUSTOMER_WRITE|INSUFFICIENT_PERMISSION|12
+FOLLOWUP_WRITE|INSUFFICIENT_PERMISSION|5
+MEMBERSHIP_INVITE|INSUFFICIENT_PERMISSION|11
+MEMBERSHIP_ROLE_UPDATE|INSUFFICIENT_PERMISSION|1
+PURCHASE_WRITE|INSUFFICIENT_PERMISSION|4
+TENANT_UPDATE|INSUFFICIENT_PERMISSION|6
+
+SUMMARY pass=49 fail=0
+
+
+===== verify-162-163-164-d04eb0b/163-preflight-scenarios.txt =====
+#163 preflight (scripts/dev-env.sh) on Linux, Docker 29.9.0, main @ d04eb0b
+- other project's containers hold 127.0.0.1:8080 (natural scenario): doctor -> "[error] Host port 8080 is already in use by: Docker container 'dokene-oidc-bridge-1'" + hint to docker stop / docker compose -p <project> down; exit 1; up refused, 0 containers created.
+- throwaway container (qa-port-hog) holds 127.0.0.1:5173: doctor names "Docker container 'qa-port-hog'" (both ports reported in one run, "2 preflight check(s) failed; nothing was started").
+- native process (python3 http.server) on 8081: still detected ("in use by: python3 (pid ...)").
+
+
+===== verify-162-163-164-d04eb0b/164-recovery-scenario.txt =====
+#164 recovery (main @ d04eb0b; temporary QA-only override of the bridge healthcheck because of #171, applied through COMPOSE_FILE)
+1. raw "docker compose up -d" while another container holds 127.0.0.1:8080 -> "Bind for 127.0.0.1:8080 failed: port is already allocated"; oidc-bridge: Created, 0 networks (the original bug state).
+2. port freed; ./scripts/dev-env.sh up -> bridge recreated (container age ~20 s), "[ok] All requested containers are healthy", bridge networks: 1, BFF 401, all five services healthy.
+Without the override the same "up" cannot succeed on a host with a DNS search domain (#171).
+
+
+===== verify-162-163-164-d04eb0b/171-healthcheck-probes.txt =====
+#171 inside the oidc-bridge container (host resolv.conf: "search lan")
+nslookup oidc-bridge      -> exit 1  (can't find oidc-bridge.lan: NXDOMAIN)
+nslookup oidc-bridge.     -> exit 0
+nslookup keycloak.        -> exit 0
+getent hosts keycloak     -> exit 0
+nc -z 127.0.0.1 8081      -> exit 0
+wget http://127.0.0.1:8081/realms/dokene/.well-known/openid-configuration -> exit 0
+Health after 3 fresh "up" runs: oidc-bridge "Up (unhealthy)", FailingStreak growing, every probe exit code 1.
