@@ -276,7 +276,11 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
                 key={intent}
                 variant={intent === 'approve' || intent === 'send' ? 'primary' : 'secondary'}
                 size="sm"
-                disabled={busy || (intent === 'send' && actions.sendLocked)}
+                disabled={
+                  busy ||
+                  (intent === 'send' && actions.sendLocked) ||
+                  (actions.unsureIntent !== null && actions.unsureIntent !== intent)
+                }
                 onClick={(event) => {
                   focus.remember(event.currentTarget);
                   actions.open(intent);
