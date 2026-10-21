@@ -22,7 +22,7 @@ echo "$A $B $C $CA $CA2 $CB $CC $PA $PA2 $PB $UO $UV $UU" > $OUTD/ids
 echo "== SEC-01 authentication / CSRF / origin"
 for ep in "GET /api/customers" "GET /api/session" "GET /api/tenants" "GET /api/follow-up-queue"; do set -- $ep; raw $NOJAR $1 $2 -H "X-Tenant-Id: $A"; chk SEC-01 "no session $ep -> 401" 401 "$RC"; done
 for ep in "POST /api/customers/$CA/recommendation" "POST /api/customers/$CA/draft" "POST /api/customers" "PUT /api/follow-up-policy" "DELETE /api/customers/$CA"; do set -- $ep; raw $NOJAR $1 $2 -H "X-Tenant-Id: $A" -H 'Content-Type: application/json' -d '{}'; chk SEC-01 "no session $ep -> 401" 401 "$RC"; done
-J=$QA_TMP/jar-testoperator.txt; TOK=$(curl -s -b $J $BFF/api/session | jq -r .csrfToken); b=$(ai_rows); n0=$(wc -l < $STUB/requests.log)
+J=$QA_TMP/jar-testoperator.txt; TOK=$(session_csrf $J); b=$(ai_rows); n0=$(wc -l < $STUB/requests.log)
 for ep in "POST /api/customers/$CA/recommendation" "POST /api/customers/$CA/draft" "POST /api/customers" "PUT /api/follow-up-policy" "POST /api/customers/$CA/manual-follow-ups"; do set -- $ep
   raw $J $1 $2 -H "X-Tenant-Id: $A" -H 'Content-Type: application/json' -d '{}'; chk SEC-01 "session, absent CSRF $ep -> 403" 403 "$RC"
   raw $J $1 $2 -H "X-Tenant-Id: $A" -H 'X-CSRF-TOKEN: invalid-qa-value' -H 'Content-Type: application/json' -d '{}'; chk SEC-01 "session, invalid CSRF $ep -> 403" 403 "$RC"; done

@@ -1,3 +1,4 @@
+session_csrf() { curl -s -b "$1" "$BFF/api/session" | jq -r .csrfToken; }
 ai_rows() { psqlq "select count(*) from dokene.audit_events where event_type='AI_INVOCATION_OUTCOME'"; }
 ai_last() { psqlq "select ai_operation||'/'||ai_outcome||'/'||ai_detail from dokene.audit_events where event_type='AI_INVOCATION_OUTCOME' order by occurred_at desc limit 1"; }
 mk() { # name phone notes -> id (consent granted unless NOCONSENT)
