@@ -80,9 +80,31 @@ tasks.register('aiEvalLive', Test) {
     }
     ['DOKENE_AI_EVAL_LIVE', 'DOKENE_AI_OPENAI_API_KEY', 'DOKENE_AI_OPENAI_MODEL', 'DOKENE_AI_OPENAI_BASE_URL',
      'DOKENE_AI_EVAL_PROMPT_POLICY', 'DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK', 'DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK',
-     'DOKENE_AI_EVAL_REPORT_NAME', 'DOKENE_AI_EVAL_MIN_SUCCESS_RATIO'].each { name ->
+     'DOKENE_AI_EVAL_REPORT_NAME', 'DOKENE_AI_EVAL_MIN_SUCCESS_RATIO', 'DOKENE_AI_EVAL_FAMILY_COVERAGE'].each { name ->
         System.getenv(name)?.with { value -> environment name, value }
     }
+    // Coverage warnings (families without delivered output, Issue #253) are printed by the test with an
+    // "[ai-eval]" prefix; surface only those lines, not the whole application log.
+    testLogging {
+        exceptionFormat = 'full'
+    }
+    // Output events are not guaranteed to hold whole lines: buffer stdout and match complete lines only.
+    def coverageLogger = logger
+    def pendingStdout = new StringBuilder()
+    addTestOutputListener({ descriptor, event ->
+        if (event.destination != TestOutputEvent.Destination.StdOut) {
+            return
+        }
+        pendingStdout.append(event.message)
+        int newline
+        while ((newline = pendingStdout.indexOf('\n')) >= 0) {
+            String line = pendingStdout.substring(0, newline)
+            pendingStdout.delete(0, newline + 1)
+            if (line.startsWith('[ai-eval] ')) {
+                coverageLogger.lifecycle(line)
+            }
+        }
+    } as TestOutputListener)
     outputs.upToDateWhen { false }
 }
 

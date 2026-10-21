@@ -349,7 +349,7 @@ A better model is not a reason to weaken deterministic controls.
 - **Hard invariants (pass/fail, delivered layer):** schema validity, action/template allowlist, no contact when policy forbids it, no invented provider template ID, no unsupported link/discount/price, bounded length, safe gate outcome. They are never traded against language quality.
 - **Raw model findings (informational):** schema-invalid output, allowlist violations, unsafe drafts, refusals and provider failures before the gate.
 - **Rubric (human, 1-5):** recommendation relevance, rationale usefulness, draft quality, factual grounding, editability/tone. No exact-text matching and no single aggregate score.
-- **Reports:** JSON and Markdown in `backend/build/reports/ai-eval/` with provider/model, latency, token usage and optional cost.
+- **Reports:** JSON and Markdown in `backend/build/reports/ai-eval/` with provider/model, latency, token usage, optional cost and delivery coverage per operation and per scenario family. A family that reached the provider without any delivered output is printed as a console warning and marked `INCOMPLETE`; `DOKENE_AI_EVAL_FAMILY_COVERAGE=fail` makes it fail the live run.
 - **CI** runs only the deterministic scripted evaluation (no key, no cost). **Live evaluation is opt-in** (`./gradlew aiEvalLive`, `DOKENE_AI_EVAL_LIVE=true` plus a local API key).
 - **Before changing the model, the prompt/context policy or the structured contract:** capture a live baseline with the current configuration, change one thing, capture a candidate and run `./gradlew aiEvalCompare -Pbaseline=... -Pcandidate=...`. A hard-invariant regression blocks the change.
 
