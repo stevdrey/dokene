@@ -101,7 +101,9 @@ class DatabaseOutageIntegrationTest {
             assertFailsFastWithRetryableUnavailable(get("/api/follow-up-queue"));
             // A cross-origin SPA must be able to read the 503: the CORS headers survive the response reset.
             assertFailsFastWithRetryableUnavailable(get("/api/customers").header("Origin", SPA_ORIGIN))
-                    .andExpect(header().string("Access-Control-Allow-Origin", SPA_ORIGIN));
+                    .andExpect(header().string("Access-Control-Allow-Origin", SPA_ORIGIN))
+                    // Retry-After is not CORS-safelisted: without this the SPA could not read the advertised delay.
+                    .andExpect(header().string("Access-Control-Expose-Headers", containsString("Retry-After")));
         }
 
         assertThat(output.toString().substring(outputBeforeOutage))
@@ -125,6 +127,13 @@ class DatabaseOutageIntegrationTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "7"))
                 .andExpect(header().exists(AuditRequestFilter.CORRELATION_HEADER))
+                // The BFF security headers survive the filter's response reset (ADR 0023, security invariant 22).
+                .andExpect(header().string("Content-Security-Policy",
+                        TenantSecurityConfiguration.API_CONTENT_SECURITY_POLICY))
+                .andExpect(header().string("Permissions-Policy", TenantSecurityConfiguration.PERMISSIONS_POLICY))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("X-Frame-Options", "DENY"))
+                .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"))
                 .andExpect(content().string(""));
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
         return result;

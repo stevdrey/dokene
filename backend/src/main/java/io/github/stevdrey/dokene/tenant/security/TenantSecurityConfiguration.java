@@ -90,7 +90,8 @@ class TenantSecurityConfiguration {
                 "Content-Type", "Idempotency-Key", "If-Match", "If-None-Match", "X-CSRF-TOKEN", "X-Tenant-Id"
         ));
         // X-Request-Id is the server-generated correlation id; the SPA needs it to report problems to support.
-        configuration.setExposedHeaders(List.of("ETag", "X-Request-Id"));
+        // Retry-After is not CORS-safelisted; the SPA needs it to honor 429 throttling and the database-outage 503.
+        configuration.setExposedHeaders(List.of("ETag", "X-Request-Id", "Retry-After"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

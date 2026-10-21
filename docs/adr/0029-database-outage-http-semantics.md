@@ -27,7 +27,12 @@ A database outage is an expected operational state, not a bug. A request can fir
    `DatabaseUnavailability` (package `database`, module-neutral and enforced by ArchUnit) makes that decision. Such a failure answers an **empty `503 Service Unavailable` with `Retry-After`**. The value comes from `dokene.datasource.unavailable-retry-after` (`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`), in whole seconds rounded up.
 3. **Both boundaries.**
    - `DatabaseUnavailableExceptionHandler` is an unscoped advice that runs before the module-scoped advices, and it maps MVC failures.
-   - `AuditRequestFilter` maps failures thrown from filters, the same way it already maps audit failures. It also keeps the server-generated `X-Request-Id`, and the `Access-Control-*` and `Vary` headers that Spring Security's CORS filter already validated, so a cross-origin SPA can read the `503` instead of seeing a network error. The audit `503` keeps them too.
+   - `AuditRequestFilter` maps failures thrown from filters, the same way it already maps audit failures. Its response reset keeps three kinds of headers:
+     - the server-generated `X-Request-Id`;
+     - the `Access-Control-*` and `Vary` headers that Spring Security's CORS filter already validated, so a cross-origin SPA can read the `503` instead of seeing a network error;
+     - the security headers Spring Security's header writer already added (CSP, Permissions-Policy, `X-Content-Type-Options`, `X-Frame-Options`, Referrer-Policy and cache control), which every BFF response carries (ADR 0023, security invariant 22).
+
+     It drops every other header. The audit `503` keeps the same set. `Retry-After` is listed in the CORS `Access-Control-Expose-Headers`, because it is not CORS-safelisted and the SPA must be able to read it.
 
    A `CannotCreateTransactionException` with no connection-level cause is a defect. It stays an empty `500`.
 4. **Class-only logging.** The outage is logged at `WARN` with the class of the innermost connection-level failure and the MDC correlation id. The exception message and cause are never logged, because pool and driver messages can name hosts, users and statements.

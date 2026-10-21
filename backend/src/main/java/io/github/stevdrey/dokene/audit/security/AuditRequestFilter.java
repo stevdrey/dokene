@@ -26,6 +26,12 @@ public class AuditRequestFilter extends OncePerRequestFilter {
     public static final String CORRELATION_HEADER = "X-Request-Id";
     public static final String CORRELATION_MDC_KEY = "correlationId";
     private static final String CORS_HEADER_PREFIX = "Access-Control-";
+    /** Vary plus every header Spring Security's header writers can emit; a new writer adds its header here. */
+    private static final List<String> POLICY_HEADERS = List.of(
+            HttpHeaders.VARY, "Content-Security-Policy", "Content-Security-Policy-Report-Only", "Permissions-Policy",
+            "X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy", "Strict-Transport-Security",
+            "X-XSS-Protection", HttpHeaders.CACHE_CONTROL, HttpHeaders.PRAGMA, HttpHeaders.EXPIRES,
+            "Cross-Origin-Opener-Policy", "Cross-Origin-Embedder-Policy", "Cross-Origin-Resource-Policy");
 
     private final AuditExecutionContext execution;
     private final DatabaseUnavailability databaseUnavailability;
@@ -49,12 +55,12 @@ public class AuditRequestFilter extends OncePerRequestFilter {
             });
         } catch (Exception exception) {
             if (isAuditFailure(exception) && !response.isCommitted()) {
-                resetKeepingCorsAndCorrelation(response, correlation);
+                resetKeepingResponsePolicyHeaders(response, correlation);
                 response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             } else if (databaseUnavailability.isCause(exception) && !response.isCommitted()) {
                 // Filters such as tenant resolution reach the database before MVC, so no controller advice sees this.
                 databaseUnavailability.log(exception);
-                resetKeepingCorsAndCorrelation(response, correlation);
+                resetKeepingResponsePolicyHeaders(response, correlation);
                 databaseUnavailability.apply(response);
             } else if (exception instanceof IOException io) {
                 throw io;
@@ -71,21 +77,26 @@ public class AuditRequestFilter extends OncePerRequestFilter {
     }
 
     /**
-     * reset() drops every header. The correlation id matters most on exactly these failure paths, and the CORS
-     * headers Spring Security already validated must survive too, or a cross-origin browser reports a network error
-     * instead of exposing the 503.
+     * reset() drops every header, which is right for anything describing the failed response. Three kinds must
+     * survive: the correlation id, which matters most on exactly these failure paths; the CORS headers, or a
+     * cross-origin browser reports a network error instead of exposing the 503; and the security headers Spring
+     * Security's header writer has already added, which every BFF response carries (ADR 0023, security invariant 22).
      */
-    private void resetKeepingCorsAndCorrelation(HttpServletResponse response, UUID correlation) {
-        Map<String, List<String>> cors = new LinkedHashMap<>();
+    private void resetKeepingResponsePolicyHeaders(HttpServletResponse response, UUID correlation) {
+        Map<String, List<String>> kept = new LinkedHashMap<>();
         for (String name : response.getHeaderNames()) {
-            if (name.regionMatches(true, 0, CORS_HEADER_PREFIX, 0, CORS_HEADER_PREFIX.length())
-                    || name.equalsIgnoreCase(HttpHeaders.VARY)) {
-                cors.putIfAbsent(name, List.copyOf(response.getHeaders(name)));
+            if (isResponsePolicyHeader(name)) {
+                kept.putIfAbsent(name, List.copyOf(response.getHeaders(name)));
             }
         }
         response.reset();
-        cors.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
+        kept.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
         response.setHeader(CORRELATION_HEADER, correlation.toString());
+    }
+
+    private static boolean isResponsePolicyHeader(String name) {
+        return name.regionMatches(true, 0, CORS_HEADER_PREFIX, 0, CORS_HEADER_PREFIX.length())
+                || POLICY_HEADERS.stream().anyMatch(name::equalsIgnoreCase);
     }
 
     private boolean isAuditFailure(Throwable failure) {

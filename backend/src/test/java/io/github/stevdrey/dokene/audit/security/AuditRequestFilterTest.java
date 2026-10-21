@@ -118,6 +118,11 @@ class AuditRequestFilterTest {
             servlet.setHeader("Access-Control-Allow-Credentials", "true");
             servlet.addHeader("Vary", "Origin");
             servlet.addHeader("Vary", "Access-Control-Request-Method");
+            // What Spring Security's header writer added in its finally block before the failure left the chain.
+            servlet.setHeader("Content-Security-Policy", "default-src 'none'");
+            servlet.setHeader("X-Content-Type-Options", "nosniff");
+            servlet.setHeader("Cache-Control", "no-store");
+            servlet.setHeader("ETag", "\"3\"");
             throw new CannotCreateTransactionException("membership lookup",
                     new SQLTransientConnectionException("HikariPool-1 - Connection is not available"));
         });
@@ -129,6 +134,10 @@ class AuditRequestFilterTest {
         assertThat(response.getHeader("Access-Control-Allow-Origin")).isEqualTo("http://localhost:5173");
         assertThat(response.getHeader("Access-Control-Allow-Credentials")).isEqualTo("true");
         assertThat(response.getHeaders("Vary")).containsExactly("Origin", "Access-Control-Request-Method");
+        assertThat(response.getHeader("Content-Security-Policy")).isEqualTo("default-src 'none'");
+        assertThat(response.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store");
+        assertThat(response.getHeader("ETag")).isNull();
         assertThat(response.getContentAsString()).isEmpty();
         assertThat(context.current()).isEmpty();
     }
