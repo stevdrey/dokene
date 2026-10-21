@@ -470,12 +470,15 @@ describe('review actions', () => {
       const confirm = group('Confirmar envío');
       click('Confirmar envío', confirm);
       await flush();
-      expect(within(confirm).getByRole('alert')).toHaveTextContent('Se alcanzó el límite de envíos. Espera 60 s.');
+      // The alert fires once; the ticking count lives outside it so it is not announced every second.
+      expect(within(confirm).getByRole('alert')).toHaveTextContent(/^Se alcanzó el límite de envíos\.$/);
+      expect(confirm).toHaveTextContent('Se alcanzó el límite de envíos. Espera 60 s.');
       expect(within(confirm).getByRole('button', { name: 'Confirmar envío' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
 
       await advance(1000);
-      expect(within(confirm).getByRole('alert')).toHaveTextContent('Espera 59 s.');
+      expect(within(confirm).getByRole('alert')).toHaveTextContent(/^Se alcanzó el límite de envíos\.$/);
+      expect(confirm).toHaveTextContent('Espera 59 s.');
       await advance(59000);
       const confirmButton = within(group('Confirmar envío')).getByRole('button', { name: 'Confirmar envío' });
       expect(confirmButton).toBeEnabled();
@@ -573,6 +576,26 @@ describe('review actions', () => {
       server.on(detailPath(queued.messageId), status(404));
       click('Actualizar');
       expect(await screen.findByText('Este mensaje ya no está disponible.')).toBeInTheDocument();
+    });
+
+    it('drops an earlier Actualizar reply that lands after a later one', async () => {
+      await openMessage(queued);
+      const delivered = variant(details.delivered, { messageId: queued.messageId });
+      const first = pending();
+      const second = pending();
+      server.on(detailPath(queued.messageId), first, second);
+      click('Actualizar');
+      click('Actualizar');
+      await waitFor(() => expect(server.count(detailPath(queued.messageId))).toBe(3));
+
+      await act(async () => second.resolve(detailReply(delivered)));
+      expect(await screen.findByText('Entregado')).toBeInTheDocument();
+      await act(async () => {
+        first.resolve(detailReply(queued));
+        await new Promise((settle) => setTimeout(settle, 0));
+      });
+      expect(screen.getByText('Entregado')).toBeInTheDocument();
+      expect(screen.queryByText('En cola')).toBeNull();
     });
   });
 });

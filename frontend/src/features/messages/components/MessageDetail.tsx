@@ -14,10 +14,10 @@ import {
   attemptOutcomeLabel,
   failureCategoryLabel,
   originLabel,
-  rateLimitedSentence,
   revisionLabel,
   statusBadgeVariant,
-  statusLabel
+  statusLabel,
+  waitSentence
 } from '../utils/messageLabels';
 import { canActOnMessages } from '../utils/permissions';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
@@ -322,14 +322,20 @@ interface ActionConfirmProps {
 function ActionConfirm({ group, actions, recipient, customerName, onDismiss }: ActionConfirmProps) {
   const copy = INTENT_COPY[group.intent];
   const { step } = group;
-  const alertText =
-    step.kind === 'refused'
-      ? step.message
-      : step.kind === 'uncertain'
-        ? COPY.unconfirmed
-        : step.kind === 'rateLimited'
-          ? rateLimitedSentence(actions.lockSeconds)
-          : null;
+  const alertText = step.kind === 'refused' ? step.message : step.kind === 'uncertain' ? COPY.unconfirmed : null;
+  // The lockout is announced once; the count that changes every second stays out of the live region.
+  const alert =
+    step.kind === 'rateLimited' ? (
+      <p className="message-review__notice message-review__notice--error">
+        <span role="alert">{COPY.sendLimitReached}</span> <span>{waitSentence(actions.lockSeconds)}</span>
+      </p>
+    ) : (
+      alertText && (
+        <p role="alert" className="message-review__notice message-review__notice--error">
+          {alertText}
+        </p>
+      )
+    );
 
   return (
     <ConfirmGroup
@@ -341,13 +347,7 @@ function ActionConfirm({ group, actions, recipient, customerName, onDismiss }: A
           ? { value: group.note, onChange: actions.setNote, readOnly: step.kind === 'uncertain' }
           : undefined
       }
-      alert={
-        alertText && (
-          <p role="alert" className="message-review__notice message-review__notice--error">
-            {alertText}
-          </p>
-        )
-      }
+      alert={alert}
       confirmLabel={step.kind === 'uncertain' ? 'Reintentar' : copy.confirm}
       confirmVariant={copy.variant === 'danger' ? 'danger' : 'primary'}
       busy={step.kind === 'submitting'}

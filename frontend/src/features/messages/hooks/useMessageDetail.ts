@@ -40,7 +40,7 @@ export interface MessageDetailHandle {
   poll: PollState;
   retry: () => void;
   loadEvents: () => void;
-  /** Reads the detail without touching the held state; callers decide what to apply. */
+  /** Reads the detail without touching the held state; callers decide what to apply. A reply overtaken by a later read is dropped. */
   readAgain: () => Promise<Outcome<VersionedMessage>>;
   apply: (read: VersionedMessage) => void;
   markNotFound: () => void;
@@ -146,9 +146,11 @@ export function useMessageDetail(messageId: string, initial?: VersionedMessage):
     });
   }, [apply, commit, messageId, runWith]);
 
-  const readAgain = useCallback(() => {
-    detailSeq.current += 1;
-    return runWith((signal) => messageApi.getDetail(messageId, signal));
+  const readAgain = useCallback(async (): Promise<Outcome<VersionedMessage>> => {
+    const seq = ++detailSeq.current;
+    const outcome = await runWith((signal) => messageApi.getDetail(messageId, signal));
+    // Two overlapping reads can resolve out of order; only the latest one may be applied.
+    return seq === detailSeq.current ? outcome : DROPPED;
   }, [messageId, runWith]);
 
   const retry = useCallback(() => {

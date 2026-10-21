@@ -61,18 +61,18 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   const [stale, setStale] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [seenPolicyVersion, setSeenPolicyVersion] = useState(input.policyVersion);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const mountRef = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   const focus = useReturnFocus(phase.kind === 'confirming' || phase.kind === 'submitting');
 
-  // A fresh policy version from the parent clears the stale state and starts a new intent, except while unsure.
-  if (input.policyVersion !== seenPolicyVersion) {
+  // A fresh policy version from the parent clears the stale state and starts a new intent. While a request is in
+  // flight or unsure it stays unadopted, so the phase that settles it can still pick it up and recover from a stale reply.
+  if (input.policyVersion !== seenPolicyVersion && phase.kind !== 'uncertain' && phase.kind !== 'submitting') {
     setSeenPolicyVersion(input.policyVersion);
-    if (phase.kind !== 'uncertain' && phase.kind !== 'submitting') {
-      setStale(false);
-      setAttempt(null);
-      if (phase.kind === 'confirming') setPhase({ kind: 'editing' });
-    }
+    setStale(false);
+    setAttempt(null);
+    if (phase.kind === 'confirming') setPhase({ kind: 'editing' });
   }
 
   useEffect(() => {
@@ -80,6 +80,11 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
     mountRef.current = mount;
     return () => mount.abort();
   }, []);
+
+  // Corregir replaces the review view, and with it the focused confirm button, so the draft heading takes focus.
+  useEffect(() => {
+    if (fromCorrection) headingRef.current?.focus();
+  }, [fromCorrection]);
 
   if (phase.kind === 'sessionEnded') {
     return (
@@ -178,7 +183,7 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
     <section className="message-review" aria-labelledby={headingId}>
       <header className="message-review__header">
         <div className="message-review__title">
-          <h2 id={headingId} className="message-review__heading">
+          <h2 id={headingId} ref={headingRef} tabIndex={-1} className="message-review__heading">
             {input.customerDisplayName || recipient}
           </h2>
           <p className="message-review__muted">Texto final antes de la aprobación</p>

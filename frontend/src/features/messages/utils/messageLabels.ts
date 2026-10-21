@@ -127,7 +127,8 @@ export const COPY = {
   cancelled: 'Mensaje cancelado. No se enviará al cliente.',
   mayHaveCompleted: 'La acción pudo haberse completado. Revisa el estado actual.',
   unconfirmed: 'No se pudo confirmar la acción.',
-  actionFailed: 'No se pudo completar la acción.'
+  actionFailed: 'No se pudo completar la acción.',
+  sendLimitReached: 'Se alcanzó el límite de envíos.'
 } as const;
 
 export function statusLabel(status: MessageStatus): string {
@@ -172,8 +173,12 @@ export function sendResultSentence(status: MessageStatus): string {
   return `Envío procesado. Estado actual: ${statusLabel(status)}.`;
 }
 
+export function waitSentence(seconds: number): string {
+  return `Espera ${seconds} s.`;
+}
+
 export function rateLimitedSentence(seconds: number): string {
-  return `Se alcanzó el límite de envíos. Espera ${seconds} s.`;
+  return `${COPY.sendLimitReached} ${waitSentence(seconds)}`;
 }
 
 /** The problem code appears only as a parenthesised fallback for a code this table does not name. */
