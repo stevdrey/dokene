@@ -44,6 +44,14 @@ class DatabaseUnavailabilityTest {
     void recognisesDriverConnectionFailuresBySqlStateClass08() {
         assertThat(unavailability.isCause(new RuntimeException(new SQLException(SECRET_TEXT, "08001")))).isTrue();
         assertThat(unavailability.isCause(new SQLException("syntax", "42601"))).isFalse();
+    }
+
+    @Test
+    void recognisesPostgresqlShuttingDownCrashingOrStartingButNotACancelledQuery() {
+        assertThat(unavailability.isCause(new SQLException(SECRET_TEXT, "57P01"))).isTrue();
+        assertThat(unavailability.isCause(new SQLException(SECRET_TEXT, "57P02"))).isTrue();
+        assertThat(unavailability.isCause(new SQLException(SECRET_TEXT, "57P03"))).isTrue();
+        assertThat(unavailability.isCause(new SQLException("canceling statement", "57014"))).isFalse();
         assertThat(unavailability.isCause(new SQLException("no state"))).isFalse();
     }
 
@@ -105,6 +113,14 @@ class DatabaseUnavailabilityTest {
     }
 
     @Test
+    void aStatementCutOffByAServerShutdownIsAnEmptyRetryable503() throws Exception {
+        mvc().perform(get("/admin-shutdown"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(content().string(""));
+    }
+
+    @Test
     void aResourceFailureThatIsNotALostConnectionIsAnEmpty500() throws Exception {
         mvc().perform(get("/disk-full"))
                 .andExpect(status().isInternalServerError())
@@ -130,6 +146,12 @@ class DatabaseUnavailabilityTest {
         @GetMapping("/socket-timeout")
         public void socketTimeout() {
             throw translate(new SQLException(SECRET_TEXT, "08006"));
+        }
+
+        /** What JdbcTemplate throws when PostgreSQL stops while a statement is running (admin_shutdown). */
+        @GetMapping("/admin-shutdown")
+        public void adminShutdown() {
+            throw translate(new SQLException(SECRET_TEXT, "57P01"));
         }
 
         @GetMapping("/disk-full")

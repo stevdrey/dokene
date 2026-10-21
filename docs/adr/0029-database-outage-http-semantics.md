@@ -22,7 +22,8 @@ A database outage is an expected operational state, not a bug. A request can fir
    - `SQLTransientConnectionException` (the pool timeout);
    - Spring's `CannotGetJdbcConnectionException`;
    - Hibernate's `JDBCConnectionException`;
-   - any `SQLException` with SQLState class `08` (connection exception).
+   - any `SQLException` with SQLState class `08` (connection exception);
+   - any `SQLException` with the PostgreSQL states that end a running session because the server is stopping, has crashed, or is still starting or recovering: `57P01` (`admin_shutdown`), `57P02` (`crash_shutdown`) and `57P03` (`cannot_connect_now`). The rest of class `57`, notably `57014` (`query_canceled`), is not an outage.
 
    `DatabaseUnavailability` (package `database`, module-neutral and enforced by ArchUnit) makes that decision. Such a failure answers an **empty `503 Service Unavailable` with `Retry-After`**. The value comes from `dokene.datasource.unavailable-retry-after` (`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`), in whole seconds rounded up.
 3. **Both boundaries.**

@@ -28,6 +28,12 @@ public class DatabaseUnavailability {
     private static final Logger log = LoggerFactory.getLogger(DatabaseUnavailability.class);
     /** SQLState class 08 is "connection exception" in SQL:2016 and in the PostgreSQL driver. */
     private static final String CONNECTION_EXCEPTION_CLASS = "08";
+    /**
+     * PostgreSQL ends a running session with these when the server stops (admin_shutdown), crashes (crash_shutdown)
+     * or is still starting or recovering (cannot_connect_now). The rest of class 57, notably query_canceled (57014),
+     * is not an outage.
+     */
+    private static final Set<String> SERVER_UNAVAILABLE_STATES = Set.of("57P01", "57P02", "57P03");
 
     private final long retryAfterSeconds;
 
@@ -88,7 +94,8 @@ public class DatabaseUnavailability {
             case CannotGetJdbcConnectionException ignored -> true;
             case JDBCConnectionException ignored -> true;
             case SQLException sql -> sql.getSQLState() != null
-                    && sql.getSQLState().startsWith(CONNECTION_EXCEPTION_CLASS);
+                    && (sql.getSQLState().startsWith(CONNECTION_EXCEPTION_CLASS)
+                            || SERVER_UNAVAILABLE_STATES.contains(sql.getSQLState()));
             default -> false;
         };
     }
