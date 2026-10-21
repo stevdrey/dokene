@@ -1,0 +1,32 @@
+// QA suite #123 RES-08 in the browser: the response of a manual disposition is lost after the server committed it (FAULT INJECTION: window.fetch performs the real request then rejects), then the operator retries.
+import { launchChrome, Browser, login, sleep } from '/home/stevdrey/qa122/cdp.mjs';
+import { execSync } from 'node:child_process'; import { writeFileSync, readFileSync } from 'node:fs';
+const QA = '/home/stevdrey/Projects/Java/dokene-qa-run'; const sql = (q) => execSync("docker compose exec -T postgres sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB -At'", { cwd: QA, encoding: 'utf8', input: q, shell: '/bin/bash' }).trim();
+const ids = Object.fromEntries(readFileSync('/home/stevdrey/qa123/out/res08ui.ids', 'utf8').trim().split('\n').map((l) => l.split(' ')));
+const log = []; const L = (s) => { console.log(s); log.push(s); }; let pass = 0, fail = 0; const chk = (n, ok, extra = '') => { ok ? pass++ : fail++; L(`${ok ? 'PASS' : 'FAIL'}  ${n}${extra ? '  -- ' + extra : ''}`); };
+const c = await launchChrome(); const b = await new Browser(c.ws).open(); const p = await (await b.newPage()).init();
+const reqs = []; b.listeners.push((d) => { if (d.sessionId === p.sid && d.method === 'Network.requestWillBeSent' && /manual-follow-ups|follow-up-dismissals|follow-up-snooze/.test(d.params.request.url) && d.params.request.method !== 'OPTIONS') reqs.push({ url: d.params.request.url.split('/api/')[1], method: d.params.request.method, idem: d.params.request.headers['Idempotency-Key'], ifMatch: d.params.request.headers['If-Match'] }); });
+await p.viewport(1440, 900); await login(p); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000);
+const search = (q) => p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(q)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+const text = () => p.ev(`document.body.innerText.replace(/\\s+/g,' ')`);
+const wrap = (re) => p.ev(`(()=>{const f=window.fetch;window.__drop=1;window.fetch=async function(u,o){const url=typeof u==='string'?u:(u.url||String(u));const r=await f.apply(this,arguments);if(window.__drop>0&&${re}.test(url)&&o&&o.method&&o.method!=='GET'){window.__drop--;throw new TypeError('Failed to fetch (response lost, injected)')}return r}})()`);
+async function select(name) { await p.goto('http://localhost:5173/'); await p.waitFor('document.body.innerText.includes("Seguimientos")'); await sleep(900); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000); await search(name); await sleep(1300); await p.clickText(name, '*'); await sleep(1000); }
+L('== RES-08 UI: response lost after the server committed the manual action, then the operator retries (Chrome 155)');
+if (!process.env.SNOOZE_ONLY) for (const [kind, modalBtn, confirmBtn, table, re] of [['manual', 'Registrar seguimiento', 'Guardar seguimiento', 'manual_follow_up_completions', '/manual-follow-ups/'], ['dismiss', 'Descartar', 'Descartar seguimiento', 'follow_up_dismissals', '/follow-up-dismissals/']]) {
+  const id = ids[kind]; reqs.length = 0; await select(`Res08 UI ${kind}`); await wrap(re); await p.clickText(modalBtn); await sleep(700);
+  await p.ev(`(()=>{const t=document.querySelector('[role=dialog] textarea, [aria-modal=true] textarea');if(t){const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(t,'nota RES-08 UI');t.dispatchEvent(new Event('input',{bubbles:true}))}})()`);
+  await p.clickText(confirmBtn); await sleep(2500); let t = await text(); const dlg = await p.ev('!!document.querySelector("[role=dialog],[aria-modal=true]")');
+  L(`${kind}: after the lost response -> dialog still open: ${dlg}; error text: ${(t.match(/(No pudimos|No se pudo|Error|inténtalo)[^.]*\./i) || ['(none)'])[0]}`); chk(`${kind}: server committed exactly one record although the client saw a failure`, sql(`select count(*) from dokene.${table} where customer_id='${id}';`) === '1');
+  chk(`${kind}: the UI does not claim success after the lost response`, dlg || /No pudimos|No se pudo|error/i.test(t));
+  if (dlg) { await p.clickText(confirmBtn); await sleep(2500); } t = await text();
+  const mine = reqs.filter((r) => r.method === 'POST'); L(`${kind}: client requests: ${JSON.stringify(mine)}`);
+  chk(`${kind}: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)`, mine.length < 2 || mine[0].idem === mine[1].idem, `ids: ${mine.map((r) => r.idem).join(' | ')}`);
+  const rows = sql(`select count(*) from dokene.${table} where customer_id='${id}';`); chk(`${kind}: still exactly one persisted record after the operator retried`, rows === '1', `rows=${rows}; second request If-Match: ${mine[1]?.ifMatch}`);
+  const aud = sql(`select count(*) from dokene.audit_events where target_id='${id}' and event_type in ('MANUAL_FOLLOW_UP_RECORDED','FOLLOW_UP_DISMISSED');`); chk(`${kind}: exactly one audit event`, aud === '1', `audit=${aud}`);
+  L(`${kind}: UI after the retry: ${(await text()).slice(0, 160)}`);
+}
+{ const id = ids.snooze; reqs.length = 0; await select('Res08 UI snooze'); await wrap('/follow-up-snooze/'); await p.clickText('Posponer'); await sleep(700); await p.clickText('En 1 semana'); await sleep(400); await p.clickText('Confirmar fecha'); await sleep(2500); const dlg = await p.ev('!!document.querySelector("[role=dialog],[aria-modal=true]")'); L(`snooze: after the lost response -> dialog open: ${dlg}`);
+  const before = sql(`select coalesce(snoozed_until::text,'-') from dokene.customer_follow_up_policies where customer_id='${id}';`); chk('snooze: the server applied the snooze although the client saw a failure', before !== '-', before);
+  if (dlg) { try { await p.clickText('Confirmar fecha'); await sleep(2500); } catch {} } const t2 = await text(); const mine = reqs.filter((r) => r.method === 'PUT'); L(`snooze: client requests: ${JSON.stringify(mine)}`); L('snooze: UI after the retry: ' + t2.slice(0, 200));
+  const aud = sql(`select count(*) from dokene.audit_events where target_id='${id}' and event_type='FOLLOW_UP_SNOOZED';`); chk('snooze: at most one snooze audit event (no duplicate completion)', Number(aud) <= 1, `audit=${aud}`); }
+L(`PASS=${pass} FAIL=${fail}`); writeFileSync(process.env.SNOOZE_ONLY ? '/home/stevdrey/qa123/out/res08ui-snooze.txt' : '/home/stevdrey/qa123/out/res08ui.txt', log.join('\n')); c.proc.kill(); process.exit(0);
