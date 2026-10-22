@@ -1,0 +1,45 @@
+== P3-SEC-01 the integration read shows a reference, never a value
+PASS  P3-SEC-01  [HTTP]  testuser: secretRef is the reference, no canary in body or headers
+PASS  P3-SEC-01  [HTTP]  testadmin: secretRef is the reference, no canary in body or headers
+PASS  P3-SEC-01  [HTTP]  testoperator: secretRef is the reference, no canary in body or headers
+PASS  P3-SEC-01  [HTTP]  testviewer: secretRef is the reference, no canary in body or headers
+== P3-SEC-02 malformed secret references
+PASS  P3-SEC-02  [HTTP]  ref #1 rejected with 400, nothing written
+PASS  P3-SEC-02  [HTTP]  ref #2 rejected with 400, nothing written
+PASS  P3-SEC-02  [HTTP]  ref #3 rejected with 400, nothing written
+PASS  P3-SEC-02  [HTTP]  ref #4 rejected with 400, nothing written
+PASS  P3-SEC-02  [HTTP]  ref #5 rejected with 400, nothing written
+PASS  P3-SEC-02  [HTTP]  ref #6 rejected with 400, nothing written
+PASS  P3-SEC-02  [HTTP]  stored reference unchanged, marker absent from the backend log and the audit table
+== P3-SEC-03 another tenant's reference, and a reference of the wrong purpose
+PASS  P3-SEC-03  [HTTP]  qa149-token-b: PUT accepted as a bare key (200), proof fails closed (503 PROVIDER_UNAVAILABLE), send refused with a closed code and no provider call
+PASS  P3-SEC-03  [HTTP]  qa149-token-b: send refusal code INTEGRATION_DISABLED; no call reached the stub with the tenant B token: 12 calls with token B in the whole log, all of them from tenant B fixtures
+PASS  P3-SEC-03  [HTTP]  qa149-app-secret: PUT accepted as a bare key (200), proof fails closed (503 PROVIDER_UNAVAILABLE), send refused with a closed code and no provider call
+PASS  P3-SEC-03  [HTTP]  qa149-app-secret: send refusal code INTEGRATION_DISABLED; no call reached the stub with the tenant B token: 12 calls with token B in the whole log, all of them from tenant B fixtures
+== P3-SEC-04 a reference that does not resolve
+PASS  P3-SEC-04  [HTTP]  proof (503) and send refused safely: closed body, no provider call, no stack trace or reference value in the responses
+PASS  P3-SEC-04  [HTTP]  proof answered 503 PROVIDER_UNAVAILABLE; send answered INTEGRATION_DISABLED
+== P3-SEC-05 a provider error that echoes the three canaries
+PASS  P3-SEC-05  [HTTP]  send answered 201 with a closed failure category
+PASS  P3-SEC-05  [HTTP]  status/failure: FAILED/AUTHENTICATION
+PASS  P3-SEC-05  [HTTP]  CANARY-TOKEN absent from the response, the events, the audit table and the log since the call
+PASS  P3-SEC-05  [HTTP]  CANARY-PHONE absent from the same four places
+PASS  P3-SEC-05  [HTTP]  the provider error text (CANARY-BODY as echoed by the provider) absent from events, audit and log
+== P3-SEC-06 submit, approve, send and a delivery report with the canary body and a canary phone
+PASS  P3-SEC-06  [HTTP]  journey done: DELIVERED
+PASS  P3-SEC-06  [HTTP]  backend log since the journey: no body, no phone, no provider message id
+PASS  P3-SEC-06  [HTTP]  audit table: no body, no phone, no provider message id
+== P3-SEC-07 whole stack search for the canary secrets
+PASS  P3-SEC-07  [HTTP]  CANARY-TOKEN: backend log, proxy log, audit table, message events
+PASS  P3-SEC-07  [HTTP]  CANARY-APP-SECRET: backend log, proxy log, audit table, message events
+PASS  P3-SEC-07  [HTTP]  CANARY-VERIFY: backend log, proxy log, audit table, message events
+PASS  P3-SEC-07  [HTTP]  QA149-TOKEN-B-SYNTHETIC: backend log, proxy log, audit table, message events
+PASS  P3-SEC-07  [HTTP]  canary body appears only where a member reads the message: present in the message read, absent from the audit table and the proxy log
+BLOCKED  P3-SEC-07  [HTTP]  metrics output not reachable over HTTP (actuator 401/401); the metrics half and the browser screens are in sec149-browser.mjs
+BLOCKED  P3-SEC-08  [HTTP]  browser case, see sec149-browser.mjs
+BLOCKED  P3-SEC-09  [In process]  in process case, see sec149-inprocess.sh
+== P3-SEC-10 every refused or denied body carries exactly type, title, status and code
+PASS  P3-SEC-10  [HTTP]  403, 409, 404, 400 (template), 400 (integration): all problem+json with exactly the four members
+PASS  P3-SEC-10  [HTTP]  content type application/problem+json
+BLOCKED  P3-SEC-11  [HTTP]  metric names and tags are not reachable over HTTP on the local stack (no actuator route); the telemetry tag rules are covered in process by WebhookTelemetryTest and the dispatch telemetry tests
+== sec149-sec.sh: PASS=32 FAIL=0 BLOCKED=4

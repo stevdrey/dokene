@@ -3,3 +3,5 @@
 12bd64e949c2f92b020acd6a2c4381cf0af846b4:docs/verification/issue-123-evidence/outputs.txt:generic-api-key:347
 # Synthetic QA evidence from an earlier commit of this PR (script line later reworded); no real secret.
 81a95d6957a376aa553e9af0aec01df7f9506cc9:docs/verification/issue-121-evidence/scripts/sec121-a.sh:curl-auth-header:25
+# Synthetic QA harness from an earlier commit of PR #267 (a secret reference name, not a secret; line later reworded).
+68e9c3894a06ea4aab45b4ef12371d49b2e46937:docs/verification/issue-149-evidence/scripts/stack149.sh:generic-api-key:55

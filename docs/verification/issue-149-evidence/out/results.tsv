@@ -1,0 +1,638 @@
+P3-PERM-01	HTTP	PASS	2026-10-22T01:01:14Z	testuser list, read, events
+P3-PERM-01	HTTP	PASS	2026-10-22T01:01:14Z	testadmin list, read, events
+P3-PERM-01	HTTP	PASS	2026-10-22T01:01:14Z	testoperator list, read, events
+P3-PERM-01	HTTP	PASS	2026-10-22T01:01:15Z	testviewer list, read, events
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:15Z	testuser submit
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:15Z	testadmin submit
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:16Z	testoperator submit
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:17Z	VIEWER submit: 403
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:17Z	VIEWER submit: problem body FORBIDDEN
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:17Z	VIEWER submit: nothing written except the denial audit row
+P3-PERM-02	HTTP	PASS	2026-10-22T01:01:17Z	VIEWER submit: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_DRAFT
+P3-PERM-03	HTTP	PASS	2026-10-22T01:01:18Z	testuser cancel pending
+P3-PERM-03	HTTP	PASS	2026-10-22T01:01:18Z	testadmin cancel pending
+P3-PERM-03	HTTP	PASS	2026-10-22T01:01:18Z	testoperator cancel pending
+P3-PERM-03	HTTP	PASS	2026-10-22T01:01:19Z	VIEWER cancel pending: 403
+P3-PERM-03	HTTP	PASS	2026-10-22T01:01:19Z	VIEWER cancel pending: problem body FORBIDDEN
+P3-PERM-03	HTTP	FAIL	2026-10-22T01:01:20Z	VIEWER cancel pending: nothing written except the denial audit row (expected 'ok', got 'before=[228 628 494 57 1884 57] after=[228 628 494 57 1886 57]')
+P3-PERM-03	HTTP	FAIL	2026-10-22T01:01:20Z	VIEWER cancel pending: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_DRAFT (expected 'AUTHORIZATION_DENIED|MESSAGE_DRAFT|INSUFFICIENT_PERMISSION', got 'AUTHORIZATION_DENIED|MESSAGE_APPROVE|INSUFFICIENT_PERMISSION')
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:20Z	testuser approve
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:20Z	testuser reject
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:21Z	testadmin approve
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:21Z	testadmin reject
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:22Z	testoperator approve
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:22Z	testoperator reject
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:23Z	VIEWER approve: 403
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:23Z	VIEWER approve: problem body FORBIDDEN
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:23Z	VIEWER approve: nothing written except the denial audit row
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:23Z	VIEWER approve: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:24Z	VIEWER reject: 403
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:24Z	VIEWER reject: problem body FORBIDDEN
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:24Z	VIEWER reject: nothing written except the denial audit row
+P3-PERM-04	HTTP	PASS	2026-10-22T01:01:24Z	VIEWER reject: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+P3-PERM-05	HTTP	PASS	2026-10-22T01:01:25Z	testuser cancel approved
+P3-PERM-05	HTTP	PASS	2026-10-22T01:01:25Z	testadmin cancel approved
+P3-PERM-05	HTTP	PASS	2026-10-22T01:01:26Z	testoperator cancel approved
+P3-PERM-05	HTTP	PASS	2026-10-22T01:01:26Z	VIEWER cancel approved: 403
+P3-PERM-05	HTTP	PASS	2026-10-22T01:01:26Z	VIEWER cancel approved: problem body FORBIDDEN
+P3-PERM-05	HTTP	FAIL	2026-10-22T01:01:27Z	VIEWER cancel approved: nothing written except the denial audit row (expected 'ok', got 'before=[237 653 519 57 1940 57] after=[237 653 519 57 1942 57]')
+P3-PERM-05	HTTP	PASS	2026-10-22T01:01:27Z	VIEWER cancel approved: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:27Z	testuser send
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:28Z	testadmin send
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:28Z	testoperator send
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:29Z	VIEWER send: 403
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:29Z	VIEWER send: problem body FORBIDDEN
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:29Z	VIEWER send: nothing written except the denial audit row
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:29Z	VIEWER send: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_SEND
+P3-PERM-06	HTTP	PASS	2026-10-22T01:01:30Z	VIEWER send: message still APPROVED, no attempt
+P3-PERM-07	HTTP	BLOCKED	2026-10-22T01:01:30Z	POST /api/messages/{id}/resolutions is not deployed on this commit (404); T12 is owed by #138
+P3-PERM-08	HTTP	PASS	2026-10-22T01:01:30Z	testuser GET /api/templates
+P3-PERM-08	HTTP	PASS	2026-10-22T01:01:30Z	testadmin GET /api/templates
+P3-PERM-08	HTTP	PASS	2026-10-22T01:01:30Z	testoperator GET /api/templates
+P3-PERM-08	HTTP	PASS	2026-10-22T01:01:30Z	testviewer GET /api/templates
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:30Z	testuser PUT template
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:30Z	testadmin PUT template
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:30Z	testoperator PUT template
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:31Z	VIEWER PUT template: 403
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:31Z	VIEWER PUT template: problem body FORBIDDEN
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:31Z	VIEWER PUT template: nothing written except the denial audit row
+P3-PERM-09	HTTP	PASS	2026-10-22T01:01:31Z	VIEWER PUT template: the new audit row is AUTHORIZATION_DENIED naming TEMPLATE_WRITE
+P3-PERM-10	HTTP	PASS	2026-10-22T01:01:31Z	testuser GET integration
+P3-PERM-10	HTTP	PASS	2026-10-22T01:01:31Z	testadmin GET integration
+P3-PERM-10	HTTP	PASS	2026-10-22T01:01:31Z	testoperator GET integration
+P3-PERM-10	HTTP	PASS	2026-10-22T01:01:31Z	testviewer GET integration
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:31Z	testuser PUT integration
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:32Z	testadmin PUT integration
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:32Z	testoperator PUT integration: 403
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:32Z	testoperator PUT integration: problem body FORBIDDEN
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:33Z	testoperator PUT integration: nothing written except the denial audit row
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:33Z	testoperator PUT integration: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:33Z	testviewer PUT integration: 403
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:33Z	testviewer PUT integration: problem body FORBIDDEN
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:34Z	testviewer PUT integration: nothing written except the denial audit row
+P3-PERM-11	HTTP	PASS	2026-10-22T01:01:34Z	testviewer PUT integration: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:34Z	testuser switch off then on
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:34Z	testadmin switch off then on
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:35Z	testoperator switch off: 403
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:35Z	testoperator switch off: problem body FORBIDDEN
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:35Z	testoperator switch off: nothing written except the denial audit row
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:36Z	testoperator switch off: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:36Z	testviewer switch off: 403
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:36Z	testviewer switch off: problem body FORBIDDEN
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:37Z	testviewer switch off: nothing written except the denial audit row
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:37Z	testviewer switch off: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-PERM-12	HTTP	PASS	2026-10-22T01:01:37Z	switch still on after the denials
+P3-PERM-14	HTTP	PASS	2026-10-22T01:01:37Z	operator alone: submit, approve, send
+P3-PERM-15	HTTP	PASS	2026-10-22T01:01:38Z	VIEWER approve via curl: 403
+P3-PERM-15	HTTP	PASS	2026-10-22T01:01:38Z	VIEWER approve via curl: problem body FORBIDDEN
+P3-PERM-15	HTTP	PASS	2026-10-22T01:01:38Z	VIEWER approve via curl: nothing written except the denial audit row
+P3-PERM-15	HTTP	PASS	2026-10-22T01:01:39Z	VIEWER approve via curl: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+P3-PERM-16	HTTP	PASS	2026-10-22T01:01:39Z	VIEWER approve without headers: 403
+P3-PERM-16	HTTP	PASS	2026-10-22T01:01:39Z	VIEWER approve without headers: problem body FORBIDDEN
+P3-PERM-16	HTTP	PASS	2026-10-22T01:01:40Z	VIEWER approve without headers: nothing written except the denial audit row
+P3-PERM-16	HTTP	PASS	2026-10-22T01:01:40Z	VIEWER approve without headers: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+P3-PERM-16	HTTP	PASS	2026-10-22T01:01:40Z	control: OPERATOR without headers is the validation 400
+P3-PERM-17	HTTP	PASS	2026-10-22T01:01:40Z	owner demotes the operator
+P3-PERM-17	HTTP	PASS	2026-10-22T01:01:41Z	demoted operator send in the old session: 403
+P3-PERM-17	HTTP	PASS	2026-10-22T01:01:41Z	demoted operator send in the old session: problem body FORBIDDEN
+P3-PERM-17	HTTP	PASS	2026-10-22T01:01:41Z	demoted operator send in the old session: nothing written except the denial audit row
+P3-PERM-17	HTTP	PASS	2026-10-22T01:01:42Z	demoted operator send in the old session: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_SEND
+P3-PERM-17	HTTP	PASS	2026-10-22T01:01:42Z	no attempt row
+P3-PERM-18	HTTP	PASS	2026-10-22T01:01:42Z	member added, usable (409 stale), then revoked
+P3-PERM-18	HTTP	PASS	2026-10-22T01:01:43Z	revoked member send: 403
+P3-PERM-18	HTTP	PASS	2026-10-22T01:01:44Z	revoked member send: no attempt row, no provider call, nothing else written
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:45Z	X-NONE GET /api/messages: 403, nothing written, no tenant A data
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:46Z	X-NONE GET /api/messages/71d2a931-a0cb-4658-9ce3-31f1d1d93518: 403, nothing written, no tenant A data
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:47Z	X-NONE POST /api/messages/71d2a931-a0cb-4658-9ce3-31f1d1d93518/approvals: 403, nothing written, no tenant A data
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:48Z	X-NONE POST /api/messages/71d2a931-a0cb-4658-9ce3-31f1d1d93518/sends: 403, nothing written, no tenant A data
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:49Z	X-NONE GET /api/templates: 403, nothing written, no tenant A data
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:50Z	X-NONE GET /api/integrations/whatsapp: 403, nothing written, no tenant A data
+P3-PERM-19	HTTP	PASS	2026-10-22T01:01:51Z	X-NONE PUT /api/integrations/whatsapp/outbound: 403, nothing written, no tenant A data
+P3-IDOR-01	HTTP	PASS	2026-10-22T01:01:53Z	GET MB-PENDING: 404 NOT_FOUND, same body as a random UUID
+P3-IDOR-01	HTTP	PASS	2026-10-22T01:01:53Z	GET MB-PENDING events: 404 NOT_FOUND
+P3-IDOR-02	HTTP	PASS	2026-10-22T01:01:53Z	list filtered by CB1: 200 with no items
+P3-IDOR-02	HTTP	PASS	2026-10-22T01:01:55Z	unfiltered list, 46 pages: no tenant B item
+P3-IDOR-03	HTTP	PASS	2026-10-22T01:01:56Z	submit for CB1 from tenant A (If-Match "0" supplied, since the policy read is itself not found): 404 NOT_FOUND
+P3-IDOR-03	HTTP	PASS	2026-10-22T01:01:56Z	submit for CB1 from tenant A (If-Match "0" supplied, since the policy read is itself not found): nothing written
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:57Z	approve MB-PENDING from tenant A: 404 NOT_FOUND
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:57Z	approve MB-PENDING from tenant A: nothing written
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:58Z	reject MB-PENDING from tenant A: 404 NOT_FOUND
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:58Z	reject MB-PENDING from tenant A: nothing written
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:59Z	cancel MB-PENDING from tenant A: 404 NOT_FOUND
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:59Z	cancel MB-PENDING from tenant A: nothing written
+P3-IDOR-04	HTTP	PASS	2026-10-22T01:01:59Z	MB-PENDING keeps its status/version and events
+P3-IDOR-05	HTTP	PASS	2026-10-22T01:02:00Z	send of a tenant B approved message: 404 NOT_FOUND
+P3-IDOR-05	HTTP	PASS	2026-10-22T01:02:01Z	send of a tenant B approved message: nothing written
+P3-IDOR-05	HTTP	PASS	2026-10-22T01:02:01Z	no attempt row on the tenant B message
+P3-IDOR-05	HTTP	BLOCKED	2026-10-22T01:02:01Z	resolutions route not deployed (404): the unknown outcome half waits for T12 (#138)
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:02Z	A-OPERATOR with tenant B header, GET /api/messages: 403 and nothing written
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:03Z	A-OPERATOR with tenant B header, GET /api/messages/1448057f-c587-4bc2-91ab-87796f12bdc4: 403 and nothing written
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:04Z	A-OPERATOR with tenant B header, POST /api/messages/1448057f-c587-4bc2-91ab-87796f12bdc4/approvals: 403 and nothing written
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:05Z	A-OPERATOR with tenant B header, POST /api/customers/2e7be839-2c43-476a-a000-2de325d855b8/messages: 403 and nothing written
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:06Z	A-OPERATOR with tenant B header, GET /api/templates: 403 and nothing written
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:07Z	A-OPERATOR with tenant B header, GET /api/integrations/whatsapp: 403 and nothing written
+P3-IDOR-06	HTTP	PASS	2026-10-22T01:02:08Z	A-OPERATOR with tenant B header, PUT /api/integrations/whatsapp/outbound: 403 and nothing written
+P3-IDOR-07	HTTP	PASS	2026-10-22T01:02:09Z	CA1 with CA2's contact: 404 NOT_FOUND
+P3-IDOR-07	HTTP	PASS	2026-10-22T01:02:09Z	CA1 with CA2's contact: nothing written
+P3-IDOR-07	HTTP	PASS	2026-10-22T01:02:10Z	CA1 with CB1's contact: 404 NOT_FOUND
+P3-IDOR-07	HTTP	PASS	2026-10-22T01:02:10Z	CA1 with CB1's contact: nothing written
+P3-IDOR-07	HTTP	PASS	2026-10-22T01:02:11Z	the three not found bodies are identical to the random UUID one
+P3-IDOR-08	HTTP	PASS	2026-10-22T01:02:11Z	A submit 201, B submit with the same key 201 and a different message
+P3-IDOR-08	HTTP	PASS	2026-10-22T01:02:11Z	the tenant B message belongs to CB3, not to the tenant A customer
+P3-IDOR-08	HTTP	PASS	2026-10-22T01:02:11Z	tenant A message untouched (status/version/outcomeUnknown)
+P3-IDOR-09	HTTP	PASS	2026-10-22T01:02:11Z	A-ADMIN reads only tenant A data
+P3-IDOR-09	HTTP	PASS	2026-10-22T01:02:11Z	PUT PN-B into tenant A: same 200 and shape as an unused number, unverified claim
+P3-IDOR-09	HTTP	PASS	2026-10-22T01:02:12Z	ownership proof for PN-B in tenant A refused with 400 INVALID_INPUT
+P3-IDOR-09	HTTP	PASS	2026-10-22T01:02:12Z	the NotProven answer is identical (400 INVALID_INPUT)
+P3-IDOR-09	HTTP	PASS	2026-10-22T01:02:12Z	tenant A row stays unverified, tenant B stays verified on PN-B
+P3-IDOR-09	HTTP	PASS	2026-10-22T01:02:12Z	a tenant A send on the unproven claim is refused with no provider call
+P3-IDOR-10	HTTP	PASS	2026-10-22T01:02:13Z	A reads a catalogue of 5 intents, GENERAL_FOLLOW_UP mapped
+P3-IDOR-10	HTTP	PASS	2026-10-22T01:02:13Z	A writes its SEASONAL_EVENT mapping
+P3-IDOR-10	HTTP	PASS	2026-10-22T01:02:13Z	tenant B GENERAL_FOLLOW_UP version unchanged and SEASONAL_EVENT still unmapped in B
+P3-RLS-01	Database	PASS	2026-10-22T01:02:15Z	outbound_messages: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-22T01:02:15Z	outbound_messages: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-22T01:02:15Z	outbound_messages: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-22T01:02:15Z	outbound_messages: tenant A capability reads exactly tenant A rows (232) and 0 of B (19 exist)
+P3-RLS-01	Database	PASS	2026-10-22T01:02:15Z	outbound_message_approvals: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-22T01:02:15Z	outbound_message_approvals: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-22T01:02:16Z	outbound_message_approvals: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-22T01:02:16Z	outbound_message_approvals: tenant A capability reads exactly tenant A rows (180) and 0 of B (10 exist)
+P3-RLS-01	Database	PASS	2026-10-22T01:02:16Z	outbound_message_cancellations: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-22T01:02:16Z	outbound_message_cancellations: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-22T01:02:16Z	outbound_message_cancellations: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-22T01:02:17Z	outbound_message_cancellations: tenant A capability reads exactly tenant A rows (43) and 0 of B (0 exist)
+P3-RLS-01	Database	PASS	2026-10-22T01:02:17Z	outbound_send_attempts: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-22T01:02:17Z	outbound_send_attempts: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-22T01:02:17Z	outbound_send_attempts: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-22T01:02:17Z	outbound_send_attempts: tenant A capability reads exactly tenant A rows (55) and 0 of B (6 exist)
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_events: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_events: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_events: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_events: tenant A capability reads exactly tenant A rows (640) and 0 of B (47 exist)
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_idempotency_keys: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_idempotency_keys: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-22T01:02:18Z	outbound_message_idempotency_keys: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-22T01:02:19Z	outbound_message_idempotency_keys: tenant A capability reads exactly tenant A rows (510) and 0 of B (35 exist)
+P3-RLS-01	Database	PASS	2026-10-22T01:02:19Z	runtime role: not superuser, no bypassrls
+P3-RLS-02	Database	PASS	2026-10-22T01:02:19Z	outbound_messages: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-22T01:02:20Z	outbound_message_approvals: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-22T01:02:20Z	outbound_message_cancellations: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-22T01:02:20Z	outbound_send_attempts: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-22T01:02:20Z	outbound_message_events: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-22T01:02:21Z	outbound_message_idempotency_keys: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-22T01:02:21Z	forged capability cannot insert an event row for tenant B
+P3-RLS-02	Database	PASS	2026-10-22T01:02:21Z	expired capability cannot update tenant B message
+P3-RLS-03	Database	PASS	2026-10-22T01:02:21Z	body and recipient rewrite refused ('permission denied' or 0 rows) and stored values unchanged
+P3-RLS-03	Database	PASS	2026-10-22T01:02:22Z	event update and delete denied, rows intact
+P3-RLS-04	Database	PASS	2026-10-22T01:02:22Z	tenant_messaging_integrations: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-22T01:02:22Z	tenant_messaging_integrations: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-22T01:02:23Z	tenant_messaging_integrations: no capability 0, A capability 1 and 0 of B, forged 0, expired 0
+P3-RLS-04	Database	PASS	2026-10-22T01:02:23Z	tenant_provider_templates: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-22T01:02:23Z	tenant_provider_templates: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-22T01:02:24Z	tenant_provider_templates: no capability 0, A capability 3 and 0 of B, forged 0, expired 0
+P3-RLS-04	Database	PASS	2026-10-22T01:02:24Z	provider_webhook_events: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-22T01:02:24Z	provider_webhook_events: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-22T01:02:24Z	provider_webhook_events: no capability 0, A capability 27 and 0 of B, forged 0, expired 0
+P3-HOOK-13	Database	PASS	2026-10-22T01:02:25Z	forged provider capability cannot append
+P3-HOOK-13	Database	PASS	2026-10-22T01:02:25Z	expired provider capability cannot append
+P3-HOOK-13	Database	PASS	2026-10-22T01:02:25Z	member capability cannot append a provider attributed event
+P3-HOOK-13	Database	PASS	2026-10-22T01:02:25Z	audit row count unchanged
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:28Z	no token: POST /api/customers/0a757f1a-be2e-4daa-8ecb-252ec8fb0797/messages -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:29Z	no token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/approvals -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:30Z	no token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/cancellations -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:31Z	no token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/sends -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:32Z	no token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/resolutions -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:33Z	no token: PUT /api/templates/SEASONAL_EVENT -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:35Z	no token: POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:36Z	no token: PUT /api/integrations/whatsapp -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:37Z	no token: POST /api/integrations/whatsapp/credential-rotations -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:38Z	no token: POST /api/integrations/whatsapp/ownership-verifications -> 403 and nothing written
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:02:39Z	no token: PUT /api/integrations/whatsapp/outbound -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:40Z	operator's token on the owner session: POST /api/customers/0a757f1a-be2e-4daa-8ecb-252ec8fb0797/messages -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:41Z	operator's token on the owner session: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/approvals -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:42Z	operator's token on the owner session: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/cancellations -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:43Z	operator's token on the owner session: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/sends -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:44Z	operator's token on the owner session: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/resolutions -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:45Z	operator's token on the owner session: PUT /api/templates/SEASONAL_EVENT -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:46Z	operator's token on the owner session: POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:47Z	operator's token on the owner session: PUT /api/integrations/whatsapp -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:48Z	operator's token on the owner session: POST /api/integrations/whatsapp/credential-rotations -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:49Z	operator's token on the owner session: POST /api/integrations/whatsapp/ownership-verifications -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:50Z	operator's token on the owner session: PUT /api/integrations/whatsapp/outbound -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:51Z	random token: POST /api/customers/0a757f1a-be2e-4daa-8ecb-252ec8fb0797/messages -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:52Z	random token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/approvals -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:53Z	random token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/cancellations -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:54Z	random token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/sends -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:55Z	random token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/resolutions -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:56Z	random token: PUT /api/templates/SEASONAL_EVENT -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:57Z	random token: POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:58Z	random token: PUT /api/integrations/whatsapp -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:02:59Z	random token: POST /api/integrations/whatsapp/credential-rotations -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:03:00Z	random token: POST /api/integrations/whatsapp/ownership-verifications -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:03:01Z	random token: PUT /api/integrations/whatsapp/outbound -> 403 and nothing written
+P3-CSRF-02	HTTP	PASS	2026-10-22T01:03:01Z	control: the right token on the owner session cancels MP (201)
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:03:01Z	message states unchanged by the CSRF attempts: MA still APPROVED, no attempt
+P3-CSRF-01	HTTP	PASS	2026-10-22T01:03:01Z	tenant switch still on, integration still verified
+P3-CSRF-04	HTTP	PASS	2026-10-22T01:03:02Z	signed webhook without any CSRF token: 200 and one inbox row
+P3-CSRF-04	HTTP	PASS	2026-10-22T01:03:03Z	/api send without token still 403, nothing written
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	direct: unsigned webhook: 403, no Set-Cookie, no redirect
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	direct: unsigned webhook with the owner's session cookie: 403, no Set-Cookie
+P3-CSRF-05	HTTP	FAIL	2026-10-22T01:03:03Z	direct: /webhooks/other is not a handler (403 or 404), no cookie (expected 'yes 0', got 'yes 1')
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	direct: /webhooks/whatsapp/../../api/session never answers with the session JSON
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	direct: the same path without a session is not a login redirect to Keycloak
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	direct: webhook GET with a wrong verify token: 403, no Set-Cookie
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	proxy: unsigned webhook: 403, no Set-Cookie, no redirect
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	proxy: unsigned webhook with the owner's session cookie: 403, no Set-Cookie
+P3-CSRF-05	HTTP	FAIL	2026-10-22T01:03:03Z	proxy: /webhooks/other is not a handler (403 or 404), no cookie (expected 'yes 0', got 'yes 1')
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	proxy: /webhooks/whatsapp/../../api/session never answers with the session JSON
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	proxy: the same path without a session is not a login redirect to Keycloak
+P3-CSRF-05	HTTP	PASS	2026-10-22T01:03:03Z	proxy: webhook GET with a wrong verify token: 403, no Set-Cookie
+P3-APPR-01	HTTP	PASS	2026-10-22T01:03:05Z	second member rejects
+P3-APPR-01	HTTP	PASS	2026-10-22T01:03:05Z	approve with the old ETag: 409 STALE_VERSION
+P3-APPR-01	HTTP	PASS	2026-10-22T01:03:06Z	approve with the old ETag: nothing written
+P3-APPR-02	HTTP	PASS	2026-10-22T01:03:07Z	reject pending with the old ETag (now approved): 409 STALE_VERSION
+P3-APPR-02	HTTP	PASS	2026-10-22T01:03:07Z	reject pending with the old ETag (now approved): nothing written
+P3-APPR-02	HTTP	PASS	2026-10-22T01:03:08Z	cancel approved with the old ETag: 409 STALE_VERSION
+P3-APPR-02	HTTP	PASS	2026-10-22T01:03:08Z	cancel approved with the old ETag: nothing written
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:09Z	If-Match []: 400 INVALID_INPUT
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:09Z	If-Match []: nothing written
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:10Z	If-Match [*]: 400 INVALID_INPUT
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:11Z	If-Match [*]: nothing written
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:11Z	If-Match [W/"1"]: 400 INVALID_INPUT
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:12Z	If-Match [W/"1"]: nothing written
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:12Z	If-Match ["1", "2"]: 400 INVALID_INPUT
+P3-APPR-03	HTTP	PASS	2026-10-22T01:03:13Z	If-Match ["1", "2"]: nothing written
+P3-APPR-04	HTTP	PASS	2026-10-22T01:03:14Z	PUT /api/messages/{id}: 404 or 405, nothing written
+P3-APPR-04	HTTP	PASS	2026-10-22T01:03:15Z	PATCH /api/messages/{id}: 404 or 405, nothing written
+P3-APPR-04	HTTP	PASS	2026-10-22T01:03:15Z	stored status, body, recipient and contact unchanged
+P3-APPR-05	HTTP	PASS	2026-10-22T01:03:16Z	unknown members rejected: 400 INVALID_INPUT
+P3-APPR-05	HTTP	PASS	2026-10-22T01:03:17Z	unknown members rejected: nothing written
+P3-APPR-05	HTTP	PASS	2026-10-22T01:03:17Z	message still pending
+P3-APPR-06	HTTP	PASS	2026-10-22T01:03:18Z	send of the unapproved M2: 409 INVALID_TRANSITION
+P3-APPR-06	HTTP	PASS	2026-10-22T01:03:18Z	send of the unapproved M2: nothing written
+P3-APPR-06	HTTP	PASS	2026-10-22T01:03:18Z	no attempt row on M2
+P3-APPR-07	HTTP	PASS	2026-10-22T01:03:19Z	policy moved to a new version
+P3-APPR-07	HTTP	PASS	2026-10-22T01:03:19Z	submit with the old policy version: 409 STALE_VERSION
+P3-APPR-07	HTTP	PASS	2026-10-22T01:03:20Z	submit with the old policy version: nothing written
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:21Z	approve after reject: 409 INVALID_TRANSITION
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:21Z	approve after reject: nothing written
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:22Z	approve twice with different keys: 409 INVALID_TRANSITION
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:23Z	approve twice with different keys: nothing written
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:23Z	reject after approval: 409 INVALID_TRANSITION
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:24Z	reject after approval: nothing written
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:24Z	control send
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:25Z	cancel after send: 409 INVALID_TRANSITION
+P3-APPR-08	HTTP	PASS	2026-10-22T01:03:25Z	cancel after send: nothing written
+P3-APPR-09	HTTP	PASS	2026-10-22T01:03:25Z	customer phone corrected (contact replaced)
+P3-APPR-09	HTTP	PASS	2026-10-22T01:03:26Z	approve the stranded message: 409 CONTACT_NOT_OWNED
+P3-APPR-09	HTTP	PASS	2026-10-22T01:03:27Z	approve the stranded message: nothing written
+P3-APPR-09	HTTP	PASS	2026-10-22T01:03:27Z	no approval row, no MESSAGE_APPROVED audit
+P3-APPR-09	HTTP	PASS	2026-10-22T01:03:27Z	the stranded message can be rejected
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:27Z	TA disabled
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:28Z	send with TA disabled: 409 TEMPLATE_NOT_MAPPED
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:28Z	send with TA disabled: nothing written
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:28Z	TA renamed, not refreshed: not sendable
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:29Z	send with an unrefreshed edited mapping: 409 TEMPLATE_NOT_MAPPED
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:30Z	send with an unrefreshed edited mapping: nothing written
+P3-APPR-10	HTTP	PASS	2026-10-22T01:03:30Z	message still APPROVED, no attempt
+P3-APPR-13	HTTP	PASS	2026-10-22T01:03:30Z	edited mapping refreshed and sendable again
+P3-APPR-13	HTTP	PASS	2026-10-22T01:03:31Z	send with an approval bound to the old mapping: 409 APPROVAL_INVALIDATED
+P3-APPR-13	HTTP	PASS	2026-10-22T01:03:31Z	send with an approval bound to the old mapping: nothing written
+P3-APPR-13	HTTP	PASS	2026-10-22T01:03:32Z	message still APPROVED, no attempt
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:32Z	IA disabled
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:33Z	send with IA disabled: 409 INTEGRATION_DISABLED
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:33Z	send with IA disabled: nothing written
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:33Z	IA re-enabled with a new secretRef: proof cleared
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:34Z	send after a secretRef change without a proof: 409 INTEGRATION_DISABLED
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:34Z	send after a secretRef change without a proof: nothing written
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:35Z	credential rotated: proof cleared
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:35Z	send after a rotation without a proof: 409 INTEGRATION_DISABLED
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:36Z	send after a rotation without a proof: nothing written
+P3-APPR-11	HTTP	PASS	2026-10-22T01:03:36Z	message still APPROVED, no attempt, no provider call
+P3-APPR-14	HTTP	PASS	2026-10-22T01:03:37Z	rotated and proven again
+P3-APPR-14	HTTP	PASS	2026-10-22T01:03:37Z	send with an approval bound to the old credential revision: 409 APPROVAL_INVALIDATED
+P3-APPR-14	HTTP	PASS	2026-10-22T01:03:38Z	send with an approval bound to the old credential revision: nothing written
+P3-APPR-14	HTTP	PASS	2026-10-22T01:03:38Z	control: a message approved after the rotation sends with the token the stub knows as A
+P3-APPR-12	HTTP	BLOCKED	2026-10-22T01:03:38Z	POST /api/messages/{id}/resolutions is not deployed on this commit; T12 is owed by #138
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:40Z	PUT with "approved":true: 400 INVALID_INPUT
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:40Z	PUT with "approved":true: nothing written
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:41Z	PUT with "approvalStatus":"APPROVED": 400 INVALID_INPUT
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:41Z	PUT with "approvalStatus":"APPROVED": nothing written
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:42Z	PUT with "providerTemplateId":"300000000000001": 400 INVALID_INPUT
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:42Z	PUT with "providerTemplateId":"300000000000001": nothing written
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:43Z	submit for the unmapped intent: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-01	HTTP	PASS	2026-10-22T01:03:44Z	submit for the unmapped intent: nothing written
+P3-TMPL-02	HTTP	PASS	2026-10-22T01:03:44Z	mapping stored, UNVERIFIED and not sendable
+P3-TMPL-02	HTTP	PASS	2026-10-22T01:03:44Z	OPERATOR refresh: 200, APPROVED, sendable
+P3-TMPL-02	HTTP	PASS	2026-10-22T01:03:44Z	one TEMPLATE_MAPPING_UPDATED audit row, one provider call with the tenant A token
+P3-TMPL-02	HTTP	PASS	2026-10-22T01:03:44Z	the provider was asked for exactly the mapped name and language
+P3-TMPL-02	HTTP	PASS	2026-10-22T01:03:44Z	the audit row carries no provider text (no columns beyond the mapping id and enabled flag)
+P3-TMPL-03	HTTP	PASS	2026-10-22T01:03:44Z	provider answers otherLanguage: NOT_FOUND, not sendable
+P3-TMPL-03	HTTP	PASS	2026-10-22T01:03:44Z	provider answers otherName: NOT_FOUND, not sendable
+P3-TMPL-04	HTTP	PASS	2026-10-22T01:03:45Z	IA moved to another business account and proven again
+P3-TMPL-04	HTTP	PASS	2026-10-22T01:03:46Z	send refused (409) with a closed code, nothing written
+P3-TMPL-04	HTTP	PASS	2026-10-22T01:03:46Z	refusal code observed: TEMPLATE_NOT_MAPPED
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:03:54Z	fresh evidence: pending and approved messages exist
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:04:20Z	submit after expiry: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:04:21Z	submit after expiry: nothing written
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:04:21Z	approve after expiry: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:04:22Z	approve after expiry: nothing written
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:04:22Z	send after expiry: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-05	HTTP	PASS	2026-10-22T01:04:23Z	send after expiry: nothing written
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:35Z	hang: 503 PROVIDER_UNAVAILABLE
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:35Z	hang: evidence dropped, not sendable
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:35Z	hang: no canary in the response or in the backend log since the call
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	error500: 503 PROVIDER_UNAVAILABLE
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	error500: evidence dropped, not sendable
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	error500: no canary in the response or in the backend log since the call
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	redirect: 503 PROVIDER_UNAVAILABLE
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	redirect: evidence dropped, not sendable
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	redirect: no canary in the response or in the backend log since the call
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	canaryError: 503 PROVIDER_UNAVAILABLE
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:36Z	canaryError: evidence dropped, not sendable
+P3-TMPL-06	HTTP	PASS	2026-10-22T01:04:37Z	canaryError: no canary in the response or in the backend log since the call
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:37Z	rejected: status REJECTED, not sendable
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:38Z	rejected: submit refused: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:38Z	rejected: submit refused: nothing written
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:38Z	paused: status PAUSED, not sendable
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:39Z	paused: submit refused: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:40Z	paused: submit refused: nothing written
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:40Z	deleted: status DELETED, not sendable
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:40Z	deleted: submit refused: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-07	HTTP	PASS	2026-10-22T01:04:41Z	deleted: submit refused: nothing written
+P3-TMPL-08	HTTP	PASS	2026-10-22T01:04:42Z	tenant B submit for an intent only tenant A mapped: 409 TEMPLATE_NOT_MAPPED
+P3-TMPL-08	HTTP	PASS	2026-10-22T01:04:42Z	tenant B submit for an intent only tenant A mapped: nothing written
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:44Z	archived: 409 CUSTOMER_ARCHIVED
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:45Z	archived: nothing written
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:46Z	do not contact: 409 DO_NOT_CONTACT
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:46Z	do not contact: nothing written
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:47Z	no consent: 409 NO_CONTACT_CONSENT
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:47Z	no consent: nothing written
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:48Z	not due: 409 FOLLOW_UP_INELIGIBLE
+P3-CONS-01	HTTP	PASS	2026-10-22T01:04:49Z	not due: nothing written
+P3-CONS-02	HTTP	PASS	2026-10-22T01:04:49Z	approve after revoke: 409 NO_CONTACT_CONSENT
+P3-CONS-02	HTTP	PASS	2026-10-22T01:04:50Z	approve after revoke: nothing written
+P3-CONS-03	HTTP	PASS	2026-10-22T01:04:51Z	approve after do not contact: 409 DO_NOT_CONTACT
+P3-CONS-03	HTTP	PASS	2026-10-22T01:04:51Z	approve after do not contact: nothing written
+P3-CONS-04	HTTP	PASS	2026-10-22T01:04:52Z	send after revoke: 409 NO_CONTACT_CONSENT
+P3-CONS-04	HTTP	PASS	2026-10-22T01:04:53Z	send after revoke: nothing written
+P3-CONS-04	HTTP	PASS	2026-10-22T01:04:53Z	still APPROVED, no attempt
+P3-CONS-05	HTTP	PASS	2026-10-22T01:04:54Z	send after do not contact: 409 DO_NOT_CONTACT
+P3-CONS-05	HTTP	PASS	2026-10-22T01:04:55Z	send after do not contact: nothing written
+P3-CONS-05	HTTP	PASS	2026-10-22T01:04:55Z	no attempt
+P3-CONS-06	HTTP	PASS	2026-10-22T01:04:56Z	send after archive: 409 CUSTOMER_ARCHIVED
+P3-CONS-06	HTTP	PASS	2026-10-22T01:04:56Z	send after archive: nothing written
+P3-CONS-06	HTTP	PASS	2026-10-22T01:04:56Z	no attempt
+P3-CONS-07	HTTP	PASS	2026-10-22T01:04:57Z	send after a manual follow up (recorded: 201): 409 FOLLOW_UP_INELIGIBLE
+P3-CONS-07	HTTP	PASS	2026-10-22T01:04:58Z	send after a manual follow up (recorded: 201): nothing written
+P3-CONS-07	HTTP	PASS	2026-10-22T01:04:58Z	no attempt
+P3-CONS-08	HTTP	PASS	2026-10-22T01:05:02Z	every round either sent (201/SENT) or was refused (409/APPROVED): sent=6 refused=2
+P3-CONS-08	HTTP	PASS	2026-10-22T01:05:02Z	provider calls equal the number of sends that committed
+P3-CONS-08	HTTP	PASS	2026-10-22T01:05:02Z	ordering observed, not forced: the real stack has no hook to hold a send open across the revoke (fault injection limit)
+P3-CONS-09	HTTP	PASS	2026-10-22T01:05:02Z	customer with two contacts
+P3-CONS-09	HTTP	PASS	2026-10-22T01:05:03Z	submit with the unconsented contact: 409 NO_CONTACT_CONSENT
+P3-CONS-09	HTTP	PASS	2026-10-22T01:05:04Z	submit with the unconsented contact: nothing written
+P3-CONS-09	HTTP	PASS	2026-10-22T01:05:04Z	control: the consented contact submits
+P3-CONS-10	HTTP	PASS	2026-10-22T01:05:04Z	reject after revoke
+P3-CONS-10	HTTP	PASS	2026-10-22T01:05:05Z	cancel after revoke
+P3-DUP-01	HTTP	PASS	2026-10-22T01:05:06Z	first 201 SENT, replay 200 with the current representation
+P3-DUP-01	HTTP	PASS	2026-10-22T01:05:07Z	one attempt row, one provider call, one MESSAGE_SEND_REQUESTED audit
+P3-DUP-02	HTTP	PASS	2026-10-22T01:05:07Z	one 201 and one 409, one attempt row, one provider call
+P3-DUP-02	HTTP	PASS	2026-10-22T01:05:07Z	refusal codes: SENT / STALE_VERSION
+P3-DUP-03	HTTP	PASS	2026-10-22T01:05:08Z	send M1 with K
+P3-DUP-03	HTTP	PASS	2026-10-22T01:05:09Z	K reused for M2: 409 IDEMPOTENCY_KEY_REUSED
+P3-DUP-03	HTTP	PASS	2026-10-22T01:05:09Z	K reused for M2: nothing written
+P3-DUP-03	HTTP	PASS	2026-10-22T01:05:10Z	K reused for M1 with the new version: 409 IDEMPOTENCY_KEY_REUSED
+P3-DUP-03	HTTP	PASS	2026-10-22T01:05:10Z	K reused for M1 with the new version: nothing written
+P3-DUP-04	HTTP	PASS	2026-10-22T01:05:11Z	one message and one key row; the two responses name the same message
+P3-DUP-05	Database	PASS	2026-10-22T01:05:11Z	the open message index refuses the second open row
+P3-DUP-05	Database	PASS	2026-10-22T01:05:11Z	still one open message for the customer
+P3-DUP-06	HTTP	PASS	2026-10-22T01:05:12Z	replay: 200 with the APPROVED message, no new message, event or audit
+P3-DUP-07	HTTP	PASS	2026-10-22T01:05:18Z	first send: 201, SENDING with outcomeUnknown, one audit MESSAGE_SEND_OUTCOME_UNKNOWN
+P3-DUP-07	HTTP	PASS	2026-10-22T01:05:19Z	second send refused (409), nothing written, still exactly one provider call
+P3-DUP-07	HTTP	PASS	2026-10-22T01:05:19Z	refusal code: INVALID_TRANSITION
+P3-DUP-08	HTTP	BLOCKED	2026-10-22T01:05:19Z	POST /api/messages/{id}/resolutions is not deployed on this commit (404); T12 is owed by #138
+P3-DUP-09	HTTP	PASS	2026-10-22T01:05:20Z	three sends: attempts recorded, message FAILED after the third
+P3-DUP-09	HTTP	PASS	2026-10-22T01:05:20Z	responses: 201/APPROVED 201/APPROVED 201/FAILED
+P3-DUP-09	HTTP	PASS	2026-10-22T01:05:20Z	fourth send refused, no fourth provider call
+P3-DUP-09	HTTP	PASS	2026-10-22T01:05:20Z	fourth send code: INVALID_TRANSITION
+P3-DUP-10	HTTP	PASS	2026-10-22T01:05:21Z	straight after the send the cadence guard answers first: 409 FOLLOW_UP_INELIGIBLE
+P3-DUP-10	HTTP	PASS	2026-10-22T01:05:22Z	second submit refused with a closed 409 code, nothing written
+P3-DUP-10	HTTP	PASS	2026-10-22T01:05:22Z	deviation from the matrix: the code is FOLLOW_UP_INELIGIBLE, not MESSAGE_ALREADY_OPEN or CONTACT_FREQUENCY_EXCEEDED; the open message guard is never reached while the cadence anchor refuses first
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:23Z	no key: 400 INVALID_INPUT
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:24Z	no key: nothing written
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:24Z	129 character key: 400 INVALID_INPUT
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:25Z	129 character key: nothing written
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:25Z	key with a space: 400 INVALID_INPUT
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:26Z	key with a space: nothing written
+P3-DUP-11	HTTP	PASS	2026-10-22T01:05:26Z	no attempt row
+P3-DUP-13	HTTP	PASS	2026-10-22T01:06:23Z	tenant A: third send in the minute is 429 RATE_LIMITED with Retry-After
+P3-DUP-13	HTTP	PASS	2026-10-22T01:06:24Z	tenant B is not slowed down
+P3-DUP-12	HTTP	PASS	2026-10-22T01:06:35Z	attempt row committed and the provider call is in flight
+P3-DUP-12	HTTP	PASS	2026-10-22T01:08:45Z	after restart and recovery: SENDING with outcome unknown, no automatic resend (still one provider call)
+P3-DUP-12	HTTP	PASS	2026-10-22T01:09:15Z	30 s later: still one provider call
+P3-HOOK-15	HTTP	PASS	2026-10-22T01:09:18Z	fixtures: MA-SENT and MB-SENT with provider ids
+P3-HOOK-01	HTTP	PASS	2026-10-22T01:09:18Z	body '{"object":"whatsapp_busi...': no signature 403, wrong signature 403
+P3-HOOK-01	HTTP	PASS	2026-10-22T01:09:18Z	body 'not json at all...': no signature 403, wrong signature 403
+P3-HOOK-01	HTTP	PASS	2026-10-22T01:09:18Z	body '{"object":"whatsapp_busi...': no signature 403, wrong signature 403
+P3-HOOK-01	HTTP	PASS	2026-10-22T01:09:18Z	nothing stored, MA unchanged
+P3-HOOK-02	HTTP	PASS	2026-10-22T01:09:18Z	wrong secret 403, one byte changed 403, whitespace changed 403
+P3-HOOK-02	HTTP	PASS	2026-10-22T01:09:19Z	nothing stored
+P3-HOOK-03	HTTP	PASS	2026-10-22T01:09:19Z	header [sha1=1a91f5d7fb3...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-22T01:09:19Z	header [1a91f5d7fb37c4b4...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-22T01:09:19Z	header [sha256=1a91f5d7f...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-22T01:09:19Z	header [sha256=zz91f5d7f...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-22T01:09:19Z	header [...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-22T01:09:19Z	header [sha256=...]: 403 with an empty body
+P3-HOOK-04	HTTP	PASS	2026-10-22T01:09:19Z	400, nothing stored, MA and MB unchanged
+P3-HOOK-15	HTTP	PASS	2026-10-22T01:09:22Z	200, MA DELIVERED, MB untouched, one inbox row in tenant A, none in B
+P3-HOOK-06	HTTP	PASS	2026-10-22T01:09:24Z	replay: 200, no state change, no second MESSAGE_DELIVERY_UPDATED audit row
+P3-HOOK-15	HTTP	PASS	2026-10-22T01:09:24Z	exactly one MESSAGE_DELIVERY_UPDATED audit row for the delivery
+P3-HOOK-05	HTTP	PASS	2026-10-22T01:09:27Z	200, MB unchanged, the row is parked in tenant A, nothing in tenant B
+P3-HOOK-05	HTTP	PASS	2026-10-22T01:10:34Z	after the park window the row is UNMATCHED with its provider message id cleared
+P3-HOOK-05	HTTP	PASS	2026-10-22T01:10:34Z	MB still SENT
+P3-HOOK-07	HTTP	PASS	2026-10-22T01:10:37Z	fixture: message READ
+P3-HOOK-07	HTTP	PASS	2026-10-22T01:10:40Z	delivered, sent and failed after read: still READ, the two unseen statuses recorded as non applied events, no failure stored
+P3-HOOK-07	HTTP	PASS	2026-10-22T01:10:45Z	a late failure does not erase a delivery
+P3-HOOK-08	HTTP	PASS	2026-10-22T01:10:46Z	unknown number: same status and body as a normal event, nothing stored
+P3-HOOK-08	HTTP	PASS	2026-10-22T01:10:46Z	unknown provider message id: same status and body, parked in tenant A
+P3-HOOK-09	HTTP	PASS	2026-10-22T01:10:46Z	wrong token: 403, challenge not echoed
+P3-HOOK-09	HTTP	PASS	2026-10-22T01:10:46Z	right token: 200 text/plain with only the challenge
+P3-HOOK-09	HTTP	PASS	2026-10-22T01:10:46Z	the verify token is in no response and not in the backend log
+P3-HOOK-10	HTTP	PASS	2026-10-22T01:10:46Z	signed but schema invalid: 400
+P3-HOOK-10	HTTP	PASS	2026-10-22T01:10:46Z	4.5 MB body: refused (403 or 413) within 10 s
+P3-HOOK-11	HTTP	PASS	2026-10-22T01:10:46Z	unsigned event with the owner's cookie: 403
+P3-HOOK-14	HTTP	PASS	2026-10-22T01:10:49Z	a delivery a year in the future is stored bounded (within an hour of now)
+P3-HOOK-14	HTTP	PASS	2026-10-22T01:10:52Z	a delivery dated a month before the send is stored not earlier than the send
+P3-KILL-01	HTTP	PASS	2026-10-22T01:11:02Z	send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-01	HTTP	PASS	2026-10-22T01:11:02Z	send with the global switch off: nothing written
+P3-KILL-01	HTTP	PASS	2026-10-22T01:11:03Z	still APPROVED, no attempt
+P3-KILL-10	HTTP	PASS	2026-10-22T01:11:03Z	tenant B send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-10	HTTP	PASS	2026-10-22T01:11:04Z	tenant B send with the global switch off: nothing written
+P3-KILL-10	HTTP	PASS	2026-10-22T01:11:06Z	a delivery report for an already sent message is still recorded
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:07Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:07Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: nothing written
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:07Z	no route to flip the global switch: PUT /api/integrations/whatsapp/outbound-global
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:08Z	no route to flip the global switch: PUT /api/messaging/outbound
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:08Z	no route to flip the global switch: PUT /api/settings/outbound
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:08Z	no route to flip the global switch: POST /api/integrations/whatsapp/outbound/global
+P3-KILL-03	HTTP	PASS	2026-10-22T01:11:08Z	the screens half (row 10 of the scope) is a browser case; the SPA has no control for the global switch (checked in sec149-browser.mjs)
+P3-KILL-02	HTTP	PASS	2026-10-22T01:11:16Z	tenant A switch off
+P3-KILL-02	HTTP	PASS	2026-10-22T01:11:16Z	tenant A send: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-02	HTTP	PASS	2026-10-22T01:11:17Z	tenant A send: nothing written
+P3-KILL-02	HTTP	PASS	2026-10-22T01:11:17Z	tenant B sends
+P3-KILL-04	HTTP	PASS	2026-10-22T01:11:18Z	send right after the admin flipped the switch off: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-04	HTTP	PASS	2026-10-22T01:11:19Z	send right after the admin flipped the switch off: nothing written
+P3-KILL-04	HTTP	PASS	2026-10-22T01:11:19Z	the change is audited as OUTBOUND_KILL_SWITCH_CHANGED
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:20Z	testoperator sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:20Z	testoperator sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:20Z	testoperator sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:20Z	testoperator sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:21Z	testoperator sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:21Z	testoperator sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:21Z	testoperator sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:21Z	testoperator sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:22Z	testviewer sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:22Z	testviewer sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:23Z	testviewer sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:23Z	testviewer sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:23Z	testviewer sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:23Z	testviewer sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:24Z	testviewer sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:24Z	testviewer sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-22T01:11:24Z	switch unchanged (on)
+P3-KILL-06	HTTP	PASS	2026-10-22T01:11:25Z	403 and nothing written
+P3-KILL-06	HTTP	PASS	2026-10-22T01:11:25Z	tenant B still sends
+P3-KILL-07	HTTP	BLOCKED	2026-10-22T01:11:25Z	not driven on the real stack: deleting the integration row needs a database role with DELETE on tenant_messaging_integrations (the runtime role has none) and would destroy the fixture; covered by WhatsAppOutboundSafetyControlTest (in process)
+P3-KILL-08	HTTP	PASS	2026-10-22T01:11:26Z	send with IA disabled: 409 INTEGRATION_DISABLED
+P3-KILL-08	HTTP	PASS	2026-10-22T01:11:27Z	send with IA disabled: nothing written
+P3-KILL-09	HTTP	PASS	2026-10-22T01:11:28Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
+P3-KILL-09	HTTP	PASS	2026-10-22T01:11:29Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
+P3-SEC-01	HTTP	PASS	2026-10-22T01:11:30Z	testuser: secretRef is the reference, no canary in body or headers
+P3-SEC-01	HTTP	PASS	2026-10-22T01:11:30Z	testadmin: secretRef is the reference, no canary in body or headers
+P3-SEC-01	HTTP	PASS	2026-10-22T01:11:30Z	testoperator: secretRef is the reference, no canary in body or headers
+P3-SEC-01	HTTP	PASS	2026-10-22T01:11:30Z	testviewer: secretRef is the reference, no canary in body or headers
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:31Z	ref #1 rejected with 400, nothing written
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:33Z	ref #2 rejected with 400, nothing written
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:34Z	ref #3 rejected with 400, nothing written
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:35Z	ref #4 rejected with 400, nothing written
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:36Z	ref #5 rejected with 400, nothing written
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:37Z	ref #6 rejected with 400, nothing written
+P3-SEC-02	HTTP	PASS	2026-10-22T01:11:37Z	stored reference unchanged, marker absent from the backend log and the audit table
+P3-SEC-03	HTTP	PASS	2026-10-22T01:11:38Z	qa149-token-b: PUT accepted as a bare key (200), proof fails closed (503 PROVIDER_UNAVAILABLE), send refused with a closed code and no provider call
+P3-SEC-03	HTTP	PASS	2026-10-22T01:11:38Z	qa149-token-b: send refusal code INTEGRATION_DISABLED; no call reached the stub with the tenant B token: 12 calls with token B in the whole log, all of them from tenant B fixtures
+P3-SEC-03	HTTP	PASS	2026-10-22T01:11:39Z	qa149-app-secret: PUT accepted as a bare key (200), proof fails closed (503 PROVIDER_UNAVAILABLE), send refused with a closed code and no provider call
+P3-SEC-03	HTTP	PASS	2026-10-22T01:11:39Z	qa149-app-secret: send refusal code INTEGRATION_DISABLED; no call reached the stub with the tenant B token: 12 calls with token B in the whole log, all of them from tenant B fixtures
+P3-SEC-04	HTTP	PASS	2026-10-22T01:11:40Z	proof (503) and send refused safely: closed body, no provider call, no stack trace or reference value in the responses
+P3-SEC-04	HTTP	PASS	2026-10-22T01:11:40Z	proof answered 503 PROVIDER_UNAVAILABLE; send answered INTEGRATION_DISABLED
+P3-SEC-05	HTTP	PASS	2026-10-22T01:11:41Z	send answered 201 with a closed failure category
+P3-SEC-05	HTTP	PASS	2026-10-22T01:11:41Z	status/failure: FAILED/AUTHENTICATION
+P3-SEC-05	HTTP	PASS	2026-10-22T01:11:41Z	CANARY-TOKEN absent from the response, the events, the audit table and the log since the call
+P3-SEC-05	HTTP	PASS	2026-10-22T01:11:41Z	CANARY-PHONE absent from the same four places
+P3-SEC-05	HTTP	PASS	2026-10-22T01:11:41Z	the provider error text (CANARY-BODY as echoed by the provider) absent from events, audit and log
+P3-SEC-06	HTTP	PASS	2026-10-22T01:11:44Z	journey done: DELIVERED
+P3-SEC-06	HTTP	PASS	2026-10-22T01:11:44Z	backend log since the journey: no body, no phone, no provider message id
+P3-SEC-06	HTTP	PASS	2026-10-22T01:11:45Z	audit table: no body, no phone, no provider message id
+P3-SEC-07	HTTP	PASS	2026-10-22T01:11:45Z	CANARY-TOKEN: backend log, proxy log, audit table, message events
+P3-SEC-07	HTTP	PASS	2026-10-22T01:11:45Z	CANARY-APP-SECRET: backend log, proxy log, audit table, message events
+P3-SEC-07	HTTP	PASS	2026-10-22T01:11:46Z	CANARY-VERIFY: backend log, proxy log, audit table, message events
+P3-SEC-07	HTTP	PASS	2026-10-22T01:11:46Z	QA149-TOKEN-B-SYNTHETIC: backend log, proxy log, audit table, message events
+P3-SEC-07	HTTP	PASS	2026-10-22T01:11:46Z	canary body appears only where a member reads the message: present in the message read, absent from the audit table and the proxy log
+P3-SEC-07	HTTP	BLOCKED	2026-10-22T01:11:46Z	metrics output not reachable over HTTP (actuator 401/401); the metrics half and the browser screens are in sec149-browser.mjs
+P3-SEC-10	HTTP	PASS	2026-10-22T01:11:47Z	403, 409, 404, 400 (template), 400 (integration): all problem+json with exactly the four members
+P3-SEC-10	HTTP	PASS	2026-10-22T01:11:47Z	content type application/problem+json
+P3-SEC-11	HTTP	BLOCKED	2026-10-22T01:11:47Z	metric names and tags are not reachable over HTTP on the local stack (no actuator route); the telemetry tag rules are covered in process by WebhookTelemetryTest and the dispatch telemetry tests
+P3-SEC-08	Browser	PASS	2026-10-22T01:11:52Z	local and session storage hold no canary and no access token
+P3-SEC-08	Browser	PASS	2026-10-22T01:11:52Z	cookies carry no canary; the session cookie is HttpOnly with SameSite Lax
+P3-SEC-08	Browser	PASS	2026-10-22T01:11:52Z	cookies seen: AUTH_SESSION_ID(localhost/realms/dokene/,httpOnly=true,sameSite=None) KC_AUTH_SESSION_HASH(localhost/realms/dokene/,httpOnly=false,sameSite=None) KEYCLOAK_IDENTITY(localhost/realms/dokene/,httpOnly=true,sameSite=None) KEYCLOAK_SESSION(localhost/realms/dokene/,httpOnly=false,sameSite=None) JSESSIONID(localhost/,httpOnly=true,sameSite=Lax)
+P3-SEC-08	Browser	PASS	2026-10-22T01:11:52Z	every request since sign-in went to the proxy or Keycloak (no Meta, no third party)
+P3-SEC-08	Browser	PASS	2026-10-22T01:11:52Z	JavaScript bundle (3 scripts) holds no canary and no Graph API host
+P3-SEC-08	Browser	PASS	2026-10-22T01:11:52Z	the integration status request, if any, goes through /api on the proxy only
+P3-SEC-08	Browser	BLOCKED	2026-10-22T01:11:52Z	the integration screen is not mounted in the shell on this commit (the Configuración tab is a placeholder; IntegrationStatusPanel exists but nothing renders it), so its network responses could not be inspected; #146 owes the screen
+P3-SEC-07	Browser	PASS	2026-10-22T01:11:52Z	no canary secret on the 4 screens
+P3-SEC-07	Browser	PASS	2026-10-22T01:11:52Z	screens visited: Seguimientos, Clientes, Configuración, Más; CANARY-BODY on screen: false (allowed only where a MESSAGE_READ member reads a message)
+P3-KILL-03	Browser	PASS	2026-10-22T01:11:52Z	no control that names the global outbound switch on any screen
+P3-KILL-03	Browser	BLOCKED	2026-10-22T01:11:52Z	no messaging or integration settings screen is mounted on this commit (Configuración is a placeholder); the screen half of the row needs #144/#146 screens
+P3-CSRF-03	Browser	PASS	2026-10-22T01:11:55Z	fetch outcome: blocked: Failed to fetch; form target frame: opaque (SecurityError); send requests issued by the browser: 2
+P3-CSRF-03	Browser	PASS	2026-10-22T01:11:55Z	the cross-site fetch did not succeed (blocked by CORS or answered 401/403)
+P3-CSRF-03	Browser	PASS	2026-10-22T01:11:55Z	session cookie is SameSite=Lax, so the cross-site POST carried no session
+P3-CSRF-03	Database	PASS	2026-10-22T01:11:55Z	no attempt row, message still APPROVED, no provider call
+P3-PERM-13	In process	PASS	2026-10-22T01:11:58Z	AuditIntegrationTest.protectsReadsAndAppendOnlyPermissions (passed 23 in the class, method parameterized)
+P3-HOOK-12	In process	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.deliverySinkRequiresTheProviderContextAndRefusesAMemberContext (passed 1)
+P3-HOOK-12	In process	PASS	2026-10-22T01:11:58Z	DefaultDeliveryStatusSinkTest.refusesToRunWithoutAProviderContext (passed 1)
+P3-SEC-09	In process	PASS	2026-10-22T01:11:58Z	LocalIntegrationSecretResolverTest (passed 8)
+P3-SEC-09	In process	PASS	2026-10-22T01:11:58Z	GraphApiMessagingProviderTest.noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs (passed 48 in the class, method parameterized)
+P3-SEC-11	In process	PASS	2026-10-22T01:11:58Z	WebhookTelemetryTest (passed 4)
+P3-KILL-07	In process	PASS	2026-10-22T01:11:58Z	WhatsAppOutboundSafetyControlTest (passed 8)
+P3-APPR-01	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.approveOneVersionBehindIsRefusedAsStaleAndWritesNoEventAndNoAudit (passed 1)
+P3-APPR-02	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest (passed 14)
+P3-APPR-05	Automated	PASS	2026-10-22T01:11:58Z	MessagingContractFixturesTest (passed 54)
+P3-APPR-06	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageTransitionMatrixTest.everyStateFlagAndCommandCellMatchesTheAdrTable (passed 1)
+P3-APPR-07	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.refusesSubmitWhenForbiddenStaleUnmappedOrCrossTenantWithoutLeavingRows (passed 1)
+P3-APPR-08	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageTransitionMatrixTest.everyStateFlagAndCommandCellMatchesTheAdrTable (passed 1)
+P3-APPR-09	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest (passed 16)
+P3-CONS-01	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.submitRefusesArchivedDoNotContactUnconsentedAndNotYetDueCustomersWithoutRows (passed 1)
+P3-CONS-02	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.approveReChecksConsentAndDoNotContactAndWritesNothingWhenRefused (passed 1)
+P3-CSRF-01	Automated	PASS	2026-10-22T01:11:58Z	BffTenantBoundarySecurityIntegrationTest.csrfEnforcementOnRepresentativeBusinessMutations (passed 1)
+P3-CSRF-04	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.onlyTheSignatureAuthenticatesTheRouteWhichAloneSkipsCsrfAndBoundsItsBody (passed 1)
+P3-CSRF-05	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.onlyTheSignatureAuthenticatesTheRouteWhichAloneSkipsCsrfAndBoundsItsBody (passed 1)
+P3-DUP-03	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest (passed 16)
+P3-DUP-03	Automated	PASS	2026-10-22T01:11:58Z	RequestFingerprintTest (passed 2)
+P3-DUP-04	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.concurrentSubmitsWithTheSameKeyProduceOneMessageAndOneKeyRow (passed 1)
+P3-DUP-05	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.openMessageIndexRefusesASecondOpenRowInsertedBehindTheService (passed 1)
+P3-DUP-05	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.concurrentSubmitsForOneCustomerLeaveExactlyOneOpenMessage (passed 1)
+P3-DUP-06	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.replayAfterTheMessageAdvancedReturnsTheCurrentRepresentationAndTheChildRecordOfTheFirstRequest (passed 1)
+P3-DUP-07	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageTransitionMatrixTest.unknownOutcomeSetsTheFlagStoresTheIdAndBlocksFurtherProviderCalls (passed 1)
+P3-DUP-08	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageInvariantsTest.resolveFailedOnlyAppliesToAnUnknownOutcomeAndRecordsAMemberEvent (passed 1)
+P3-DUP-09	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageTransitionMatrixTest.transientFailureAtTheAttemptLimitLandsOnFailed (passed 1)
+P3-HOOK-04	Automated	PASS	2026-10-22T01:11:58Z	MetaWebhookPayloadParserTest.aMemberOutsideTheAllowlistAtAnyLevelRefusesTheWholeBody (passed 1)
+P3-HOOK-04	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.aMemberOutsideTheProviderSchemaIsRefusedBeforeAnyTenantIsResolved (passed 1)
+P3-HOOK-05	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.anotherTenantsProviderMessageIdIsParkedThenDroppedWithoutTouchingIt (passed 1)
+P3-HOOK-06	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.aSignedDeliveryMovesOnlyTheMappedTenantsMessageOnceAndAReplayChangesNothing (passed 1)
+P3-HOOK-07	Automated	PASS	2026-10-22T01:11:58Z	DefaultDeliveryStatusSinkTest.recordsAnOutOfOrderReportAsANonAppliedEventWithAVersionBumpAndNoAudit (passed 1)
+P3-HOOK-07	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageDeliveryReportMatrixTest.everyStateAndReportCellMatchesTheDeliveryReportTable (passed 1)
+P3-HOOK-08	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.anotherTenantsProviderMessageIdIsParkedThenDroppedWithoutTouchingIt (passed 1)
+P3-HOOK-08	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.unknownAndUnverifiedNumbersAreAcknowledgedButNeverRouted (passed 1)
+P3-HOOK-11	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.onlyTheSignatureAuthenticatesTheRouteWhichAloneSkipsCsrfAndBoundsItsBody (passed 1)
+P3-HOOK-12	Automated	PASS	2026-10-22T01:11:58Z	DefaultDeliveryStatusSinkTest.refusesToRunWithoutAProviderContext (passed 1)
+P3-HOOK-12	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.deliverySinkRequiresTheProviderContextAndRefusesAMemberContext (passed 1)
+P3-HOOK-13	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.forgedAndExpiredProviderCapabilitiesCannotAppendTheProviderAttributedAuditEvent (passed 1)
+P3-HOOK-14	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessageDeliveryReportMatrixTest (passed 9)
+P3-HOOK-14	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.deliveryReportTimesAreBoundedAndTheCadenceAnchorNeverMovesBackwards (passed 1)
+P3-HOOK-15	Automated	PASS	2026-10-22T01:11:58Z	WhatsAppWebhookIntegrationTest.aSignedDeliveryMovesOnlyTheMappedTenantsMessageOnceAndAReplayChangesNothing (passed 1)
+P3-IDOR-03	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.refusesSubmitWhenForbiddenStaleUnmappedOrCrossTenantWithoutLeavingRows (passed 1)
+P3-IDOR-04	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingIntegrationTest.rejectsAndCancelsThroughTheirOwnRecordsAndRefusesStaleOrForeignCommands (passed 1)
+P3-IDOR-06	Automated	PASS	2026-10-22T01:11:58Z	TenantIsolationSecurityIntegrationTest.acceptsOnlyTheServerVerifiedTenantSelectorAndClearsTheRequestContext (passed 1)
+P3-IDOR-08	Automated	PASS	2026-10-22T01:11:58Z	OutboundMessagingGuardIntegrationTest.anotherTenantSeesNoMessagingRowsAndCannotReplayTheKey (passed 1)
+P3-KILL-01	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOff (passed 1)
+P3-KILL-01	Automated	PASS	2026-10-22T01:11:59Z	OutboundSwitchPropertiesTest (passed 19)
+P3-KILL-02	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOn.aTenantWithTheSwitchOffIsRefusedWhileAnotherWithItOnSends (passed 1)
+P3-KILL-03	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOff (passed 1)
+P3-KILL-04	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOn.flippingOffStopsTheNextSendAtOnceAndFlippingBackOnRunsTheWholePolicyAgain (passed 1)
+P3-KILL-04	Automated	PASS	2026-10-22T01:11:59Z	WhatsAppIntegrationConfigurationIntegrationTest.theTenantOutboundSwitchChangesOnlyThroughItsRouteBumpsTheEtagAndIsAudited (passed 1)
+P3-KILL-05	Automated	PASS	2026-10-22T01:11:59Z	WhatsAppIntegrationConfigurationIntegrationTest.onlyManagersOfTheSelectedTenantFlipTheOutboundSwitch (passed 1)
+P3-KILL-06	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOn (passed 3)
+P3-KILL-06	Automated	PASS	2026-10-22T01:11:59Z	WhatsAppIntegrationConfigurationIntegrationTest.onlyManagersOfTheSelectedTenantFlipTheOutboundSwitch (passed 1)
+P3-KILL-07	Automated	PASS	2026-10-22T01:11:59Z	WhatsAppOutboundSafetyControlTest (passed 8)
+P3-KILL-08	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOn.aDisabledOrUnprovenIntegrationIsRefusedAfterBothSwitches (passed 1)
+P3-KILL-09	Automated	PASS	2026-10-22T01:11:59Z	OutboundKillSwitchIntegrationTest.GlobalSwitchOn.flippingOffStopsTheNextSendAtOnceAndFlippingBackOnRunsTheWholePolicyAgain (passed 1)
+P3-PERM-02	Automated	PASS	2026-10-22T01:11:59Z	OutboundMessagingIntegrationTest.refusesSubmitWhenForbiddenStaleUnmappedOrCrossTenantWithoutLeavingRows (passed 1)
+P3-PERM-12	Automated	PASS	2026-10-22T01:11:59Z	WhatsAppIntegrationConfigurationIntegrationTest.onlyManagersOfTheSelectedTenantFlipTheOutboundSwitch (passed 1)
+P3-PERM-13	Automated	PASS	2026-10-22T01:11:59Z	AuditIntegrationTest.protectsReadsAndAppendOnlyPermissions (passed 1)
+P3-PERM-16	Automated	PASS	2026-10-22T01:11:59Z	AuthorizationBeforeValidationIntegrationTest (passed 22)
+P3-PERM-19	Automated	PASS	2026-10-22T01:11:59Z	BffTenantBoundarySecurityIntegrationTest.authenticatedIdentityWithoutMembershipFailsClosedOnTenantApis (passed 1)
+P3-RLS-01	Automated	PASS	2026-10-22T01:11:59Z	TenantIsolationSecurityIntegrationTest.outboundMessagingTablesCarryForcedRlsLeastPrivilegeGrantsAndTheOpenMessageBackstop (passed 1)
+P3-RLS-02	Automated	PASS	2026-10-22T01:11:59Z	OutboundMessagingGuardIntegrationTest.forgedAndExpiredTenantCapabilitiesCanNeitherReadNorWriteAnyMessagingTable (passed 1)
+P3-RLS-03	Automated	PASS	2026-10-22T01:11:59Z	OutboundMessagingGuardIntegrationTest.theOwningTenantCannotRewriteWhatWasSubmittedForApprovalAsTheRuntimeRole (passed 1)
+P3-RLS-03	Automated	PASS	2026-10-22T01:11:59Z	TenantIsolationSecurityIntegrationTest.outboundMessagingTablesCarryForcedRlsLeastPrivilegeGrantsAndTheOpenMessageBackstop (passed 1)
+P3-RLS-04	Automated	PASS	2026-10-22T01:11:59Z	TenantIsolationSecurityIntegrationTest.outboundMessagingTablesCarryForcedRlsLeastPrivilegeGrantsAndTheOpenMessageBackstop (passed 1)
+P3-RLS-04	Automated	PASS	2026-10-22T01:11:59Z	WhatsAppWebhookIntegrationTest.inboxRowsAreTenantIsolatedAndPurgedAfterRetention (passed 1)
+P3-SEC-05	Automated	PASS	2026-10-22T01:11:59Z	GraphApiMessagingProviderTest.noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs (passed 48 in the class, method parameterized)
+P3-SEC-06	Automated	PASS	2026-10-22T01:11:59Z	OutboundMessagingIntegrationTest.submitsApprovesSendsAndAppliesDeliveryWhileAnchoringTheFollowUpAndKeepingLogsClean (passed 1)
+P3-TMPL-02	Automated	PASS	2026-10-22T01:11:59Z	GraphApiTemplateProviderGatewayTest.mapsProviderStatusesAndSendsTheTenantsCredentialAsABearerOnly (passed 1)
+P3-TMPL-03	Automated	PASS	2026-10-22T01:11:59Z	GraphApiTemplateProviderGatewayTest.aMissingTemplateOrOnlyNeighbouringOnesIsAbsent (passed 1)
+P3-TMPL-04	Automated	PASS	2026-10-22T01:11:59Z	TemplateMappingTest.anApprovedMappingForTheCurrentRevisionAndAccountIsSendable (passed 1)
+P3-TMPL-05	Automated	PASS	2026-10-22T01:11:59Z	TemplateMappingTest.anyBrokenConditionMakesItIneligible (passed 1)
+P3-TMPL-06	Automated	PASS	2026-10-22T01:11:59Z	GraphApiMessagingProviderTest.noSecretPhoneOrMessageTextFromASecretBearingErrorReachesResultsOrLogs (passed 48 in the class, method parameterized)
+P3-TMPL-06	Automated	PASS	2026-10-22T01:11:59Z	GraphApiTemplateProviderGatewayTest.everyFailureIsUnavailableWithoutThrowing (passed 1)
+P3-TMPL-07	Automated	PASS	2026-10-22T01:11:59Z	GraphApiTemplateProviderGatewayTest.mapsProviderStatusesAndSendsTheTenantsCredentialAsABearerOnly (passed 1)
