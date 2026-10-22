@@ -102,8 +102,11 @@ export const HISTORY_COPY = {
   readAt: 'Leído'
 } as const;
 
-export function outcomeChangedSentence(label: string): string {
-  return `El estado cambió: ahora ${label}.`;
+/** With `sameLabel` the secondary line follows, so a change the label alone cannot show is still heard. */
+export function outcomeChangedSentence(outcome: DeliveryOutcome, sameLabel = false): string {
+  const sentence = `El estado cambió: ahora ${outcome.label}.`;
+  if (!sameLabel || outcome.secondary === null) return sentence;
+  return `${sentence} ${outcome.secondary.replace(/\.$/, '')}.`;
 }
 
 export function loadedMoreSentence(count: number): string {

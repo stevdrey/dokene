@@ -177,18 +177,13 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
     commit({ kind: 'sessionEnded' });
   }, [commit]);
 
-  /** A controller that the mount controller also aborts, so unmount and session end cancel every read. */
-  const own = useCallback((): AbortController => {
-    const controller = new AbortController();
-    const mount = mountRef.current;
-    if (!mount || mount.signal.aborted) controller.abort();
-    else mount.signal.addEventListener('abort', () => controller.abort(), { once: true });
-    return controller;
-  }, []);
-
+  /** Runs one read under `controller`, which the mount controller also aborts while the read is in flight. */
   const read = useCallback(
     async <T,>(task: (signal: AbortSignal) => Promise<T>, controller: AbortController): Promise<Outcome<T>> => {
-      if (controller.signal.aborted) return DROPPED;
+      const mount = mountRef.current;
+      if (!mount || mount.signal.aborted || controller.signal.aborted) return DROPPED;
+      const forward = () => controller.abort();
+      mount.signal.addEventListener('abort', forward, { once: true });
       try {
         const value = await task(controller.signal);
         return controller.signal.aborted ? DROPPED : { kind: 'ok', value };
@@ -201,6 +196,8 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
           return DROPPED;
         }
         return { kind: 'failed', failure };
+      } finally {
+        mount.signal.removeEventListener('abort', forward);
       }
     },
     [endSession]
@@ -209,7 +206,7 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
   const loadFirstPage = useCallback(() => {
     const generation = ++listGeneration.current;
     commit({ kind: 'loading' });
-    const controller = own();
+    const controller = new AbortController();
     void read((signal) => messageApi.listCustomerHistory(customerId, null, signal), controller).then((outcome) => {
       if (generation !== listGeneration.current || outcome.kind === 'dropped') return;
       if (outcome.kind === 'failed') {
@@ -218,7 +215,7 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
       }
       commit(readyFrom(outcome.value));
     });
-  }, [commit, customerId, own, read]);
+  }, [commit, customerId, read]);
 
   const refreshList = useCallback(() => {
     const held = stateRef.current;
@@ -228,7 +225,7 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
     moreController.current?.abort();
     moreController.current = null;
     commit({ ...held, refreshing: true, refreshFailure: null, loadingMore: false });
-    const controller = own();
+    const controller = new AbortController();
     void read((signal) => messageApi.listCustomerHistory(customerId, null, signal), controller).then((outcome) => {
       const current = stateRef.current;
       if (generation !== listGeneration.current || outcome.kind === 'dropped' || current.kind !== 'ready') return;
@@ -238,13 +235,13 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
       }
       commit(mergeFirstPage(current, outcome.value));
     });
-  }, [commit, customerId, own, read]);
+  }, [commit, customerId, read]);
 
   const loadMore = useCallback(() => {
     const held = stateRef.current;
     if (held.kind !== 'ready' || held.loadingMore || held.refreshing || held.nextCursor === null) return;
     const cursor = held.nextCursor;
-    const controller = own();
+    const controller = new AbortController();
     moreController.current = controller;
     commit({ ...held, loadingMore: true, moreFailure: null });
     void read((signal) => messageApi.listCustomerHistory(customerId, cursor, signal), controller).then((outcome) => {
@@ -264,7 +261,7 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
       commit(appended.state);
       if (appended.added > 0) announce(loadedMoreSentence(appended.added));
     });
-  }, [announce, commit, customerId, own, read]);
+  }, [announce, commit, customerId, read]);
 
   const markNotFound = useCallback(
     (messageId: string) => {
@@ -289,7 +286,7 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
       if (held.kind !== 'ready') return;
       const row = held.rows.find((candidate) => candidate.item.messageId === messageId);
       if (!row || row.refreshing || row.notFound) return;
-      const controller = own();
+      const controller = new AbortController();
       rowControllers.current.set(messageId, controller);
       commitRow(messageId, (current) => ({ ...current, refreshing: true, refreshFailure: null }));
       void read((signal) => messageApi.getDetail(messageId, signal), controller).then((outcome) => {
@@ -313,13 +310,17 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
         if (!before) return;
         const merged = mergeItem(before.item, listItemFromDetail(outcome.value.detail));
         commitRow(messageId, (row) => ({ ...row, refreshing: false, item: merged }));
-        const previousLabel = deliveryOutcome(before.item.status, before.item.outcomeUnknown).label;
-        const nextLabel = deliveryOutcome(merged.status, merged.outcomeUnknown).label;
-        announce(previousLabel === nextLabel ? HISTORY_COPY.unchanged : outcomeChangedSentence(nextLabel));
+        // The status decides, not the label: two statuses may share one label (both "Aún no enviado").
+        const statusChanged = merged.status !== before.item.status || merged.outcomeUnknown !== before.item.outcomeUnknown;
+        const previous = deliveryOutcome(before.item.status, before.item.outcomeUnknown);
+        const next = deliveryOutcome(merged.status, merged.outcomeUnknown);
+        announce(
+          statusChanged ? outcomeChangedSentence(next, previous.label === next.label) : HISTORY_COPY.unchanged
+        );
         if (openRef.current === messageId) onRowRefreshed?.(messageId, outcome.value);
       });
     },
-    [announce, commitRow, markNotFound, onRowRefreshed, own, read]
+    [announce, commitRow, markNotFound, onRowRefreshed, read]
   );
 
   const toggleRow = useCallback(

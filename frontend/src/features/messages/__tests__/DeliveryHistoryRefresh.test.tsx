@@ -1,7 +1,7 @@
 // ABOUTME: Tests the refresh paths of the delivery history: row Actualizar, Actualizar historial and Cargar más.
 // ABOUTME: Proves the version rule holds for every source, replies out of order never regress a row, and only GET is sent.
 import { act, fireEvent, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   details,
   detailPath,
@@ -589,6 +589,74 @@ describe('DeliveryHistory refresh', () => {
       await act(async () => {});
       expect(screen.queryByRole('button', { name: 'Cargar más' })).toBeNull();
       expect(document.activeElement).toBe(refresh);
+    });
+  });
+  // covers: AC-6, AC-8 (review round of 2026-10-21)
+  describe('row Actualizar after review', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('keeps a loaded detail when an older own read fails after the refresh landed', async () => {
+      const sent = details.sent;
+      const delivered = variant(details.delivered, { messageId: sent.messageId });
+      const ownRead = pending();
+      const refresh = pending();
+      servePage(suite.server, [sent]);
+      suite.server.on(detailPath(sent.messageId), ownRead, refresh).on(eventsPath(sent.messageId), eventsReply(sent));
+      renderHistory();
+      await listed();
+      fireEvent.click(toggleOf(sent.messageId));
+      fireEvent.click(refreshButton(sent.messageId));
+      await act(async () => refresh.resolve(detailReply(delivered)));
+      await rowLoaded(delivered);
+      await act(async () => ownRead.resolve(status(500)));
+      const panel = panelOf(sent.messageId);
+      expect(within(panel).getByRole('region', { name: 'Resultado del mensaje' })).toHaveTextContent('Entregado');
+      expect(within(panel).queryByText('No se pudo cargar el mensaje.')).toBeNull();
+      expect(within(panel).queryByRole('alert')).toBeNull();
+      expect(toggleOf(sent.messageId)).toHaveTextContent('Entregado');
+    });
+
+    it('announces a status change that keeps the same label with its secondary line', async () => {
+      const waiting = details.pendingApproval;
+      const approved = variant(details.approved, { messageId: waiting.messageId, version: waiting.version + 1 });
+      servePage(suite.server, [waiting]);
+      serveRow(suite.server, waiting, eventsFixtures.rejected.events, detailReply(waiting), detailReply(approved));
+      renderHistory();
+      await listed();
+      fireEvent.click(toggleOf(waiting.messageId));
+      await rowLoaded(waiting);
+      fireEvent.click(refreshButton(waiting.messageId));
+      await act(async () => {});
+      await rowLoaded(approved);
+      expect(toggleOf(waiting.messageId)).toHaveTextContent('Aprobado, sin enviar');
+      expect(liveRegion()).toHaveTextContent('El estado cambió: ahora Aún no enviado. Aprobado, sin enviar.');
+      expect(liveRegion()).not.toHaveTextContent('Sin cambios');
+    });
+
+    it('leaves no abort listener behind once a row read has settled', async () => {
+      const uncertain = details.sendingOutcomeUnknown;
+      const added = vi.spyOn(AbortSignal.prototype, 'addEventListener');
+      const removed = vi.spyOn(AbortSignal.prototype, 'removeEventListener');
+      servePage(suite.server, [uncertain]);
+      suite.server.on(detailPath(uncertain.messageId), detailReply(uncertain));
+      renderHistory();
+      await listed();
+      for (let round = 0; round < 3; round += 1) {
+        fireEvent.click(refreshButton(uncertain.messageId));
+        await act(async () => {});
+      }
+      expect(suite.server.count(detailPath(uncertain.messageId))).toBe(3);
+      const net = new Map<unknown, number>();
+      added.mock.calls.forEach(([type], index) => {
+        if (type === 'abort') net.set(added.mock.contexts[index], (net.get(added.mock.contexts[index]) ?? 0) + 1);
+      });
+      removed.mock.calls.forEach(([type], index) => {
+        if (type === 'abort') net.set(removed.mock.contexts[index], (net.get(removed.mock.contexts[index]) ?? 0) - 1);
+      });
+      // The fetch stub keeps one listener per request signal; the hook's mount signal must keep none.
+      expect(Math.max(...net.values())).toBeLessThanOrEqual(1);
     });
   });
 });

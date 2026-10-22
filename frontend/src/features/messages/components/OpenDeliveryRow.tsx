@@ -107,6 +107,8 @@ export const OpenDeliveryRow = forwardRef<OpenDeliveryRowHandle, OpenDeliveryRow
         if (failure.kind === 'dropped') return;
         if (failure.kind === 'sessionEnded') return callbacks.current.onSessionEnded();
         if (failure.kind === 'notFound') return callbacks.current.onNotFound(messageId);
+        // A refresh that landed meanwhile keeps the panel loaded; a failed read never takes a shown detail away.
+        if (detailRef.current.kind === 'loaded') return;
         commitDetail(failure.kind === 'forbidden' ? { kind: 'forbidden' } : { kind: 'error' });
       }
     );

@@ -91,7 +91,8 @@ describe('failureGuidance', () => {
         (outcome) => [outcome.label, outcome.secondary ?? '']
       ),
       ...Object.values(HISTORY_COPY),
-      outcomeChangedSentence('Fallido'),
+      outcomeChangedSentence(deliveryOutcome('FAILED', false)),
+      outcomeChangedSentence(deliveryOutcome('APPROVED', false), true),
       loadedMoreSentence(3)
     ];
     for (const sentence of sentences) {
@@ -100,7 +101,14 @@ describe('failureGuidance', () => {
   });
 
   it('builds the announcement sentences', () => {
-    expect(outcomeChangedSentence('Entregado')).toBe('El estado cambió: ahora Entregado.');
+    expect(outcomeChangedSentence(deliveryOutcome('DELIVERED', false))).toBe('El estado cambió: ahora Entregado.');
+    expect(outcomeChangedSentence(deliveryOutcome('APPROVED', false), true)).toBe(
+      'El estado cambió: ahora Aún no enviado. Aprobado, sin enviar.'
+    );
+    expect(outcomeChangedSentence(deliveryOutcome('FAILED', false), true)).toBe(
+      'El estado cambió: ahora Fallido. No se entregó al cliente.'
+    );
+    expect(outcomeChangedSentence(deliveryOutcome('BOGUS', false), true)).toBe('El estado cambió: ahora BOGUS.');
     expect(loadedMoreSentence(4)).toBe('Se cargaron 4 mensajes más.');
   });
 });
