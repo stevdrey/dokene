@@ -4,7 +4,7 @@ import { AbortedTenantRequestError, ApiError, StaleSessionError } from '@/shared
 import { parseMessagingProblem, type MessagingErrorCode } from '../types';
 import { InvalidMessageResponseError } from '../api/messageApi';
 
-export type ReloadCode = 'STALE_VERSION' | 'INVALID_TRANSITION' | 'APPROVAL_INVALIDATED';
+export type ReloadCode = 'STALE_VERSION' | 'INVALID_TRANSITION' | 'APPROVAL_INVALIDATED' | 'CONTACT_NOT_OWNED';
 
 export type MessageFailure =
   /** The request belongs to a previous tenant, session or mount; render nothing. */
@@ -20,7 +20,8 @@ export type MessageFailure =
   | { kind: 'refused'; code: MessagingErrorCode }
   | { kind: 'unexpected' };
 
-const RELOAD_CODES: readonly string[] = ['STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED'];
+// CONTACT_NOT_OWNED reloads too: contactRemoved changes without a version bump, so only a read shows the restricted controls.
+const RELOAD_CODES: readonly string[] = ['STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED', 'CONTACT_NOT_OWNED'];
 
 export function problemCode(error: unknown): MessagingErrorCode | null {
   return error instanceof ApiError ? parseMessagingProblem(error.payload)?.code ?? null : null;

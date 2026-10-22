@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { httpClient } from '@/shared/api/httpClient';
 import { MessageReview } from '../components/MessageReview';
 import type { MessageResponse } from '../types';
+import { statusLabel } from '../utils/messageLabels';
 import {
   FakeServer,
   approvalsPath,
@@ -656,6 +657,85 @@ describe('review actions', () => {
       });
       expect(screen.getByText('Entregado')).toBeInTheDocument();
       expect(screen.queryByText('En cola')).toBeNull();
+    });
+  });
+  // covers: the fifth Codex review round of 2026-10-22
+  describe('removed contacts, locked openers and approval replays', () => {
+    it('reads the message again on CONTACT_NOT_OWNED so the removed contact restricts the controls', async () => {
+      await openMessage(pendingApproval);
+      const removed = variant(pendingApproval, { contactRemoved: true });
+      server
+        .on(approvalsPath(pendingApproval.messageId), problem('CONTACT_NOT_OWNED'))
+        .on(detailPath(pendingApproval.messageId), detailReply(removed));
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await screen.findByText(/Este mensaje no puede avanzar/);
+      expect(screen.getByRole('alert')).toHaveTextContent('El teléfono ya no pertenece a este cliente.');
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Aprobar' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Corregir' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Cancelar' })).toBeEnabled();
+      expect(server.count(detailPath(pendingApproval.messageId))).toBe(2);
+      expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1);
+    });
+
+    it('moves focus to the heading when Cerrar leaves a rate limited group whose opener is locked', async () => {
+      await openWithFakeTimers(approved);
+      server.on(sendsPath(approved.messageId), problem('RATE_LIMITED'));
+      click('Enviar');
+      click('Confirmar envío', group('Confirmar envío'));
+      await flush();
+      const close = within(group('Confirmar envío')).getByRole('button', { name: 'Cerrar' });
+      close.focus();
+      fireEvent.click(close);
+      expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
+    });
+
+    it('announces the current status when an approval replay shows the message moved on', async () => {
+      await openMessage(pendingApproval);
+      const sentHere = variant(details.sent, { messageId: pendingApproval.messageId });
+      server
+        .on(approvalsPath(pendingApproval.messageId), networkFailure(), detailReply(sentHere))
+        .on(detailPath(pendingApproval.messageId), detailReply(pendingApproval));
+      click('Aprobar');
+      const confirm = group('Confirmar aprobación');
+      click('Confirmar aprobación', confirm);
+      expect(await within(confirm).findByRole('alert')).toHaveTextContent('No se pudo confirmar la acción.');
+      click('Reintentar', confirm);
+      expect(await screen.findByText(`Revisión ${sentHere.version}`)).toBeInTheDocument();
+      expect(liveRegion()).toHaveTextContent(`Este mensaje ya se había aprobado. Estado actual: ${statusLabel('SENT')}.`);
+      expect(liveRegion()).not.toHaveTextContent('Aún no se ha enviado');
+    });
+
+    it('does not open the correction when the cancel reply shows the contact removed', async () => {
+      await openMessage(pendingApproval);
+      const cancelledWithoutContact = variant(cancelledHere, { contactRemoved: true });
+      server.on(cancellationsPath(pendingApproval.messageId), created(cancelledWithoutContact));
+      click('Corregir');
+      click('Confirmar corrección', group('Confirmar corrección'));
+      expect(await screen.findByText(`Revisión ${cancelledWithoutContact.version}`)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Texto final del mensaje')).toBeNull();
+      expect(liveRegion()).toHaveTextContent('Mensaje cancelado. No se enviará al cliente.');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
+      );
+    });
+
+    it('does not open the correction when the read after an unsure cancel shows the contact removed', async () => {
+      await openMessage(pendingApproval);
+      const cancelledWithoutContact = variant(cancelledHere, { contactRemoved: true });
+      server
+        .on(cancellationsPath(pendingApproval.messageId), networkFailure())
+        .on(detailPath(pendingApproval.messageId), detailReply(cancelledWithoutContact));
+      click('Corregir');
+      click('Confirmar corrección', group('Confirmar corrección'));
+      expect(await screen.findByText(`Revisión ${cancelledWithoutContact.version}`)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Texto final del mensaje')).toBeNull();
+      expect(liveRegion()).toHaveTextContent('Mensaje cancelado. No se enviará al cliente.');
+      expect(screen.getByRole('alert')).toHaveTextContent('Redacta un mensaje nuevo con el número correcto.');
     });
   });
 });

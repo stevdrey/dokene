@@ -56,14 +56,14 @@ describe('classifyFailure', () => {
   });
 
   it('sends the reload codes and RATE_LIMITED to their own flows', () => {
-    for (const code of ['STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED']) {
-      expect(classifyFailure(apiError(409, problems.valid[code]))).toEqual({ kind: 'reload', code });
+    for (const code of ['STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED', 'CONTACT_NOT_OWNED']) {
+      expect(classifyFailure(apiError(problems.valid[code].status, problems.valid[code]))).toEqual({ kind: 'reload', code });
     }
     expect(classifyFailure(apiError(429, problems.valid.RATE_LIMITED))).toEqual({ kind: 'rateLimited' });
   });
 
   it('refuses with the code for every other problem fixture', () => {
-    const special = ['FORBIDDEN', 'NOT_FOUND', 'STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED', 'RATE_LIMITED'];
+    const special = ['FORBIDDEN', 'NOT_FOUND', 'STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED', 'CONTACT_NOT_OWNED', 'RATE_LIMITED'];
     for (const [code, body] of Object.entries<{ status: number }>(problems.valid)) {
       if (special.includes(code)) continue;
       expect(classifyFailure(apiError(body.status, body))).toEqual({ kind: 'refused', code });
