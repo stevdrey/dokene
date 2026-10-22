@@ -92,7 +92,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                             approval_parameter_format = NULL, approval_parameter_checked_at = NULL,
                             approval_header_text = NULL, approval_body_text = NULL, approval_footer_text = NULL,
                             approval_button_types = NULL, approval_button_texts = NULL,
-                            approval_button_values = NULL,
+                            approval_button_values = NULL, approval_content_parameter_format = NULL,
                             approval_content_checked_at = NULL, updated_at = ?, version = version + 1
                         WHERE tenant_id = ? AND id = ? AND version = ?
                         RETURNING version
@@ -120,7 +120,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         return jdbc.update("""
                 UPDATE dokene.tenant_provider_templates
                 SET approval_status = ?, approval_checked_at = ?, approval_checked_business_account_id = ?,
-                    approval_checked_version = ?, approval_parameter_format = ?, approval_parameter_checked_at = ?,
+                    approval_checked_version = ?, approval_parameter_format = NULL,
+                    approval_parameter_checked_at = NULL, approval_content_parameter_format = ?,
                     approval_header_text = ?, approval_body_text = ?, approval_footer_text = ?,
                     approval_button_types = ?, approval_button_texts = ?, approval_button_values = ?,
                     approval_content_checked_at = ?, updated_at = ?
@@ -129,8 +130,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                     AND approval_checked_business_account_id IS NOT DISTINCT FROM ?
                     AND approval_checked_version IS NOT DISTINCT FROM ?
                 """, evidence.status().name(), timestamp(evidence), evidence.checkedBusinessAccountId(),
-                evidence.checkedVersion(), format(evidence),
-                evidence.parameterFormat() == null ? null : timestamp(evidence),
+                evidence.checkedVersion(), content == null ? null : format(evidence),
                 content == null ? null : content.header(), content == null ? null : content.body(),
                 content == null ? null : content.footer(),
                 content == null ? null : buttonColumn(content, button -> button.type().name()),
@@ -156,30 +156,34 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
     }
 
     /**
-     * A stored format counts only for approval evidence written together with it. An instance of an earlier release
-     * rewrites the evidence without touching the format columns, so its check time no longer matches and the format
-     * (verified for other evidence) is ignored: that approval is not sendable until it is refreshed again.
+     * The V27 format, written by instances of the previous release only. A stored format counts only for approval
+     * evidence written together with it. Evidence read this way carries no content, so it is never sendable.
      */
-    private static String trustedFormat(ResultSet rs, Timestamp checkedAt) throws SQLException {
+    private static String legacyFormat(ResultSet rs, Timestamp checkedAt) throws SQLException {
         Timestamp formatCheckedAt = rs.getTimestamp("approval_parameter_checked_at");
         boolean current = TemplateApprovalStatus.APPROVED.name().equals(rs.getString("approval_status"))
                 && checkedAt != null && checkedAt.equals(formatCheckedAt);
         return current ? rs.getString("approval_parameter_format") : null;
     }
 
+    /** The verified format and fixed content of current evidence, written together by this release (V30). */
+    private record CurrentApproval(String format, TemplateContent content) {
+    }
+
     /**
-     * Stored content counts only together with a trusted format and when written with the current evidence, by the
-     * same rule as {@link #trustedFormat}: an earlier release rewrites the evidence without touching these columns.
+     * Content and its format count only for APPROVED evidence written together with them. An instance of the
+     * previous release rewrites the evidence without touching these columns, so the check time no longer matches and
+     * they are ignored: that approval is not sendable until a current instance refreshes it.
      */
-    private static TemplateContent trustedContent(ResultSet rs, Timestamp checkedAt, String format)
-            throws SQLException {
-        Timestamp contentCheckedAt = rs.getTimestamp("approval_content_checked_at");
+    private static CurrentApproval currentApproval(ResultSet rs, Timestamp checkedAt) throws SQLException {
+        String format = rs.getString("approval_content_parameter_format");
         String body = rs.getString("approval_body_text");
-        if (format == null || body == null || !checkedAt.equals(contentCheckedAt)) {
+        if (!TemplateApprovalStatus.APPROVED.name().equals(rs.getString("approval_status")) || checkedAt == null
+                || format == null || body == null || !checkedAt.equals(rs.getTimestamp("approval_content_checked_at"))) {
             return null;
         }
-        return new TemplateContent(rs.getString("approval_header_text"), body, rs.getString("approval_footer_text"),
-                buttons(rs));
+        return new CurrentApproval(format, new TemplateContent(rs.getString("approval_header_text"), body,
+                rs.getString("approval_footer_text"), buttons(rs)));
     }
 
     private static List<TemplateButton> buttons(ResultSet rs) throws SQLException {
@@ -202,12 +206,14 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         List<String> parameterNames = List.of((String[]) names.getArray());
         Timestamp checkedAt = rs.getTimestamp("approval_checked_at");
         Long checkedVersion = rs.getObject("approval_checked_version", Long.class);
-        String format = trustedFormat(rs, checkedAt);
+        CurrentApproval current = currentApproval(rs, checkedAt);
+        String format = current != null ? current.format() : legacyFormat(rs, checkedAt);
         ApprovalEvidence evidence = new ApprovalEvidence(
                 TemplateApprovalStatus.valueOf(rs.getString("approval_status")),
                 checkedAt == null ? null : checkedAt.toInstant(),
                 rs.getString("approval_checked_business_account_id"), checkedVersion,
-                format == null ? null : TemplateParameterFormat.valueOf(format), trustedContent(rs, checkedAt, format));
+                format == null ? null : TemplateParameterFormat.valueOf(format),
+                current == null ? null : current.content());
         return new TemplateMapping(rs.getObject("id", UUID.class),
                 new TenantId(rs.getObject("tenant_id", UUID.class)), rs.getObject("integration_id", UUID.class),
                 SemanticTemplateIntent.valueOf(rs.getString("semantic_intent")), rs.getString("provider_template_name"),

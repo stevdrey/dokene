@@ -460,7 +460,15 @@ class TemplateRegistryIntegrationTest {
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                 .isInstanceOf(TemplateMappingResolver.Resolved.class);
 
-        // Text is only ever stored together with the time of the check that read it, and bounded.
+        // The previous release trusts only the V27 format columns. Current evidence leaves them empty, so to an older
+        // instance this approval has no verified format and is never sent: it cannot ignore the fixed content.
+        assertThat(queryString("SELECT concat_ws('/', approval_status, approval_parameter_format, "
+                + "approval_parameter_checked_at, approval_content_parameter_format) FROM "
+                + "dokene.tenant_provider_templates WHERE tenant_id = ?", tenantA)).isEqualTo("APPROVED/POSITIONAL");
+        // Text and its format are only ever stored together with the time of the check that read them, and bounded.
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                + "approval_content_parameter_format = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
                 + "approval_content_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
                 .isInstanceOf(SQLException.class);
@@ -475,10 +483,11 @@ class TemplateRegistryIntegrationTest {
                 + "ARRAY['FLOW', 'URL'] WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_types = NULL "
                 + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-        // An instance of the previous release rewrites the evidence without touching the text: it is not trusted.
+        // An instance of the previous release refreshes the approval as it always did, with a V27 format and without
+        // touching the text: the text no longer matches the evidence, so it is not trusted and nothing is sendable.
         execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = approval_checked_at + interval "
-                + "'1 second', approval_parameter_checked_at = approval_parameter_checked_at + interval '1 second' "
-                + "WHERE tenant_id = ?", tenantA.id().value());
+                + "'1 second', approval_parameter_format = 'POSITIONAL', approval_parameter_checked_at = "
+                + "approval_checked_at + interval '1 second' WHERE tenant_id = ?", tenantA.id().value());
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                 .isInstanceOf(TemplateMappingResolver.Disabled.class);
         list(adminA, tenantA).andExpect(jsonPath(
@@ -537,17 +546,19 @@ class TemplateRegistryIntegrationTest {
             // An approved status can never be kept without complete provider evidence.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = NULL "
                     + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            // A format is only ever stored together with the time of the schema check that produced it.
+            // A V27 format, which only the previous release writes, is only ever stored together with the time of the
+            // schema check that produced it.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
-                    + "= NULL WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
-                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                    + "= 'POSITIONAL' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
+                    + "= 'MIXED', approval_parameter_checked_at = now() WHERE tenant_id = ?", tenantA.id().value()))
                     .isInstanceOf(SQLException.class);
-            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
-                    + "= 'MIXED' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            // Expand phase: an older instance's approval without any format stays writable (and is never sendable).
-            execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format = NULL, "
-                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value());
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                    + "approval_content_parameter_format = 'MIXED' WHERE tenant_id = ?", tenantA.id().value()))
+                    .isInstanceOf(SQLException.class);
+            // Expand phase: an older instance's approval with its own V27 format stays writable.
+            execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format = 'POSITIONAL', "
+                    + "approval_parameter_checked_at = approval_checked_at WHERE tenant_id = ?", tenantA.id().value());
         }
     }
 
@@ -685,7 +696,18 @@ class TemplateRegistryIntegrationTest {
     private String parameterFormat(Tenant tenant) throws SQLException {
         try (Connection migration = migrationConnection();
                 var statement = migration.prepareStatement(
-                        "SELECT approval_parameter_format FROM dokene.tenant_provider_templates WHERE tenant_id = ?")) {
+                        "SELECT approval_content_parameter_format FROM dokene.tenant_provider_templates "
+                                + "WHERE tenant_id = ?")) {
+            statement.setObject(1, tenant.id().value());
+            try (var rs = statement.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String queryString(String sql, Tenant tenant) throws SQLException {
+        try (Connection migration = migrationConnection(); var statement = migration.prepareStatement(sql)) {
             statement.setObject(1, tenant.id().value());
             try (var rs = statement.executeQuery()) {
                 rs.next();
