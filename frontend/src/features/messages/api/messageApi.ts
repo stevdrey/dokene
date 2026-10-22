@@ -13,9 +13,13 @@ import {
   type ApprovalDecision,
   type AttemptSummary,
   type MessageEventItem,
+  type MessageListItem,
+  type MessagePageResponse,
   type MessageResponse,
   type SubmitMessageRequest
 } from '../types';
+
+export const HISTORY_PAGE_SIZE = 20;
 
 export class InvalidMessageResponseError extends Error {
   constructor() {
@@ -97,6 +101,8 @@ function narrowDetail(body: unknown): MessageResponse {
     isNullableString(body.sentAt) &&
     isNullableString(body.deliveredAt) &&
     isNullableString(body.readAt) &&
+    isString(body.createdAt) &&
+    isString(body.updatedAt) &&
     isCount(body.version);
   if (!valid) throw new InvalidMessageResponseError();
   return body as unknown as MessageResponse;
@@ -117,6 +123,31 @@ function isEvent(value: unknown): value is MessageEventItem {
   );
 }
 
+/** `status` is any string so a value the contract does not know yet renders raw in the history instead of failing the page. */
+function isListItem(value: unknown): value is MessageListItem {
+  return (
+    isRecord(value) &&
+    isString(value.messageId) &&
+    isString(value.customerId) &&
+    typeof value.contactRemoved === 'boolean' &&
+    isString(value.status) &&
+    typeof value.outcomeUnknown === 'boolean' &&
+    isOneOf(SEMANTIC_ACTIONS, value.action) &&
+    isOneOf(SEMANTIC_TEMPLATE_INTENTS, value.templateIntent) &&
+    isOneOf(MESSAGE_ORIGINS, value.origin) &&
+    isString(value.createdAt) &&
+    isString(value.updatedAt) &&
+    isCount(value.version)
+  );
+}
+
+function narrowPage(body: unknown): MessagePageResponse {
+  if (!isRecord(body) || !Array.isArray(body.items) || !body.items.every(isListItem) || !isNullableString(body.nextCursor)) {
+    throw new InvalidMessageResponseError();
+  }
+  return { items: body.items, nextCursor: body.nextCursor };
+}
+
 /** A detail for another message than the one asked for is refused, so no command can target what is not shown. */
 function versioned(data: unknown, etag: string | null, expectedMessageId?: string): VersionedMessage {
   const detail = narrowDetail(data);
@@ -134,6 +165,17 @@ function withNote<T extends object>(base: T, note: string | undefined): T & { no
 }
 
 export const messageApi = {
+  /** One page of a customer's history, every status included; an item of another customer is dropped, never shown. */
+  async listCustomerHistory(customerId: string, cursor: string | null, signal?: AbortSignal): Promise<MessagePageResponse> {
+    const query = new URLSearchParams();
+    query.set('customerId', customerId);
+    query.set('limit', String(HISTORY_PAGE_SIZE));
+    if (cursor !== null) query.set('cursor', cursor);
+    const { data } = await httpClient.request<unknown>(`/api/messages?${query.toString()}`, { signal });
+    const page = narrowPage(data);
+    return { items: page.items.filter((item) => item.customerId === customerId), nextCursor: page.nextCursor };
+  },
+
   async getDetail(messageId: string, signal?: AbortSignal): Promise<VersionedMessage> {
     const { data, etag } = await httpClient.request<unknown>(messagePath(messageId), { signal });
     return versioned(data, etag, messageId);

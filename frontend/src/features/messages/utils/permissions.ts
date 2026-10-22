@@ -5,3 +5,8 @@ const ACTING_ROLES: readonly string[] = ['OWNER', 'ADMIN', 'OPERATOR', 'TENANT_A
 export function canActOnMessages(role?: string | null): boolean {
   return typeof role === 'string' && ACTING_ROLES.includes(role);
 }
+
+/** Every present role holds MESSAGE_READ (ADR 0023 §5); only a missing role hides the read only history. */
+export function canReadMessages(role?: string | null): boolean {
+  return typeof role === 'string' && role !== '';
+}

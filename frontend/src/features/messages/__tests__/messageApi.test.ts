@@ -12,7 +12,10 @@ import {
   detailReply,
   eventsFixtures,
   eventsPath,
+  historyPath,
   ok,
+  pages,
+  pending,
   requests,
   sendsPath,
   submitPath
@@ -78,7 +81,9 @@ describe('messageApi', () => {
     ['action', 'UNKNOWN_ACTION'],
     ['templateIntent', 42],
     ['channel', 'SMS'],
-    ['locale', null]
+    ['locale', null],
+    ['createdAt', undefined],
+    ['updatedAt', 1700000000]
   ])('treats a detail with an invalid %s as invalid', async (member, value) => {
     server.on(detailPath(id), ok({ ...pendingApproval, [member]: value }, '"1"'));
     await expect(messageApi.getDetail(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
@@ -196,5 +201,68 @@ describe('messageApi', () => {
     expect(call.headers['If-Match']).toBe('"2"');
     expect(call.headers['Idempotency-Key']).toBe('key-s');
     expect(read.version).toBe(5);
+  });
+});
+
+// covers: AC-2 (spec 0012)
+describe('listCustomerHistory', () => {
+  const customerId = pendingApproval.customerId;
+  const firstItem = pages.firstPage.items[0];
+
+  it('reads the first page with customerId then limit, no status, and keeps the server order', async () => {
+    server.on(historyPath(customerId), ok(pages.firstPage));
+    const page = await messageApi.listCustomerHistory(customerId, null);
+    expect(server.last(historyPath(customerId)).key).toBe(`GET /api/messages?customerId=${customerId}&limit=20`);
+    expect(server.last(historyPath(customerId)).headers['X-Tenant-Id']).toBe('tenant-a');
+    expect(page.items.map((item) => item.messageId)).toEqual(pages.firstPage.items.map((item) => item.messageId));
+    expect(page.nextCursor).toBe(pages.firstPage.nextCursor);
+  });
+
+  it('appends the cursor last and reads the empty last page', async () => {
+    const cursor = pages.firstPage.nextCursor as string;
+    server.on(historyPath(customerId, cursor), ok(pages.lastPage));
+    const page = await messageApi.listCustomerHistory(customerId, cursor);
+    expect(server.last(historyPath(customerId, cursor)).key).toBe(
+      `GET /api/messages?customerId=${customerId}&limit=20&cursor=${cursor}`
+    );
+    expect(page).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('drops an item of another customer without failing the page', async () => {
+    const stranger = { ...firstItem, messageId: 'other-1', customerId: 'someone-else' };
+    server.on(historyPath(customerId), ok({ items: [stranger, firstItem], nextCursor: null }));
+    const page = await messageApi.listCustomerHistory(customerId, null);
+    expect(page.items.map((item) => item.messageId)).toEqual([firstItem.messageId]);
+  });
+
+  it('accepts a status the contract does not know', async () => {
+    server.on(historyPath(customerId), ok({ items: [{ ...firstItem, status: 'ARCHIVED_LATER' }], nextCursor: null }));
+    const page = await messageApi.listCustomerHistory(customerId, null);
+    expect(page.items[0].status).toBe('ARCHIVED_LATER');
+  });
+
+  it.each([
+    ['a missing items array', { nextCursor: null }],
+    ['an undefined nextCursor', { items: [] }],
+    ['a numeric nextCursor', { items: [], nextCursor: 7 }],
+    ['an item without a version', { items: [{ ...firstItem, version: undefined }], nextCursor: null }],
+    ['an item with a bad origin', { items: [{ ...firstItem, origin: 'EMAIL' }], nextCursor: null }],
+    ['an item with a bad action', { items: [{ ...firstItem, action: 'SOMETHING' }], nextCursor: null }],
+    ['an item with a bad templateIntent', { items: [{ ...firstItem, templateIntent: 'NOT_A_REAL_INTENT' }], nextCursor: null }],
+    ['an item whose contactRemoved is a string', { items: [{ ...firstItem, contactRemoved: 'no' }], nextCursor: null }],
+    ['an item whose outcomeUnknown is a string', { items: [{ ...firstItem, outcomeUnknown: 'yes' }], nextCursor: null }],
+    ['an item without a messageId', { items: [{ ...firstItem, messageId: undefined }], nextCursor: null }],
+    ['a plain array body', []]
+  ])('refuses a page with %s', async (_name, body) => {
+    server.on(historyPath(customerId), ok(body));
+    await expect(messageApi.listCustomerHistory(customerId, null)).rejects.toBeInstanceOf(InvalidMessageResponseError);
+  });
+
+  it('forwards the abort signal', async () => {
+    const controller = new AbortController();
+    server.on(historyPath(customerId), pending());
+    const read = messageApi.listCustomerHistory(customerId, null, controller.signal);
+    controller.abort();
+    await expect(read).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
