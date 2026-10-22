@@ -223,7 +223,10 @@ public record OutboundMessage(UUID id, UUID tenantId, UUID customerId, UUID cont
         return reported;
     }
 
-    /** True while the message blocks another submit for the same customer. */
+    /**
+     * True while the message blocks another submit for the same customer. Not the complement of {@link #isTerminal()}:
+     * SENT and DELIVERED are neither open nor terminal (ADR 0023 §2, amended for issue 198).
+     */
     public boolean isOpen() {
         return status.open();
     }

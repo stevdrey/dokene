@@ -145,7 +145,7 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
         return first(jdbc.query("""
                 SELECT * FROM dokene.outbound_messages
                 WHERE tenant_id = ? AND customer_id = ?
-                  AND status NOT IN ('READ', 'REJECTED', 'CANCELLED', 'FAILED')
+                  AND status IN ('PENDING_APPROVAL', 'APPROVED', 'QUEUED', 'SENDING')
                   AND (CAST(? AS uuid) IS NULL OR id <> CAST(? AS uuid))
                 """, this::mapMessage, tenantId, customerId, excludingMessageId.orElse(null),
                 excludingMessageId.orElse(null)));

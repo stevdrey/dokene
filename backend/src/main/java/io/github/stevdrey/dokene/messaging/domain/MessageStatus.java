@@ -10,8 +10,12 @@ public enum MessageStatus {
         return this == READ || this == REJECTED || this == CANCELLED || this == FAILED;
     }
 
-    /** Open states block a second submit for the same customer (ADR 0023 §2, SENT and DELIVERED included). */
+    /**
+     * Open states block a second submit or approval for the same customer (ADR 0023 §2, amended for issue 198): every
+     * state before the provider accepted the message. SENT and DELIVERED are not terminal, yet do not block, because
+     * their remaining reports may never arrive. The V30 index predicate names exactly these states.
+     */
     public boolean open() {
-        return !terminal();
+        return this == PENDING_APPROVAL || this == APPROVED || this == QUEUED || this == SENDING;
     }
 }

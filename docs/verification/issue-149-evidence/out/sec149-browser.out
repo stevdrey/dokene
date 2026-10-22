@@ -1,0 +1,21 @@
+== P3-SEC-08 no credential in the browser, no call to a host other than Dokene
+PASS  P3-SEC-08  [Browser]  local and session storage hold no canary and no access token
+PASS  P3-SEC-08  [Browser]  cookies carry no canary; the session cookie is HttpOnly with SameSite Lax
+PASS  P3-SEC-08  [Browser]  cookies seen: AUTH_SESSION_ID(localhost/realms/dokene/,httpOnly=true,sameSite=None) KC_AUTH_SESSION_HASH(localhost/realms/dokene/,httpOnly=false,sameSite=None) KEYCLOAK_IDENTITY(localhost/realms/dokene/,httpOnly=true,sameSite=None) KEYCLOAK_SESSION(localhost/realms/dokene/,httpOnly=false,sameSite=None) JSESSIONID(localhost/,httpOnly=true,sameSite=Lax)
+PASS  P3-SEC-08  [Browser]  every request since sign-in went to the proxy or Keycloak (no Meta, no third party)
+PASS  P3-SEC-08  [Browser]  JavaScript bundle (3 scripts) holds no canary and no Graph API host
+PASS  P3-SEC-08  [Browser]  the integration status request, if any, goes through /api on the proxy only
+BLOCKED  P3-SEC-08  [Browser]  the integration screen is not mounted in the shell on this commit (the Configuración tab is a placeholder; IntegrationStatusPanel exists but nothing renders it), so its network responses could not be inspected; #146 owes the screen
+== P3-SEC-07 screens: no canary secret on any screen
+PASS  P3-SEC-07  [Browser]  no canary secret on the 4 screens
+PASS  P3-SEC-07  [Browser]  screens visited: Seguimientos, Clientes, Configuración, Más; CANARY-BODY on screen: false (allowed only where a MESSAGE_READ member reads a message)
+== P3-KILL-03 screens: no screen can change the global switch
+PASS  P3-KILL-03  [Browser]  no control that names the global outbound switch on any screen
+BLOCKED  P3-KILL-03  [Browser]  no messaging or integration settings screen is mounted on this commit (Configuración is a placeholder); the screen half of the row needs #144/#146 screens
+== P3-CSRF-03 a page on another origin posts a form and runs a fetch against the send route
+PASS  P3-CSRF-03  [Browser]  fetch outcome: blocked: Failed to fetch; form target frame: opaque (SecurityError); send requests issued by the browser: 2
+PASS  P3-CSRF-03  [Browser]  the cross-site fetch did not succeed (blocked by CORS or answered 401/403)
+PASS  P3-CSRF-03  [Browser]  session cookie is SameSite=Lax, so the cross-site POST carried no session
+== sec149-browser.mjs: PASS=12 FAIL=0 BLOCKED=2
+PASS  P3-CSRF-03  [Database]  no attempt row, message still APPROVED, no provider call
+== sec149-browser.sh: PASS=1 FAIL=0 BLOCKED=0
