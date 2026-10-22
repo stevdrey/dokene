@@ -1,6 +1,6 @@
 // ABOUTME: Tests the delivery history from the frozen fixtures: every outcome row, the open row, guidance, states and guards.
 // ABOUTME: Proves provider acceptance never reads as delivered, nothing resends, and no state survives a customer or tenant switch.
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { httpClient } from '@/shared/api/httpClient';
 import type { MessageResponse } from '../types';
@@ -131,11 +131,11 @@ describe('DeliveryHistory', () => {
       const more = screen.getByRole('button', { name: 'Cargar más' });
       more.focus();
       fireEvent.click(more);
-      await act(async () => {});
-      expect(screen.queryByRole('button', { name: 'Cargar más' })).toBeNull();
+      // The reply settles after a variable number of ticks, and focus moves in an effect after that render.
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Cargar más' })).toBeNull());
       expect(rowIds()).toHaveLength(2);
       expect(liveRegion()).toHaveTextContent('');
-      expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2 }));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2 })));
     });
 
     it('renders an unknown status raw with its badge and drops an item of another customer', async () => {
@@ -330,11 +330,10 @@ describe('DeliveryHistory', () => {
       const retry = within(alert).getByRole('button', { name: 'Reintentar' });
       retry.focus();
       fireEvent.click(retry);
-      await act(async () => {});
-      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Historial de mensajes' }));
-      fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Reintentar' }));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Historial de mensajes' })));
+      fireEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Reintentar' }));
       await listed();
-      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Historial de mensajes' }));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Historial de mensajes' })));
     });
 
     it.each([

@@ -63,6 +63,9 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
   const openRowRef = useRef<OpenDeliveryRowHandle>(null);
   // Which read the focused control started, so focus has somewhere to go when that control leaves with the reply.
   const focusedRead = useRef<'none' | 'firstPage' | 'more'>('none');
+  // Whether the last committed state was a read in flight. Focus is only placed when such a read settles: an effect
+  // still pending from a render before the click would otherwise see an idle state and take the click's intent.
+  const wasReading = useRef(true);
 
   const onRowRefreshed = useCallback((_messageId: string, read: VersionedMessage) => {
     openRowRef.current?.applyRefresh(read);
@@ -77,7 +80,10 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
   };
 
   useEffect(() => {
-    if (state.kind === 'loading' || (state.kind === 'ready' && state.loadingMore)) return;
+    const reading = state.kind === 'loading' || (state.kind === 'ready' && state.loadingMore);
+    const justSettled = wasReading.current && !reading;
+    wasReading.current = reading;
+    if (!justSettled) return;
     const settled = focusedRead.current;
     focusedRead.current = 'none';
     if (settled === 'none') return;
@@ -210,8 +216,12 @@ function DeliveryRow({ row, open, onToggle, onRefresh, children }: DeliveryRowPr
   const toggleRef = useRef<HTMLButtonElement>(null);
   // Actualizar can leave with its own reply (an uncertain row resolved, a 404); the toggle then takes its focus.
   const refreshFocused = useRef(false);
+  // Only a refresh that just settled may use the intent; an effect pending from before the click must not take it.
+  const wasRefreshing = useRef(row.refreshing);
   useEffect(() => {
-    if (!refreshFocused.current || row.refreshing) return;
+    const justSettled = wasRefreshing.current && !row.refreshing;
+    wasRefreshing.current = row.refreshing;
+    if (!justSettled || !refreshFocused.current) return;
     refreshFocused.current = false;
     const active = document.activeElement;
     if (!showRefresh && (!active || active === document.body)) toggleRef.current?.focus();

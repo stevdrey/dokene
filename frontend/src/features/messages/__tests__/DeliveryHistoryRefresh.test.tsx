@@ -54,9 +54,8 @@ describe('DeliveryHistory refresh', () => {
       refreshButton(uncertain.messageId).focus();
       fireEvent.click(refreshButton(uncertain.messageId));
       expect(suite.server.last(detailPath(uncertain.messageId)).key).toBe(`GET /api/messages/${uncertain.messageId}`);
-      await act(async () => {});
+      await waitFor(() => expect(toggleOf(uncertain.messageId)).toHaveTextContent('Fallido'));
       const toggle = toggleOf(uncertain.messageId);
-      expect(toggle).toHaveTextContent('Fallido');
       // Actualizar left with the resolved outcome, so the row toggle takes the focus it held.
       await waitFor(() => expect(toggle).toHaveFocus());
       expect(toggle).toHaveTextContent('No se entregó al cliente.');
@@ -138,9 +137,10 @@ describe('DeliveryHistory refresh', () => {
       const heading = screen.getByRole('heading', { name: 'Historial de mensajes' });
       heading.focus();
       fireEvent.click(refreshButton(uncertain.messageId));
-      await act(async () => {});
-      expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull();
-      expect(heading).toHaveFocus();
+      await waitFor(() =>
+        expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull()
+      );
+      await waitFor(() => expect(heading).toHaveFocus());
       fireEvent.click(toggleOf(sent.messageId));
       await rowLoaded(sent);
       refreshButton(sent.messageId).focus();

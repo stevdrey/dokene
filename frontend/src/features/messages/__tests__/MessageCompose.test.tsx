@@ -220,7 +220,8 @@ describe('compose mode', () => {
       fireEvent.click(submitButton());
       confirmSubmit();
       await screen.findByRole('alert');
-      expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
+      // The alert renders with the reply; focus moves in an effect that may run a tick later.
+      await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
     });
 
     it('shows the Retry-After seconds on a 429', async () => {
