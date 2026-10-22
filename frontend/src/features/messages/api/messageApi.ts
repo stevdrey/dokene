@@ -101,6 +101,8 @@ function narrowDetail(body: unknown): MessageResponse {
     isNullableString(body.sentAt) &&
     isNullableString(body.deliveredAt) &&
     isNullableString(body.readAt) &&
+    isString(body.createdAt) &&
+    isString(body.updatedAt) &&
     isCount(body.version);
   if (!valid) throw new InvalidMessageResponseError();
   return body as unknown as MessageResponse;

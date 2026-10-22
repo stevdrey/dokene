@@ -1,6 +1,6 @@
 // ABOUTME: Tests the refresh paths of the delivery history: row Actualizar, Actualizar historial and Cargar más.
 // ABOUTME: Proves the version rule holds for every source, replies out of order never regress a row, and only GET is sent.
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   details,
@@ -453,6 +453,35 @@ describe('DeliveryHistory refresh', () => {
       expect(suite.server.count(historyPath(CUSTOMER_A, CURSOR_1))).toBe(1);
     });
 
+    it('starts the list again when the refreshed first page does not overlap the held rows', async () => {
+      const sent = details.sent;
+      const read = details.read;
+      const newest = [details.delivered, details.failedByResolution];
+      suite.server
+        .on(historyPath(CUSTOMER_A), ok(pageOf([sent], CURSOR_1)), ok(pageOf(newest, 'fresh-cursor')))
+        .on(historyPath(CUSTOMER_A, CURSOR_1), ok(pageOf([read], CURSOR_2)))
+        .on(historyPath(CUSTOMER_A, 'fresh-cursor'), ok(pageOf([sent, read])));
+      serveRow(suite.server, read);
+      renderHistory();
+      await listed();
+      fireEvent.click(loadMore());
+      await act(async () => {});
+      fireEvent.click(toggleOf(read.messageId));
+      await rowLoaded(read);
+      expect(rowIds()).toEqual([sent.messageId, read.messageId]);
+      fireEvent.click(listRefresh());
+      await act(async () => {});
+      // More than a page of messages arrived: the held rows would sit below a gap, so the page replaces them.
+      expect(rowIds()).toEqual(newest.map((detail) => detail.messageId));
+      expect(screen.queryByRole('region', { name: 'Resultado del mensaje' })).toBeNull();
+      fireEvent.click(loadMore());
+      await act(async () => {});
+      expect(suite.server.count(historyPath(CUSTOMER_A, 'fresh-cursor'))).toBe(1);
+      expect(suite.server.count(historyPath(CUSTOMER_A, CURSOR_2))).toBe(0);
+      expect(rowIds()).toEqual([...newest.map((detail) => detail.messageId), sent.messageId, read.messageId]);
+      expect(screen.queryByRole('button', { name: 'Cargar más' })).toBeNull();
+    });
+
     it('takes contactRemoved from an equal version', async () => {
       const approved = details.approved;
       const removed = variant(approved, { contactRemoved: true });
@@ -562,16 +591,16 @@ describe('DeliveryHistory refresh', () => {
       const retry = within(await screen.findByRole('alert')).getByRole('button', { name: 'Reintentar' });
       retry.focus();
       fireEvent.click(retry);
-      await act(async () => {});
+      // The alert leaves as soon as the read starts, so the appended row is what proves the reply landed.
+      await waitFor(() => expect(rowIds()).toEqual([sent.messageId, details.read.messageId]));
       expect(screen.queryByRole('alert')).toBeNull();
-      expect(document.activeElement).toBe(loadMore());
+      await waitFor(() => expect(document.activeElement).toBe(loadMore()));
       fireEvent.click(loadMore());
       const lastRetry = within(await screen.findByRole('alert')).getByRole('button', { name: 'Reintentar' });
       lastRetry.focus();
       fireEvent.click(lastRetry);
-      await act(async () => {});
-      expect(screen.queryByRole('button', { name: 'Cargar más' })).toBeNull();
-      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Historial de mensajes' }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Cargar más' })).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Historial de mensajes' })));
     });
 
     it('leaves focus alone when Actualizar historial brings the last page after an unfocused Cargar más', async () => {

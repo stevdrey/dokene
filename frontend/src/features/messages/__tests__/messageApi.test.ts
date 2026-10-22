@@ -81,7 +81,9 @@ describe('messageApi', () => {
     ['action', 'UNKNOWN_ACTION'],
     ['templateIntent', 42],
     ['channel', 'SMS'],
-    ['locale', null]
+    ['locale', null],
+    ['createdAt', undefined],
+    ['updatedAt', 1700000000]
   ])('treats a detail with an invalid %s as invalid', async (member, value) => {
     server.on(detailPath(id), ok({ ...pendingApproval, [member]: value }, '"1"'));
     await expect(messageApi.getDetail(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);

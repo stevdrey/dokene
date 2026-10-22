@@ -391,6 +391,8 @@ describe('DeliveryHistory', () => {
       fireEvent.click(toggleOf(detail.messageId));
       expect(await within(panelOf(detail.messageId)).findByText('No tienes permiso para ver estos mensajes.')).toBeInTheDocument();
       expect(toggleOf(detail.messageId)).toHaveAttribute('aria-expanded', 'true');
+      // The row toggle keeps focus, so the sentence that ends the loading state has to be announced.
+      expect(within(panelOf(detail.messageId)).getByRole('alert')).toHaveTextContent('No tienes permiso para ver estos mensajes.');
     });
 
     it('shows the row failure with Reintentar, which reads detail and events again', async () => {

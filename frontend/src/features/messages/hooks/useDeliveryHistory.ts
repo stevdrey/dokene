@@ -85,10 +85,16 @@ function readFailure(failure: MessageFailure): ReadFailure {
   return failure.kind === 'forbidden' ? 'forbidden' : 'failed';
 }
 
-/** New messages are always newer than every held one (keyset cursor), so they go on top; not found rows leave. */
+/**
+ * New messages are always newer than every held one (keyset cursor), so they go on top; not found rows leave.
+ * A full page that shares no row with the held list means more than a page of messages arrived since the last
+ * read: the held rows would sit below a gap the old cursor can never fill, so the page starts the list again.
+ */
 function mergeFirstPage(held: HistoryState & { kind: 'ready' }, page: MessagePageResponse): HistoryState {
   const heldIds = new Set(held.rows.map((row) => row.item.messageId));
   const incoming = new Map(page.items.map((item) => [item.messageId, item]));
+  const overlaps = held.rows.some((row) => incoming.has(row.item.messageId));
+  if (!overlaps && page.nextCursor !== null && held.rows.length > 0) return readyFrom(page);
   const fresh = page.items.filter((item) => !heldIds.has(item.messageId)).map(freshRow);
   const kept = held.rows
     .filter((row) => !row.notFound)
@@ -233,9 +239,13 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
         commit({ ...current, refreshing: false, refreshFailure: readFailure(outcome.failure) });
         return;
       }
-      commit(mergeFirstPage(current, outcome.value));
+      const next = mergeFirstPage(current, outcome.value);
+      commit(next);
+      // A list started again may no longer hold the open row.
+      const open = openRef.current;
+      if (open !== null && next.kind === 'ready' && !next.rows.some((row) => row.item.messageId === open)) setOpen(null);
     });
-  }, [commit, customerId, read]);
+  }, [commit, customerId, read, setOpen]);
 
   const loadMore = useCallback(() => {
     const held = stateRef.current;

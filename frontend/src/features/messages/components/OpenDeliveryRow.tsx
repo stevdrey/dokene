@@ -153,7 +153,12 @@ export const OpenDeliveryRow = forwardRef<OpenDeliveryRowHandle, OpenDeliveryRow
     );
   }
   if (detail.kind === 'forbidden') {
-    return <p className="message-review__muted">{HISTORY_COPY.forbidden}</p>;
+    // Focus stays on the row toggle while the panel loads, so the sentence that ends the loading state is announced.
+    return (
+      <p role="alert" className="message-review__muted">
+        {HISTORY_COPY.forbidden}
+      </p>
+    );
   }
   if (detail.kind === 'error') {
     return (
@@ -218,7 +223,9 @@ export const OpenDeliveryRow = forwardRef<OpenDeliveryRowHandle, OpenDeliveryRow
         </div>
       )}
       {events.kind === 'forbidden' ? (
-        <p className="message-review__muted">{HISTORY_COPY.forbidden}</p>
+        <p role="alert" className="message-review__muted">
+          {HISTORY_COPY.forbidden}
+        </p>
       ) : (
         <EventTimeline headingId={timelineHeadingId} events={events} onRetry={loadEvents} />
       )}
