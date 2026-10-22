@@ -2,6 +2,7 @@
 // ABOUTME: Operator-editable fields and provider-derived evidence are separate; edits drop the evidence.
 package io.github.stevdrey.dokene.template.domain;
 
+import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -9,8 +10,11 @@ import io.github.stevdrey.dokene.tenant.domain.TimestampPrecision;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -24,11 +28,35 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     public static final Pattern PARAMETER_NAME = Pattern.compile("^[a-z][a-z0-9_]{0,31}$");
     public static final int MAX_PARAMETERS = 10;
     /**
-     * The parameter that carries the message body. It mirrors ApprovalBindingAssembler.TemplateParameter.MESSAGE_BODY,
-     * because this package cannot depend on the messaging module (ADR 0024 §3); FixedTemplateBodyParityTest pins both.
-     * A mapping without it sends only the template's fixed text, which must then be a submittable message body.
+     * The closed vocabulary a parameter name may use to be rendered when sending; a mapping naming anything else is
+     * never sendable. A mapping without {@link #MESSAGE_BODY} sends only the template's fixed text, which must then
+     * be a submittable message body.
      */
-    public static final String MESSAGE_BODY_PARAMETER = "message_body";
+    public enum Parameter {
+        /** The customer's current display name. Renaming the customer voids open approvals. */
+        CUSTOMER_NAME("customer_name"),
+        /** The approved message body, exactly as submitted. */
+        MESSAGE_BODY("message_body");
+
+        private final String parameterName;
+
+        Parameter(String parameterName) {
+            this.parameterName = parameterName;
+        }
+
+        public String parameterName() {
+            return parameterName;
+        }
+
+        public static Optional<Parameter> named(String name) {
+            for (Parameter parameter : values()) {
+                if (parameter.parameterName.equals(name)) {
+                    return Optional.of(parameter);
+                }
+            }
+            return Optional.empty();
+        }
+    }
 
     public TemplateMapping {
         Objects.requireNonNull(id, "Mapping id is required");
@@ -117,20 +145,42 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable. Approval
      * keeps the template's fixed text and buttons, so review shows what will be sent. A template that does not carry
      * the message body sends its fixed body as the message, so a fixed body longer than a message body may be is
-     * unsupported: no message could ever be submitted against it.
+     * unsupported: no message could ever be submitted against it. Fixed text reaches every recipient unchanged and
+     * cannot be grounded per customer, so any header, body, footer or button label the safety checks refuse makes the
+     * template unsupported too; button targets are structured and shown in review instead.
      */
     public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
         ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")
                 .check(parameterNames);
         TemplateContent content = verdict.status() == TemplateApprovalStatus.APPROVED
                 && schema instanceof ProviderTemplateSchema.BodyParameters body ? body.content() : null;
-        if (content != null && !parameterNames.contains(MESSAGE_BODY_PARAMETER)
-                && content.body().codePointCount(0, content.body().length()) > MessageDraft.MAX_BODY_LENGTH) {
+        if (content != null && (!fixedTextIsSafe(content) || fixedBodyTooLong(content))) {
             verdict = new ProviderTemplateSchema.Verdict(TemplateApprovalStatus.SCHEMA_UNSUPPORTED, null);
             content = null;
         }
         return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format(),
                 content), now);
+    }
+
+    /** Without the message body as a parameter, the fixed body is the message, so it must fit a message body. */
+    private boolean fixedBodyTooLong(TemplateContent content) {
+        return !parameterNames.contains(Parameter.MESSAGE_BODY.parameterName())
+                && content.body().codePointCount(0, content.body().length()) > MessageDraft.MAX_BODY_LENGTH;
+    }
+
+    private static boolean fixedTextIsSafe(TemplateContent content) {
+        Map<String, String> texts = new LinkedHashMap<>();
+        texts.put("body", content.body());
+        if (content.header() != null) {
+            texts.put("header", content.header());
+        }
+        if (content.footer() != null) {
+            texts.put("footer", content.footer());
+        }
+        for (int i = 0; i < content.buttons().size(); i++) {
+            texts.put("button " + (i + 1), content.buttons().get(i).text());
+        }
+        return DraftSafetyValidator.validateFixedText(texts).isEmpty();
     }
 
     private TemplateMapping withEvidence(ApprovalEvidence evidence, Instant now) {

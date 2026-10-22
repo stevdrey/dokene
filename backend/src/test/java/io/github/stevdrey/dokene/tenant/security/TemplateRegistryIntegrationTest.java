@@ -469,9 +469,6 @@ class TemplateRegistryIntegrationTest {
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
                 + "approval_content_parameter_format = NULL WHERE tenant_id = ?", tenantA.id().value()))
                 .isInstanceOf(SQLException.class);
-        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
-                + "approval_content_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
-                .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = NULL "
                 + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = "
@@ -484,10 +481,15 @@ class TemplateRegistryIntegrationTest {
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_types = NULL "
                 + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
         // An instance of the previous release refreshes the approval as it always did, with a V27 format and without
-        // touching the text: the text no longer matches the evidence, so it is not trusted and nothing is sendable.
+        // touching the text: the text no longer matches the evidence, so the database clears it and nothing is
+        // sendable.
         execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = approval_checked_at + interval "
                 + "'1 second', approval_parameter_format = 'POSITIONAL', approval_parameter_checked_at = "
                 + "approval_checked_at + interval '1 second' WHERE tenant_id = ?", tenantA.id().value());
+        assertThat(queryString("SELECT concat_ws('/', approval_status, approval_header_text, approval_body_text, "
+                + "approval_footer_text, approval_button_types, approval_content_parameter_format, "
+                + "approval_content_checked_at) FROM dokene.tenant_provider_templates WHERE tenant_id = ?", tenantA))
+                .isEqualTo("APPROVED");
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                 .isInstanceOf(TemplateMappingResolver.Disabled.class);
         list(adminA, tenantA).andExpect(jsonPath(

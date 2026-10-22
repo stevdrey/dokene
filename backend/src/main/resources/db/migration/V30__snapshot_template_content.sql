@@ -55,3 +55,29 @@ ALTER TABLE dokene.tenant_provider_templates
         AND array_position(approval_button_texts, NULL) IS NULL
         AND coalesce(char_length(array_to_string(approval_button_texts, '')), 0)
             + coalesce(char_length(array_to_string(approval_button_values, '')), 0) <= 81920);
+
+-- Content is only ever kept with the evidence that read it. Any writer that changes the evidence without rewriting the
+-- content in the same statement (an instance of the previous release refreshing or editing a mapping) leaves the check
+-- times apart, so the stale text, buttons and format are cleared instead of lingering beside unrelated evidence.
+CREATE FUNCTION dokene.clear_stale_template_content()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, dokene AS $$
+BEGIN
+    IF NEW.approval_content_checked_at IS DISTINCT FROM NEW.approval_checked_at THEN
+        NEW.approval_header_text := NULL;
+        NEW.approval_body_text := NULL;
+        NEW.approval_footer_text := NULL;
+        NEW.approval_button_types := NULL;
+        NEW.approval_button_texts := NULL;
+        NEW.approval_button_values := NULL;
+        NEW.approval_content_parameter_format := NULL;
+        NEW.approval_content_checked_at := NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION dokene.clear_stale_template_content() FROM PUBLIC;
+
+CREATE TRIGGER tg_tenant_provider_templates_stale_content
+    BEFORE INSERT OR UPDATE ON dokene.tenant_provider_templates
+    FOR EACH ROW EXECUTE FUNCTION dokene.clear_stale_template_content();

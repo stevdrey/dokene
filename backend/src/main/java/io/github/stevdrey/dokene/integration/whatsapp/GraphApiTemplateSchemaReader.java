@@ -23,7 +23,6 @@ import tools.jackson.databind.JsonNode;
 final class GraphApiTemplateSchemaReader {
     /** Bounds on untrusted metadata; looser than Meta's own limits so they never reject a valid template. */
     private static final int MAX_COMPONENTS = 10;
-    private static final int MAX_BUTTONS = 10;
     private static final int MAX_TEXT_LENGTH = 4096;
 
     private GraphApiTemplateSchemaReader() {
@@ -141,7 +140,7 @@ final class GraphApiTemplateSchemaReader {
      * button is added to {@code accepted} with its label and target, because the recipient sees and can use them.
      */
     private static ComponentCheck buttons(JsonNode buttons, List<TemplateButton> accepted) {
-        if (!buttons.isArray() || buttons.isEmpty() || buttons.size() > MAX_BUTTONS) {
+        if (!buttons.isArray() || buttons.isEmpty() || buttons.size() > TemplateContent.MAX_BUTTONS) {
             return ComponentCheck.UNREADABLE;
         }
         ComponentCheck result = ComponentCheck.ALLOWED;

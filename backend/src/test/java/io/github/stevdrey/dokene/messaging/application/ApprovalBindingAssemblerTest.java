@@ -119,8 +119,34 @@ class ApprovalBindingAssemblerTest {
         mapping("es", TemplateParameterFormat.POSITIONAL, List.of("customer_name"),
                 new TemplateContent(null, "Hola {{1}}, gracias por tu compra.", null), 1);
         assertRefused(() -> assembler.bind(message(BODY), customer, sender), MessagingErrorCode.BODY_REJECTED);
-        assertThat(assembler.bind(message("Hola {{1}}, gracias por tu compra."), customer, sender).parameterValues())
-                .containsExactly("Ana Pérez");
+        assertThat(assembler.bind(message("Hola Ana Pérez, gracias por tu compra."), customer, sender)
+                .parameterValues()).containsExactly("Ana Pérez");
+    }
+
+    /**
+     * Issue 268: without message_body, the body must be the fixed text as the customer reads it, with the other
+     * parameters filled in, never the raw placeholders. A value that looks like a placeholder is not substituted.
+     */
+    @Test
+    void aFixedTemplateWithOtherParametersRequiresTheRenderedTextAsTheBody() {
+        mapping("es", TemplateParameterFormat.POSITIONAL, List.of("customer_name"),
+                new TemplateContent(null, "Hola {{1}}, gracias por tu compra.", null), 1);
+        assertRefused(() -> assembler.bind(message("Hola {{1}}, gracias por tu compra."), customer, sender),
+                MessagingErrorCode.BODY_REJECTED);
+        assertThat(assembler.bind(message("Hola Ana Pérez, gracias por tu compra."), customer, sender)
+                .parameterValues()).containsExactly("Ana Pérez");
+
+        mapping("es", TemplateParameterFormat.NAMED, List.of("customer_name"),
+                new TemplateContent(null, "Hola {{customer_name}}, gracias por tu compra.", null), 1);
+        assertThat(assembler.bind(message("Hola Ana Pérez, gracias por tu compra."), customer, sender)
+                .parameterValues()).containsExactly("Ana Pérez");
+
+        customer = Customer.create(new CustomerId(UUID.randomUUID()), tenantId, "Ana {{1}} $1", null, List.of(phone),
+                NOW);
+        mapping("es", TemplateParameterFormat.POSITIONAL, List.of("customer_name"),
+                new TemplateContent(null, "Hola {{1}}.", null), 1);
+        assertThat(assembler.bind(message("Hola Ana {{1}} $1."), customer, sender).parameterValues())
+                .containsExactly("Ana {{1}} $1");
     }
 
     @Test

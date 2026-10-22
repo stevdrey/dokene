@@ -181,11 +181,42 @@ class TemplateMappingTest {
 
         // With message_body the operator's text is sent as a parameter, so a long fixed body is not the limit.
         ProviderTemplateSchema withBody = new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                List.of(TemplateMapping.MESSAGE_BODY_PARAMETER), new TemplateContent(null,
+                List.of(TemplateMapping.Parameter.MESSAGE_BODY.parameterName()), new TemplateContent(null,
                         "é".repeat(MessageDraft.MAX_BODY_LENGTH) + " {{message_body}}", null));
-        assertThat(mapping("t", "es", List.of(TemplateMapping.MESSAGE_BODY_PARAMETER))
+        assertThat(mapping("t", "es", List.of(TemplateMapping.Parameter.MESSAGE_BODY.parameterName()))
                 .verifiedApproval(withBody, WABA, NOW).approval().status())
                 .isEqualTo(TemplateApprovalStatus.APPROVED);
+    }
+
+    /**
+     * Issue 268: fixed text reaches every recipient unchanged and cannot be grounded per customer, so a link,
+     * amount, percentage or offer in any part the recipient reads makes the template unsupported at refresh.
+     */
+    @Test
+    void fixedTextTheSafetyChecksRefuseMakesTheTemplateUnsupported() {
+        TemplateMapping fixed = mapping("hello_world", "en_US", List.of());
+        List<TemplateContent> refused = List.of(
+                new TemplateContent(null, "Visita tienda.example.com hoy", null),
+                new TemplateContent("Oferta especial", "Gracias por tu compra.", null),
+                new TemplateContent(null, "Gracias por tu compra.", "Ahorra $20 hoy"),
+                new TemplateContent(null, "Gracias por tu compra.", "20% de descuento"),
+                new TemplateContent(null, "Gracias por tu compra.", null,
+                        List.of(new TemplateButton(TemplateButtonType.QUICK_REPLY, "Quiero mi descuento", null))));
+        for (TemplateContent content : refused) {
+            TemplateMapping verified = fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
+                    TemplateParameterFormat.POSITIONAL, List.of(), content), WABA, NOW);
+            assertThat(verified.approval().status()).as(content.body())
+                    .isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
+            assertThat(verified.approval().content()).isNull();
+            assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        }
+        // Button targets are structured and shown in review, so a static URL or phone target alone is fine.
+        TemplateContent withTargets = new TemplateContent("Hello World", "Welcome and congratulations!! Thank you "
+                + "for taking the time to test with us.", "WhatsApp Business Platform sample message", List.of(
+                        new TemplateButton(TemplateButtonType.URL, "View catalog", "https://example.test/catalog"),
+                        new TemplateButton(TemplateButtonType.PHONE_NUMBER, "Call us", "+50600000099")));
+        assertThat(fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL,
+                List.of(), withTargets), WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
     }
 
     private static ProviderTemplateSchema fixedBody(String body) {

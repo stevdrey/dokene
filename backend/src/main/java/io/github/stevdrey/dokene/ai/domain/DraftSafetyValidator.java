@@ -182,6 +182,16 @@ public final class DraftSafetyValidator {
         return validateTexts(texts, allowedContextText, offerContext, false);
     }
 
+    /**
+     * Validates provider template text that every recipient receives unchanged (issue 268): a header, footer, button
+     * label or fixed body. Such text cannot be grounded in one customer's context, so it is checked against an empty
+     * one: any link, provider identifier, amount, percentage or offer term is a violation.
+     */
+    public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts) {
+        Objects.requireNonNull(texts, "Texts are required");
+        return validateTexts(texts, "", "", false);
+    }
+
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText) {
         return validateTexts(texts, allowedContextText, offerContextText, false);
