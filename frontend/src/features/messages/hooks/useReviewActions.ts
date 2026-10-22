@@ -67,6 +67,8 @@ function successSentence(intent: ReviewIntent, detail: MessageResponse): string 
 interface Options {
   messageId: string;
   detail: MessageDetailHandle;
+  /** Whether the current role may act; when it stops, any open or held group is dropped. */
+  canAct: boolean;
   announce: (text: string) => void;
   onCorrect: (cancelled: MessageResponse) => void;
 }
@@ -86,7 +88,7 @@ export interface ReviewActions {
   refresh: () => Promise<void>;
 }
 
-export function useReviewActions({ messageId, detail, announce, onCorrect }: Options): ReviewActions {
+export function useReviewActions({ messageId, detail, canAct, announce, onCorrect }: Options): ReviewActions {
   const [group, setGroup] = useState<ConfirmState | null>(null);
   const [alert, setAlert] = useState<string | null>(null);
   const [lockUntil, setLockUntil] = useState<number | null>(null);
@@ -95,6 +97,9 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
   const [heldUnsure, setHeldUnsure] = useState<ConfirmState | null>(null);
   const groupRef = useRef(group);
   groupRef.current = group;
+  // Counts the times the role lost the right to act. A request remembers the count it started under, so a result that
+  // lands after a loss is dropped even when the role has already come back; a live flag would let it reopen the group.
+  const roleLoss = useRef(0);
 
   const version = detail.state.kind === 'loaded' ? detail.state.version : null;
   const versionRef = useRef(version);
@@ -110,6 +115,14 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       setAlert(COPY.versionMoved);
     }
   }, [version]);
+
+  // A role that can no longer act loses its confirmation at once, and it does not come back with the role.
+  useEffect(() => {
+    if (canAct) return;
+    roleLoss.current += 1;
+    setGroup(null);
+    setHeldUnsure(null);
+  }, [canAct]);
 
   useEffect(() => {
     if (lockUntil === null) return;
@@ -199,28 +212,31 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
   );
 
   const resolveUncertain = useCallback(
-    async (attempt: ConfirmState) => {
+    async (attempt: ConfirmState, generation: number) => {
       const read = await detail.readAgain();
       if (read.kind === 'dropped') return;
+      const roleKept = roleLoss.current === generation;
+      const stillUnsure = () => setGroup(roleKept ? { ...attempt, step: { kind: 'uncertain' } } : null);
       if (read.kind === 'failed') {
         if (read.failure.kind === 'notFound') {
           setGroup(null);
           return detail.markNotFound();
         }
-        setGroup({ ...attempt, step: { kind: 'uncertain' } });
+        stillUnsure();
         return;
       }
       if (read.value.version === attempt.openedOnVersion) {
-        setGroup({ ...attempt, step: { kind: 'uncertain' } });
+        stillUnsure();
         return;
       }
       setGroup(null);
       detail.apply(read.value);
       detail.loadEvents();
-      // The lost reply was a cancel for Corregir and the server shows it cancelled, so the copy opens as on success.
+      // The lost reply was a cancel for Corregir and the server shows it cancelled, so the copy opens as on success,
+      // unless the role lost the right to act meanwhile: a read only role is shown the cancellation, not an editable copy.
       if (attempt.intent === 'correct' && read.value.detail.status === 'CANCELLED') {
         announce(COPY.cancelled);
-        startCorrection(read.value.detail);
+        if (roleKept) startCorrection(read.value.detail);
         return;
       }
       setAlert(COPY.mayHaveCompleted);
@@ -240,8 +256,10 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
     const submitting = { ...attempt, step: { kind: 'submitting' } as const };
     groupRef.current = submitting;
     setGroup(submitting);
+    const generation = roleLoss.current;
 
     const outcome = await detail.run((signal) => call(messageId, attempt, signal));
+    const roleKept = roleLoss.current === generation;
     if (outcome.kind === 'dropped') {
       setGroup(null);
       return;
@@ -253,10 +271,15 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       detail.loadEvents();
       announce(successSentence(attempt.intent, read.detail));
       if (attempt.intent === 'send' && isAwaitingProvider(read.detail)) detail.startPolling();
-      if (attempt.intent === 'correct') startCorrection(read.detail);
+      if (attempt.intent === 'correct' && roleKept) startCorrection(read.detail);
       return;
     }
     const keepOpen = (step: GroupStep) => {
+      // The role lost the right to act while the request was in flight; its result does not reopen the group.
+      if (!roleKept) {
+        setGroup(null);
+        return;
+      }
       // The held version moved while the request was in flight, so a retry would carry a stale If-Match.
       if (versionRef.current !== attempt.openedOnVersion) {
         setGroup(null);
@@ -288,7 +311,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
         keepOpen({ kind: 'rateLimited' });
         return;
       case 'uncertain':
-        return resolveUncertain(attempt);
+        return resolveUncertain(attempt, generation);
       case 'refused':
         keepOpen({ kind: 'refused', message: errorCodeSentence(failure.code) });
         return;
@@ -300,16 +323,21 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
   const refresh = useCallback(async () => {
     detail.stopPolling();
     setAlert(null);
+    const held = detail.state.kind === 'loaded' ? detail.state.detail : null;
     const read = await detail.readAgain();
     if (read.kind === 'dropped') return;
     if (read.kind === 'ok') {
       detail.apply(read.value);
       detail.loadEvents();
+      // Actualizar usually keeps its control and focus, so the result is heard rather than seen.
+      const next = read.value.detail;
+      const changed = held === null || held.status !== next.status || held.outcomeUnknown !== next.outcomeUnknown;
+      announce(changed ? changedSentence(next.status) : COPY.unchanged);
       return;
     }
     if (read.failure.kind === 'notFound') return detail.markNotFound();
     setAlert(COPY.refreshFailed);
-  }, [detail]);
+  }, [announce, detail]);
 
   const lockSeconds = lockUntil === null ? 0 : Math.max(0, Math.ceil((lockUntil - now) / 1000));
 

@@ -153,7 +153,8 @@ describe('messageApi', () => {
     ['another action', { action: 'GENERAL_CHECK_IN' }],
     ['another template intent', { templateIntent: 'GENERAL_FOLLOW_UP' }],
     ['another locale', { locale: 'es-CL' }],
-    ['another origin', { origin: 'MANUAL' }]
+    ['another origin', { origin: 'MANUAL' }],
+    ['another policy version', { sourcePolicyVersion: 8 }]
   ])('refuses a submit reply for %s', async (_name, changes) => {
     const request = requests.submit.valid.aiDraft;
     server.on(submitPath(pendingApproval.customerId), { status: 201, body: { ...pendingApproval, ...changes }, etag: '"1"' });

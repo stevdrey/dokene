@@ -34,6 +34,7 @@ function setup(run: MessageDetailHandle['run']) {
   return renderHook(({ version }) => useReviewActions({
     messageId: details.pendingApproval.messageId,
     detail: handle(version, run),
+    canAct: true,
     announce: vi.fn(),
     onCorrect: vi.fn()
   }), { initialProps: { version: 1 } });

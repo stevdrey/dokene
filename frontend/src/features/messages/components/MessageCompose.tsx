@@ -33,6 +33,7 @@ interface MessageComposeProps {
   fromCorrection: boolean;
   onSubmitted: (read: VersionedMessage) => void;
   onPolicyStale?: () => void;
+  announce: (text: string) => void;
 }
 
 type Phase =
@@ -52,7 +53,7 @@ interface Attempt {
 
 const LOCALE = 'es-419';
 
-export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPolicyStale }: MessageComposeProps) {
+export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPolicyStale, announce }: MessageComposeProps) {
   const headingId = useId();
   const textId = useId();
   const counterId = useId();
@@ -61,20 +62,36 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   const [stale, setStale] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [seenPolicyVersion, setSeenPolicyVersion] = useState(input.policyVersion);
+  // The parent's draft for the version shown; text that still equals it was never edited by the operator.
+  const [seenDraft, setSeenDraft] = useState(input.initialBody);
+  const [notice, setNotice] = useState<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const mountRef = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   // A refusal unmounts the focused confirm button; the heading then takes focus so keyboard users keep their place.
   const focus = useReturnFocus(phase.kind === 'confirming' || phase.kind === 'submitting', headingRef);
 
-  // A fresh policy version from the parent clears the stale state and starts a new intent. While a request is in
-  // flight or unsure it stays unadopted, so the phase that settles it can still pick it up and recover from a stale reply.
+  // A fresh policy version from the parent ends the stale state and the intent together. The draft written for the old
+  // evaluation is never reused (ADR 0020 §4, restated by ADR 0023 §4.1), so unedited text takes the new draft; text the
+  // operator edited is kept (ADR 0020 §4: edited drafts are not lost) and the live region says which happened. While a
+  // request is in flight or unsure it stays unadopted, so the phase that settles it can still recover from a stale reply.
   if (input.policyVersion !== seenPolicyVersion && phase.kind !== 'uncertain' && phase.kind !== 'submitting') {
+    const edited = text !== seenDraft;
     setSeenPolicyVersion(input.policyVersion);
+    setSeenDraft(input.initialBody);
+    if (!edited) setText(input.initialBody);
+    setNotice(edited ? COPY.policyUpdatedTextKept : COPY.policyUpdatedDraft);
     setStale(false);
     setAttempt(null);
-    if (phase.kind === 'confirming') setPhase({ kind: 'editing' });
+    if (phase.kind === 'confirming' || phase.kind === 'refused') setPhase({ kind: 'editing' });
   }
+
+  // The adoption above runs during render, so the sentence reaches the parent's live region from an effect.
+  useEffect(() => {
+    if (notice === null) return;
+    announce(notice);
+    setNotice(null);
+  }, [announce, notice]);
 
   useEffect(() => {
     const mount = new AbortController();

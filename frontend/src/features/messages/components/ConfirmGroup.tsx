@@ -85,8 +85,17 @@ export function ConfirmGroup({
       )}
       {alert}
       <div className="message-actions">
-        {/* While busy the button is aria-disabled, not natively disabled, so focus stays on it for a refusal. */}
-        <Button variant={confirmVariant} size="sm" onClick={onConfirm} disabled={confirmDisabled} isLoading={busy}>
+        {/* Busy or locked, the button is aria-disabled, never natively disabled: a refusal or a 429 lands while it
+            has focus, and a natively disabled button would drop that focus to the body. */}
+        <Button
+          variant={confirmVariant}
+          size="sm"
+          aria-disabled={confirmDisabled || busy || undefined}
+          isLoading={busy}
+          onClick={() => {
+            if (!confirmDisabled) onConfirm();
+          }}
+        >
           {confirmLabel}
         </Button>
         <Button variant="ghost" size="sm" onClick={onDismiss} disabled={busy}>

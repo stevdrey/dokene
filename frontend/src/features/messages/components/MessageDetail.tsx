@@ -124,7 +124,7 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
     [announce]
   );
   const detail = useMessageDetail(messageId, initial, { onPolledChange });
-  const actions = useReviewActions({ messageId, detail, announce, onCorrect });
+  const actions = useReviewActions({ messageId, detail, canAct: canActOnMessages(role), announce, onCorrect });
   const { state } = detail;
 
   if (state.kind === 'sessionEnded' || state.kind === 'notFound') {
@@ -273,7 +273,19 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
     if (!active || active === document.body || !active.isConnected) focusAfterResult.current?.focus();
   }, [message, focusAfterResult]);
 
-  if (!canActOnMessages(role)) {
+  // A role that loses the right to act unmounts every trigger at once; a focused one hands focus to the heading.
+  // Only the loss moves focus: a read only role that opens a message keeps focus where it was.
+  const canAct = canActOnMessages(role);
+  const couldAct = useRef(canAct);
+  useEffect(() => {
+    const lost = couldAct.current && !canAct;
+    couldAct.current = canAct;
+    if (!lost) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) focusAfterResult.current?.focus();
+  }, [canAct, focusAfterResult]);
+
+  if (!canAct) {
     return <p className="message-review__muted">{COPY.readOnly}</p>;
   }
 
