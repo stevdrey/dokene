@@ -140,7 +140,9 @@ describe('DeliveryHistory refresh', () => {
       await waitFor(() =>
         expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull()
       );
-      await waitFor(() => expect(heading).toHaveFocus());
+      // Effects of the commit that removed Actualizar run before this check, so a focus steal by the row would show.
+      await act(async () => {});
+      expect(heading).toHaveFocus();
       fireEvent.click(toggleOf(sent.messageId));
       await rowLoaded(sent);
       refreshButton(sent.messageId).focus();
