@@ -181,7 +181,8 @@ export const messageApi = {
 
   async getEvents(messageId: string, signal?: AbortSignal): Promise<MessageEventItem[]> {
     const { data } = await httpClient.request<unknown>(messagePath(messageId, '/events'), { signal });
-    if (!isRecord(data) || !Array.isArray(data.events) || !data.events.every(isEvent)) {
+    // A history of another message must never be shown under this one.
+    if (!isRecord(data) || data.messageId !== messageId || !Array.isArray(data.events) || !data.events.every(isEvent)) {
       throw new InvalidMessageResponseError();
     }
     return [...data.events].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
@@ -198,7 +199,12 @@ export const messageApi = {
       `/api/customers/${encodeURIComponent(customerId)}/messages`,
       { method: 'POST', body: request, ifMatch: policyVersion, idempotencyKey, signal }
     );
-    return versioned(data, etag);
+    const read = versioned(data, etag);
+    // The new message id is unknown, but it must belong to the customer and contact that were submitted.
+    if (read.detail.customerId !== customerId || read.detail.contactId !== request.contactId) {
+      throw new InvalidMessageResponseError();
+    }
+    return read;
   },
 
   async decide(

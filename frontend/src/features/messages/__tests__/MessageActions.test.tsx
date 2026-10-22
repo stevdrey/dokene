@@ -185,7 +185,10 @@ describe('review actions', () => {
       const confirmButton = within(group('Confirmar aprobación')).getByRole('button', { name: 'Confirmar aprobación' });
       fireEvent.click(confirmButton);
       fireEvent.click(confirmButton);
-      expect(confirmButton).toBeDisabled();
+      // Busy means aria-disabled, never natively disabled, so the button keeps focus while the request runs.
+      expect(confirmButton).not.toBeDisabled();
+      expect(confirmButton).toHaveAttribute('aria-disabled', 'true');
+      expect(confirmButton).toHaveFocus();
       expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1);
       await act(async () => reply.resolve(created(approvedHere)));
       expect(await screen.findByText('Revisión 2')).toBeInTheDocument();

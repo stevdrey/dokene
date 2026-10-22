@@ -139,6 +139,15 @@ describe('MessageReview review mode', () => {
       expect(document.querySelector('img')).toBeNull();
     });
 
+    it('keeps the stranded contact warning off a message that already went out', async () => {
+      const detail = variant(details.delivered, { contactRemoved: true });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      expect(screen.queryByText(/El teléfono ya no pertenece a este cliente/)).toBeNull();
+      expect(screen.getByText('Entregado')).toBeInTheDocument();
+    });
+
     it('shows the contact removed and frozen notices', async () => {
       serve(details.approvedContactRemoved);
       const first = renderReview(details.approvedContactRemoved.messageId);

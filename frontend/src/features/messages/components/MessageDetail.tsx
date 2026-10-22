@@ -156,6 +156,8 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   const lastAttempt = message.attempts.length > 0 ? message.attempts[message.attempts.length - 1] : null;
   const failure = message.failureCategory ?? lastAttempt?.failureCategory ?? null;
   const frozen = message.status === 'SENDING' && message.outcomeUnknown;
+  // A contact removed after the send is history; the stranded message warning only fits a message that can still be cancelled.
+  const stranded = message.contactRemoved && (message.status === 'PENDING_APPROVAL' || message.status === 'APPROVED');
 
   return (
     <section className="message-review" aria-labelledby={headingId}>
@@ -170,7 +172,7 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
       </header>
 
       {frozen && <p className="message-review__notice message-review__notice--warning">{COPY.frozen}</p>}
-      {message.contactRemoved && (
+      {stranded && (
         <p className="message-review__notice message-review__notice--warning">{COPY.contactRemoved}</p>
       )}
 
