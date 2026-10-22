@@ -40,7 +40,8 @@ for u in $A_OWNER $A_ADMIN $A_OPERATOR; do
   read -r cid pid m <<< "$(ready_approved $A_OPERATOR "$A" "PERM05 $u $RUN")"; cancel $u "$A" "$m"; chk P3-PERM-05 $H "$u cancel approved" 201 "$CODE"
 done
 approve $A_OPERATOR "$A" "$MP"; MA=$MP
-S=$(snap); cancel $A_VIEWER "$A" "$MA"; denied P3-PERM-05 $H "VIEWER cancel approved" MESSAGE_APPROVE "$S"
+# The any-of guard denies before the message is read, so its one audit row names the first listed permission (#265).
+S=$(snap); cancel $A_VIEWER "$A" "$MA"; denied P3-PERM-05 $H "VIEWER cancel approved" MESSAGE_DRAFT "$S"
 
 echo "== P3-PERM-06 send: allowed roles; VIEWER denied with no attempt row and no provider call"
 stub_set send accept
