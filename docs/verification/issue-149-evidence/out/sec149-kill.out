@@ -1,0 +1,83 @@
+== P3-KILL-01, P3-KILL-03 and P3-KILL-10: global switch off (restart with the property unset / false)
+ Container dokene-keycloak-1 Running 
+ Container dokene-oidc-bridge-1 Running 
+ Container dokene-postgres-1 Running 
+ Container dokene-backend-1 Recreate 
+ Container dokene-backend-1 Recreated 
+ Container dokene-keycloak-1 Waiting 
+ Container dokene-keycloak-1 Healthy 
+ Container dokene-keycloak-1 Waiting 
+ Container dokene-oidc-bridge-1 Waiting 
+ Container dokene-postgres-1 Waiting 
+ Container dokene-oidc-bridge-1 Healthy 
+ Container dokene-postgres-1 Healthy 
+ Container dokene-keycloak-1 Healthy 
+ Container dokene-backend-1 Starting 
+ Container dokene-backend-1 Started 
+PASS  P3-KILL-01  [HTTP]  send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+PASS  P3-KILL-01  [HTTP]  send with the global switch off: nothing written
+PASS  P3-KILL-01  [HTTP]  still APPROVED, no attempt
+PASS  P3-KILL-10  [HTTP]  tenant B send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+PASS  P3-KILL-10  [HTTP]  tenant B send with the global switch off: nothing written
+PASS  P3-KILL-10  [HTTP]  a delivery report for an already sent message is still recorded
+PASS  P3-KILL-03  [HTTP]  after the tenant switch and the integration were written (200/200), the global switch still refuses: 409 OUTBOUND_DISABLED_GLOBALLY
+PASS  P3-KILL-03  [HTTP]  after the tenant switch and the integration were written (200/200), the global switch still refuses: nothing written
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: PUT /api/integrations/whatsapp/outbound-global
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: PUT /api/messaging/outbound
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: PUT /api/settings/outbound
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: POST /api/integrations/whatsapp/outbound/global
+PASS  P3-KILL-03  [HTTP]  the screens half (row 10 of the scope) is a browser case; the SPA has no control for the global switch (checked in sec149-browser.mjs)
+ Container dokene-oidc-bridge-1 Running 
+ Container dokene-postgres-1 Running 
+ Container dokene-keycloak-1 Running 
+ Container dokene-backend-1 Recreate 
+ Container dokene-backend-1 Recreated 
+ Container dokene-keycloak-1 Waiting 
+ Container dokene-keycloak-1 Healthy 
+ Container dokene-postgres-1 Waiting 
+ Container dokene-keycloak-1 Waiting 
+ Container dokene-oidc-bridge-1 Waiting 
+ Container dokene-postgres-1 Healthy 
+ Container dokene-oidc-bridge-1 Healthy 
+ Container dokene-keycloak-1 Healthy 
+ Container dokene-backend-1 Starting 
+ Container dokene-backend-1 Started 
+== P3-KILL-02 global on, tenant A off, tenant B on
+PASS  P3-KILL-02  [HTTP]  tenant A switch off
+PASS  P3-KILL-02  [HTTP]  tenant A send: 409 OUTBOUND_DISABLED_FOR_TENANT
+PASS  P3-KILL-02  [HTTP]  tenant A send: nothing written
+PASS  P3-KILL-02  [HTTP]  tenant B sends
+== P3-KILL-04 the tenant switch takes effect at once and is audited
+PASS  P3-KILL-04  [HTTP]  send right after the admin flipped the switch off: 409 OUTBOUND_DISABLED_FOR_TENANT
+PASS  P3-KILL-04  [HTTP]  send right after the admin flipped the switch off: nothing written
+PASS  P3-KILL-04  [HTTP]  the change is audited as OUTBOUND_KILL_SWITCH_CHANGED
+== P3-KILL-05 OPERATOR and VIEWER cannot touch the tenant switch
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: 403
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: 403
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: 403
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: 403
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  switch unchanged (on)
+== P3-KILL-06 tenant A admin against tenant B's switch
+PASS  P3-KILL-06  [HTTP]  403 and nothing written
+PASS  P3-KILL-06  [HTTP]  tenant B still sends
+== P3-KILL-07 the control state cannot be read (integration row missing)
+BLOCKED  P3-KILL-07  [HTTP]  not driven on the real stack: deleting the integration row needs a database role with DELETE on tenant_messaging_integrations (the runtime role has none) and would destroy the fixture; covered by WhatsAppOutboundSafetyControlTest (in process)
+== P3-KILL-08 integration disabled with both switches on
+PASS  P3-KILL-08  [HTTP]  send with IA disabled: 409 INTEGRATION_DISABLED
+PASS  P3-KILL-08  [HTTP]  send with IA disabled: nothing written
+== P3-KILL-09 the whole policy runs again after the switch is turned back on
+PASS  P3-KILL-09  [HTTP]  refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
+PASS  P3-KILL-09  [HTTP]  refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
+== sec149-kill.sh: PASS=43 FAIL=0 BLOCKED=1

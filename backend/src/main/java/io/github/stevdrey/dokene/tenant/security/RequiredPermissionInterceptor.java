@@ -1,3 +1,5 @@
+// ABOUTME: Enforces @RequiredPermission on controller methods before request binding and validation.
+// ABOUTME: Every denied request writes exactly one audited AUTHORIZATION_DENIED row, also for any-of guards.
 package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
@@ -34,10 +36,9 @@ public class RequiredPermissionInterceptor implements HandlerInterceptor {
                     admitted = admitted || authorization.evaluate(permission).isAllowed();
                 }
                 if (!admitted) {
-                    // The caller holds none of them, so each listed permission was denied: audit every one, then deny.
-                    for (TenantPermission permission : permissions) {
-                        authorization.hasPermission(permission);
-                    }
+                    // One denied request is one audit row (issue 265): the audited check names the first listed
+                    // permission and throws. The throw below keeps the denial if that check ever passes.
+                    authorization.requirePermission(permissions[0]);
                     throw new TenantAccessDeniedException("None of the required permissions is granted");
                 }
             } else if (required != null) {

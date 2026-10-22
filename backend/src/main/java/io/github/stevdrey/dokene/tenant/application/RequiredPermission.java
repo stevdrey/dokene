@@ -1,3 +1,5 @@
+// ABOUTME: Annotation declaring the tenant permissions a controller method requires, all of them or any one.
+// ABOUTME: Enforced by RequiredPermissionInterceptor before binding, so a denied caller always gets an audited 403.
 package io.github.stevdrey.dokene.tenant.application;
 
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -19,8 +21,8 @@ public @interface RequiredPermission {
     TenantPermission[] value();
 
     /**
-     * When true, holding any one of {@link #value()} admits the request; a caller holding none is denied, with one
-     * audited denial per listed permission. For routes whose exact permission depends on resource state, which the service
+     * When true, holding any one of {@link #value()} admits the request; a caller holding none is denied with one
+     * audited denial that names the first listed permission. For routes whose exact permission depends on resource state, which the service
      * then enforces (ADR 0023 §3.1, message cancellation). Defaults to requiring every listed permission.
      */
     boolean anyOf() default false;

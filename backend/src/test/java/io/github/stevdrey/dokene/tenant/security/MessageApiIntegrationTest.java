@@ -51,6 +51,7 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubSafetyControl;
@@ -303,6 +304,31 @@ class MessageApiIntegrationTest {
         cancel(operatorA, messageId, "c-" + UUID.randomUUID(), "\"1\"", null)
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("CANCELLED"));
         assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.CANCELLED);
+    }
+
+    /**
+     * Issue 265, security cases P3-PERM-03 and P3-PERM-05: the cancellation route admits MESSAGE_DRAFT or
+     * MESSAGE_APPROVE, and a viewer holding neither leaves exactly one denial row and an unchanged message.
+     */
+    @Test
+    void aDeniedCancellationWritesExactlyOneDenialAuditRow() throws Exception {
+        String pending = submittedMessageId();
+        cancel(viewerA, pending, "v-" + UUID.randomUUID(), "\"1\"", null).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(denials(viewerA)).containsExactly(TenantPermission.MESSAGE_DRAFT.name());
+        assertThat(messageStatus(pending)).isEqualTo(MessageStatus.PENDING_APPROVAL);
+
+        approve(ownerA, pending, "a-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated());
+        cancel(viewerA, pending, "v-" + UUID.randomUUID(), "\"2\"", null).andExpect(status().isForbidden());
+        assertThat(denials(viewerA)).containsExactly(TenantPermission.MESSAGE_DRAFT.name(),
+                TenantPermission.MESSAGE_DRAFT.name());
+        assertThat(messageStatus(pending)).isEqualTo(MessageStatus.APPROVED);
+
+        // An operator holds both alternatives, so the same route admits it without any denial row.
+        cancel(operatorA, pending, "c-" + UUID.randomUUID(), "\"2\"", null).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertThat(denials(operatorA)).isEmpty();
     }
 
     @Test
@@ -643,6 +669,15 @@ class MessageApiIntegrationTest {
     private MessageStatus messageStatus(String messageId) throws Exception {
         return inContext(ownerA, () -> messages.findById(tenantA.id().value(), UUID.fromString(messageId)))
                 .orElseThrow().status();
+    }
+
+    /** The permission each AUTHORIZATION_DENIED row names for this member, oldest first. */
+    private List<String> denials(Member member) throws Exception {
+        return inContext(ownerA, () -> jdbc.queryForList("""
+                SELECT permission FROM dokene.audit_events
+                WHERE tenant_id = ? AND membership_id = ? AND event_type = 'AUTHORIZATION_DENIED'
+                ORDER BY occurred_at, id
+                """, String.class, tenantA.id().value(), member.context().membershipId().value()));
     }
 
     private int messageCount() throws Exception {
