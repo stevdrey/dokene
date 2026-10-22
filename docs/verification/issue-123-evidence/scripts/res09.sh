@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# QA suite #123 RES-09: dependency outages in the disposable stack (Keycloak, PostgreSQL pause/stop, backend stop). Established BFF sessions vs new logins; no partial state; no leaks.
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh
+DBPW=$(grep '^DOKENE_DB_PASSWORD=' .env | cut -d= -f2-); DCP="docker compose"
+waith() { local svc=$1; for i in $(seq 1 90); do case "$($DCP ps $svc --format '{{.Status}}' 2>/dev/null)" in *healthy*) return 0;; esac; sleep 2; done; return 1; }
+leak() { echo "$1" | grep -Eic 'jdbc|postgres|password|dokene_runtime|org\.postgresql|SQLException|Exception|\bat io\.github|stack' ; }
+code() { curl -s -o $QA_TMP/rb -w '%{http_code}' --max-time ${3:-20} -b $QA_TMP/jar-testoperator.txt ${2:+-X $2} "$BFF$1" -H "X-Tenant-Id: $A"; }
+qa_login testoperator; TENANT=$A; qa_login testuser
+echo "== A. Keycloak down"; $DCP stop keycloak >/dev/null 2>&1
+chk RES-09 "established session still reads data while Keycloak is down" 200 "$(code /api/customers)"
+api testoperator POST /api/customers "$(jq -nc --arg n "Res09 KC $RUN" --arg p "$(rnd_phone)" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"; chk RES-09 "established session can still write while Keycloak is down" 201 "$CODE"
+nl=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 $BFF/oauth2/authorization/dokene); echo "  new login start: $nl"; chk RES-09 "starting a new login does not hang or 5xx at the BFF (redirects to the IdP)" 302 "${nl%% *}"
+kc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 http://localhost:8081/realms/dokene/.well-known/openid-configuration); echo "  IdP discovery from the browser side while down: $kc (connection failure expected)"
+cb=$(curl -s -o $QA_TMP/cb -w '%{http_code}' --max-time 15 "$BFF/login/oauth2/code/dokene?code=bogus&state=bogus"); echo "  callback with a bogus code: $cb body_leak=$(leak "$(cat $QA_TMP/cb)")"; chk RES-09 "bogus callback while the IdP is down returns no stack/credential text" 0 "$(leak "$(cat $QA_TMP/cb)")"
+$DCP start keycloak >/dev/null 2>&1; waith keycloak && echo "  Keycloak back healthy"; qa_login testviewer; chk RES-09 "after Keycloak returns a NEW login works and the established session is intact" "200 200" "$(code /api/customers) $(curl -s -o /dev/null -w '%{http_code}' -b $QA_TMP/jar-testviewer.txt -H "X-Tenant-Id: $A" $BFF/api/customers)"
+echo "== B. PostgreSQL paused for 4 s during a write (network partition), then stopped"
+NAME="Res09 PG pause $RUN"; ( api testoperator POST /api/customers "$(jq -nc --arg n "$NAME" --arg p "$(rnd_phone)" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"; echo "  write during pause: http=$CODE" > $QA_TMP/pw.txt ) & 
+sleep 0.15; docker pause dokene-qa-run-postgres-1 >/dev/null; sleep 4; docker unpause dokene-qa-run-postgres-1 >/dev/null; wait; cat $QA_TMP/pw.txt; echo "  rows named '$NAME': $(psqlq "select count(*) from dokene.customers where display_name='$NAME'")"
+chk RES-09 "write during a 4 s pause completes consistently (0 or 1 rows, and 201 iff 1 row)" yes "$(r=$(psqlq "select count(*) from dokene.customers where display_name='$NAME'"); c=$(grep -o 'http=[0-9]*' $QA_TMP/pw.txt|cut -d= -f2); { [ "$c" = 201 ] && [ "$r" = 1 ]; } || { [ "$c" != 201 ] && [ "$r" = 0 ]; } && echo yes || echo "code=$c rows=$r")"
+NAME2="Res09 PG stop $RUN"; echo "== B2. PostgreSQL stopped"; $DCP stop postgres >/dev/null 2>&1
+for ep in /api/customers /api/follow-up-queue /api/session; do c=$(code $ep); echo "  GET $ep during the outage -> $c body_leak=$(leak "$(cat $QA_TMP/rb)") body=$(head -c 80 $QA_TMP/rb | tr -d '\n')"; chk RES-09 "GET $ep during the DB outage: sanitized (no SQL/credential/stack text)" 0 "$(leak "$(cat $QA_TMP/rb)")"; done
+api testoperator POST /api/customers "$(jq -nc --arg n "$NAME2" --arg p "$(rnd_phone)" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"; echo "  write during the outage -> http=$CODE leak=$(leak "$BODY")"; chk RES-09 "write during the DB outage fails (5xx) without leaking internals" "yes 0" "$([ $CODE -ge 500 ] && echo yes || echo "$CODE") $(leak "$BODY")"
+sleep 3.3; rec $(cat /home/stevdrey/qa123/out/baseline.id); echo "  AI call during the outage -> http=$REC_CODE leak=$(leak "$REC_BODY")"; chk RES-09 "AI call during the DB outage fails safely (no provider content)" "yes 0" "$([ "$REC_CODE" -ge 500 ] || [ "$REC_CODE" = 401 ] || [ "$REC_CODE" = 403 ] && echo yes || echo "$REC_CODE") $(leak "$REC_BODY")"
+echo "  backend container during the outage: $($DCP ps backend --format '{{.Status}}')"
+$DCP start postgres >/dev/null 2>&1; waith postgres && echo "  PostgreSQL back healthy"; sleep 5
+echo "== B3. recovery without restarting the backend"; for i in 1 2 3 4 5 6; do c=$(code /api/customers); [ "$c" = 200 ] && break; sleep 3; done; echo "  GET /api/customers after PostgreSQL returns -> $c (attempts: $i)"; chk RES-09 "the backend recovers by itself after PostgreSQL returns (same session, no backend restart)" 200 "$c"
+chk RES-09 "the failed write left no partial row" 0 "$(psqlq "select count(*) from dokene.customers where display_name='$NAME2'")"
+api testoperator POST /api/customers "$(jq -nc --arg n "Res09 after $RUN" --arg p "$(rnd_phone)" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"; chk RES-09 "writes work again after recovery" 201 "$CODE"
+echo "== C. backend stopped (frontend proxy behavior) then started"; $DCP stop backend >/dev/null 2>&1; fc=$(curl -s -o $QA_TMP/fb -w '%{http_code}' --max-time 10 http://localhost:5173/api/session); echo "  frontend /api/session with the backend down -> $fc: $(head -c 120 $QA_TMP/fb | tr -d '\n')"; chk RES-09 "frontend proxy returns a generic 5xx (no internals) while the backend is down" "yes 0" "$([ $fc -ge 500 ] && echo yes || echo $fc) $(leak "$(cat $QA_TMP/fb)")"
+spa=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/); chk RES-09 "the SPA shell is still served while the backend is down" 200 "$spa"
+$DCP start backend >/dev/null 2>&1; waith backend && echo "  backend back healthy"; c=$(code /api/customers); echo "  old session after the backend restart -> $c"; chk RES-09 "after a backend restart the old session is rejected (401) and a new login works" "401 200" "$c $(qa_login testoperator; code /api/customers)"
+echo "== D. logs: no credential/connection string leaked during the outages"; LOGS=$($DCP logs --no-log-prefix backend 2>&1); chk RES-09 "backend log contains no database password" 0 "$(echo "$LOGS" | grep -c -F -- "$DBPW")"; chk RES-09 "backend log contains no API key / session id text" 0 "$(echo "$LOGS" | grep -Eic 'JSESSIONID=[A-Z0-9]{10}|sk-[A-Za-z0-9]{20}')"
+echo "  log excerpt (outage errors, first 4):"; echo "$LOGS" | grep -E "ERROR|WARN" | grep -iE "hikari|connection|JDBC|SQL" | head -4 | cut -c1-230 | sed 's/^/    /'
+echo "PASS=$PASSN FAIL=$FAILN"

@@ -76,6 +76,9 @@ class AiEvalDeterministicIntegrationTest {
         assertThat(report.evaluationDate()).isEqualTo("2026-10-05");
         assertThat(report.summary().unexpectedFailures()).isZero();
         assertThat(report.summary().allDeliveredInvariantsPass()).isTrue();
+        // Every family that reaches the provider keeps at least one delivered case per operation, so a live gap in
+        // a family (Issue #253) is always a provider or model effect, never a dataset design gap.
+        assertThat(EvalFamilyCoverage.uncoveredFamilies(report)).isEmpty();
         assertMatchesCommittedBaseline(report);
         assertThat(report.cases()).allSatisfy(c -> assertThat(c.behaviorMatch())
                 .as("pinned platform behavior for case %s: rec=%s/%s draft=%s/%s", c.id(), c.recommendationStatus(),

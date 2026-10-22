@@ -29,6 +29,17 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 - `DOKENE_TENANT_CONTEXT_SIGNING_KEY`, a 64-character hexadecimal encoding of 32 random bytes. Generate it with `openssl rand -hex 32`; keep the value out of source control.
 - `DOKENE_TENANT_CONTEXT_KEY_ID`, an identifier for the active signing key (defaults to `default`).
 
+While the database is unreachable, requests wait at most `DOKENE_DB_CONNECTION_TIMEOUT_MS` (default `3000`) for a
+pooled connection. Startup refuses less than `500`, because the stale-connection check is capped at half the wait.
+Requests then answer an empty `503` with `Retry-After` (`DOKENE_DB_UNAVAILABLE_RETRY_AFTER`, default `5s`) instead
+of a generic `500` (ADR 0029). The same session works again as soon as the database is back, without restarting the
+backend.
+
+A statement already in flight when the network path to the database goes silent is bounded by the driver socket
+timeout `DOKENE_DB_SOCKET_TIMEOUT` (default `30s`), which is then also answered with `503`. The runtime pool's
+server-side `statement_timeout` (`DOKENE_DB_STATEMENT_TIMEOUT`, default `25s`) must be shorter, and startup checks
+that, so a statement or lock wait that is merely long is cancelled by PostgreSQL and is not reported as an outage.
+
 ## Backend for Frontend (BFF) OIDC authentication
 
 Dokene implements the Backend for Frontend (BFF) security pattern for browser authentication, using Spring Security's
@@ -202,7 +213,7 @@ the provider ([ADR 0019](../docs/adr/0019-ai-failure-handling-telemetry-and-audi
 Synthetic, versioned evaluation of recommendations and drafts ([ADR 0021](../docs/adr/0021-ai-evaluation-harness-and-quality-baseline.md)).
 
 - `./gradlew test --tests '*ai.eval*'` runs the deterministic evaluation (scripted provider, real services, Action Gate and PostgreSQL via Testcontainers). It needs no API key and is part of the normal `./gradlew test`.
-- `./gradlew aiEvalLive` runs the **opt-in** live evaluation. It is skipped unless `DOKENE_AI_EVAL_LIVE=true` and `DOKENE_AI_OPENAI_API_KEY` are set, spends provider tokens and sends only synthetic data. Optional: `DOKENE_AI_EVAL_PROMPT_POLICY`, `DOKENE_AI_EVAL_REPORT_NAME`, `DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK`, `DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK`.
+- `./gradlew aiEvalLive` runs the **opt-in** live evaluation. It is skipped unless `DOKENE_AI_EVAL_LIVE=true` and `DOKENE_AI_OPENAI_API_KEY` are set, spends provider tokens and sends only synthetic data. Optional: `DOKENE_AI_EVAL_PROMPT_POLICY`, `DOKENE_AI_EVAL_REPORT_NAME`, `DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK`, `DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK`, `DOKENE_AI_EVAL_MIN_SUCCESS_RATIO` (default `0.5`, per operation) and `DOKENE_AI_EVAL_FAMILY_COVERAGE` (`warn` by default: scenario families that reached the provider without any delivered output are printed as `[ai-eval]` console lines and marked `INCOMPLETE` in the report; `fail` also fails the run).
 - `./gradlew aiEvalCompare -Pbaseline=<report.json> -Pcandidate=<report.json>` compares two reports and exits non-zero on a hard-invariant regression.
 - Reports are written to `build/reports/ai-eval/` (`.json` and `.md`). See `docs/verification/issue-98-ai-evaluation-verification.md` for the procedure, rubric and known limitations.
 

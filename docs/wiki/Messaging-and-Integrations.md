@@ -79,7 +79,7 @@ Rules that hold for every route:
 - **Strict bodies.** Unknown members, unknown enum values, numbers for enums or text, and missing required members are `400 INVALID_INPUT`, so a client cannot set a status, a recipient or a fingerprint.
 - **Authorization first.** Permissions are checked before headers or bodies are read, so a `VIEWER` gets `403` even for a malformed request. Another tenant's ids are `404`.
 - **Preconditions.** `If-Match` must be one strong numeric ETag (`"3"`); a stale one is `409 STALE_VERSION`. Replays follow ADR 0023 §4.2; a reused key with another payload or target is `409 IDEMPOTENCY_KEY_REUSED`.
-- **Responses.** Every command answers with the current detail representation and its `ETag`. Message responses are `Cache-Control: no-store` because `contactRemoved` is derived live. Refusals are closed-code `application/problem+json`; an audit failure is `503` with an empty body and rolls the change back.
+- **Responses.** Every command answers with the current detail representation and its `ETag`. Message responses are `Cache-Control: no-store` because `contactRemoved` is derived live. Refusals are closed-code `application/problem+json`; an audit failure is `503` with an empty body and rolls the change back. A database outage is an empty `503` with `Retry-After` (ADR 0029).
 
 Approval (T2) re-checks customer status, do-not-contact, WhatsApp consent, eligibility, the body, the template mapping and the open-message rule from stored state under the customer lock. It then computes the approval fingerprint and stores it on the approval row (V22). The fingerprint is never returned, audited or logged. Template parameters are rendered from a closed vocabulary only:
 
@@ -202,6 +202,52 @@ Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The 
 **Configuration.** `dokene.integration.whatsapp.app-secret-ref` (`DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF`) and `dokene.integration.whatsapp.verify-token-ref` (`DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF`) hold the bare keys of the `APP_SECRET` and `WEBHOOK_VERIFY_TOKEN` deployment entries of the secret source above, never the secrets. Each is resolved on every call and closed before the call returns. A blank reference puts that path in the refusing state: the stack boots, logs `Webhook verification refusing: <property> is unset` once, and refuses every request on that path with `SECRET_UNAVAILABLE`; the two paths are independent. A malformed or whitespace padded reference fails startup naming only the property. `dokene.integration.whatsapp.webhook.max-body-bytes` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES`, default 4194304, range 1 to 16777216) bounds the body; a declared `Content-Length` above it is refused before a byte is read, and a stream is refused as soon as it passes the bound.
 
 **Refusals.** Every refusal is `WebhookVerificationException` with one closed reason (`MISSING_SIGNATURE`, `MALFORMED_SIGNATURE`, `SIGNATURE_MISMATCH`, `BODY_TOO_LARGE`, `SECRET_UNAVAILABLE`, `WRONG_MODE`, `INVALID_CHALLENGE`, `TOKEN_MISMATCH`), one `WARN` line `Webhook rejected reason=<R>` from the refusing class, and one increment of the counter `dokene.webhook.rejected{reason}`. No secret, header value, challenge or body byte reaches a log, an exception or a `toString`. The route answers every reason with the same status, so an operator diagnosing a misconfigured secret reads the counter or the log line.
+
+### Webhook route, inbox and delivery reconciliation (issue 139, ADR 0030)
+
+`GET /webhooks/whatsapp` answers Meta's subscription handshake. `POST /webhooks/whatsapp` takes delivery callbacks.
+
+**Filter chain.** Both run on their own `SecurityFilterChain`, which is:
+- stateless;
+- without session, login or tenant filter, with CSRF exempting only the exact callback path;
+- ordered before the BFF chain.
+
+Every other path under `/webhooks/` is `403`. The nginx and Vite proxies forward `/webhooks`; nginx caps the body at 4 MiB.
+
+**Request handling:**
+1. The body is read through the bounded reader.
+2. The HMAC is checked on those raw bytes. Any refusal is `403`.
+3. `MetaWebhookPayloadParser` checks every member against an allowlist per level. A supplied `tenantId` or any other unknown member is `400`, before any tenant lookup. Inbound messages, other change fields and untracked statuses are only counted.
+4. Each delivery status is resolved to a tenant through the verified mapping resolver only.
+5. Each tenant's statuses are stored as typed `PENDING` rows in `provider_webhook_events`, in one transaction under that tenant's RLS.
+6. Then the route answers `200` with an empty body.
+
+A database or audit failure while recording answers `503` (ADR 0029), and Meta retries.
+
+**Deduplication.** The key is `hex(SHA-256("META_WHATSAPP|" + tenantId + "|" + providerMessageId + "|" + status))`, unique per provider. A replay changes nothing and writes no audit row.
+
+**Applying rows.** Rows are applied under a provider context with no member, in one transaction with the transition and its audit:
+- **Applied:** the row becomes `APPLIED`.
+- **Ignored:** an out of order or late report is recorded as a non applied event and the row becomes `IGNORED`. A late failure never erases a delivery.
+- **Not found:** the row stays `PENDING` and is retried with backoff for the park window. This covers a report that beat the dispatch commit. After the window the row becomes `UNMATCHED` with its provider message id cleared.
+
+A row that keeps failing past the abandon window becomes `ABANDONED` with its provider message id cleared.
+
+The request applies up to the inline limit of what it stored. A scheduled sweeper (single instance via an advisory lock) resumes the rest, including after a restart or an audit outage, and purges terminal rows after the retention period.
+
+**Counters.** `dokene.webhook.dropped{reason}` counts acknowledged events that changed nothing: `UNKNOWN_PHONE_NUMBER`, `DUPLICATE`, `UNMATCHED_MESSAGE`, `UNSUPPORTED_EVENT` and `PROCESSING_ABANDONED`.
+
+**Privacy.** The inbox never holds raw JSON, error texts, recipient phones, conversation or pricing data. Delivery history stays `GET /api/messages/{messageId}/events`, where webhook transitions appear as `DELIVERY_UPDATED` events with `actorKind=PROVIDER`.
+
+| Setting (`dokene.integration.whatsapp.webhook.inbox.*`) | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Runs the sweeper. Inline processing always runs. |
+| `interval` | `PT30S` | Delay between sweeper runs. |
+| `park-window` | `PT15M` | How long a report whose message is not found is retried. Allowed range: 0 to 1 hour. |
+| `abandon-after` | `P1D` | How long after receipt a row that keeps failing is abandoned. At least 1 hour and the park window. |
+| `retention` | `P30D` | How long processed rows are kept for deduplication. At least 8 days and `abandon-after`. |
+| `batch-size` | `100` | Due rows per run. Allowed range: 1 to 500. |
+| `inline-limit` | `50` | New rows a request applies before answering. Allowed range: 0 to 1000. |
 
 ## Integration configuration
 

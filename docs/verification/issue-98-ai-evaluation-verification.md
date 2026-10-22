@@ -87,8 +87,11 @@ Live (opt-in, spends tokens, synthetic data only):
 export DOKENE_AI_EVAL_LIVE=true DOKENE_AI_OPENAI_API_KEY=... DOKENE_AI_OPENAI_MODEL=...
 export DOKENE_AI_EVAL_PROMPT_POLICY=policy-label DOKENE_AI_EVAL_REPORT_NAME=live-candidate   # optional
 export DOKENE_AI_EVAL_PRICE_INPUT_PER_MTOK=... DOKENE_AI_EVAL_PRICE_OUTPUT_PER_MTOK=...      # optional, enables cost
+export DOKENE_AI_EVAL_FAMILY_COVERAGE=fail                                                  # optional, default warn
 cd backend && ./gradlew aiEvalLive
 ```
+
+A scenario family/operation that reached the provider without any delivered outcome (for example every case of one family timing out) is never silent: the task prints `[ai-eval] WARNING` lines with the case ids and provider failure categories of operations whose provider attempts all failed (gate rejections are counted but are not warnings, `summary.undelivered[].cause`), and the Markdown report's **Delivery coverage** section shows `INCOMPLETE` (JSON `summary.families` and `summary.undelivered`, report schema 4). With `DOKENE_AI_EVAL_FAMILY_COVERAGE=fail` the run fails instead of only warning (Issue #253).
 
 Compare before changing model, prompt/context policy or structured contract: run live with the current configuration (name it e.g. `live-baseline`), change one thing, run again (`live-candidate`), then `./gradlew aiEvalCompare -Pbaseline=build/reports/ai-eval/live-baseline.json -Pcandidate=build/reports/ai-eval/live-candidate.json`. Any hard-invariant regression blocks the change regardless of quality. Reviewers then grade the rubric on the Markdown/JSON reports.
 

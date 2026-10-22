@@ -1,0 +1,501 @@
+# Suite #123: captured outputs of the scripts, one section per original file (sanitized, synthetic data).
+
+
+===== outputs/res-baseline-after.txt =====
+recommendation: http=200 status=AVAILABLE action=REPEAT_PURCHASE_FOLLOW_UP audit=NEXT_BEST_ACTION/GENERATED/NONE
+draft: http=200 status=AVAILABLE locale=es-419 audit=MESSAGE_DRAFT/GENERATED/NONE
+
+
+===== outputs/res-baseline-before.txt =====
+recommendation: http=200 status=AVAILABLE action=REPEAT_PURCHASE_FOLLOW_UP audit=NEXT_BEST_ACTION/GENERATED/NONE
+draft: http=200 status=AVAILABLE locale=es-419 audit=MESSAGE_DRAFT/GENERATED/NONE
+
+
+===== outputs/res01.out =====
+== 1 provider unset (empty)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=- in 0.8s audit=NEXT_BEST_ACTION/FAILED/NOT_AVAILABLE
+  draft: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:24:06.485Z  INFO 1 --- [dokene] [nio-8080-exec-2] [ecf59b58-e89d-41e0-bac5-caecd9540387] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=ecf59b58-e8
+    2026-10-19T05:24:10.024Z  INFO 1 --- [dokene] [nio-8080-exec-1] [7e2b719d-63ba-4b35-813e-196c0233ce55] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=7e2b719d-63ba-
+== 2 provider blank (spaces)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=- in 0.9s audit=NEXT_BEST_ACTION/FAILED/NOT_AVAILABLE
+  draft: http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:24:23.253Z  INFO 1 --- [dokene] [nio-8080-exec-2] [4503d7c9-cdfa-49d2-82c3-b52d2657d97c] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=4503d7c9-cd
+    2026-10-19T05:24:26.978Z  INFO 1 --- [dokene] [nio-8080-exec-1] [26037fed-53f6-4f31-9dea-123af74acafc] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=NOT_AVAILABLE, correlationId=26037fed-53f6-
+== 3 provider fake (explicit)
+  backend: started healthy
+  recommendation: http=200 status=AVAILABLE reason=- retryable=- in 0.7s audit=NEXT_BEST_ACTION/GENERATED/NONE
+  draft: http=200 status=AVAILABLE reason=- retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:24:39.853Z  INFO 1 --- [dokene] [nio-8080-exec-2] [bd1258ec-5b0d-46b5-8753-8547d5d4915c] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=bd1258ec-5b0d-46b
+    2026-10-19T05:24:43.367Z  INFO 1 --- [dokene] [io-8080-exec-10] [99e87991-2361-4483-b982-eeed7fee4035] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=GENERATED, detail=NONE, correlationId=99e87991-2361-4483-b
+== 4 provider unknown value (opneai) -> expected fail-fast (#109 / PR #117)
+  backend: DID NOT BECOME HEALTHY (status: Restarting (1) 48 seconds ago)
+    2026-10-19T05:24:46.893Z  WARN 1 --- [dokene] [           main] [] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.IllegalStateException: Unsupported dokene.ai.provider value 'opneai'. Supported values: fake, open
+    2026-10-19T05:24:46.917Z ERROR 1 --- [dokene] [           main] [] o.s.boot.SpringApplication               : Application run failed
+    java.lang.IllegalStateException: Unsupported dokene.ai.provider value 'opneai'. Supported values: fake, openai (leave unset or blank to disable AI).
+    2026-10-19T05:24:50.247Z  WARN 1 --- [dokene] [           main] [] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: java.lang.IllegalStateException: Unsupported dokene.ai.provider value 'opneai'. Supported values: fake, open
+    2026-10-19T05:24:50.288Z ERROR 1 --- [dokene] [           main] [] o.s.boot.SpringApplication               : Application run failed
+== 4b provider upper-case OPENAI (case-insensitive match)
+  backend: started healthy
+  recommendation: http=200 status=AVAILABLE reason=- retryable=- in 5.7s audit=NEXT_BEST_ACTION/GENERATED/NONE
+  draft: http=200 status=AVAILABLE reason=- retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:27:14.778Z  INFO 1 --- [dokene] [nio-8080-exec-2] [ef2b959f-4f6a-4f76-9a3e-ece8f5083ec7] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=ef2b959f-4f6a-4f7
+    2026-10-19T05:27:23.886Z  INFO 1 --- [dokene] [nio-8080-exec-3] [a73745a1-5df7-433c-9f62-897148acde92] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=GENERATED, detail=NONE, correlationId=a73745a1-5df7-433c-9
+== 5 openai with absent key
+  backend: DID NOT BECOME HEALTHY (status: Up Less than a second (health: starting))
+    2026-10-19T05:27:37.352Z ERROR 1 --- [dokene] [           main] [] o.s.boot.SpringApplication               : Application run failed
+    Caused by: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'followUpRecommendationService' defined in URL [jar:nested:/app/dokene.jar/!BOOT-INF/classes/!/io/github/stevdrey/dokene/followup/application/FollowUpRecommendationService.class]: Unsatisfied d
+    Caused by: org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'openAiProvider' defined in class path resource [io/github/stevdrey/dokene/ai/provider/openai/OpenAiConfiguration.class]: Unsatisfied dependency expressed through method 'openAiProvider' parame
+    Caused by: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'openAiClient' defined in class path resource [io/github/stevdrey/dokene/ai/provider/openai/OpenAiConfiguration.class]: Failed to instantiate [com.openai.client.OpenAIClient]: Factory method 'openAiClie
+    Caused by: org.springframework.beans.BeanInstantiationException: Failed to instantiate [com.openai.client.OpenAIClient]: Factory method 'openAiClient' threw exception with message: OpenAI API key must be configured when dokene.ai.provider is set to 'openai'
+== 6 openai with an invalid key (genuine OpenAI 401)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- in 1.8s audit=NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST
+  draft: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:30:18.069Z  INFO 1 --- [dokene] [nio-8080-exec-2] [c0f154df-9323-4d1c-8be9-d6939e8122ed] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=c0f154df
+    2026-10-19T05:30:21.724Z  INFO 1 --- [dokene] [nio-8080-exec-1] [ade169bc-8550-4fd5-8361-54c2e90aa86c] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=ade169bc-85
+== 7 openai with an unavailable model (genuine OpenAI 404)
+  backend: started healthy
+  recommendation: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- in 1.5s audit=NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST
+  draft: http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=-
+  deterministic queue still works: 5 items; customers: 50 listed
+  log lines (AI/ERROR/WARN, sanitized view):
+    Picked up JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+    	Pool: DataSourceConnectionProvider
+    2026-10-19T05:30:34.906Z  INFO 1 --- [dokene] [nio-8080-exec-2] [dc6c754b-519d-422c-b3a9-cd269e70bd58] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=dc6c754b
+    2026-10-19T05:30:43.826Z  INFO 1 --- [dokene] [nio-8080-exec-1] [8ab4eeb9-e63d-47e4-818e-d344276329b9] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=MESSAGE_DRAFT, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=8ab4eeb9-e6
+== restore (compose without override)
+  backend healthy with the original .env configuration
+
+
+===== outputs/res0234.out =====
+== baseline default config: max-attempts=2, timeout 15 s, backoff 250ms..2s, min-attempt-budget 1 s, SDK max-retries 0
+  DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1
+  DOKENE_AI_OPENAI_MAX_RETRIES=0
+  DOKENE_AI_OPENAI_TIMEOUT=15s
+  DOKENE_AI_RETRY_INITIAL_BACKOFF=250ms
+  DOKENE_AI_RETRY_MAX_ATTEMPTS=2
+  DOKENE_AI_RETRY_MAX_BACKOFF=2s
+  DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET=1s
+== RES-03 provider faults (injected)
+429 Retry-After: 1 (short) -> http=200 status=AVAILABLE reason=- retryable=- latency=1068ms | provider: 2 attempt(s); gaps_ms= [1015] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  429 Retry-After: 1 (short): 2 provider attempt(s)
+429 retry-after-ms: 500 -> http=200 status=AVAILABLE reason=- retryable=- latency=568ms | provider: 2 attempt(s); gaps_ms= [514] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  429 retry-after-ms: 500: 2 provider attempt(s)
+429 Retry-After: 30 (long, does not fit the 15 s budget) -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=47ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/THROTTLED)
+PASS  RES-04  429 Retry-After: 30 (long, does not fit the 15 s budget): 1 provider attempt(s)
+429 without Retry-After (waits max-backoff) -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=1699ms | provider: 2 attempt(s); gaps_ms= [1648] | audit rows +1 (NEXT_BEST_ACTION/FAILED/THROTTLED)
+PASS  RES-04  429 without Retry-After (waits max-backoff): 2 provider attempt(s)
+503 once then success -> http=200 status=AVAILABLE reason=- retryable=- latency=222ms | provider: 2 attempt(s); gaps_ms= [166] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  503 once then success: 2 provider attempt(s)
+503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=239ms | provider: 2 attempt(s); gaps_ms= [188] | audit rows +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-04  503 always: 2 provider attempt(s)
+500 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=268ms | provider: 2 attempt(s); gaps_ms= [218] | audit rows +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-04  500 always: 2 provider attempt(s)
+401 (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- latency=54ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-04  401 (not retryable): 1 provider attempt(s)
+400 (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- latency=50ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-04  400 (not retryable): 1 provider attempt(s)
+404 (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REJECTED_REQUEST retryable=- latency=48ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-04  404 (not retryable): 1 provider attempt(s)
+malformed structured output (not retryable) -> http=200 status=AI_UNAVAILABLE reason=INVALID_STRUCTURED_RESPONSE retryable=- latency=50ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/INVALID_STRUCTURED_RESPONSE)
+PASS  RES-04  malformed structured output (not retryable): 1 provider attempt(s)
+model refusal content part (not retryable) -> http=200 status=AI_UNAVAILABLE reason=REFUSED retryable=- latency=48ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/REFUSED)
+PASS  RES-04  model refusal content part (not retryable): 1 provider attempt(s)
+== RES-02 timeout (injected delay) and RES-04 deadline
+provider delay 20 s, default timeout 15 s -> http=200 status=AI_UNAVAILABLE reason=TIMEOUT retryable=true latency=15054ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/TIMEOUT)
+PASS  RES-04  provider delay 20 s, default timeout 15 s: 1 provider attempt(s)
+provider delay 10 s, request timeoutMs=3000 -> http=200 status=AI_UNAVAILABLE reason=TIMEOUT retryable=true latency=3046ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/TIMEOUT)
+PASS  RES-04  provider delay 10 s, request timeoutMs=3000: 1 provider attempt(s)
+503 then a 10 s delay on the second attempt, timeoutMs=4000 (second attempt gets only the remaining budget) -> http=200 status=AI_UNAVAILABLE reason=TIMEOUT retryable=true latency=4056ms | provider: 2 attempt(s); gaps_ms= [184] | audit rows +1 (NEXT_BEST_ACTION/FAILED/TIMEOUT)
+PASS  RES-04  503 then a 10 s delay on the second attempt, timeoutMs=4000 (second attempt gets only the remaining budget): 2 provider attempt(s)
+429 Retry-After: 3 with timeoutMs=3500 (hint does not leave min-attempt-budget) -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=47ms | provider: 1 attempt(s); gaps_ms= [] | audit rows +1 (NEXT_BEST_ACTION/FAILED/THROTTLED)
+PASS  RES-04  429 Retry-After: 3 with timeoutMs=3500 (hint does not leave min-attempt-budget): 1 provider attempt(s)
+429 Retry-After: 2 with timeoutMs=3500 (hint fits) -> http=200 status=AVAILABLE reason=- retryable=- latency=2063ms | provider: 2 attempt(s); gaps_ms= [2013] | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-04  429 Retry-After: 2 with timeoutMs=3500 (hint fits): 2 provider attempt(s)
+== draft endpoint uses the same bounded retry
+draft 503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE | provider: 2 attempt(s); gaps_ms= [206]
+PASS  RES-04  draft 503 always: 2 provider attempts
+PASS=18 FAIL=0
+
+
+===== outputs/res04b.out =====
+== max-attempts=3, provider 503 always (injected)
+503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=1521ms | provider: 3 attempt(s); gaps_ms= [512, 487] | audit +1
+PASS  RES-04  max-attempts=3 -> exactly 3 provider attempt(s)
+429 Retry-After: 1 then success -> http=200 status=AVAILABLE reason=- retryable=- latency=1255ms | provider: 2 attempt(s); gaps_ms= [1019] | audit +1
+== max-attempts=1, provider 503 always (injected)
+503 always -> http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=833ms | provider: 1 attempt(s); gaps_ms= [] | audit +1
+PASS  RES-04  max-attempts=1 -> exactly 1 provider attempt(s)
+429 Retry-After: 1 then success -> http=200 status=AI_UNAVAILABLE reason=THROTTLED retryable=true latency=63ms | provider: 1 attempt(s); gaps_ms= [] | audit +1
+== max-attempts=3 with the default 15 s deadline: 503 x2 then success
+503 twice then success -> http=200 status=AVAILABLE reason=- retryable=- latency=1515ms | provider: 3 attempt(s); gaps_ms= [511, 298] | audit +1
+PASS  RES-04  503 twice then success with max-attempts=3: 3 attempts
+== max-attempts=4 (above the hard limit of 3) must fail fast
+  backend status: Up Less than a second (health: starting)
+      Reason: java.lang.IllegalArgumentException: dokene.ai.retry.max-attempts must be between 1 and 3
+      Reason: java.lang.IllegalArgumentException: dokene.ai.retry.max-attempts must be between 1 and 3
+== RES-02 offline: connection refused (no listener) -- not a stub response, genuine network failure
+  http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=978ms audit +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-02  refused connection: unavailable, retryable, bounded
+== RES-02 offline: blackholed address (packets dropped; TCP connect never completes)
+  http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true latency=4112ms audit +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-02  blackholed provider: unavailable/timeout, retryable, terminal latency bounded by the 15 s deadline
+  deterministic work during the outage: queue 5 items; manual follow-up on the baseline customer:
+  manual follow-up http=201
+PASS  RES-02  manual follow-up works while the provider is unreachable
+== restore the stub configuration (max-attempts 2)
+  backend healthy
+PASS=6 FAIL=0
+
+
+===== outputs/res05.out =====
+== plain in-flight (no retry; provider delayed 4 s, change at ~1.2 s)
+  [inflight-member] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  inflight-member: result not delivered as AVAILABLE
+  [inflight-role] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  inflight-role: result not delivered as AVAILABLE
+  [inflight-archive] authority change rc=204 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  inflight-archive: result not delivered as AVAILABLE
+  [inflight-dnc] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  inflight-dnc: result not delivered as AVAILABLE
+  [inflight-consent] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  inflight-consent: result not delivered as AVAILABLE
+== controlled retry (first attempt: 503 after 2.5 s; change at ~1.2 s; a second attempt would be a 2nd provider request)
+  [retry-member] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  retry-member: result not delivered as AVAILABLE
+PASS  SEC-09  retry-member: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-role] authority change rc=204 -> result: 403    provider requests=1
+PASS  SEC-09  retry-role: result not delivered as AVAILABLE
+PASS  SEC-09  retry-role: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-archive] authority change rc=204 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  retry-archive: result not delivered as AVAILABLE
+PASS  SEC-09  retry-archive: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-dnc] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  retry-dnc: result not delivered as AVAILABLE
+PASS  SEC-09  retry-dnc: revoked authority prevents the 2nd attempt from transmitting context
+  [retry-consent] authority change rc=200 -> result: 200 INELIGIBLE -  provider requests=1
+PASS  SEC-09  retry-consent: result not delivered as AVAILABLE
+PASS  SEC-09  retry-consent: revoked authority prevents the 2nd attempt from transmitting context
+== control: no change during a retry -> 2 provider requests (proves the retry really happens)
+  control: 200 AVAILABLE - provider requests=2
+PASS  SEC-09  control: retry happens when nothing changed
+PASS=16 FAIL=0
+
+
+===== outputs/res06.out =====
+== RES-06 rec: drift while the provider call is in flight (injected 4 s latency)
+[rec] cadence changed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] cadence changed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] snoozed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] snoozed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] dismissed (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] dismissed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] manual follow-up recorded (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] manual follow-up recorded (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] new purchase recorded (non-versioned): change rc=201 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [rec] new purchase recorded (non-versioned): result is STALE_STATE|INELIGIBLE|AVAILABLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] consent revoked (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/NO_CONTACT_CONSENT | provider requests=1
+PASS  RES-06  [rec] consent revoked (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] do-not-contact enabled (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/DO_NOT_CONTACT | provider requests=1
+PASS  RES-06  [rec] do-not-contact enabled (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[rec] customer archived (non-versioned): change rc=204 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=NEXT_BEST_ACTION/GATE_REJECTED/CUSTOMER_ARCHIVED | provider requests=1
+PASS  RES-06  [rec] customer archived (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+== RES-06 draft: drift while the provider call is in flight (injected 4 s latency)
+[draft] cadence changed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] cadence changed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] snoozed (versioned): change rc=200 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] snoozed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] dismissed (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] dismissed (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] manual follow-up recorded (versioned): change rc=201 -> http=409 status= reason= delivered_content= | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] manual follow-up recorded (versioned): result is STALE_STATE|INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] new purchase recorded (non-versioned): change rc=201 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/STALE_STATE | provider requests=1
+PASS  RES-06  [draft] new purchase recorded (non-versioned): result is STALE_STATE|INELIGIBLE|AVAILABLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] consent revoked (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/NO_CONTACT_CONSENT | provider requests=1
+PASS  RES-06  [draft] consent revoked (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] do-not-contact enabled (non-versioned): change rc=200 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/DO_NOT_CONTACT | provider requests=1
+PASS  RES-06  [draft] do-not-contact enabled (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+[draft] customer archived (non-versioned): change rc=204 -> http=200 status=INELIGIBLE reason=- delivered_content=false | audit=MESSAGE_DRAFT/GATE_REJECTED/CUSTOMER_ARCHIVED | provider requests=1
+PASS  RES-06  [draft] customer archived (non-versioned): result is INELIGIBLE (a versioned stale result is HTTP 409 without content) and no AVAILABLE content is delivered
+  note: for 'new purchase' an AVAILABLE result is acceptable only if the evaluation is still due; the delivered text is not asserted
+PASS=16 FAIL=0
+
+
+===== outputs/res07.txt =====
+== RES-07 UI races with a provider that answers after 6 s (injected); the provider work is observed from the stub log and the durable audit
+PASS  a) double click and double Enter produce exactly one provider request and one audit row  -- provider requests 1, audit rows 1
+PASS  a) the single result is shown (no duplicate panels)
+PASS  b) switching customer during the call: no recommendation/advice of the previous customer appears  -- now showing "Probe NoOffers QA"
+PASS  b) the late response never appears for the other customer
+   observed: provider requests 1 (completed at the provider), audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  c) switching workspace during the call: nothing from the first workspace
+PASS  c) the late response never appears in the other workspace
+   observed: provider requests 1, audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  d) navigating away/reloading during the call: no stale advice after reload
+   observed: provider requests 1 (the aborted browser request does not cancel the provider call: documented limitation #178/#180), audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  e) logout during the call: login screen, no advice
+PASS  e) late response after logout shows nothing
+   observed: provider requests 1, audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+   f1) SIGKILL of the backend container while the call is in flight
+   UI after the crash: Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. No pudimos consultar al asistente IA. Puedes continuar con el seguimiento manual. Obtener recomendación receipt_long Historial 
+PASS  f1) backend crash during the call: no false success, an understandable error with manual actions available
+   observed after the crash: provider requests 1 (the provider call was already sent), audit rows +0 (no terminal audit row can exist for a killed process)
+   backend back; GET /api/session with the old cookie -> 401 (BFF sessions live in the backend process)
+PASS  f1) after the crash the old session is rejected cleanly and the login screen is shown (no partial UI)  -- spa Dokene Gestión de relaciones y seguimiento a clientes para pequeño
+PASS  f1) recovery: after signing in again a new recommendation works
+   f2) graceful restart (SIGTERM) while the call is in flight
+   UI after the graceful restart: Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Recomendación lista Recomendación de la IA ACCIÓN SUGERIDA Reactiva
+   observed: provider requests 0, audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE): a graceful restart lets the in-flight request finish, so a delivered result has its audit row
+PASS  f2) graceful restart: a delivered result is backed by exactly one terminal audit row (no unaudited result)
+PASS=13 FAIL=0
+
+
+===== outputs/res08.out =====
+== manual: response lost after commit
+  first request (response treated as lost): http=201 
+PASS  RES-08  manual: persisted rows after the first request
+PASS  RES-08  manual: the policy version advanced exactly once
+PASS  RES-08  manual: replay with the same key and the old If-Match returns the original record (200, same id)
+PASS  RES-08  manual: replay with different notes returns the original record unchanged
+PASS  RES-08  manual: still exactly 1 persisted row and 1 audit event; policy version unchanged by replays
+PASS  RES-08  manual: new key with the stale If-Match is rejected (409), no duplicate
+  new key with a fresh If-Match after the customer was already handled -> http=201 (-); rows now 2
+PASS  RES-08  manual: a deliberate second completion (new key, fresh If-Match) is allowed by design for an eligible customer (ADR 0013, early manual touch)
+PASS  RES-08  manual: reusing the key for another customer is rejected (409) and writes nothing
+  -- concurrent replays: 6 parallel identical requests
+  codes:       5 200       1 201 
+PASS  RES-08  manual: parallel identical requests persist exactly one record
+PASS  RES-08  manual: exactly one 201 among the parallel responses
+PASS  RES-08  manual: no 5xx among the parallel responses
+  -- AI calls after the disposition stay independent
+  recommendation after the disposition: {"status":"INELIGIBLE"}
+PASS  RES-08  manual: an AI call neither creates nor changes dispositions
+== dismissal: response lost after commit
+  first request (response treated as lost): http=201 
+PASS  RES-08  dismissal: persisted rows after the first request
+PASS  RES-08  dismissal: the policy version advanced exactly once
+PASS  RES-08  dismissal: replay with the same key and the old If-Match returns the original record (200, same id)
+PASS  RES-08  dismissal: replay with different notes returns the original record unchanged
+PASS  RES-08  dismissal: still exactly 1 persisted row and 1 audit event; policy version unchanged by replays
+PASS  RES-08  dismissal: new key with the stale If-Match is rejected (409), no duplicate
+  new key with a fresh If-Match after the customer was already handled -> http=409 (); rows now 1
+PASS  RES-08  dismissal: a second dismissal after the customer was handled is rejected (409), no duplicate
+PASS  RES-08  dismissal: reusing the key for another customer is rejected (409) and writes nothing
+  -- concurrent replays: 6 parallel identical requests
+  codes:       5 200       1 201 
+PASS  RES-08  dismissal: parallel identical requests persist exactly one record
+PASS  RES-08  dismissal: exactly one 201 among the parallel responses
+PASS  RES-08  dismissal: no 5xx among the parallel responses
+  -- AI calls after the disposition stay independent
+  recommendation after the disposition: {"status":"INELIGIBLE"}
+PASS  RES-08  dismissal: an AI call neither creates nor changes dispositions
+== snooze: response lost after commit
+  first snooze: http=200
+PASS  RES-08  snooze: replay with the stale If-Match is rejected (409)
+  re-snooze to the same date with the fresh If-Match: http=409, audit snooze events: 1
+PASS  RES-08  snooze: final state is the requested date, one policy row
+PASS=26 FAIL=0
+
+
+===== outputs/res08ui-snooze.txt =====
+== RES-08 UI: response lost after the server committed the manual action, then the operator retries (Chrome 155)
+snooze: after the lost response -> dialog open: true
+PASS  snooze: the server applied the snooze although the client saw a failure  -- 2026-10-26
+snooze: client requests: [{"url":"customers/c96e51f5-7d13-4b07-9e4e-8b09e994ef92/follow-up-snooze","method":"PUT","ifMatch":"\"0\""},{"url":"customers/c96e51f5-7d13-4b07-9e4e-8b09e994ef92/follow-up-snooze","method":"PUT","ifMatch":"\"1\""}]
+snooze: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(a) logout Cerrar sesión Dokene chevron_r
+PASS  snooze: at most one snooze audit event (no duplicate completion)  -- audit=1
+PASS=2 FAIL=0
+
+
+===== outputs/res08ui.txt =====
+== RES-08 UI: response lost after the server committed the manual action, then the operator retries (Chrome 155)
+manual: after the lost response -> dialog still open: true; error text: (none)
+PASS  manual: server committed exactly one record although the client saw a failure
+PASS  manual: the UI does not claim success after the lost response
+manual: client requests: [{"url":"customers/2fcae67b-5d60-4ec4-aef8-542fe42b482e/manual-follow-ups","method":"POST","idem":"995561db-ba84-476c-bc64-2d46dc844d41","ifMatch":"\"0\""},{"url":"customers/2fcae67b-5d60-4ec4-aef8-542fe42b482e/manual-follow-ups","method":"POST","idem":"995561db-ba84-476c-bc64-2d46dc844d41","ifMatch":"\"1\""}]
+PASS  manual: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)  -- ids: 995561db-ba84-476c-bc64-2d46dc844d41 | 995561db-ba84-476c-bc64-2d46dc844d41
+PASS  manual: still exactly one persisted record after the operator retried  -- rows=1; second request If-Match: "1"
+PASS  manual: exactly one audit event  -- audit=1
+manual: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(
+dismiss: after the lost response -> dialog still open: true; error text: (none)
+PASS  dismiss: server committed exactly one record although the client saw a failure
+PASS  dismiss: the UI does not claim success after the lost response
+dismiss: client requests: [{"url":"customers/a4eb4dca-1ef8-40ca-b3a6-2b9b0639d8d4/follow-up-dismissals","method":"POST","idem":"fd791ace-93aa-4828-b9ed-d3d9beb0998b","ifMatch":"\"0\""},{"url":"customers/a4eb4dca-1ef8-40ca-b3a6-2b9b0639d8d4/follow-up-dismissals","method":"POST","idem":"fd791ace-93aa-4828-b9ed-d3d9beb0998b","ifMatch":"\"1\""}]
+PASS  dismiss: the retry reuses the same Idempotency-Key (or the UI re-reads state before retrying)  -- ids: fd791ace-93aa-4828-b9ed-d3d9beb0998b | fd791ace-93aa-4828-b9ed-d3d9beb0998b
+PASS  dismiss: still exactly one persisted record after the operator retried  -- rows=1; second request If-Match: "1"
+PASS  dismiss: exactly one audit event  -- audit=1
+dismiss: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(
+snooze: after the lost response -> dialog open: true
+FAIL  snooze: the server applied the snooze although the client saw a failure  -- -
+snooze: client requests: []
+snooze: UI after the retry: spa Dokene store QA Café Norte unfold_more RELACIONES assignment_turned_in Seguimientos group Clientes AJUSTES settings Configuración 73 QA Café Norte Operador(a) logout Cerrar sesión Dokene chevron_r
+PASS  snooze: at most one snooze audit event (no duplicate completion)  -- audit=0
+PASS=11 FAIL=1
+
+
+===== outputs/res09.out =====
+== A. Keycloak down
+PASS  RES-09  established session still reads data while Keycloak is down
+PASS  RES-09  established session can still write while Keycloak is down
+  new login start: 302 http://localhost:8081/realms/dokene/protocol/openid-connect/auth?response_type=code&client_id=dokene-bff&scope=openid%20profile&state=FnK4svufYSAmAOqH03kZytOkLxZ-4cZ43aPUje03EWQ%3D&redirect_uri=http://localhost:8080/login/oauth2/code/dokene&nonce=V7CUQ7h92CEgEN3NUIkvuIXBmr30MVgMex_Y0rEA7aY&code_challenge=KlZi-SPQNWYuERUPk6yo21yrafJgiqkAbkFYt-NilU0&code_challenge_method=S256
+PASS  RES-09  starting a new login does not hang or 5xx at the BFF (redirects to the IdP)
+  IdP discovery from the browser side while down: 000 (connection failure expected)
+  callback with a bogus code: 302 body_leak=0
+PASS  RES-09  bogus callback while the IdP is down returns no stack/credential text
+  Keycloak back healthy
+PASS  RES-09  after Keycloak returns a NEW login works and the established session is intact
+== B. PostgreSQL paused for 4 s during a write (network partition), then stopped
+  write during pause: http=201
+  rows named 'Res09 PG pause 494759311': 1
+PASS  RES-09  write during a 4 s pause completes consistently (0 or 1 rows, and 201 iff 1 row)
+== B2. PostgreSQL stopped
+  GET /api/customers during the outage -> 000 body_leak=0 body={"customers":[{"id":"33fe8d6d-aa85-4e14-af85-f6b6edb3cf73","displayName":"Res09 
+PASS  RES-09  GET /api/customers during the DB outage: sanitized (no SQL/credential/stack text)
+  GET /api/follow-up-queue during the outage -> 000 body_leak=0 body={"customers":[{"id":"33fe8d6d-aa85-4e14-af85-f6b6edb3cf73","displayName":"Res09 
+PASS  RES-09  GET /api/follow-up-queue during the DB outage: sanitized (no SQL/credential/stack text)
+  GET /api/session during the outage -> 200 body_leak=0 body={"authenticated":true,"identityId":"7379514c-8e2f-4f1a-b991-ba864b2f9439","csrfT
+PASS  RES-09  GET /api/session during the DB outage: sanitized (no SQL/credential/stack text)
+  write during the outage -> http=500 leak=0
+PASS  RES-09  write during the DB outage fails (5xx) without leaking internals
+  AI call during the outage -> http=500 leak=0
+PASS  RES-09  AI call during the DB outage fails safely (no provider content)
+  backend container during the outage: Up 7 minutes (healthy)
+  PostgreSQL back healthy
+== B3. recovery without restarting the backend
+  GET /api/customers after PostgreSQL returns -> 200 (attempts: 1)
+PASS  RES-09  the backend recovers by itself after PostgreSQL returns (same session, no backend restart)
+PASS  RES-09  the failed write left no partial row
+PASS  RES-09  writes work again after recovery
+== C. backend stopped (frontend proxy behavior) then started
+  frontend /api/session with the backend down -> 502: <html>
+<head><title>502 Bad Gateway</title></head>
+<body>
+<center><h1>502 Bad Gateway</h1></center>
+<hr><center>ngin
+PASS  RES-09  frontend proxy returns a generic 5xx (no internals) while the backend is down
+PASS  RES-09  the SPA shell is still served while the backend is down
+  backend back healthy
+  old session after the backend restart -> 401
+PASS  RES-09  after a backend restart the old session is rejected (401) and a new login works
+== D. logs: no credential/connection string leaked during the outages
+PASS  RES-09  backend log contains no database password
+PASS  RES-09  backend log contains no API key / session id text
+  log excerpt (outage errors, first 4):
+    2026-10-19T05:58:31.957Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@6971ca
+    2026-10-19T05:58:31.958Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@48cbe1
+    2026-10-19T05:58:31.958Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@19467d
+    2026-10-19T05:58:31.958Z  WARN 1 --- [dokene] [nio-8080-exec-4] [33df1d57-6f15-4313-816d-cd231d22b4a4] com.zaxxer.hikari.pool.PoolBase          : HikariPool-1 - Failed to validate connection org.postgresql.jdbc.PgConnection@7e0114
+PASS=19 FAIL=0
+
+
+===== outputs/res09b.out =====
+GET /api/customers during the outage -> http=500 after 30 ms body='{"timestamp":"2026-10-19T06:01:21.962Z","status":500,"error":"Internal Server Error","path":"/api/cu'
+PASS  RES-09  GET /api/customers: terminal 5xx, sanitized
+  latency of the failure: 30 ms
+GET /api/follow-up-queue during the outage -> http=500 after 30020 ms body='{"timestamp":"2026-10-19T06:01:51.990Z","status":500,"error":"Internal Server Error","path":"/api/fo'
+PASS  RES-09  GET /api/follow-up-queue: terminal 5xx, sanitized
+  latency of the failure: 30020 ms
+POST during the outage -> 500 after 30036 ms
+PASS  RES-09  recovered without a backend restart
+PASS=3 FAIL=0
+
+
+===== outputs/res10.out =====
+== meters present
+  dokene.ai.attempt.duration
+  dokene.ai.attempts
+  dokene.ai.gate.rejections
+  dokene.ai.outcomes
+  dokene.ai.retries
+  dokene.ai.tokens
+== invocations
+success -> http=200 status=AVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-10  success: 1 attempt, 1 outcome, 1 audit row
+PASS  RES-10  success: token usage counted (reported by the response: 1 input + 1 output)
+503 once then success (retry) -> http=200 status=AVAILABLE | provider requests=2 | meters: attempts +2 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/GENERATED/NONE)
+PASS  RES-10  retry: attempts counted individually (2), exactly 1 outcome, 1 audit row
+503 always -> http=200 status=AI_UNAVAILABLE | provider requests=2 | meters: attempts +2 outcomes +1 tokens +0 | audit rows +1 (NEXT_BEST_ACTION/FAILED/UNAVAILABLE)
+PASS  RES-10  failure after retry: 2 attempts, 1 outcome, 1 audit row
+PASS  RES-10  failed attempts add no token usage (none reported)
+401 rejected -> http=200 status=AI_UNAVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +0 | audit rows +1 (NEXT_BEST_ACTION/FAILED/REJECTED_REQUEST)
+PASS  RES-10  non-retryable failure: 1 attempt, 1 outcome, 1 audit row
+model refusal -> http=200 status=AI_UNAVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/FAILED/REFUSED)
+PASS  RES-10  refusal: 1 attempt, 1 outcome, 1 audit row
+gate rejection (rationale with a link) -> http=200 status=AI_UNAVAILABLE | provider requests=1 | meters: attempts +1 outcomes +1 tokens +2 | audit rows +1 (NEXT_BEST_ACTION/GATE_REJECTED/INVALID_RECOMMENDATION)
+PASS  RES-10  gate rejection: 1 attempt, 1 outcome, 1 audit row (DENIED/INVALID_RECOMMENDATION)
+denied caller (VIEWER) -> http=403 | attempts +0 audit rows +0
+PASS  RES-10  denied before the provider: 0 attempts, 0 audit rows
+== meter details
+-- dokene.ai.attempts
+  {"name":"dokene.ai.attempts","baseUnit":null,"measurements":[{"statistic":"COUNT","value":16.0}],"availableTags":[{"tag":"provider","n":1},{"tag":"model","n":2},{"tag":"category","n":4},{"tag":"operation","n":1},{"tag":"outcome","n":2}]}
+-- dokene.ai.attempt.duration
+  {"name":"dokene.ai.attempt.duration","baseUnit":"seconds","measurements":[{"statistic":"COUNT","value":16.0},{"statistic":"TOTAL_TIME","value":0.687428233},{"statistic":"MAX","value":0.570564345}],"availableTags":[{"tag":"provider","n":1},{"tag":"model","n":2},{"tag":"category","n":4},{"tag":"operation","n":1},{"tag":"outcome","n":2}]}
+-- dokene.ai.outcomes
+  {"name":"dokene.ai.outcomes","baseUnit":null,"measurements":[{"statistic":"COUNT","value":12.0}],"availableTags":[{"tag":"provider","n":1},{"tag":"model","n":2},{"tag":"operation","n":1},{"tag":"outcome","n":3}]}
+-- outcomes by tag values
+  provider: openai
+  model: stub,gpt-6-luna
+  operation: NEXT_BEST_ACTION
+  outcome: FAILED,GATE_REJECTED,GENERATED
+-- every dokene meter and its tags (cardinality review)
+  {"name":"dokene.ai.attempt.duration","tags":[{"tag":"provider","values":1},{"tag":"model","values":2},{"tag":"category","values":4},{"tag":"operation","values":1},{"tag":"outcome","values":2}]}
+  {"name":"dokene.ai.attempts","tags":[{"tag":"provider","values":1},{"tag":"model","values":2},{"tag":"category","values":4},{"tag":"operation","values":1},{"tag":"outcome","values":2}]}
+  {"name":"dokene.ai.gate.rejections","tags":[{"tag":"reason","values":1},{"tag":"operation","values":1}]}
+  {"name":"dokene.ai.outcomes","tags":[{"tag":"provider","values":1},{"tag":"model","values":2},{"tag":"operation","values":1},{"tag":"outcome","values":3}]}
+  {"name":"dokene.ai.retries","tags":[{"tag":"provider","values":1},{"tag":"category","values":1},{"tag":"operation","values":1}]}
+  {"name":"dokene.ai.tokens","tags":[{"tag":"provider","values":1},{"tag":"model","values":1},{"tag":"operation","values":1},{"tag":"direction","values":2}]}
+  all tag keys: category direction model operation outcome provider reason 
+PASS  RES-10  no tenant/customer/actor/correlation tag on any dokene meter
+-- token usage meters (stub reports usage 1/1/2): dokene.ai.tokens 
+== logs: one outcome line per invocation, correlation continuity
+    INFO 1 --- [dokene] [io-8080-exec-10] [a64574b2-f1f7-4d8d-8d59-96472ae4ca76] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REFUSED, correlationId=a64574b2-f1
+    INFO 1 --- [dokene] [nio-8080-exec-8] [2e9c0ce4-e08e-4b9e-88bc-4d186fdac807] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GATE_REJECTED, detail=INVALID_RECOMMENDATION, cor
+    INFO 1 --- [dokene] [nio-8080-exec-8] [449354ec-8a93-44d5-a76a-6a4773ba061e] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=449354ec-8a
+    INFO 1 --- [dokene] [io-8080-exec-10] [72393c18-5996-45e0-972f-494ccd4dbf33] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GENERATED, detail=NONE, correlationId=72393c18-59
+    INFO 1 --- [dokene] [nio-8080-exec-2] [891c9604-d9fc-4e60-ab56-5c9894dd8b26] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=UNAVAILABLE, correlationId=891c960
+    INFO 1 --- [dokene] [nio-8080-exec-3] [2974b2f4-8baa-43b9-af66-b10260b5e0b6] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REJECTED_REQUEST, correlationId=29
+    INFO 1 --- [dokene] [nio-8080-exec-5] [a037efd7-d523-4b75-8803-39b363b94bc3] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=FAILED, detail=REFUSED, correlationId=a037efd7-d5
+    INFO 1 --- [dokene] [nio-8080-exec-6] [d771c77a-07cd-4e48-8ae3-0b62bb30abb3] i.g.s.d.f.application.AiOutcomeReporter  : AI invocation outcome: operation=NEXT_BEST_ACTION, outcome=GATE_REJECTED, detail=INVALID_RECOMMENDATION, cor
+grep: warning: + at start of expression
+PASS  RES-10  logs hold no prompt, note, phone, draft body or provider text
+== audit rows (closed vocabulary, no content columns)
+  06:05:28 NEXT_BEST_ACTION GATE_REJECTED INVALID_RECOMMENDATION DENIED
+  06:05:24 NEXT_BEST_ACTION FAILED REFUSED FAILURE
+  06:05:20 NEXT_BEST_ACTION FAILED REJECTED_REQUEST FAILURE
+  06:05:16 NEXT_BEST_ACTION FAILED UNAVAILABLE FAILURE
+  06:05:12 NEXT_BEST_ACTION GENERATED NONE SUCCESS
+  06:05:08 NEXT_BEST_ACTION GENERATED NONE SUCCESS
+  06:04:41 NEXT_BEST_ACTION GATE_REJECTED INVALID_RECOMMENDATION DENIED
+  06:04:37 NEXT_BEST_ACTION FAILED REFUSED FAILURE
+PASS=11 FAIL=0
+
+
+===== outputs/res11.txt =====
+PASS  live recommendation displayed after the restoration
+PASS  live draft in es-419 displayed  -- "Hola, Dormant Té QA. Queríamos saber cómo te fue con el Té verde 500 g que compraste el 10 de enero."
+PASS  copy works (clipboard equals the editor text)
+PASS  supported manual workflow completes (follow-up recorded, dialog closed)  -- Dormant" en los 50 seguimientos cargados actualmente. Cargar más seguimientos Li
+PASS=4 FAIL=0

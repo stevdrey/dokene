@@ -1,0 +1,12 @@
+import { launchFirefox, FF, sleep } from './bidi.mjs';
+import { MEASURE } from './checks.mjs';
+import { writeFileSync } from 'node:fs';
+const c = await launchFirefox(); const p = new FF(c); const log = []; const L = (s) => { console.log(s); log.push(s); };
+await p.viewport(1440, 900); await p.goto('http://localhost:5173/'); await p.clickText('Iniciar sesión', '*'); await p.waitFor('location.host.includes("8081")', 15000);
+await p.ev(`document.querySelector('#username').value='testoperator';document.querySelector('#password').value=${JSON.stringify(process.env.DOKENE_TEST_USER_PASSWORD || '')};document.querySelector('#kc-login, input[type=submit], button[type=submit]').click()`);
+await p.waitFor('location.host==="localhost:5173"&&document.body.innerText.includes("Seguimientos")', 25000); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000); await sleep(800);
+await p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'Wolfeschlegel');i.dispatchEvent(new Event('input',{bubbles:true}))})()`); await sleep(2000);
+await p.clickText('Cargar más seguimientos'); await sleep(2500); await p.waitFor('document.querySelectorAll(".follow-up-card").length>0', 8000); await p.clickText('Wolfeschlegel', '*'); await sleep(1200);
+const m = await p.ev(MEASURE); L(`Firefox ${c.version}, 1440x900, customer with a 70-char unbroken name and 180-char unbroken note/purchase: docScrollW=${m.docScrollW}/${m.vw} overflow=${m.horizontalOverflow} beyond=${m.beyondViewport.length}`);
+const icon = await p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const ri=i.getBoundingClientRect();const svg=i.parentElement.querySelector('svg,.material-symbols-outlined,span');const rs=svg&&svg.getBoundingClientRect();return {inputTop:Math.round(ri.top),inputBottom:Math.round(ri.bottom),iconTop:rs&&Math.round(rs.top),iconBottom:rs&&Math.round(rs.bottom)}})()`); L('search icon vs input box while a query is active: ' + JSON.stringify(icon));
+await p.shot('/home/stevdrey/qa122/shots/ff-longname.png'); writeFileSync('/home/stevdrey/qa122/out/ff-long.txt', log.join('\n')); c.proc.kill(); process.exit(0);

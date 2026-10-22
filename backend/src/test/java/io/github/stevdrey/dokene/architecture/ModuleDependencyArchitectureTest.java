@@ -33,6 +33,9 @@ import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWeb
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookVerificationException;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
+import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
+import io.github.stevdrey.dokene.messaging.application.OutboundDispatchService;
+import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -76,6 +79,12 @@ class ModuleDependencyArchitectureTest {
                     JavaClass.Predicates.equivalentTo(VerifiedWebhookEvent.class))))
             .because("ADR 0024 §3: only the webhook verifier, after signature, tenant lookup and dedup, may build one");
 
+    private static final ArchRule WEBHOOKS_NEVER_REACH_COMMANDS_OR_SENDS = noClasses().that()
+            .resideInAPackage(ROOT + ".integration.whatsapp.webhook..")
+            .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(OutboundMessageCommandService.class,
+                    OutboundDispatchService.class, MessagingProvider.class))
+            .because("issue 139: a webhook only reports delivery; it can never create, approve or send a message");
+
     private static final ArchRule RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL = noClasses().that()
             .resideInAPackage(ROOT + ".ratelimit..")
             .should().dependOnClassesThat(
@@ -93,6 +102,16 @@ class ModuleDependencyArchitectureTest {
                             javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
                                     && !javaClass.getPackageName().startsWith(ROOT + ".http")))
             .because("issue 209: every module's controllers share the If-Match grammar, so it depends on none of them");
+
+    private static final ArchRule DATABASE_BOUNDARY_STAYS_NEUTRAL = noClasses().that()
+            .resideInAPackage(ROOT + ".database..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "another Dokene module than ratelimit",
+                            javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".database")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".ratelimit")))
+            .because("issue 246: every module's requests share the database-outage answer, so it depends on none of them");
 
     private static final ArchRule SECRET_MATERIAL_NEVER_LEAVES_INTEGRATION = noClasses().that()
             .resideOutsideOfPackage(ROOT + ".integration..")
@@ -141,6 +160,11 @@ class ModuleDependencyArchitectureTest {
     }
 
     @Test
+    void databaseOutageBoundaryDependsOnNoModule() {
+        DATABASE_BOUNDARY_STAYS_NEUTRAL.check(production);
+    }
+
+    @Test
     void nothingUpstreamOfMessagingDependsOnIt() {
         UPSTREAM_NEVER_DEPENDS_ON_MESSAGING.check(production);
     }
@@ -181,6 +205,11 @@ class ModuleDependencyArchitectureTest {
                 .importClasses(FabricatedWebhookEventFixture.class, VerifiedWebhookEvent.class);
 
         assertThat(ONLY_THE_WEBHOOK_VERIFIER_BUILDS_VERIFIED_EVENTS.evaluate(fixture).hasViolation()).isTrue();
+    }
+
+    @Test
+    void webhooksNeverReachMessageCommandsOrTheSendPath() {
+        WEBHOOKS_NEVER_REACH_COMMANDS_OR_SENDS.check(production);
     }
 
     @Test

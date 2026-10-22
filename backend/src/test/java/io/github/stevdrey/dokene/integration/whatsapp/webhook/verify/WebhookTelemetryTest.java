@@ -1,4 +1,4 @@
-// ABOUTME: Proves spec 0007 AC-7 and AC-8: the refusal shape of every reason and the one Micrometer counter.
+// ABOUTME: Proves spec 0007 AC-7 and AC-8 (refusal shape and counter) and the issue 139 dropped event counter.
 // ABOUTME: The no op telemetry is exercised too, so a context without a registry never fails a refusal.
 package io.github.stevdrey.dokene.integration.whatsapp.webhook.verify;
 
@@ -41,6 +41,28 @@ class WebhookTelemetryTest {
         assertThat(registry.get("dokene.webhook.rejected").tag("reason", "BODY_TOO_LARGE").counter().count())
                 .isEqualTo(1.0);
         assertThat(registry.find("dokene.webhook.rejected").tag("reason", "WRONG_MODE").counter()).isNull();
+    }
+
+    @Test
+    void theDroppedCounterIsSeparateFromRefusalsAndTaggedOnlyWithTheReason() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        MicrometerWebhookTelemetry telemetry = new MicrometerWebhookTelemetry(registry);
+
+        telemetry.dropped(WebhookTelemetry.DropReason.DUPLICATE);
+        telemetry.dropped(WebhookTelemetry.DropReason.UNKNOWN_PHONE_NUMBER);
+        telemetry.dropped(WebhookTelemetry.DropReason.DUPLICATE);
+        telemetry.dropped(WebhookTelemetry.DropReason.UNSUPPORTED_EVENT, 7);
+        telemetry.dropped(WebhookTelemetry.DropReason.UNMATCHED_MESSAGE, 0);
+
+        assertThat(registry.get("dokene.webhook.dropped").tag("reason", "DUPLICATE").counter().count())
+                .isEqualTo(2.0);
+        assertThat(registry.get("dokene.webhook.dropped").tag("reason", "UNSUPPORTED_EVENT").counter().count())
+                .isEqualTo(7.0);
+        assertThat(registry.find("dokene.webhook.dropped").tag("reason", "UNMATCHED_MESSAGE").counter()).isNull();
+        assertThat(registry.get("dokene.webhook.dropped").tag("reason", "UNKNOWN_PHONE_NUMBER").counter()
+                .getId().getTags()).hasSize(1);
+        assertThat(registry.find("dokene.webhook.rejected").counter()).isNull();
+        new NoOpWebhookTelemetry().dropped(WebhookTelemetry.DropReason.UNMATCHED_MESSAGE);
     }
 
     @Test
