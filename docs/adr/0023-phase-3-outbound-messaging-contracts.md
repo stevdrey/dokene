@@ -177,7 +177,7 @@ Executed in full at T6 under the customer and message locks, in this order, fail
 5. message state `APPROVED` with an `APPROVE` decision recorded (`INVALID_TRANSITION`);
 6. customer `ACTIVE`, no do-not-contact, `contactId` still `GRANTED` for WhatsApp (`CUSTOMER_ARCHIVED`, `DO_NOT_CONTACT`, `NO_CONTACT_CONSENT`);
 7. fresh follow-up evaluation is `DUE` or `OVERDUE` (`FOLLOW_UP_INELIGIBLE`);
-8. no other open message for the customer, and no message `SENT`/`DELIVERED`/`READ` to the customer since the current cadence anchor (`MESSAGE_ALREADY_OPEN`, `CONTACT_FREQUENCY_EXCEEDED`);
+8. no other open message for the customer (`MESSAGE_ALREADY_OPEN`), and no other message to the customer with `sent_at` inside `dokene.messaging.min-contact-interval` (`CONTACT_FREQUENCY_EXCEEDED`, ADR 0024 §5, ADR 0028). (Corrected 2026-10-22, #198: this step first said "no message `SENT`/`DELIVERED`/`READ` since the current cadence anchor"; the anchor is enforced by step 7.);
 9. template mapping for the intent exists and is enabled (`TEMPLATE_NOT_MAPPED`);
 10. attempt count below `dokene.messaging.max-send-attempts` (`SEND_ATTEMPTS_EXHAUSTED`);
 11. body still passes `DraftSafetyValidator` (`BODY_REJECTED`; defensive, since bodies are immutable).
@@ -271,7 +271,7 @@ Secret references resolve through `IntegrationSecretResolver`; the Phase 3 imple
 
 - Phase 3 can be built as three new modules plus one small change in `followup` and additive audit migrations, with the dependency direction checkable by an architecture test.
 - An approved message is sent at most once: the attempt row is committed before the provider call, unknown outcomes freeze the message, and the one-open-message index blocks a second message to the same customer while one is waiting for or inside a provider call. The cost is that an unknown outcome needs a human (T12) or the Phase 4 reconciliation job to clear.
-- A message the provider accepted no longer holds its customer (amended 2026-10-22, #198), so a lost delivery or read report cannot strand a customer. The cost is that a customer can have several `SENT` or `DELIVERED` messages at once; screens that show "the" message for a customer must pick the newest, and the cadence anchor and minimum contact interval are now the only contact-frequency guards.
+- A message the provider accepted no longer holds its customer (amended 2026-10-22, #198), so a lost delivery or read report cannot strand a customer. The cost is that a customer can have several `SENT` or `DELIVERED` messages at once; screens that show "the" message for a customer must pick the newest, and the cadence anchor and minimum contact interval are now the only contact-frequency guards. Submit and approve do not check the interval, so when an operator makes a customer due again soon after a send, the next message can be approved and then refused at send with `CONTACT_FREQUENCY_EXCEEDED`; it stays `APPROVED` and holds the open slot until it is sent after the interval or cancelled (T5).
 - Operators get stable, machine-readable refusal reasons for the first time; older endpoints keep empty bodies until a separate decision migrates them.
 - `OPERATOR` keeps end-to-end send capability. Tenants needing stricter control must wait for Phase 5 policies.
 - The BFF contract is unchanged; the only new unauthenticated surface is the signature-verified webhook chain.

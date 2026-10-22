@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
+import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusResult;
 import io.github.stevdrey.dokene.messaging.application.DeliveryStatusSink;
 import io.github.stevdrey.dokene.messaging.application.OutboundDispatchService;
@@ -53,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
@@ -171,7 +173,10 @@ class OpenMessageWindowIntegrationTest {
         assertThat(provider.calls()).hasSize(1);
     }
 
-    /** covers: AC-6 (the cadence refuses at submit, and the minimum interval refuses at send). */
+    /**
+     * covers: AC-6 (the cadence refuses at submit, and the minimum interval refuses at send). A message refused at send
+     * stays APPROVED and keeps the customer's open slot until an operator cancels it (ADR 0023 Consequences).
+     */
     @Test
     void theCadenceAndTheMinimumIntervalStillSpaceMessagesOut() throws Exception {
         sent(approvedMessage());
@@ -181,8 +186,33 @@ class OpenMessageWindowIntegrationTest {
         OutboundMessage tooSoon = approvedMessage();
 
         assertThatRefused(() -> sent(tooSoon), MessagingErrorCode.CONTACT_FREQUENCY_EXCEEDED);
-        assertThat(current(tooSoon).status()).isEqualTo(MessageStatus.APPROVED);
+        OutboundMessage held = current(tooSoon);
+        assertThat(held.status()).isEqualTo(MessageStatus.APPROVED);
+        assertThat(held.version()).isEqualTo(tooSoon.version());
         assertThat(provider.calls()).hasSize(1);
+        assertThatRefused(this::submitted, MessagingErrorCode.MESSAGE_ALREADY_OPEN);
+
+        inContext(ownerA, () -> commands.cancel(new CancellationCommand(held.id(), null,
+                Long.toString(held.version()), "cancel-" + UUID.randomUUID())));
+
+        assertThat(submitted().status()).isEqualTo(MessageStatus.PENDING_APPROVAL);
+    }
+
+    /** covers: AC-2, AC-4 (the service check's SQL agrees with MessageStatus.open() for every status). */
+    @Test
+    void theOpenMessageLookupFindsExactlyTheOpenStatuses() throws Exception {
+        for (MessageStatus status : MessageStatus.values()) {
+            UUID customerId = inContext(ownerA, () -> customers.create("Lookup " + status, null,
+                    List.of(new PhoneInput(String.format("8877%04d", status.ordinal()), "CR", true)))).id().value();
+            UUID messageId = insertMessage(customerId, status);
+            UUID tenantId = tenantA.id().value();
+
+            assertThat(inContext(ownerA, () -> messages.findOpenByCustomer(tenantId, customerId, Optional.empty()))
+                    .map(OutboundMessage::id)).as(status.name()).isEqualTo(status.open()
+                            ? Optional.of(messageId) : Optional.empty());
+            assertThat(inContext(ownerA, () -> messages.findOpenByCustomer(tenantId, customerId,
+                    Optional.of(messageId)))).as(status.name() + " excluded").isEmpty();
+        }
     }
 
     /** covers: AC-4 (the index and MessageStatus.open() name the same statuses). */
@@ -203,13 +233,13 @@ class OpenMessageWindowIntegrationTest {
                 .contains("(tenant_id, customer_id)");
         String predicate = (String) index.get("predicate");
         assertThat(predicate).isNotBlank();
-        Set<String> indexed = new java.util.TreeSet<>();
+        Set<String> indexed = new TreeSet<>();
         Matcher literal = STATUS_LITERAL.matcher(predicate);
         while (literal.find()) {
             indexed.add(literal.group(1));
         }
         Set<String> open = Arrays.stream(MessageStatus.values()).filter(MessageStatus::open).map(Enum::name)
-                .collect(Collectors.toCollection(java.util.TreeSet::new));
+                .collect(Collectors.toCollection(TreeSet::new));
         assertThat(indexed).isEqualTo(open)
                 .containsExactlyInAnyOrder("PENDING_APPROVAL", "APPROVED", "QUEUED", "SENDING");
     }
@@ -252,6 +282,29 @@ class OpenMessageWindowIntegrationTest {
                 WHERE tenant_id = ? AND id = ?
                 """, sent.tenantId(), sent.id()));
         assertThat(aged).isEqualTo(1);
+    }
+
+    /** A row straight into the table, filling only what each status's check constraints require. */
+    private UUID insertMessage(UUID customerId, MessageStatus status) throws Exception {
+        UUID id = UUID.randomUUID();
+        boolean accepted = status == MessageStatus.SENT || status == MessageStatus.DELIVERED
+                || status == MessageStatus.READ;
+        int inserted = inContext(ownerA, () -> jdbc.update("""
+                INSERT INTO dokene.outbound_messages
+                    (id, tenant_id, customer_id, contact_id, recipient_phone, channel, status, action,
+                     template_intent, locale, origin, body, source_policy_version, send_key, provider_message_id,
+                     failure_category, sent_at, created_by_membership_id, created_by_actor_id, created_at,
+                     updated_at)
+                VALUES (?, ?, ?, gen_random_uuid(), '+50688770000', 'WHATSAPP', ?, 'GENERAL_CHECK_IN',
+                    'GENERAL_FOLLOW_UP', 'es-419', 'MANUAL', 'Hola', 0, gen_random_uuid(),
+                    CASE WHEN ? THEN 'wamid.LOOKUP-' || gen_random_uuid() END,
+                    CASE WHEN ? THEN 'UNKNOWN' END,
+                    CASE WHEN ? THEN now() END,
+                    gen_random_uuid(), gen_random_uuid(), now(), now())
+                """, id, tenantA.id().value(), customerId, status.name(), accepted, status == MessageStatus.FAILED,
+                accepted));
+        assertThat(inserted).isEqualTo(1);
+        return id;
     }
 
     private List<Object> cadenceAnchor() throws Exception {
