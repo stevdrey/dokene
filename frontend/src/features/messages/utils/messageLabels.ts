@@ -111,7 +111,8 @@ export const COPY = {
   eventsEmpty: 'Sin eventos registrados todavía.',
   refreshFailed: 'No se pudo actualizar el mensaje. Intenta de nuevo.',
   frozen: 'El proveedor no confirmó el envío. Un administrador debe resolverlo.',
-  contactRemoved: 'El teléfono ya no pertenece a este cliente. Este mensaje no puede enviarse; cancélalo o corrígelo.',
+  contactRemoved:
+    'El teléfono ya no pertenece a este cliente. Este mensaje no puede avanzar; cancélalo y vuelve a redactarlo con el número correcto.',
   submitConfirm:
     'Se enviará a aprobación exactamente el texto mostrado. Nada se envía al cliente hasta que alguien lo apruebe y lo envíe.',
   submitted: 'Mensaje enviado a aprobación. Aún no se ha enviado al cliente.',
@@ -167,6 +168,13 @@ export function revisionLabel(version: number): string {
 
 export function changedSentence(status: MessageStatus): string {
   return `Este mensaje cambió: ahora está ${statusLabel(status)}.`;
+}
+
+/** A replayed submit returns the message as it is now, which may be well past PENDING_APPROVAL. */
+export function submittedSentence(status: MessageStatus): string {
+  return status === 'PENDING_APPROVAL'
+    ? COPY.submitted
+    : `Este mensaje ya se había enviado a aprobación. Estado actual: ${statusLabel(status)}.`;
 }
 
 export function sendResultSentence(status: MessageStatus): string {

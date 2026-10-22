@@ -37,6 +37,15 @@ describe('classifyFailure', () => {
       expect(classifyFailure(apiError(status))).toEqual({ kind: 'uncertain' });
     }
     expect(classifyFailure(new InvalidMessageResponseError())).toEqual({ kind: 'uncertain' });
+    // response.json() throws a SyntaxError on a 2xx whose body is not JSON; the command may still have landed.
+    expect(classifyFailure(new SyntaxError('Unexpected end of JSON input'))).toEqual({ kind: 'uncertain' });
+  });
+
+  it('carries the Retry-After seconds of a RATE_LIMITED refusal', () => {
+    expect(classifyFailure(new ApiError(429, 'x', problems.valid.RATE_LIMITED, 7))).toEqual({
+      kind: 'rateLimited',
+      retryAfterSeconds: 7
+    });
   });
 
   it('treats a coded 503 PROVIDER_UNAVAILABLE as a definite refusal', () => {

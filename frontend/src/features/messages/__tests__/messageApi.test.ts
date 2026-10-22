@@ -1,7 +1,7 @@
 // ABOUTME: Tests the message API module against the frozen v1 fixtures: strict version parsing, narrowing and request shapes.
 // ABOUTME: Proves the submit body matches the contract byte for byte and that a send carries no body and no Content-Type.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { httpClient } from '@/shared/api/httpClient';
+import { ApiError, httpClient } from '@/shared/api/httpClient';
 import { InvalidMessageResponseError, messageApi, parseMessageVersion } from '../api/messageApi';
 import {
   FakeServer,
@@ -84,11 +84,50 @@ describe('messageApi', () => {
     await expect(messageApi.getDetail(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
   });
 
+  it.each([
+    ['an object failureCategory', { failureCategory: { code: 'RATE_LIMITED' } }],
+    ['an unknown outcome', { outcome: 'EXPLODED' }],
+    ['a missing startedAt', { startedAt: undefined }]
+  ])('treats a detail whose attempt has %s as invalid', async (_name, changes) => {
+    const base = details.approvedAfterTransientFailure;
+    server.on(detailPath(base.messageId), ok({ ...base, attempts: [{ ...base.attempts[0], ...changes }] }, `"${base.version}"`));
+    await expect(messageApi.getDetail(base.messageId)).rejects.toBeInstanceOf(InvalidMessageResponseError);
+  });
+
+  it('refuses a detail that describes another message than the one requested', async () => {
+    server.on(detailPath(id), detailReply(details.approved));
+    await expect(messageApi.getDetail(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
+    server.on(sendsPath(id), detailReply(details.approved));
+    await expect(messageApi.send(id, 1, 'key-1')).rejects.toBeInstanceOf(InvalidMessageResponseError);
+  });
+
+  it('exposes a numeric Retry-After on a 429 and nothing otherwise', async () => {
+    server.on(sendsPath(id), { status: 429, body: { code: 'RATE_LIMITED' }, retryAfter: 7 });
+    const limited = await messageApi.send(id, 1, 'key-1').catch((error: unknown) => error);
+    expect(limited).toBeInstanceOf(ApiError);
+    expect((limited as ApiError).retryAfterSeconds).toBe(7);
+    server.on(sendsPath(id), { status: 429, body: { code: 'RATE_LIMITED' } });
+    const bare = await messageApi.send(id, 1, 'key-2').catch((error: unknown) => error);
+    expect((bare as ApiError).retryAfterSeconds).toBeUndefined();
+    server.on(sendsPath(id), { status: 503, body: { code: 'PROVIDER_UNAVAILABLE' }, retryAfter: 7 });
+    const unavailable = await messageApi.send(id, 1, 'key-3').catch((error: unknown) => error);
+    expect((unavailable as ApiError).retryAfterSeconds).toBeUndefined();
+  });
+
   it('returns events ordered by sequence number', async () => {
     const fixture = eventsFixtures.transientFailureBackToApproved;
     server.on(eventsPath(id), ok({ ...fixture, events: [...fixture.events].reverse() }));
     const events = await messageApi.getEvents(id);
     expect(events.map((event) => event.sequenceNumber)).toEqual(fixture.events.map((event) => event.sequenceNumber));
+  });
+
+  it.each([
+    ['an object failureCategory', { failureCategory: { code: 'UNKNOWN' } }],
+    ['a string attemptNumber', { attemptNumber: '1' }]
+  ])('refuses an event with %s', async (_name, changes) => {
+    const fixture = eventsFixtures.rejected;
+    server.on(eventsPath(id), ok({ ...fixture, events: [{ ...fixture.events[0], ...changes }] }));
+    await expect(messageApi.getEvents(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
   });
 
   it('refuses an events body with an unknown event type', async () => {
@@ -110,7 +149,7 @@ describe('messageApi', () => {
   });
 
   it('sends approval and rejection bodies that match the fixtures', async () => {
-    server.on(approvalsPath(id), { status: 201, body: details.approved, etag: '"2"' });
+    server.on(approvalsPath(id), { status: 201, body: { ...details.approved, messageId: id }, etag: '"2"' });
     await messageApi.decide(id, 'APPROVE', undefined, 1, 'key-a');
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.approve));
     await messageApi.decide(id, 'REJECT', requests.approval.valid.rejectWithNote.note, 1, 'key-r');
@@ -118,7 +157,7 @@ describe('messageApi', () => {
   });
 
   it('sends an empty cancellation as {} and a noted one as the fixture', async () => {
-    server.on(cancellationsPath(id), { status: 201, body: details.cancelled, etag: '"2"' });
+    server.on(cancellationsPath(id), { status: 201, body: { ...details.cancelled, messageId: id }, etag: '"2"' });
     await messageApi.cancel(id, '   ', 1, 'key-c');
     expect(server.last(cancellationsPath(id)).body).toBe(JSON.stringify(requests.cancellation.valid.empty));
     await messageApi.cancel(id, requests.cancellation.valid.withNote.note, 1, 'key-d');
@@ -127,7 +166,7 @@ describe('messageApi', () => {
 
   it('sends with If-Match and a key but no body and no Content-Type', async () => {
     const approvedId = details.approved.messageId;
-    server.on(sendsPath(approvedId), { status: 201, body: details.sent, etag: '"5"' });
+    server.on(sendsPath(approvedId), { status: 201, body: { ...details.sent, messageId: approvedId }, etag: '"5"' });
     const read = await messageApi.send(approvedId, 2, 'key-s');
     const call = server.last(sendsPath(approvedId));
     expect(call.body).toBeUndefined();

@@ -64,7 +64,8 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   const headingRef = useRef<HTMLHeadingElement>(null);
   const mountRef = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
-  const focus = useReturnFocus(phase.kind === 'confirming' || phase.kind === 'submitting');
+  // A refusal unmounts the focused confirm button; the heading then takes focus so keyboard users keep their place.
+  const focus = useReturnFocus(phase.kind === 'confirming' || phase.kind === 'submitting', headingRef);
 
   // A fresh policy version from the parent clears the stale state and starts a new intent. While a request is in
   // flight or unsure it stays unadopted, so the phase that settles it can still pick it up and recover from a stale reply.
@@ -166,7 +167,7 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
           setPhase({ kind: 'refused', message: errorCodeSentence('NOT_FOUND') });
           return;
         case 'rateLimited':
-          setPhase({ kind: 'refused', message: rateLimitedSentence(RATE_LIMIT_SECONDS) });
+          setPhase({ kind: 'refused', message: rateLimitedSentence(failure.retryAfterSeconds ?? RATE_LIMIT_SECONDS) });
           return;
         case 'refused':
           setPhase({ kind: 'refused', message: errorCodeSentence(failure.code) });

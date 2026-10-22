@@ -6,7 +6,7 @@ A fixture pass is component evidence, not backend authorization proof. Every rep
 
 ## Environment
 
-- Date: 2026-10-20, re-run on 2026-10-21 after the second Codex review round. Branch `feature/147-message-review-component`, based on `3f2dcf0`.
+- Date: 2026-10-20, re-run on 2026-10-21 after the second and third Codex review rounds. Branch `feature/147-message-review-component`, based on `3f2dcf0`.
 - Node `v26.7.0`, the repository's Vitest and Vite, jsdom.
 - No backend: every reply comes from `backend/src/test/resources/contracts/messaging/v1/` (`messages.json`, `problems.json`, `requests.json`), imported with `?raw`, served by a `fetch` stub (`__tests__/messageTestServer.ts`) that fails the test on any unexpected request.
 
@@ -14,9 +14,9 @@ A fixture pass is component evidence, not backend authorization proof. Every rep
 
 | Command (from `frontend/`) | Result |
 | --- | --- |
-| `npm test` (`vitest run`) | 40 files, 847 tests passed; no console output from any `features/messages` test (intermittent `act(...)` warnings come from the existing customers and followups suites under full suite load) |
+| `npm test` (`vitest run`) | 40 files, 863 tests passed; no console output from any `features/messages` test (intermittent `act(...)` warnings come from the existing customers and followups suites under full suite load) |
 | `npm run build` (`tsc -b && vite build`) | passed; the existing chunk size warning is unchanged because nothing imports the component yet |
-| `vitest run src/features/messages` | 7 files, 248 tests passed |
+| `vitest run src/features/messages` | 7 files, 264 tests passed |
 | `vitest run src/features/followups/__tests__/AiAssistantPanel.test.tsx` | 72 tests passed; no file under `features/followups/` changed (AC-13) |
 
 ## Automated coverage
@@ -26,24 +26,26 @@ Every `describe` block carries a `// covers: AC-N` line that traces it to spec 0
 
 | Test file | Tests | What it proves |
 | --- | --- | --- |
-| `messageApi.test.ts` | 23 | strict ETag parser (missing, weak, unquoted, leading zero, negative, mismatched with `body.version` all refused); every detail fixture read with its version; narrowing of detail and events, including a refused body for a bad `sentAt`, `failureCategory`, `action`, `templateIntent`, `channel` or `locale`; events ordered by sequence; the `submit.valid.aiDraft` body byte for byte with `If-Match`, `Idempotency-Key`, CSRF and tenant headers; approval, rejection and cancellation bodies equal to their fixtures; `/sends` with no body and no `Content-Type` (AC-3, AC-5, AC-15) |
-| `messageErrors.test.ts` | 25 | aborts, tenant switches and stale sessions dropped; status alone for 401, 403, 404; network failure, uncoded 5xx and untrusted 2xx uncertain; coded 503 a refusal; reload codes and `RATE_LIMITED` routed to their flows; every other problem fixture refused by code; role allowlist; Spanish text for every v1 status, event type and code, including `SENT` and `APPROVAL_INVALIDATED`; phone masking that ignores formatting characters and a raw fallback for an unparseable timestamp (AC-2, AC-5, AC-6, AC-8, AC-9) |
-| `MessageDetail.test.tsx` | 52 | loading, loaded, not found, error with Reintentar, invalid ETag as error (never `Revisión 0`), events failure with inline retry leaving the detail, 401; customer name or masked phone heading; outcome card without `providerMessageId`; timeline rows and hidden unapplied events; markup body rendered literally; contact removed and frozen notices; every matrix row for an operator, the other acting roles, and every row read only for `VIEWER`, `null` and an unknown role; tenant guard; tenant, message and open group switching (AC-1, AC-5, AC-6, AC-12, AC-13) |
-| `MessageActions.test.tsx` | 37 | approve, reject with bounded note, cancel with `{}`; approve announces "Aún no se ha enviado" and never calls `/sends`; focus on the heading after a confirmed action; Escape ignored and Cerrar disabled while a request is in flight; customer name and masked phone in the send and Corregir groups; double click; focus into the group, Escape and Cerrar returning focus; 403, `STALE_VERSION`, `INVALID_TRANSITION`, `APPROVAL_INVALIDATED`, policy refusal with key reuse, coded 503 without a read, 404, 401; uncertain with moved version, unchanged version and Reintentar on the same key, failed read and 404 read; every other action locked while an attempt is unsure; Cerrar keeping the unsure attempt so reopening it retries on the same key; an unsure send whose read shows `QUEUED` starts polling; polling every 2 s to a terminal status, the 20 s window, unmount, a message change mid poll, frozen stop, a failed poll tick leaving Actualizar, a 404 poll tick; Actualizar reading again, keeping the detail with an alert on failure, not found on 404, and two overlapping reads applying only the latest reply; new key after a temporary failure; 429 lockout announced once with the countdown outside the alert, Enviar locked, retry on the same key, lock kept after the group closes (AC-7 to AC-10, AC-14) |
+| `messageApi.test.ts` | 30 | strict ETag parser (missing, weak, unquoted, leading zero, negative, mismatched with `body.version` all refused); every detail fixture read with its version; narrowing of detail and events, including a refused body for a bad `sentAt`, `failureCategory`, `action`, `templateIntent`, `channel` or `locale`, a nested attempt with a bad `outcome`, `failureCategory` or `startedAt`, an event with a bad `failureCategory` or `attemptNumber`, and a detail or command reply that describes another message than the one requested; `ApiError.retryAfterSeconds` read from a numeric `Retry-After` on 429 only; events ordered by sequence; the `submit.valid.aiDraft` body byte for byte with `If-Match`, `Idempotency-Key`, CSRF and tenant headers; approval, rejection and cancellation bodies equal to their fixtures; `/sends` with no body and no `Content-Type` (AC-3, AC-5, AC-15) |
+| `messageErrors.test.ts` | 26 | aborts, tenant switches and stale sessions dropped; status alone for 401, 403, 404; network failure, uncoded 5xx, untrusted 2xx and unparseable 2xx JSON uncertain; `RATE_LIMITED` carrying its `Retry-After` seconds; coded 503 a refusal; reload codes and `RATE_LIMITED` routed to their flows; every other problem fixture refused by code; role allowlist; Spanish text for every v1 status, event type and code, including `SENT` and `APPROVAL_INVALIDATED`; phone masking that ignores formatting characters and a raw fallback for an unparseable timestamp (AC-2, AC-5, AC-6, AC-8, AC-9) |
+| `MessageDetail.test.tsx` | 53 | loading, loaded, not found, error with Reintentar, invalid ETag as error (never `Revisión 0`), events failure with inline retry leaving the detail, 401; customer name or masked phone heading; outcome card without `providerMessageId`; timeline rows and hidden unapplied events; markup body rendered literally; contact removed and frozen notices; every matrix row for an operator, including a pending message with a removed contact offering only Rechazar and Cancelar, the other acting roles, and every row read only for `VIEWER`, `null` and an unknown role; tenant guard; tenant, message and open group switching (AC-1, AC-5, AC-6, AC-12, AC-13) |
+| `MessageActions.test.tsx` | 41 | approve, reject with bounded note, cancel with `{}`; approve announces "Aún no se ha enviado" and never calls `/sends`; focus on the heading after a confirmed action; Escape ignored and Cerrar disabled while a request is in flight; customer name and masked phone in the send and Corregir groups; double click; focus into the group, Escape and Cerrar returning focus; 403, `STALE_VERSION`, `INVALID_TRANSITION`, `APPROVAL_INVALIDATED`, policy refusal with key reuse, coded 503 without a read, 404, 401; uncertain with moved version, unchanged version and Reintentar on the same key, failed read and 404 read; every other action locked while an attempt is unsure; Cerrar keeping the unsure attempt so reopening it retries on the same key; an unsure send whose read shows `QUEUED` starts polling; polling every 2 s to a terminal status, the 20 s window, a tick that never answers ending at the deadline, unmount, a message change mid poll, frozen stop, a failed poll tick leaving Actualizar, a 404 poll tick; Actualizar reading again, keeping the detail with an alert on failure, not found on 404, two overlapping reads applying only the latest reply, and a `DELIVERED` message read again to `READ`; a repeated identical outcome announced again; new key after a temporary failure; 429 lockout announced once with the countdown outside the alert, Enviar locked for `Retry-After` seconds when present and 60 s otherwise, retry on the same key, lock kept after the group closes (AC-7 to AC-10, AC-14) |
 | `useReviewActions.test.tsx` | 5 | with a stubbed detail handle: a moved version closes an open group with "Este mensaje cambió. Revísalo de nuevo antes de continuar." and ends the send lockout; a refusal that lands after the version moved closes instead of offering a retry; an unchanged retry after a refusal keeps its key and an edited note gets a new one; an unsure attempt survives Cerrar, blocks other intents and is let go once the version moves; a 429 on approve is a refusal and leaves Enviar unlocked (AC-7, AC-10, AC-14) |
-| `MessageCompose.test.tsx` | 31 | compose rendering and counter in code points; blank and over 1000 disabled; viewer read only; confirm group copy, focus, close on edit, Escape; exact fixture body and the switch to review with no detail read, announcement and `onSubmitted`; double click; every AC-4 code with the text kept; key reuse and rotation; stale with `onPolicyStale` and recovery on a new policy version, including one that arrived while the submit was in flight; unsure submit resending the same key, body and `If-Match`; 401; customer switch; Corregir success into compose with `sourcePolicyVersion` and focus on the draft heading, the correction stale sentence, refused cancel, unsure cancel reusing its key, an unsure cancel whose read shows `CANCELLED` opening compose and one whose read shows another change staying in review; no `dangerouslySetInnerHTML` under `features/messages/`; every test asserts no request reached `/sends` (AC-2 to AC-4, AC-11 to AC-13) |
+| `MessageCompose.test.tsx` | 34 | compose rendering and counter in code points; blank and over 1000 disabled; viewer read only; confirm group copy, focus, close on edit, Escape; exact fixture body and the switch to review with no detail read, announcement and `onSubmitted`; a replayed submit announcing the status the server returned; focus on the heading after a refusal; the `Retry-After` seconds on a 429; double click; every AC-4 code with the text kept; key reuse and rotation; stale with `onPolicyStale` and recovery on a new policy version, including one that arrived while the submit was in flight; unsure submit resending the same key, body and `If-Match`; 401; customer switch; Corregir success into compose with `sourcePolicyVersion` and focus on the draft heading, the correction stale sentence, refused cancel, unsure cancel reusing its key, an unsure cancel whose read shows `CANCELLED` opening compose and one whose read shows another change staying in review; no `dangerouslySetInnerHTML` under `features/messages/`; every test asserts no request reached `/sends` (AC-2 to AC-4, AC-11 to AC-13) |
 
 ## Action state matrix
 
 | Message status | Controls (allowlisted roles) | Test |
 | --- | --- | --- |
 | compose | Enviar a aprobación | `MessageCompose.test.tsx` "shows the customer…" |
-| `PENDING_APPROVAL` | Aprobar, Rechazar, Cancelar, Corregir | `MessageDetail.test.tsx` matrix `pendingApproval` |
+| `PENDING_APPROVAL`, contact present | Aprobar, Rechazar, Cancelar, Corregir | `MessageDetail.test.tsx` matrix `pendingApproval` |
+| `PENDING_APPROVAL`, `contactRemoved` | Rechazar, Cancelar | "offers a pending message whose contact was removed…" |
 | `APPROVED`, contact present | Enviar, Cancelar, Corregir | matrix `approved`, `approvedAfterTransientFailure` |
-| `APPROVED`, `contactRemoved` | Cancelar, Corregir | matrix `approvedContactRemoved` |
+| `APPROVED`, `contactRemoved` | Cancelar | matrix `approvedContactRemoved` |
 | `QUEUED`, `SENDING` (not frozen), `SENT` | none while polling; Actualizar otherwise | matrix `queued`, `sent`, the SENDING variant; `MessageActions.test.tsx` polling tests |
 | `SENDING`, `outcomeUnknown` | Actualizar only, frozen notice | matrix `sendingOutcomeUnknown`; "stops polling when the provider outcome becomes unknown" |
-| `DELIVERED`, `READ`, `FAILED`, `REJECTED`, `CANCELLED` | none | matrix rows for `delivered`, `read`, the three failed fixtures, `rejected`, `cancelled` |
+| `DELIVERED` | Actualizar | matrix `delivered`; "reads a delivered message again so a later READ can show" |
+| `READ`, `FAILED`, `REJECTED`, `CANCELLED` | none | matrix rows for `read`, the three failed fixtures, `rejected`, `cancelled` |
 | any status, `VIEWER`, no role or unknown role | none; "Tu rol solo permite consultar mensajes." | matrix viewer rows, role `null` and `SOMETHING_ELSE` |
 
 ## Spanish messages added by this component
@@ -51,7 +53,8 @@ Every `describe` block carries a `// covers: AC-N` line that traces it to spec 0
 | Where | Text |
 | --- | --- |
 | submit confirm | Se enviará a aprobación exactamente el texto mostrado. Nada se envía al cliente hasta que alguien lo apruebe y lo envíe. |
-| submit success | Mensaje enviado a aprobación. Aún no se ha enviado al cliente. |
+| submit success | Mensaje enviado a aprobación. Aún no se ha enviado al cliente. · replay of a message that moved on: Este mensaje ya se había enviado a aprobación. Estado actual: <estado>. |
+| contact removed notice | El teléfono ya no pertenece a este cliente. Este mensaje no puede avanzar; cancélalo y vuelve a redactarlo con el número correcto. |
 | compose stale | La situación del cliente cambió desde que se redactó este mensaje. Actualiza el seguimiento antes de enviarlo a aprobación. |
 | Corregir stale | La situación del cliente cambió. Vuelve a redactar el mensaje desde el seguimiento. |
 | send confirm | Se enviará exactamente el texto mostrado arriba. |
@@ -61,7 +64,7 @@ Every `describe` block carries a `// covers: AC-N` line that traces it to spec 0
 | outcomes | Mensaje aprobado. Aún no se ha enviado. · Mensaje rechazado. No se enviará al cliente. · Mensaje cancelado. No se enviará al cliente. · Envío procesado. Estado actual: <estado>. |
 | version moved | Este mensaje cambió. Revísalo de nuevo antes de continuar. · Este mensaje cambió: ahora está <estado>. |
 | uncertain | La acción pudo haberse completado. Revisa el estado actual. · No se pudo confirmar la acción. |
-| 429 | Se alcanzó el límite de envíos. Espera <n> s. (send only; the first sentence is the alert, the count is not live) · Hay demasiadas solicitudes. Espera un momento e intenta de nuevo. (any other action) |
+| 429 | Se alcanzó el límite de envíos. Espera <n> s. (send only; n is the `Retry-After` seconds, 60 when absent; the first sentence is the alert, the count is not live) · Hay demasiadas solicitudes. Espera un momento e intenta de nuevo. (any other action) |
 | session and access | Tu sesión terminó. Vuelve a iniciar sesión. · Tu rol solo permite consultar mensajes. · No tienes permiso para esta acción. |
 | v1 values missing from the 0004 table | `SENT` event: Enviado al proveedor · `APPROVAL_INVALIDATED`: La aprobación ya no es válida. Revisa el mensaje de nuevo. |
 
@@ -87,6 +90,16 @@ A throwaway harness page (Vite on port 5199, `/api` fulfilled by Playwright from
 - Compose focuses its heading when it opens from Corregir, because the confirm button that had focus left the page with the review view. Compose opened from props does not take focus.
 - A policy version that arrives while a submit is in flight or unsure is adopted once that request settles, so a `STALE_VERSION` reply can recover from it instead of leaving the draft disabled.
 - Two overlapping reads of the detail (Actualizar twice) apply only the latest reply; an earlier reply that lands later is dropped.
+- A removed contact leaves only Rechazar (pending) and Cancelar, as the spec 0001 contact lifecycle rule asks: approving or sending is refused with `CONTACT_NOT_OWNED`, and Corregir would copy the removed contact into a draft that could never be submitted. The notice tells the operator to cancel and redraft with the correct number.
+- `DELIVERED` offers Actualizar. Spec 0004's matrix lists it under "none", but its AC-2 rule puts Actualizar on every non terminal status without an action, and `DELIVERED` is not terminal (spec 0001: a provider report can still move it to `READ`). No polling runs on it.
+- The 429 lockout lasts the `Retry-After` seconds the server sends (spec 0004 AC-5 and AC-7), read once in `httpClient` into `ApiError.retryAfterSeconds`; 60 s applies only when the header is absent or not a plain number.
+- A 2xx whose JSON does not parse is uncertain, like an untrusted body: the server already answered, so the command may have landed.
+- A detail or command reply that describes a different `messageId` than the one requested is refused, so no command can be sent against a message other than the one shown.
+- Nested send attempts and events are narrowed member by member (`outcome`, `failureCategory`, `startedAt`, `attemptNumber`), so a bad value lands in the error state instead of being rendered as a React child.
+- A replayed submit announces the status the server returned when it is past `PENDING_APPROVAL`, since another operator may have approved or sent the message before the retry.
+- Each announcement replaces the live region's child node even when the sentence repeats, so a second identical outcome is announced too.
+- The poll deadline also aborts a tick that never answers, so the poll cannot stay active past the 20 s window.
+- Compose moves focus to its heading when a refusal closes the confirm group, the same rule the review view applies after a confirmed action.
 
 ## Caller contract
 

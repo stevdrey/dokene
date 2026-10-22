@@ -142,6 +142,17 @@ describe('compose mode', () => {
     await waitFor(() => expect(server.count(eventsPath(pendingApproval.messageId))).toBe(1));
   });
 
+  it('announces the current status when a replayed submit returns a message that already moved on', async () => {
+    server.on(submitPath(customerId), detailReply(details.sent)).on(eventsPath(details.sent.messageId), eventsReply(details.sent));
+    renderCompose();
+    fireEvent.click(submitButton());
+    confirmSubmit();
+    expect(await screen.findByText(`Revisión ${details.sent.version}`)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Este mensaje ya se había enviado a aprobación. Estado actual: Enviado.'
+    );
+  });
+
   it('starts one submit on a double click', async () => {
     const reply = pending();
     server.on(submitPath(customerId), reply).on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
@@ -180,6 +191,23 @@ describe('compose mode', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent(sentence);
       expect(textarea()).toHaveValue('Texto corregido por el operador.');
       expect(submitButton()).toBeEnabled();
+    });
+
+    it('moves focus to the heading when a refusal closes the confirm group', async () => {
+      server.on(submitPath(customerId), problem('BODY_REJECTED'));
+      renderCompose();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await screen.findByRole('alert');
+      expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
+    });
+
+    it('shows the Retry-After seconds on a 429', async () => {
+      server.on(submitPath(customerId), { ...problem('RATE_LIMITED'), retryAfter: 9 });
+      renderCompose();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      expect(await screen.findByRole('alert')).toHaveTextContent('Se alcanzó el límite de envíos. Espera 9 s.');
     });
 
     it('reuses the key for unchanged text and rotates it after an edit', async () => {

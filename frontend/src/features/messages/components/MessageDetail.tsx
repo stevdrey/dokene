@@ -86,21 +86,28 @@ const INTENT_COPY: Record<ReviewIntent, IntentCopy> = {
 
 type Controls = { kind: 'intents'; intents: ReviewIntent[] } | { kind: 'refresh' } | { kind: 'none' };
 
-/** The action state matrix of spec 0011; the server still decides every transition. */
+/**
+ * The action state matrix of spec 0011; the server still decides every transition. A removed contact can only be
+ * rejected or cancelled (spec 0001 contact lifecycle rule): approving or sending is refused with CONTACT_NOT_OWNED,
+ * and Corregir would copy the removed contact into a draft that can never be submitted.
+ */
 export function controlsFor(detail: MessageResponse, poll: PollState): Controls {
   switch (detail.status) {
     case 'PENDING_APPROVAL':
-      return { kind: 'intents', intents: ['approve', 'reject', 'cancel', 'correct'] };
-    case 'APPROVED':
       return {
         kind: 'intents',
-        intents: detail.contactRemoved ? ['cancel', 'correct'] : ['send', 'cancel', 'correct']
+        intents: detail.contactRemoved ? ['reject', 'cancel'] : ['approve', 'reject', 'cancel', 'correct']
       };
+    case 'APPROVED':
+      return { kind: 'intents', intents: detail.contactRemoved ? ['cancel'] : ['send', 'cancel', 'correct'] };
     case 'QUEUED':
     case 'SENT':
       return poll === 'active' ? { kind: 'none' } : { kind: 'refresh' };
     case 'SENDING':
       return detail.outcomeUnknown || poll !== 'active' ? { kind: 'refresh' } : { kind: 'none' };
+    case 'DELIVERED':
+      // Not terminal: a later provider report can still move it to READ, so a manual read stays available.
+      return { kind: 'refresh' };
     default:
       return { kind: 'none' };
   }

@@ -268,7 +268,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
           keepOpen({ kind: 'refused', message: errorCodeSentence('RATE_LIMITED') });
           return;
         }
-        setLockUntil(Date.now() + RATE_LIMIT_SECONDS * 1000);
+        setLockUntil(Date.now() + (failure.retryAfterSeconds ?? RATE_LIMIT_SECONDS) * 1000);
         setNow(Date.now());
         keepOpen({ kind: 'rateLimited' });
         return;
