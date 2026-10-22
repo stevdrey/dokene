@@ -51,12 +51,13 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     /**
      * What the provider last reported, and for which mapping revision and business account. {@code UNVERIFIED} carries
      * no evidence at all; only {@code APPROVED} carries the parameter format its schema was verified against, and an
-     * approval without one was never schema-checked.
+     * approval without one was never schema-checked. {@code content} is the fixed template text read in that same
+     * schema check; approval without it was recorded before issue 268 and cannot be reviewed, so it is not sendable.
      */
     public record ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
-            Long checkedVersion, TemplateParameterFormat parameterFormat) {
+            Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content) {
         public static final ApprovalEvidence UNVERIFIED = new ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED,
-                null, null, null, null);
+                null, null, null, null, null);
 
         public ApprovalEvidence {
             Objects.requireNonNull(status, "Status is required");
@@ -69,6 +70,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
             // instance of an earlier release); it is kept as read but is never sendable.
             if (parameterFormat != null && status != TemplateApprovalStatus.APPROVED) {
                 throw new IllegalArgumentException("Only approved evidence carries a parameter format");
+            }
+            if (content != null && parameterFormat == null) {
+                throw new IllegalArgumentException("Only schema-checked approval carries template content");
             }
             if (checkedAt != null) {
                 checkedAt = TimestampPrecision.normalize(checkedAt);
@@ -98,18 +102,21 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
         if (status == TemplateApprovalStatus.APPROVED || status.derivedFromSchema()) {
             throw new IllegalArgumentException("Approval evidence requires a verified schema");
         }
-        return withEvidence(new ApprovalEvidence(status, now, businessAccountId, version, null), now);
+        return withEvidence(new ApprovalEvidence(status, now, businessAccountId, version, null, null), now);
     }
 
     /**
      * The provider approved the template: the evidence is {@code APPROVED} only when its parameter schema matches the
-     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable.
+     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable. Approval keeps
+     * the template's fixed text, so review shows what will be sent.
      */
     public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
         ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")
                 .check(parameterNames);
-        return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format()),
-                now);
+        TemplateContent content = verdict.status() == TemplateApprovalStatus.APPROVED
+                && schema instanceof ProviderTemplateSchema.BodyParameters body ? body.content() : null;
+        return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format(),
+                content), now);
     }
 
     private TemplateMapping withEvidence(ApprovalEvidence evidence, Instant now) {
@@ -132,11 +139,12 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * Sendable only when enabled, provider-approved for exactly this revision and business account, and the evidence is
      * fresh. Everything else fails closed. Both verified parameter formats are sendable; the format travels with the
      * resolved mapping into the approval fingerprint and the send command. Approval without a format was never
-     * schema-checked, so it is not sendable.
+     * schema-checked, and approval without content cannot be reviewed, so neither is sendable.
      */
     public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
                 && approval.parameterFormat() != null
+                && approval.content() != null
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

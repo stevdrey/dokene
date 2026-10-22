@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 public record ApprovalFingerprint(String value) {
     /** Domain label of the canonical encoding; a different binding needs a new label, never a reinterpretation. */
-    public static final String SCHEME = "approval/v3";
+    public static final String SCHEME = "approval/v4";
 
     private static final Pattern SHA256_HEX = Pattern.compile("^[0-9a-f]{64}$");
 
@@ -99,6 +99,10 @@ public record ApprovalFingerprint(String value) {
             fields.add(template.parameterFormat().name());
             fields.add(Integer.toString(template.parameterNames().size()));
             fields.addAll(template.parameterNames());
+            // The fixed text the recipient reads; header and footer are optional and encode null distinctly.
+            fields.add(template.headerText());
+            fields.add(template.bodyText());
+            fields.add(template.footerText());
             fields.addAll(parameterValues);
             fields.add(sender.integrationId().toString());
             fields.add(sender.phoneNumberId());
@@ -118,10 +122,12 @@ public record ApprovalFingerprint(String value) {
 
     /**
      * The template mapping revision the approval was given against, including the parameter format its provider
-     * schema was verified to declare: a template re-verified under another format voids the approval.
+     * schema was verified to declare, and the template's fixed text read in that check: a template re-verified under
+     * another format or with other text voids the approval. {@code headerText} and {@code footerText} are optional.
      */
     public record TemplateRevision(long version, String providerTemplateName, String language,
-            ParameterFormat parameterFormat, List<String> parameterNames) {
+            ParameterFormat parameterFormat, List<String> parameterNames, String headerText, String bodyText,
+            String footerText) {
         /**
          * Meta's naming grammar. The name and language rules mirror TemplateMappingResolver.ResolvedTemplateMapping,
          * because this package cannot depend on the template module.
@@ -139,6 +145,7 @@ public record ApprovalFingerprint(String value) {
             }
             Objects.requireNonNull(parameterFormat, "Parameter format is required");
             parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "Parameter names are required"));
+            Objects.requireNonNull(bodyText, "Template body text is required");
             if (version < 0) {
                 throw new IllegalArgumentException("Template mapping version cannot be negative");
             }

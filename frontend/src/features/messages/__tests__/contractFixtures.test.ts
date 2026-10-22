@@ -11,6 +11,7 @@ import {
   type IntegrationResponse,
   type OutboundRequest,
   type TemplateListResponse,
+  type TemplateContent,
   type TemplateRequest,
   type TemplateResponse
 } from '../../integrations/types';
@@ -185,6 +186,11 @@ const templateRequestShape: Shape<TemplateRequest> = {
   parameterNames: { kind: 'array', item: text },
   enabled: bool
 };
+const templateContentShape: Shape<TemplateContent> = {
+  headerText: { kind: 'string', nullable: true },
+  bodyText: text,
+  footerText: { kind: 'string', nullable: true }
+};
 const templateResponseShape: Shape<TemplateResponse> = {
   templateIntent: enumOf(SEMANTIC_TEMPLATE_INTENTS),
   mapped: bool,
@@ -194,6 +200,7 @@ const templateResponseShape: Shape<TemplateResponse> = {
   parameterNames: { kind: 'array', item: text },
   approvalStatus: enumOf(TEMPLATE_APPROVAL_STATUSES),
   approvalCheckedAt: nullableInstant,
+  content: { kind: 'object', shape: templateContentShape, nullable: true },
   sendable: bool,
   version: { kind: 'integer', nullable: true }
 };

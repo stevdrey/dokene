@@ -16,12 +16,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class TemplateMappingTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final Instant NOW = Instant.parse("2026-10-13T12:00:00Z");
     private static final Duration MAX_AGE = Duration.ofHours(24);
     private static final String WABA = "400000000000001";
     private static final UUID INTEGRATION = UUID.randomUUID();
     private static final ProviderTemplateSchema POSITIONAL_ONE =
-            new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"));
+            new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"), CONTENT);
 
     private static TemplateMapping mapping(String name, String language, List<String> parameters) {
         return TemplateMapping.create(new TenantId(UUID.randomUUID()), INTEGRATION,
@@ -83,15 +84,15 @@ class TemplateMappingTest {
     @Test
     void evidenceIsCompleteOrAbsent() {
         assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, null, null, null,
-                TemplateParameterFormat.POSITIONAL)).isInstanceOf(IllegalArgumentException.class);
+                TemplateParameterFormat.POSITIONAL, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED, NOW, WABA, 0L,
-                null)).isInstanceOf(IllegalArgumentException.class);
+                null, null)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void onlyApprovedEvidenceCarriesAParameterFormat() {
         assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.SCHEMA_MISMATCH, NOW,
-                WABA, 0L, TemplateParameterFormat.NAMED)).isInstanceOf(IllegalArgumentException.class);
+                WABA, 0L, TemplateParameterFormat.NAMED, null)).isInstanceOf(IllegalArgumentException.class);
         assertThat(approved().approval().parameterFormat()).isEqualTo(TemplateParameterFormat.POSITIONAL);
     }
 
@@ -100,9 +101,44 @@ class TemplateMappingTest {
         TemplateMapping base = mapping("t", "es", List.of("customer_name"));
         TemplateMapping unchecked = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
                 base.providerTemplateName(), base.language(), base.parameterNames(), true,
-                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L, null),
+                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L, null, null),
                 base.createdAt(), base.updatedAt(), 0);
         assertThat(unchecked.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+    }
+
+    /** Issue 268: approval keeps the template's fixed text, and approval without it cannot be reviewed or sent. */
+    @Test
+    void approvalKeepsTheFixedTextAndIsNotSendableWithoutIt() {
+        assertThat(approved().approval().content()).isEqualTo(CONTENT);
+
+        TemplateMapping base = mapping("t", "es", List.of("customer_name"));
+        TemplateMapping withoutContent = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(),
+                base.intent(), base.providerTemplateName(), base.language(), base.parameterNames(), true,
+                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                        TemplateParameterFormat.POSITIONAL, null),
+                base.createdAt(), base.updatedAt(), 0);
+        assertThat(withoutContent.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+
+        assertThat(approved().verified(TemplateApprovalStatus.PAUSED, WABA, NOW).approval().content()).isNull();
+        assertThat(approved().unverified(NOW).approval().content()).isNull();
+        assertThat(approved().edit(INTEGRATION, "repeat_purchase_v1", "es_MX", List.of("customer_name"), true, NOW)
+                .approval().content()).isNull();
+        assertThat(mapping("t", "es", List.of("customer_name", "product")).verifiedApproval(POSITIONAL_ONE, WABA, NOW)
+                .approval().content()).isNull();
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                null, CONTENT)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void templateContentIsBoundedAndNeedsABody() {
+        assertThatThrownBy(() -> new TemplateContent(null, " ", null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateContent(null, null, null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TemplateContent("", "Hola", null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateContent(null, "a\0b", null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateContent(null, "a".repeat(TemplateContent.MAX_TEXT_LENGTH + 1), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(new TemplateContent("Aviso", "a".repeat(TemplateContent.MAX_TEXT_LENGTH), "Gracias").toString())
+                .doesNotContain("Aviso", "Gracias");
     }
 
     @Test
@@ -121,18 +157,18 @@ class TemplateMappingTest {
     void aMismatchedUnsupportedOrUnreadableSchemaIsRecordedButNeverSendable() {
         TemplateMapping base = mapping("t", "es", List.of("customer_name"));
         var cases = java.util.Map.of(
-                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")),
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"), CONTENT),
                 TemplateApprovalStatus.SCHEMA_MISMATCH,
                 new ProviderTemplateSchema.Unsupported(), TemplateApprovalStatus.SCHEMA_UNSUPPORTED,
                 new ProviderTemplateSchema.Unreadable(), TemplateApprovalStatus.SCHEMA_UNREADABLE);
         cases.forEach((schema, status) -> {
             TemplateMapping verified = base.verifiedApproval(schema, WABA, NOW);
             assertThat(verified.approval()).isEqualTo(
-                    new TemplateMapping.ApprovalEvidence(status, NOW, WABA, 0L, null));
+                    new TemplateMapping.ApprovalEvidence(status, NOW, WABA, 0L, null, null));
             assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
         });
         TemplateMapping named = base.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
-                TemplateParameterFormat.NAMED, List.of("customer_name")), WABA, NOW);
+                TemplateParameterFormat.NAMED, List.of("customer_name"), CONTENT), WABA, NOW);
         assertThat(named.approval().status()).isEqualTo(TemplateApprovalStatus.APPROVED);
         assertThat(named.approval().parameterFormat()).isEqualTo(TemplateParameterFormat.NAMED);
         // Named placeholders are sent by name, so a template verified as NAMED is as sendable as a positional one.

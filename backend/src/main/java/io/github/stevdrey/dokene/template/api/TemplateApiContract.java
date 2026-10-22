@@ -53,11 +53,20 @@ public final class TemplateApiContract {
     /**
      * One catalogue slot per intent. While {@code mapped} is false every other member is its neutral value:
      * {@code enabled} and {@code sendable} false, {@code approvalStatus} UNVERIFIED, null name, language, check time and
-     * version, and no parameters. Every member is always emitted.
+     * version, and no parameters. Every member is always emitted. {@code content} is the fixed template text read with
+     * {@code APPROVED} evidence, and null otherwise (issue 268).
      */
     public record TemplateResponse(SemanticTemplateIntent templateIntent, boolean mapped, boolean enabled,
             String providerTemplateName, String language, List<String> parameterNames,
-            TemplateApprovalStatus approvalStatus, Instant approvalCheckedAt, boolean sendable, Long version) {
+            TemplateApprovalStatus approvalStatus, Instant approvalCheckedAt, TemplateContentResponse content,
+            boolean sendable, Long version) {
+    }
+
+    /** Placeholders are left as written; header and footer are optional. */
+    public record TemplateContentResponse(String headerText, String bodyText, String footerText) {
+        public TemplateContentResponse {
+            Objects.requireNonNull(bodyText, "bodyText is required");
+        }
     }
 
     public record TemplateListResponse(List<TemplateResponse> items) {

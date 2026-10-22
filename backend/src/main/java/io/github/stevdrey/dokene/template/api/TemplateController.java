@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.template.api;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.InvalidRequestException;
+import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateContentResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateListResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateRequest;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateResponse;
@@ -14,6 +15,7 @@ import io.github.stevdrey.dokene.template.application.TemplateRegistryService.En
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Precondition;
 import io.github.stevdrey.dokene.template.application.TemplateRegistryService.Version;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -97,12 +99,18 @@ public class TemplateController {
     private static TemplateResponse toResponse(Entry entry) {
         if (entry.mapping().isEmpty()) {
             return new TemplateResponse(entry.intent(), false, false, null, null, List.of(),
-                    TemplateApprovalStatus.UNVERIFIED, null, false, null);
+                    TemplateApprovalStatus.UNVERIFIED, null, null, false, null);
         }
         TemplateMapping mapping = entry.mapping().get();
         return new TemplateResponse(entry.intent(), true, mapping.enabled(), mapping.providerTemplateName(),
                 mapping.language(), mapping.parameterNames(), mapping.approval().status(),
-                mapping.approval().checkedAt(), entry.sendable(), mapping.version());
+                mapping.approval().checkedAt(), content(mapping.approval().content()), entry.sendable(),
+                mapping.version());
+    }
+
+    private static TemplateContentResponse content(TemplateContent content) {
+        return content == null ? null
+                : new TemplateContentResponse(content.header(), content.body(), content.footer());
     }
 
     /** Exactly one strong canonical numeric precondition, as for the integration endpoint. */

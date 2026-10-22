@@ -90,7 +90,7 @@ public class ApprovalBindingAssembler {
     /**
      * Refuses with {@code TEMPLATE_NOT_MAPPED} when the intent has no sendable mapping, the template language does not
      * match the message locale or a parameter is outside the vocabulary; {@code BODY_REJECTED} when a rendered value
-     * breaks the provider's parameter rules; {@code NO_CONTACT_CONSENT} when the contact's WhatsApp consent is not
+     * breaks the provider's parameter rules or a template without {@code message_body} would not send the body; {@code NO_CONTACT_CONSENT} when the contact's WhatsApp consent is not
      * currently granted.
      */
     public ApprovalFingerprint.Binding bind(OutboundMessage message, Customer customer,
@@ -111,7 +111,8 @@ public class ApprovalBindingAssembler {
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(),
                 consentRevision, new ApprovalFingerprint.TemplateRevision(mapping.version(),
                         mapping.providerTemplateName(), mapping.language(), parameterFormat(mapping.parameterFormat()),
-                        mapping.parameterNames()),
+                        mapping.parameterNames(), mapping.content().header(), mapping.content().body(),
+                        mapping.content().footer()),
                 rendered.values(), sender);
     }
 
@@ -129,6 +130,12 @@ public class ApprovalBindingAssembler {
             TemplateParameter parameter = TemplateParameter.named(name)
                     .orElseThrow(() -> refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED));
             values.add(parameter.render(body, customer));
+        }
+        // A template that does not carry the body sends only its fixed text, so the body must be exactly that text:
+        // what is reviewed, safety-checked and approved is then what the recipient reads (ADR 0025 §2a).
+        if (!mapping.parameterNames().contains(TemplateParameter.MESSAGE_BODY.parameterName())
+                && !body.equals(mapping.content().body())) {
+            throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
         try {
             return new Rendered(mapping, TemplateParameterValues.validate(mapping.parameterNames(), values));

@@ -6,6 +6,7 @@ import {
   TEMPLATE_APPROVAL_STATUSES,
   type IntegrationRequest,
   type IntegrationResponse,
+  type TemplateContent,
   type TemplateListResponse,
   type TemplateResponse
 } from '../types';
@@ -95,6 +96,15 @@ function narrowIntegration(body: unknown): IntegrationResponse {
   };
 }
 
+function isTemplateContent(value: unknown): value is TemplateContent {
+  return (
+    isRecord(value) &&
+    isNullableString(value.headerText) &&
+    isString(value.bodyText) &&
+    isNullableString(value.footerText)
+  );
+}
+
 function narrowTemplate(item: unknown): TemplateResponse {
   if (!isRecord(item)) throw new InvalidIntegrationResponseError();
   const {
@@ -106,6 +116,7 @@ function narrowTemplate(item: unknown): TemplateResponse {
     parameterNames,
     approvalStatus,
     approvalCheckedAt,
+    content,
     sendable,
     version
   } = item;
@@ -119,6 +130,7 @@ function narrowTemplate(item: unknown): TemplateResponse {
     !parameterNames.every(isString) ||
     !isOneOf(TEMPLATE_APPROVAL_STATUSES, approvalStatus) ||
     !isNullableString(approvalCheckedAt) ||
+    !(content === null || isTemplateContent(content)) ||
     !isBoolean(sendable) ||
     !(version === null || isVersion(version))
   ) {
@@ -133,6 +145,7 @@ function narrowTemplate(item: unknown): TemplateResponse {
     parameterNames: [...parameterNames],
     approvalStatus,
     approvalCheckedAt,
+    content: content === null ? null : { ...content },
     sendable,
     version
   };

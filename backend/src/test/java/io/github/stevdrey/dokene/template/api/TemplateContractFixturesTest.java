@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
+import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateContentResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateListResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateRequest;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateResponse;
@@ -106,7 +107,11 @@ class TemplateContractFixturesTest {
                 "enabled: boolean", "providerTemplateName: java.lang.String", "language: java.lang.String",
                 "parameterNames: java.util.List<java.lang.String>",
                 "approvalStatus: io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus",
-                "approvalCheckedAt: java.time.Instant", "sendable: boolean", "version: java.lang.Long"));
+                "approvalCheckedAt: java.time.Instant",
+                "content: io.github.stevdrey.dokene.template.api.TemplateApiContract$TemplateContentResponse",
+                "sendable: boolean", "version: java.lang.Long"));
+        expected.put(TemplateContentResponse.class, List.of("headerText: java.lang.String",
+                "bodyText: java.lang.String", "footerText: java.lang.String"));
         expected.put(TemplateListResponse.class, List.of(
                 "items: java.util.List<io.github.stevdrey.dokene.template.api.TemplateApiContract$TemplateResponse>"));
         assertThat(Arrays.stream(TemplateApiContract.class.getDeclaredClasses()).filter(Class::isRecord)

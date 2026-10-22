@@ -1,11 +1,12 @@
 // ABOUTME: Interprets the components and parameter_format of an approved Graph API message template (issue 218).
-// ABOUTME: Keeps only body placeholder tokens; any other component needing a value, or unknown metadata, fails closed.
+// ABOUTME: Keeps body placeholder tokens and the fixed header/body/footer text; anything needing a value fails closed.
 package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.BodyParameters;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unreadable;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unsupported;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,9 @@ final class GraphApiTemplateSchemaReader {
             return new Unreadable();
         }
         List<String> body = null;
+        String bodyText = null;
+        String headerText = null;
+        String footerText = null;
         boolean unsupported = false;
         for (JsonNode component : components) {
             if (!component.isObject() || !component.path("type").isString()) {
@@ -46,10 +50,17 @@ final class GraphApiTemplateSchemaReader {
                         return new Unreadable();
                     }
                     body = tokens.get();
+                    bodyText = component.path("text").asString();
                     check = ComponentCheck.ALLOWED;
                 }
-                case "HEADER" -> check = header(component);
-                case "FOOTER" -> check = withoutPlaceholders(component.path("text"));
+                case "HEADER" -> {
+                    check = header(component);
+                    headerText = check == ComponentCheck.ALLOWED ? component.path("text").asString() : null;
+                }
+                case "FOOTER" -> {
+                    check = withoutPlaceholders(component.path("text"));
+                    footerText = check == ComponentCheck.ALLOWED ? component.path("text").asString() : null;
+                }
                 case "BUTTONS" -> check = buttons(component.path("buttons"));
                 default -> check = ComponentCheck.UNSUPPORTED;
             }
@@ -61,7 +72,15 @@ final class GraphApiTemplateSchemaReader {
         if (body == null) {
             return new Unreadable();
         }
-        return unsupported ? new Unsupported() : new BodyParameters(format.get(), body);
+        if (unsupported) {
+            return new Unsupported();
+        }
+        try {
+            return new BodyParameters(format.get(), body, new TemplateContent(headerText, bodyText, footerText));
+        } catch (IllegalArgumentException invalidText) {
+            // Blank or NUL-bearing text cannot be shown to a reviewer, so nothing can be concluded from it.
+            return new Unreadable();
+        }
     }
 
     private enum ComponentCheck {

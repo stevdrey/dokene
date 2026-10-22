@@ -6,6 +6,7 @@ import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateMappingRepository;
 import io.github.stevdrey.dokene.template.application.TemplateRefusedException;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping.ApprovalEvidence;
@@ -84,7 +85,9 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                         SET integration_id = ?, provider_template_name = ?, language = ?, parameter_names = ?,
                             enabled = ?, approval_status = 'UNVERIFIED', approval_checked_at = NULL,
                             approval_checked_business_account_id = NULL, approval_checked_version = NULL,
-                            approval_parameter_format = NULL, approval_parameter_checked_at = NULL, updated_at = ?, version = version + 1
+                            approval_parameter_format = NULL, approval_parameter_checked_at = NULL,
+                            approval_header_text = NULL, approval_body_text = NULL, approval_footer_text = NULL,
+                            approval_content_checked_at = NULL, updated_at = ?, version = version + 1
                         WHERE tenant_id = ? AND id = ? AND version = ?
                         RETURNING version
                         """);
@@ -107,18 +110,23 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
     @Override
     public boolean updateApproval(TemplateMapping mapping, long expectedVersion, ApprovalEvidence expected) {
         ApprovalEvidence evidence = mapping.approval();
+        TemplateContent content = evidence.content();
         return jdbc.update("""
                 UPDATE dokene.tenant_provider_templates
                 SET approval_status = ?, approval_checked_at = ?, approval_checked_business_account_id = ?,
                     approval_checked_version = ?, approval_parameter_format = ?, approval_parameter_checked_at = ?,
-                    updated_at = ?
+                    approval_header_text = ?, approval_body_text = ?, approval_footer_text = ?,
+                    approval_content_checked_at = ?, updated_at = ?
                 WHERE tenant_id = ? AND id = ? AND version = ?
                     AND approval_status = ? AND approval_checked_at IS NOT DISTINCT FROM ?
                     AND approval_checked_business_account_id IS NOT DISTINCT FROM ?
                     AND approval_checked_version IS NOT DISTINCT FROM ?
                 """, evidence.status().name(), timestamp(evidence), evidence.checkedBusinessAccountId(),
                 evidence.checkedVersion(), format(evidence),
-                evidence.parameterFormat() == null ? null : timestamp(evidence), Timestamp.from(mapping.updatedAt()),
+                evidence.parameterFormat() == null ? null : timestamp(evidence),
+                content == null ? null : content.header(), content == null ? null : content.body(),
+                content == null ? null : content.footer(), content == null ? null : timestamp(evidence),
+                Timestamp.from(mapping.updatedAt()),
                 mapping.tenantId().value(), mapping.id(), expectedVersion, expected.status().name(),
                 timestamp(expected), expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
     }
@@ -143,6 +151,20 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         return current ? rs.getString("approval_parameter_format") : null;
     }
 
+    /**
+     * Stored content counts only together with a trusted format and when written with the current evidence, by the
+     * same rule as {@link #trustedFormat}: an earlier release rewrites the evidence without touching these columns.
+     */
+    private static TemplateContent trustedContent(ResultSet rs, Timestamp checkedAt, String format)
+            throws SQLException {
+        Timestamp contentCheckedAt = rs.getTimestamp("approval_content_checked_at");
+        String body = rs.getString("approval_body_text");
+        if (format == null || body == null || !checkedAt.equals(contentCheckedAt)) {
+            return null;
+        }
+        return new TemplateContent(rs.getString("approval_header_text"), body, rs.getString("approval_footer_text"));
+    }
+
     private static TemplateMapping map(ResultSet rs) throws SQLException {
         Array names = rs.getArray("parameter_names");
         List<String> parameterNames = List.of((String[]) names.getArray());
@@ -153,7 +175,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                 TemplateApprovalStatus.valueOf(rs.getString("approval_status")),
                 checkedAt == null ? null : checkedAt.toInstant(),
                 rs.getString("approval_checked_business_account_id"), checkedVersion,
-                format == null ? null : TemplateParameterFormat.valueOf(format));
+                format == null ? null : TemplateParameterFormat.valueOf(format), trustedContent(rs, checkedAt, format));
         return new TemplateMapping(rs.getObject("id", UUID.class),
                 new TenantId(rs.getObject("tenant_id", UUID.class)), rs.getObject("integration_id", UUID.class),
                 SemanticTemplateIntent.valueOf(rs.getString("semantic_intent")), rs.getString("provider_template_name"),

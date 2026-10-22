@@ -52,6 +52,13 @@ export interface TemplateRequest {
   enabled: boolean;
 }
 
+/** Placeholders stay as written; header and footer are optional. */
+export interface TemplateContent {
+  headerText: string | null;
+  bodyText: string;
+  footerText: string | null;
+}
+
 export interface TemplateResponse {
   templateIntent: SemanticTemplateIntent;
   mapped: boolean;
@@ -61,6 +68,8 @@ export interface TemplateResponse {
   parameterNames: string[];
   approvalStatus: TemplateApprovalStatus;
   approvalCheckedAt: string | null;
+  /** The fixed template text read with APPROVED evidence; null otherwise (issue 268). */
+  content: TemplateContent | null;
   sendable: boolean;
   version: number | null;
 }

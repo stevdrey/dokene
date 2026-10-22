@@ -28,6 +28,7 @@ import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -69,6 +70,7 @@ import org.springframework.web.context.WebApplicationContext;
 @SpringBootTest(properties = "dokene.ai.provider=fake")
 @Import(ScriptedTemplateProviderGateway.Configuration.class)
 class TemplateRegistryIntegrationTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final AtomicLong NEXT_ID = new AtomicLong(
             300_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "400000000000001";
@@ -266,9 +268,9 @@ class TemplateRegistryIntegrationTest {
     void anApprovalWhoseSchemaDoesNotMatchIsRecordedButNeverSendable() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         var cases = List.of(
-                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")),
+                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"), CONTENT),
                         TemplateApprovalStatus.SCHEMA_MISMATCH),
-                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED, List.of("1", "2")),
+                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED, List.of("1", "2"), CONTENT),
                         TemplateApprovalStatus.SCHEMA_MISMATCH),
                 List.of(new ProviderTemplateSchema.Unsupported(), TemplateApprovalStatus.SCHEMA_UNSUPPORTED),
                 List.of(new ProviderTemplateSchema.Unreadable(), TemplateApprovalStatus.SCHEMA_UNREADABLE));
@@ -297,7 +299,7 @@ class TemplateRegistryIntegrationTest {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                        List.of("product", "customer_name")));
+                        List.of("product", "customer_name"), CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.sendable").value(true));
@@ -349,14 +351,14 @@ class TemplateRegistryIntegrationTest {
 
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                        List.of("customer_name", "product")));
+                        List.of("customer_name", "product"), CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"));
         assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
 
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                        List.of("product", "customer_name")));
+                        List.of("product", "customer_name"), CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
         assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
     }
@@ -433,6 +435,35 @@ class TemplateRegistryIntegrationTest {
         for (int i = 0; i < 2; i++) {
             refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
         }
+    }
+
+    /** Issue 268, V30: the fixed text is returned and trusted only when written with the current evidence. */
+    @Test
+    void theTemplateTextIsTrustedOnlyWithTheEvidenceThatReadIt() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = approved(WABA_ID);
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.bodyText").value(CONTENT.body()))
+                .andExpect(jsonPath("$.content.headerText").doesNotExist());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Resolved.class);
+
+        // Text is only ever stored together with the time of the check that read it, and bounded.
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                + "approval_content_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = NULL "
+                + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = "
+                + "repeat('a', 4097) WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        // An instance of the previous release rewrites the evidence without touching the text: it is not trusted.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = approval_checked_at + interval "
+                + "'1 second', approval_parameter_checked_at = approval_parameter_checked_at + interval '1 second' "
+                + "WHERE tenant_id = ?", tenantA.id().value());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        list(adminA, tenantA).andExpect(jsonPath(
+                "$.items[?(@.templateIntent == 'REPEAT_PURCHASE' && @.content == null)]").isNotEmpty());
     }
 
     @Test
@@ -629,7 +660,7 @@ class TemplateRegistryIntegrationTest {
     /** Approval for the shared TEMPLATE fixture, whose two parameters match a positional {{1}} and {{2}} body. */
     private static TemplateProviderGateway.Reported approved(String businessAccountId) {
         return new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, businessAccountId,
-                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")));
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"), CONTENT));
     }
 
     private String parameterFormat(Tenant tenant) throws SQLException {

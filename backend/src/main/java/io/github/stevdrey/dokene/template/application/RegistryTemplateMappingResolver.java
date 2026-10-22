@@ -48,6 +48,6 @@ public class RegistryTemplateMappingResolver implements TemplateMappingResolver 
         }
         return new Resolved(new ResolvedTemplateMapping(mapping.intent(), mapping.providerTemplateName(),
                 mapping.language(), mapping.approval().parameterFormat(), mapping.parameterNames(),
-                mapping.version()));
+                mapping.approval().content(), mapping.version()));
     }
 }
