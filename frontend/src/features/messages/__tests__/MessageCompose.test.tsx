@@ -142,6 +142,17 @@ describe('compose mode', () => {
     await waitFor(() => expect(server.count(eventsPath(pendingApproval.messageId))).toBe(1));
   });
 
+  it('announces the current status when a replayed submit returns a message that already moved on', async () => {
+    server.on(submitPath(customerId), detailReply(details.sent)).on(eventsPath(details.sent.messageId), eventsReply(details.sent));
+    renderCompose();
+    fireEvent.click(submitButton());
+    confirmSubmit();
+    expect(await screen.findByText(`Revisión ${details.sent.version}`)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Este mensaje ya se había enviado a aprobación. Estado actual: Enviado.'
+    );
+  });
+
   it('starts one submit on a double click', async () => {
     const reply = pending();
     server.on(submitPath(customerId), reply).on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
@@ -180,6 +191,23 @@ describe('compose mode', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent(sentence);
       expect(textarea()).toHaveValue('Texto corregido por el operador.');
       expect(submitButton()).toBeEnabled();
+    });
+
+    it('moves focus to the heading when a refusal closes the confirm group', async () => {
+      server.on(submitPath(customerId), problem('BODY_REJECTED'));
+      renderCompose();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await screen.findByRole('alert');
+      expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
+    });
+
+    it('shows the Retry-After seconds on a 429', async () => {
+      server.on(submitPath(customerId), { ...problem('RATE_LIMITED'), retryAfter: 9 });
+      renderCompose();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      expect(await screen.findByRole('alert')).toHaveTextContent('Se alcanzó el límite de envíos. Espera 9 s.');
     });
 
     it('reuses the key for unchanged text and rotates it after an edit', async () => {
@@ -224,6 +252,25 @@ describe('compose mode', () => {
       const [first, second] = server.all(submitPath(customerId));
       expect(second.headers['If-Match']).toBe('"8"');
       expect(second.headers['Idempotency-Key']).not.toBe(first.headers['Idempotency-Key']);
+    });
+
+    it('adopts a policy version that arrived while submitting once STALE_VERSION comes back', async () => {
+      const reply = pending();
+      server.on(submitPath(customerId), reply, created(pendingApproval));
+      server.on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
+      const view = renderCompose();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+      view.rerenderWith(composeMode({ policyVersion: 8 }));
+      await act(async () => reply.resolve(problem('STALE_VERSION')));
+
+      await waitFor(() => expect(submitButton()).toBeEnabled());
+      expect(screen.queryByRole('alert')).toBeNull();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      expect(await screen.findByText('Revisión 1')).toBeInTheDocument();
+      expect(server.last(submitPath(customerId)).headers['If-Match']).toBe('"8"');
     });
 
     it('resends the same key and body after an unsure submit and locks the text meanwhile', async () => {
@@ -302,7 +349,8 @@ describe('Corregir', () => {
 
     expect(await screen.findByLabelText('Texto final del mensaje')).toHaveValue('Texto aprobado con un error.');
     expect(server.last(cancellationsPath(pendingApproval.messageId)).body).toBe('{}');
-    expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toBeInTheDocument();
+    // The confirm button that had focus left the page, so the draft heading takes it.
+    expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
 
     const next = { ...pendingApproval, messageId: '7a5c0000-0000-4000-8000-0000000000ff', body: 'Texto corregido.' };
     server.on(submitPath(customerId), created(next)).on(eventsPath(next.messageId), eventsReply(next));
@@ -352,6 +400,33 @@ describe('Corregir', () => {
     expect(await screen.findByLabelText('Texto final del mensaje')).toHaveValue('Texto aprobado con un error.');
     const [first, second] = server.all(cancellationsPath(pendingApproval.messageId));
     expect(second.headers['Idempotency-Key']).toBe(first.headers['Idempotency-Key']);
+  });
+
+  it('opens compose when the read after an unsure cancel shows the message cancelled', async () => {
+    await openReview();
+    server
+      .on(cancellationsPath(pendingApproval.messageId), networkFailure())
+      .on(detailPath(pendingApproval.messageId), detailReply(cancelledCopy));
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir' }));
+    const confirm = screen.getByRole('group', { name: 'Confirmar corrección' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Confirmar corrección' }));
+    expect(await screen.findByLabelText('Texto final del mensaje')).toHaveValue('Texto aprobado con un error.');
+    expect(screen.getByRole('status')).toHaveTextContent('Mensaje cancelado. No se enviará al cliente.');
+    expect(server.count(cancellationsPath(pendingApproval.messageId))).toBe(1);
+  });
+
+  it('stays in review when the read after an unsure cancel shows a different change', async () => {
+    await openReview();
+    const approvedMeanwhile = { ...details.approved, messageId: pendingApproval.messageId, version: 2 };
+    server
+      .on(cancellationsPath(pendingApproval.messageId), networkFailure())
+      .on(detailPath(pendingApproval.messageId), detailReply(approvedMeanwhile));
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir' }));
+    const confirm = screen.getByRole('group', { name: 'Confirmar corrección' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Confirmar corrección' }));
+    expect(await screen.findByText('La acción pudo haberse completado. Revisa el estado actual.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Texto final del mensaje')).toBeNull();
+    expect(screen.getByText('Revisión 2')).toBeInTheDocument();
   });
 });
 

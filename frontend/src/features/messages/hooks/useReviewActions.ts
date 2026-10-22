@@ -202,10 +202,16 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       setGroup(null);
       detail.apply(read.value);
       detail.loadEvents();
+      // The lost reply was a cancel for Corregir and the server shows it cancelled, so the copy opens as on success.
+      if (attempt.intent === 'correct' && read.value.detail.status === 'CANCELLED') {
+        announce(COPY.cancelled);
+        onCorrect(read.value.detail);
+        return;
+      }
       setAlert(COPY.mayHaveCompleted);
       if (attempt.intent === 'send' && isAwaitingProvider(read.value.detail)) detail.startPolling();
     },
-    [detail]
+    [announce, detail, onCorrect]
   );
 
   const confirm = useCallback(async () => {
@@ -262,7 +268,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
           keepOpen({ kind: 'refused', message: errorCodeSentence('RATE_LIMITED') });
           return;
         }
-        setLockUntil(Date.now() + RATE_LIMIT_SECONDS * 1000);
+        setLockUntil(Date.now() + (failure.retryAfterSeconds ?? RATE_LIMIT_SECONDS) * 1000);
         setNow(Date.now());
         keepOpen({ kind: 'rateLimited' });
         return;

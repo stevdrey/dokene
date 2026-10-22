@@ -44,6 +44,10 @@ const queuedFromApproved = variant(details.queued, { messageId: approved.message
 const sentFromApproved = variant(details.sent, { messageId: approved.messageId });
 const deliveredFromApproved = variant(details.delivered, { messageId: approved.messageId });
 const backToApproved = variant(details.approvedAfterTransientFailure, { messageId: approved.messageId, version: 3 });
+// Replies must describe the message that was asked about; a fixture of another message is re-identified first.
+const approvedHere = variant(approved, { messageId: pendingApproval.messageId });
+const rejectedHere = variant(details.rejected, { messageId: pendingApproval.messageId });
+const cancelledHere = variant(details.cancelled, { messageId: pendingApproval.messageId });
 
 function serve(detail: MessageResponse) {
   server.on(detailPath(detail.messageId), detailReply(detail)).on(eventsPath(detail.messageId), eventsReply(detail));
@@ -91,14 +95,15 @@ describe('review actions', () => {
   describe('approve, reject and cancel', () => {
     it('approves with If-Match and a key, announces it, and never calls /sends', async () => {
       await openMessage(pendingApproval);
-      server.on(approvalsPath(pendingApproval.messageId), created(approved));
+      server.on(approvalsPath(pendingApproval.messageId), created(approvedHere));
       click('Aprobar');
       const confirm = group('Confirmar aprobación');
       expect(confirm).toHaveTextContent('Para Ana Pérez · •••• 0001');
       expect(within(confirm).getByRole('button', { name: 'Confirmar aprobación' })).toHaveFocus();
       click('Confirmar aprobación', confirm);
 
-      expect(await screen.findByText('Mensaje aprobado. Aún no se ha enviado.')).toBe(liveRegion());
+      await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
+      expect(liveRegion()).toHaveTextContent('Mensaje aprobado. Aún no se ha enviado.');
       const call = server.last(approvalsPath(pendingApproval.messageId));
       expect(call.headers['If-Match']).toBe('"1"');
       expect(call.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
@@ -122,13 +127,13 @@ describe('review actions', () => {
       fireEvent.keyDown(confirm, { key: 'Escape' });
       expect(group('Confirmar aprobación')).toBeInTheDocument();
 
-      await act(async () => reply.resolve(created(approved)));
+      await act(async () => reply.resolve(created(approvedHere)));
       expect(await screen.findByText('Mensaje aprobado. Aún no se ha enviado.')).toBeInTheDocument();
     });
 
     it('moves focus to the heading once a confirmed action closes its group', async () => {
       await openMessage(pendingApproval);
-      server.on(approvalsPath(pendingApproval.messageId), created(approved));
+      server.on(approvalsPath(pendingApproval.messageId), created(approvedHere));
       click('Aprobar');
       click('Confirmar aprobación', group('Confirmar aprobación'));
       await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
@@ -146,7 +151,7 @@ describe('review actions', () => {
 
     it('rejects with a bounded note, focusing the note first', async () => {
       await openMessage(pendingApproval);
-      server.on(approvalsPath(pendingApproval.messageId), created(details.rejected));
+      server.on(approvalsPath(pendingApproval.messageId), created(rejectedHere));
       click('Rechazar');
       const confirm = group('Confirmar rechazo');
       const note = within(confirm).getByLabelText('Nota (opcional)');
@@ -164,7 +169,7 @@ describe('review actions', () => {
 
     it('cancels with an empty body when no note is given', async () => {
       await openMessage(pendingApproval);
-      server.on(cancellationsPath(pendingApproval.messageId), created(details.cancelled));
+      server.on(cancellationsPath(pendingApproval.messageId), created(cancelledHere));
       click('Cancelar');
       click('Confirmar cancelación', group('Confirmar cancelación'));
       expect(await screen.findByText('Mensaje cancelado. No se enviará al cliente.')).toBeInTheDocument();
@@ -182,7 +187,7 @@ describe('review actions', () => {
       fireEvent.click(confirmButton);
       expect(confirmButton).toBeDisabled();
       expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1);
-      await act(async () => reply.resolve(created(approved)));
+      await act(async () => reply.resolve(created(approvedHere)));
       expect(await screen.findByText('Revisión 2')).toBeInTheDocument();
     });
 
@@ -220,7 +225,7 @@ describe('review actions', () => {
       await openMessage(pendingApproval);
       server
         .on(approvalsPath(pendingApproval.messageId), problem(code))
-        .on(detailPath(pendingApproval.messageId), detailReply(details.cancelled));
+        .on(detailPath(pendingApproval.messageId), detailReply(cancelledHere));
       click('Aprobar');
       click('Confirmar aprobación', group('Confirmar aprobación'));
       expect(await screen.findByText('Este mensaje cambió: ahora está Cancelado.')).toBeInTheDocument();
@@ -470,12 +475,15 @@ describe('review actions', () => {
       const confirm = group('Confirmar envío');
       click('Confirmar envío', confirm);
       await flush();
-      expect(within(confirm).getByRole('alert')).toHaveTextContent('Se alcanzó el límite de envíos. Espera 60 s.');
+      // The alert fires once; the ticking count lives outside it so it is not announced every second.
+      expect(within(confirm).getByRole('alert')).toHaveTextContent(/^Se alcanzó el límite de envíos\.$/);
+      expect(confirm).toHaveTextContent('Se alcanzó el límite de envíos. Espera 60 s.');
       expect(within(confirm).getByRole('button', { name: 'Confirmar envío' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
 
       await advance(1000);
-      expect(within(confirm).getByRole('alert')).toHaveTextContent('Espera 59 s.');
+      expect(within(confirm).getByRole('alert')).toHaveTextContent(/^Se alcanzó el límite de envíos\.$/);
+      expect(confirm).toHaveTextContent('Espera 59 s.');
       await advance(59000);
       const confirmButton = within(group('Confirmar envío')).getByRole('button', { name: 'Confirmar envío' });
       expect(confirmButton).toBeEnabled();
@@ -484,6 +492,48 @@ describe('review actions', () => {
       await flush();
       const [first, second] = server.all(sendsPath(approved.messageId));
       expect(second.headers['Idempotency-Key']).toBe(first.headers['Idempotency-Key']);
+    });
+
+    it('locks Enviar for the Retry-After seconds when the 429 carries one', async () => {
+      await openWithFakeTimers(approved);
+      server.on(sendsPath(approved.messageId), { ...problem('RATE_LIMITED'), retryAfter: 7 });
+      click('Enviar');
+      const confirm = group('Confirmar envío');
+      click('Confirmar envío', confirm);
+      await flush();
+      expect(confirm).toHaveTextContent('Se alcanzó el límite de envíos. Espera 7 s.');
+      expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
+      await advance(7000);
+      expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
+      expect(within(group('Confirmar envío')).getByRole('button', { name: 'Confirmar envío' })).toBeEnabled();
+    });
+
+    it('ends the poll at the deadline when a tick never answers, and leaves Actualizar', async () => {
+      await openWithFakeTimers(approved);
+      server.on(sendsPath(approved.messageId), created(queuedFromApproved)).on(detailPath(approved.messageId), pending());
+      click('Enviar');
+      click('Confirmar envío', group('Confirmar envío'));
+      await flush();
+      expect(screen.queryByRole('button', { name: 'Actualizar' })).toBeNull();
+      await advance(22000);
+      expect(screen.getByRole('button', { name: 'Actualizar' })).toBeInTheDocument();
+      expect(screen.getByText('En cola')).toBeInTheDocument();
+    });
+
+    it('announces a repeated identical outcome again', async () => {
+      await openMessage(approved);
+      server.on(sendsPath(approved.messageId), created(backToApproved), created(variant(backToApproved, { version: 4 })));
+      click('Enviar');
+      click('Confirmar envío', group('Confirmar envío'));
+      expect(await screen.findByText('Revisión 3')).toBeInTheDocument();
+      const first = liveRegion().firstElementChild;
+      expect(first).toHaveTextContent('Envío procesado. Estado actual: Aprobado.');
+      click('Enviar');
+      click('Confirmar envío', group('Confirmar envío'));
+      expect(await screen.findByText('Revisión 4')).toBeInTheDocument();
+      const second = liveRegion().firstElementChild;
+      expect(second).toHaveTextContent('Envío procesado. Estado actual: Aprobado.');
+      expect(second).not.toBe(first);
     });
 
     it('keeps Enviar locked after the rate limited group is closed', async () => {
@@ -555,7 +605,8 @@ describe('review actions', () => {
       const eventsBefore = server.count(eventsPath(queued.messageId));
       click('Actualizar');
       expect(await screen.findByText('Entregado')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Actualizar' })).toBeNull();
+      // DELIVERED is not terminal (READ may follow), so Actualizar stays.
+      expect(screen.getByRole('button', { name: 'Actualizar' })).toBeInTheDocument();
       await waitFor(() => expect(server.count(eventsPath(queued.messageId))).toBe(eventsBefore + 1));
     });
 
@@ -573,6 +624,35 @@ describe('review actions', () => {
       server.on(detailPath(queued.messageId), status(404));
       click('Actualizar');
       expect(await screen.findByText('Este mensaje ya no está disponible.')).toBeInTheDocument();
+    });
+
+    it('reads a delivered message again so a later READ can show', async () => {
+      const delivered = details.delivered;
+      await openMessage(delivered);
+      server.on(detailPath(delivered.messageId), detailReply(variant(details.read, { messageId: delivered.messageId })));
+      click('Actualizar');
+      expect(await screen.findByText('Leído')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Actualizar' })).toBeNull();
+    });
+
+    it('drops an earlier Actualizar reply that lands after a later one', async () => {
+      await openMessage(queued);
+      const delivered = variant(details.delivered, { messageId: queued.messageId });
+      const first = pending();
+      const second = pending();
+      server.on(detailPath(queued.messageId), first, second);
+      click('Actualizar');
+      click('Actualizar');
+      await waitFor(() => expect(server.count(detailPath(queued.messageId))).toBe(3));
+
+      await act(async () => second.resolve(detailReply(delivered)));
+      expect(await screen.findByText('Entregado')).toBeInTheDocument();
+      await act(async () => {
+        first.resolve(detailReply(queued));
+        await new Promise((settle) => setTimeout(settle, 0));
+      });
+      expect(screen.getByText('Entregado')).toBeInTheDocument();
+      expect(screen.queryByText('En cola')).toBeNull();
     });
   });
 });

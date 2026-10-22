@@ -214,11 +214,11 @@ describe('MessageReview review mode', () => {
       ['pendingApproval', ['Aprobar', 'Rechazar', 'Cancelar', 'Corregir']],
       ['approved', ['Enviar', 'Cancelar', 'Corregir']],
       ['approvedAfterTransientFailure', ['Enviar', 'Cancelar', 'Corregir']],
-      ['approvedContactRemoved', ['Cancelar', 'Corregir']],
+      ['approvedContactRemoved', ['Cancelar']],
       ['queued', ['Actualizar']],
       ['sent', ['Actualizar']],
       ['sendingOutcomeUnknown', ['Actualizar']],
-      ['delivered', []],
+      ['delivered', ['Actualizar']],
       ['read', []],
       ['failedPermanently', []],
       ['failedByWebhook', []],
@@ -236,6 +236,15 @@ describe('MessageReview review mode', () => {
       for (const button of actions() ? within(actions()!).queryAllByRole('button') : []) {
         expect(button).toBeEnabled();
       }
+    });
+
+    it('offers a pending message whose contact was removed only Rechazar and Cancelar', async () => {
+      const detail = variant(details.pendingApproval, { contactRemoved: true });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      expect(buttonNames()).toEqual(['Rechazar', 'Cancelar']);
+      expect(screen.getByText(/cancélalo y vuelve a redactarlo con el número correcto/)).toBeInTheDocument();
     });
 
     it('offers the polling row a SENDING message not yet frozen as Actualizar when no poll runs', async () => {

@@ -9,7 +9,9 @@ import {
   MESSAGE_EVENT_TYPES,
   MESSAGE_ORIGINS,
   MESSAGE_STATUSES,
+  SEND_ATTEMPT_OUTCOMES,
   type ApprovalDecision,
+  type AttemptSummary,
   type MessageEventItem,
   type MessageListItem,
   type MessagePageResponse,
@@ -53,6 +55,20 @@ function isOneOf<T extends string>(allowed: readonly T[], value: unknown): value
   return typeof value === 'string' && (allowed as readonly string[]).includes(value);
 }
 
+function isNullableFailureCategory(value: unknown): boolean {
+  return value === null || isOneOf(FAILURE_CATEGORIES, value);
+}
+
+function isAttempt(value: unknown): value is AttemptSummary {
+  return (
+    isRecord(value) &&
+    isCount(value.attemptNumber) &&
+    isString(value.startedAt) &&
+    isOneOf(SEND_ATTEMPT_OUTCOMES, value.outcome) &&
+    isNullableFailureCategory(value.failureCategory)
+  );
+}
+
 /** The version is the strong numeric ETag; a weak, missing or mismatched one is never read as version 0. */
 export function parseMessageVersion(etag: string | null, bodyVersion: unknown): number {
   const match = etag === null ? null : STRONG_NUMERIC_ETAG.exec(etag);
@@ -73,7 +89,7 @@ function narrowDetail(body: unknown): MessageResponse {
     isOneOf(MESSAGE_CHANNELS, body.channel) &&
     isOneOf(MESSAGE_STATUSES, body.status) &&
     typeof body.outcomeUnknown === 'boolean' &&
-    (body.failureCategory === null || isOneOf(FAILURE_CATEGORIES, body.failureCategory)) &&
+    isNullableFailureCategory(body.failureCategory) &&
     isOneOf(SEMANTIC_ACTIONS, body.action) &&
     isOneOf(SEMANTIC_TEMPLATE_INTENTS, body.templateIntent) &&
     isString(body.locale) &&
@@ -81,7 +97,7 @@ function narrowDetail(body: unknown): MessageResponse {
     isString(body.body) &&
     isCount(body.sourcePolicyVersion) &&
     Array.isArray(body.attempts) &&
-    body.attempts.every((attempt) => isRecord(attempt) && isCount(attempt.attemptNumber) && isString(attempt.outcome)) &&
+    body.attempts.every(isAttempt) &&
     isNullableString(body.sentAt) &&
     isNullableString(body.deliveredAt) &&
     isNullableString(body.readAt) &&
@@ -99,6 +115,8 @@ function isEvent(value: unknown): value is MessageEventItem {
     isOneOf(MESSAGE_STATUSES, value.statusTo) &&
     typeof value.applied === 'boolean' &&
     isOneOf(MESSAGE_ACTOR_KINDS, value.actorKind) &&
+    isNullableFailureCategory(value.failureCategory) &&
+    (value.attemptNumber === null || isCount(value.attemptNumber)) &&
     isString(value.occurredAt)
   );
 }
@@ -128,8 +146,10 @@ function narrowPage(body: unknown): MessagePageResponse {
   return { items: body.items, nextCursor: body.nextCursor };
 }
 
-function versioned(data: unknown, etag: string | null): VersionedMessage {
+/** A detail for another message than the one asked for is refused, so no command can target what is not shown. */
+function versioned(data: unknown, etag: string | null, expectedMessageId?: string): VersionedMessage {
   const detail = narrowDetail(data);
+  if (expectedMessageId !== undefined && detail.messageId !== expectedMessageId) throw new InvalidMessageResponseError();
   return { detail, version: parseMessageVersion(etag, detail.version) };
 }
 
@@ -156,7 +176,7 @@ export const messageApi = {
 
   async getDetail(messageId: string, signal?: AbortSignal): Promise<VersionedMessage> {
     const { data, etag } = await httpClient.request<unknown>(messagePath(messageId), { signal });
-    return versioned(data, etag);
+    return versioned(data, etag, messageId);
   },
 
   async getEvents(messageId: string, signal?: AbortSignal): Promise<MessageEventItem[]> {
@@ -196,7 +216,7 @@ export const messageApi = {
       idempotencyKey,
       signal
     });
-    return versioned(data, etag);
+    return versioned(data, etag, messageId);
   },
 
   async cancel(
@@ -213,7 +233,7 @@ export const messageApi = {
       idempotencyKey,
       signal
     });
-    return versioned(data, etag);
+    return versioned(data, etag, messageId);
   },
 
   /** No body, so the shared client sends no Content-Type either. */
@@ -224,6 +244,6 @@ export const messageApi = {
       idempotencyKey,
       signal
     });
-    return versioned(data, etag);
+    return versioned(data, etag, messageId);
   }
 };

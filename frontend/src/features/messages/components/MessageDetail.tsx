@@ -14,10 +14,10 @@ import {
   attemptOutcomeLabel,
   failureCategoryLabel,
   originLabel,
-  rateLimitedSentence,
   revisionLabel,
   statusBadgeVariant,
-  statusLabel
+  statusLabel,
+  waitSentence
 } from '../utils/messageLabels';
 import { canActOnMessages } from '../utils/permissions';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
@@ -86,21 +86,28 @@ const INTENT_COPY: Record<ReviewIntent, IntentCopy> = {
 
 type Controls = { kind: 'intents'; intents: ReviewIntent[] } | { kind: 'refresh' } | { kind: 'none' };
 
-/** The action state matrix of spec 0011; the server still decides every transition. */
+/**
+ * The action state matrix of spec 0011; the server still decides every transition. A removed contact can only be
+ * rejected or cancelled (spec 0001 contact lifecycle rule): approving or sending is refused with CONTACT_NOT_OWNED,
+ * and Corregir would copy the removed contact into a draft that can never be submitted.
+ */
 export function controlsFor(detail: MessageResponse, poll: PollState): Controls {
   switch (detail.status) {
     case 'PENDING_APPROVAL':
-      return { kind: 'intents', intents: ['approve', 'reject', 'cancel', 'correct'] };
-    case 'APPROVED':
       return {
         kind: 'intents',
-        intents: detail.contactRemoved ? ['cancel', 'correct'] : ['send', 'cancel', 'correct']
+        intents: detail.contactRemoved ? ['reject', 'cancel'] : ['approve', 'reject', 'cancel', 'correct']
       };
+    case 'APPROVED':
+      return { kind: 'intents', intents: detail.contactRemoved ? ['cancel'] : ['send', 'cancel', 'correct'] };
     case 'QUEUED':
     case 'SENT':
       return poll === 'active' ? { kind: 'none' } : { kind: 'refresh' };
     case 'SENDING':
       return detail.outcomeUnknown || poll !== 'active' ? { kind: 'refresh' } : { kind: 'none' };
+    case 'DELIVERED':
+      // Not terminal: a later provider report can still move it to READ, so a manual read stays available.
+      return { kind: 'refresh' };
     default:
       return { kind: 'none' };
   }
@@ -322,14 +329,20 @@ interface ActionConfirmProps {
 function ActionConfirm({ group, actions, recipient, customerName, onDismiss }: ActionConfirmProps) {
   const copy = INTENT_COPY[group.intent];
   const { step } = group;
-  const alertText =
-    step.kind === 'refused'
-      ? step.message
-      : step.kind === 'uncertain'
-        ? COPY.unconfirmed
-        : step.kind === 'rateLimited'
-          ? rateLimitedSentence(actions.lockSeconds)
-          : null;
+  const alertText = step.kind === 'refused' ? step.message : step.kind === 'uncertain' ? COPY.unconfirmed : null;
+  // The lockout is announced once; the count that changes every second stays out of the live region.
+  const alert =
+    step.kind === 'rateLimited' ? (
+      <p className="message-review__notice message-review__notice--error">
+        <span role="alert">{COPY.sendLimitReached}</span> <span>{waitSentence(actions.lockSeconds)}</span>
+      </p>
+    ) : (
+      alertText && (
+        <p role="alert" className="message-review__notice message-review__notice--error">
+          {alertText}
+        </p>
+      )
+    );
 
   return (
     <ConfirmGroup
@@ -341,13 +354,7 @@ function ActionConfirm({ group, actions, recipient, customerName, onDismiss }: A
           ? { value: group.note, onChange: actions.setNote, readOnly: step.kind === 'uncertain' }
           : undefined
       }
-      alert={
-        alertText && (
-          <p role="alert" className="message-review__notice message-review__notice--error">
-            {alertText}
-          </p>
-        )
-      }
+      alert={alert}
       confirmLabel={step.kind === 'uncertain' ? 'Reintentar' : copy.confirm}
       confirmVariant={copy.variant === 'danger' ? 'danger' : 'primary'}
       busy={step.kind === 'submitting'}

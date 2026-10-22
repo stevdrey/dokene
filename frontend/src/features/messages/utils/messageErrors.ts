@@ -14,7 +14,7 @@ export type MessageFailure =
   | { kind: 'notFound' }
   /** The held version is no longer current; read the message again. */
   | { kind: 'reload'; code: ReloadCode }
-  | { kind: 'rateLimited' }
+  | { kind: 'rateLimited'; retryAfterSeconds?: number }
   /** The command may have landed; read the server state before saying anything. */
   | { kind: 'uncertain' }
   | { kind: 'refused'; code: MessagingErrorCode }
@@ -40,8 +40,9 @@ export function classifyFailure(error: unknown): MessageFailure {
   if (isAbort(error)) return { kind: 'dropped' };
   // fetch rejects with a TypeError when the network fails, so the server may or may not have acted.
   if (error instanceof TypeError) return { kind: 'uncertain' };
-  // A 2xx whose body or ETag cannot be trusted still means the command may have landed.
-  if (error instanceof InvalidMessageResponseError) return { kind: 'uncertain' };
+  // A 2xx whose body or ETag cannot be trusted still means the command may have landed. The same holds for a 2xx
+  // whose JSON the client could not parse: response.json() throws a SyntaxError after the server already answered.
+  if (error instanceof InvalidMessageResponseError || error instanceof SyntaxError) return { kind: 'uncertain' };
   if (!(error instanceof ApiError)) return { kind: 'unexpected' };
   if (error.status === 401) return { kind: 'sessionEnded' };
   // The filter answers 403 with an empty body, so the status alone decides.
@@ -50,6 +51,6 @@ export function classifyFailure(error: unknown): MessageFailure {
   const code = problemCode(error);
   if (code === null) return error.status >= 500 ? { kind: 'uncertain' } : { kind: 'unexpected' };
   if (RELOAD_CODES.includes(code)) return { kind: 'reload', code: code as ReloadCode };
-  if (code === 'RATE_LIMITED') return { kind: 'rateLimited' };
+  if (code === 'RATE_LIMITED') return { kind: 'rateLimited', retryAfterSeconds: error.retryAfterSeconds };
   return { kind: 'refused', code };
 }

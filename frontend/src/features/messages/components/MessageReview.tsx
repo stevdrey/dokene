@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { httpClient } from '@/shared/api/httpClient';
 import type { VersionedMessage } from '../api/messageApi';
 import type { MessageResponse } from '../types';
-import { COPY } from '../utils/messageLabels';
+import { submittedSentence } from '../utils/messageLabels';
 import { MessageCompose, type ComposeInput } from './MessageCompose';
 import { MessageDetail } from './MessageDetail';
 import './MessageReview.css';
@@ -40,17 +40,22 @@ export function MessageReview(props: MessageReviewProps) {
 
 function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale }: MessageReviewProps) {
   const [current, setCurrent] = useState<Current>({ kind: 'fromProps' });
-  const [announcement, setAnnouncement] = useState('');
+  // Each announcement gets a new sequence so a repeated sentence still replaces the live region's child node;
+  // an unchanged string alone would make no DOM mutation and assistive technology would stay silent.
+  const [announcement, setAnnouncement] = useState({ sequence: 0, text: '' });
 
-  const announce = useCallback((text: string) => setAnnouncement(text), []);
+  const announce = useCallback(
+    (text: string) => setAnnouncement((previous) => ({ sequence: previous.sequence + 1, text })),
+    []
+  );
 
   const handleSubmitted = useCallback(
     (read: VersionedMessage, customerDisplayName: string) => {
       setCurrent({ kind: 'review', messageId: read.detail.messageId, customerDisplayName, initial: read });
-      setAnnouncement(COPY.submitted);
+      announce(submittedSentence(read.detail.status));
       onSubmitted?.(read.detail.messageId);
     },
-    [onSubmitted]
+    [announce, onSubmitted]
   );
 
   const handleCorrect = useCallback((cancelled: MessageResponse, customerDisplayName: string | undefined) => {
@@ -108,7 +113,7 @@ function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale 
     <div className="message-review-root">
       {view}
       <p role="status" className="message-review__live">
-        {announcement}
+        {announcement.text !== '' && <span key={announcement.sequence}>{announcement.text}</span>}
       </p>
     </div>
   );

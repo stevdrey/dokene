@@ -20,6 +20,10 @@ export interface Reply {
   etag?: string;
   /** Rejects with this instead of answering, as fetch does on a network failure. */
   error?: Error;
+  /** Sent as a delta-seconds `Retry-After` header. */
+  retryAfter?: number;
+  /** Raw body text, for a reply whose JSON must not parse. */
+  rawBody?: string;
 }
 
 export interface Pending {
@@ -64,7 +68,9 @@ function toResponse(reply: Reply): Response {
   if (reply.error) throw reply.error;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (reply.etag) headers.ETag = reply.etag;
-  return new Response(reply.body === undefined ? null : JSON.stringify(reply.body), { status: reply.status, headers });
+  if (reply.retryAfter !== undefined) headers['Retry-After'] = String(reply.retryAfter);
+  const body = reply.rawBody ?? (reply.body === undefined ? null : JSON.stringify(reply.body));
+  return new Response(body, { status: reply.status, headers });
 }
 
 export const historyPath = (customerId: string, cursor: string | null = null) => {

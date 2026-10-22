@@ -40,7 +40,7 @@ export interface MessageDetailHandle {
   poll: PollState;
   retry: () => void;
   loadEvents: () => void;
-  /** Reads the detail without touching the held state; callers decide what to apply. */
+  /** Reads the detail without touching the held state; callers decide what to apply. A reply overtaken by a later read is dropped. */
   readAgain: () => Promise<Outcome<VersionedMessage>>;
   apply: (read: VersionedMessage) => void;
   markNotFound: () => void;
@@ -146,9 +146,11 @@ export function useMessageDetail(messageId: string, initial?: VersionedMessage):
     });
   }, [apply, commit, messageId, runWith]);
 
-  const readAgain = useCallback(() => {
-    detailSeq.current += 1;
-    return runWith((signal) => messageApi.getDetail(messageId, signal));
+  const readAgain = useCallback(async (): Promise<Outcome<VersionedMessage>> => {
+    const seq = ++detailSeq.current;
+    const outcome = await runWith((signal) => messageApi.getDetail(messageId, signal));
+    // Two overlapping reads can resolve out of order; only the latest one may be applied.
+    return seq === detailSeq.current ? outcome : DROPPED;
   }, [messageId, runWith]);
 
   const retry = useCallback(() => {
@@ -165,8 +167,21 @@ export function useMessageDetail(messageId: string, initial?: VersionedMessage):
     const controller = new AbortController();
     pollTick.current = controller;
     const held = stateRef.current;
+    // A tick that never answers would otherwise hold the poll active past the window; the deadline aborts it.
+    let deadlineHit = false;
+    const deadline = setTimeout(() => {
+      deadlineHit = true;
+      controller.abort();
+    }, Math.max(0, pollDeadline.current - Date.now()));
     const outcome = await runWith((signal) => messageApi.getDetail(messageId, signal), controller);
-    if (pollTick.current !== controller || outcome.kind === 'dropped') return;
+    clearTimeout(deadline);
+    if (pollTick.current !== controller) return;
+    if (deadlineHit) {
+      pollTick.current = null;
+      setPoll('exhausted');
+      return;
+    }
+    if (outcome.kind === 'dropped') return;
     pollTick.current = null;
     if (outcome.kind === 'failed') {
       if (outcome.failure.kind === 'notFound') return markNotFound();
