@@ -52,9 +52,19 @@ node --test .agents/scripts/pr-size-preflight.test.mjs
 ```
 
 The preflight counts unique committed, staged, unstaged, and non-ignored untracked paths relative to the merge base of
-`origin/main`. This is an estimate of the eventual PR diff, not a substitute for the GitHub check. For a deliberately
-stacked PR targeting another branch, use `PR_PREFLIGHT_BASE=origin/target-branch` after fetching that branch, or
-pass `--base origin/target-branch` to the manual command. If the baseline is missing, the preflight fails closed.
+`origin/main`. This is an estimate of the eventual PR diff, not a substitute for the GitHub check. If the baseline is
+missing, the preflight fails closed.
+
+A deliberately stacked PR is measured against the branch it targets, after fetching that branch:
+
+- `gh pr create --base target-branch` (also `-B` or `--base=`) is measured against `origin/target-branch`.
+- `git push` uses the base the current branch declares with
+  `git config branch.<branch>.prPreflightBase origin/target-branch`.
+- The manual command accepts `--base origin/target-branch`, and `PR_PREFLIGHT_BASE=origin/target-branch` applies to
+  any run.
+
+A stacked base must be an existing `origin/` branch other than the branch being published; otherwise the preflight
+fails closed.
 
 ### Claude Code
 

@@ -8,6 +8,10 @@ const DEFAULT_BASE_REF = 'origin/main';
 
 // This hook is a local convenience, not an authorization boundary: CI is authoritative.
 const PUBLISH_COMMAND = /(?:^|[\s;&|()])(?:gh\s+pr\s+create|git\s+(?:(?:-C|-c|--git-dir|--work-tree)\s+(?:"[^"]*"|'[^']*'|\S+)\s+)*push)(?=$|[\s;&|()])/;
+// The base branch a `gh pr create` names with --base, -B or --base=, quoted or not.
+const PR_CREATE_BASE = /(?:^|[\s;&|()])gh\s+pr\s+create\b[^;&|]*?\s(?:--base|-B)(?:=|\s+)("[^"]*"|'[^']*'|[^\s;&|()]+)/;
+// Per-branch declaration of a stacked PR's base, for publish commands that do not name one (`git push`).
+const BRANCH_BASE_KEY = 'prPreflightBase';
 
 function git(cwd, ...args) {
   const result = spawnSync('git', args, {
@@ -21,6 +25,13 @@ function git(cwd, ...args) {
     throw new Error(`git ${args[0]} failed: ${detail}`);
   }
   return result.stdout;
+}
+
+/** Like git(), but a non-zero exit (unset config, detached HEAD) answers null instead of failing. */
+function gitOptional(cwd, ...args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
+  if (result.error) throw new Error(`git ${args[0]} failed: ${result.error.message}`);
+  return result.status === 0 ? result.stdout.trim() || null : null;
 }
 
 function pathsFromNullSeparated(buffer) {
@@ -48,7 +59,32 @@ async function hookInput() {
   return value;
 }
 
-function baseReference(args) {
+function unquote(value) {
+  return /^(["']).*\1$/.test(value) ? value.slice(1, -1) : value;
+}
+
+/**
+ * A stacked PR is measured against the branch it targets, never against itself. The base must be an existing
+ * remote-tracking branch other than the current branch's own, so a branch cannot hide its changes by naming its
+ * already pushed state as the base. CI still counts the real PR, so this only keeps the local estimate honest.
+ */
+function stackedBase(cwd, name) {
+  const ref = name.startsWith('origin/') ? name : `origin/${name}`;
+  const branch = gitOptional(cwd, 'symbolic-ref', '--short', '-q', 'HEAD');
+  if (branch && ref === `origin/${branch}`) {
+    throw new Error(`${ref} is the branch being published, not the base it stacks on`);
+  }
+  if (!gitOptional(cwd, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`)) {
+    throw new Error(`Base ${ref} does not exist; fetch it with 'git fetch origin ${ref.slice('origin/'.length)}'`);
+  }
+  return ref;
+}
+
+/**
+ * In order: the manual --base argument, the base a `gh pr create` names, PR_PREFLIGHT_BASE, the current branch's
+ * `branch.<name>.prPreflightBase` setting, and otherwise origin/main.
+ */
+function baseReference(args, cwd, command) {
   const index = args.indexOf('--base');
   if (index !== -1) {
     if (index + 1 >= args.length || !args[index + 1] || args[index + 1].startsWith('--')) {
@@ -56,18 +92,27 @@ function baseReference(args) {
     }
     return args[index + 1];
   }
-  return process.env.PR_PREFLIGHT_BASE || DEFAULT_BASE_REF;
+  const named = command ? PR_CREATE_BASE.exec(command) : null;
+  if (named) {
+    const base = unquote(named[1]);
+    return base === 'main' || base === DEFAULT_BASE_REF ? DEFAULT_BASE_REF : stackedBase(cwd, base);
+  }
+  if (process.env.PR_PREFLIGHT_BASE) return process.env.PR_PREFLIGHT_BASE;
+  const branch = gitOptional(cwd, 'symbolic-ref', '--short', '-q', 'HEAD');
+  const declared = branch ? gitOptional(cwd, 'config', '--get', `branch.${branch}.${BRANCH_BASE_KEY}`) : null;
+  return declared ? stackedBase(cwd, declared) : DEFAULT_BASE_REF;
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const fromHook = args.includes('--hook');
   let cwd = process.cwd();
+  let command = '';
 
   if (fromHook) {
     const payload = await hookInput();
     const toolInput = payload.tool_input;
-    const command = typeof toolInput.command === 'string'
+    command = typeof toolInput.command === 'string'
       ? toolInput.command
       : Array.isArray(toolInput.cmd) ? toolInput.cmd.join(' ') : '';
 
@@ -75,7 +120,7 @@ async function main() {
     if (typeof payload.cwd === 'string' && payload.cwd) cwd = payload.cwd;
   }
 
-  const baseRef = baseReference(args);
+  const baseRef = baseReference(args, cwd, command);
   const count = changedFiles(cwd, baseRef);
   const result = `PR preflight: ${count}/${MAX_FILES} changed files relative to ${baseRef}.`;
 
@@ -92,6 +137,6 @@ async function main() {
 try {
   await main();
 } catch (error) {
-  console.error(`BLOCKED: PR preflight could not verify the change scope: ${error.message}. Refresh the base reference with 'git fetch origin main' and retry.`);
+  console.error(`BLOCKED: PR preflight could not verify the change scope: ${error.message}. Refresh the base reference (for example 'git fetch origin main') and retry.`);
   process.exitCode = 2;
 }

@@ -154,6 +154,60 @@ test('custom base reference supports intentionally stacked work', t => {
   assert.match(result.stdout, /1\/40/);
 });
 
+/** A first layer of 41 files pushed as origin/staging, and one more file on top of it. */
+function stackedRepository(t) {
+  const cwd = repository(t);
+  createFiles(cwd, 41);
+  git(cwd, 'add', '.');
+  git(cwd, 'commit', '-qm', 'first stacked layer');
+  git(cwd, 'update-ref', 'refs/remotes/origin/staging', 'HEAD');
+  writeFileSync(join(cwd, 'added-second-layer.txt'), 'one\n');
+  return cwd;
+}
+
+test('a pull request created on top of another branch is measured against that branch', t => {
+  const cwd = stackedRepository(t);
+  for (const shellCommand of [
+    'gh pr create --base staging --fill',
+    'gh pr create --fill -B staging',
+    'gh pr create --base=origin/staging --fill',
+    'gh pr create --base "staging" --title x --body-file body.md',
+  ]) {
+    const result = hook(cwd, shellCommand);
+    assert.equal(result.status, 0, `${shellCommand}: ${result.stderr}`);
+  }
+  for (const shellCommand of ['gh pr create --fill', 'gh pr create --base main --fill']) {
+    const result = hook(cwd, shellCommand);
+    assert.equal(result.status, 2, shellCommand);
+    assert.match(result.stderr, /BLOCKED.*42\/40.*origin\/main/);
+  }
+});
+
+test('a push is measured against the base its branch declares', t => {
+  const cwd = stackedRepository(t);
+  assert.equal(hook(cwd, 'git push -u origin HEAD').status, 2);
+
+  git(cwd, 'config', 'branch.feature/preflight.prPreflightBase', 'origin/staging');
+  const result = hook(cwd, 'git push -u origin HEAD');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(check(cwd).stdout, /PASS: PR preflight: 1\/40 changed files relative to origin\/staging/);
+});
+
+test('a stacked base must exist and cannot be the published branch itself', t => {
+  const cwd = stackedRepository(t);
+  const missing = hook(cwd, 'gh pr create --base nowhere --fill');
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /origin\/nowhere does not exist/);
+
+  git(cwd, 'update-ref', 'refs/remotes/origin/feature/preflight', 'HEAD');
+  const itself = hook(cwd, 'gh pr create --base feature/preflight --fill');
+  assert.equal(itself.status, 2);
+  assert.match(itself.stderr, /is the branch being published/);
+
+  git(cwd, 'config', 'branch.feature/preflight.prPreflightBase', 'feature/preflight');
+  assert.equal(hook(cwd, 'git push origin HEAD').status, 2);
+});
+
 test('malformed hook payload fails closed', t => {
   const cwd = repository(t);
   const result = command(process.execPath, [SCRIPT, '--hook'], cwd, '{malformed json');
