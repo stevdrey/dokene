@@ -6,6 +6,7 @@ import type { MessageResponse } from '../types';
 import {
   COPY,
   RATE_LIMIT_SECONDS,
+  approvedSentence,
   changedSentence,
   errorCodeSentence,
   sendResultSentence
@@ -52,7 +53,7 @@ function call(
 function successSentence(intent: ReviewIntent, detail: MessageResponse): string {
   switch (intent) {
     case 'approve':
-      return COPY.approved;
+      return approvedSentence(detail.status);
     case 'reject':
       return COPY.rejected;
     case 'cancel':
@@ -174,13 +175,27 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       if (read.kind === 'ok') {
         detail.apply(read.value);
         detail.loadEvents();
-        setAlert(code === 'APPROVAL_INVALIDATED' ? errorCodeSentence(code) : changedSentence(read.value.detail.status));
+        const named = code === 'APPROVAL_INVALIDATED' || code === 'CONTACT_NOT_OWNED';
+        setAlert(named ? errorCodeSentence(code) : changedSentence(read.value.detail.status));
         return;
       }
       if (read.failure.kind === 'notFound') return detail.markNotFound();
       setAlert(COPY.refreshFailed);
     },
     [detail]
+  );
+
+  // The cancel checks only state and version, so it can succeed for a contact removed meanwhile; a copy of that
+  // message would carry a contact the customer no longer has, so the operator is sent to a fresh draft instead.
+  const startCorrection = useCallback(
+    (cancelled: MessageResponse) => {
+      if (cancelled.contactRemoved) {
+        setAlert(COPY.correctionContactRemoved);
+        return;
+      }
+      onCorrect(cancelled);
+    },
+    [onCorrect]
   );
 
   const resolveUncertain = useCallback(
@@ -205,13 +220,13 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       // The lost reply was a cancel for Corregir and the server shows it cancelled, so the copy opens as on success.
       if (attempt.intent === 'correct' && read.value.detail.status === 'CANCELLED') {
         announce(COPY.cancelled);
-        onCorrect(read.value.detail);
+        startCorrection(read.value.detail);
         return;
       }
       setAlert(COPY.mayHaveCompleted);
       if (attempt.intent === 'send' && isAwaitingProvider(read.value.detail)) detail.startPolling();
     },
-    [announce, detail, onCorrect]
+    [announce, detail, startCorrection]
   );
 
   const confirm = useCallback(async () => {
@@ -238,7 +253,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       detail.loadEvents();
       announce(successSentence(attempt.intent, read.detail));
       if (attempt.intent === 'send' && isAwaitingProvider(read.detail)) detail.startPolling();
-      if (attempt.intent === 'correct') onCorrect(read.detail);
+      if (attempt.intent === 'correct') startCorrection(read.detail);
       return;
     }
     const keepOpen = (step: GroupStep) => {
@@ -280,7 +295,7 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       default:
         keepOpen({ kind: 'refused', message: COPY.actionFailed });
     }
-  }, [announce, detail, lockUntil, messageId, onCorrect, reloadAfterConflict, resolveUncertain]);
+  }, [announce, detail, lockUntil, messageId, reloadAfterConflict, resolveUncertain, startCorrection]);
 
   const refresh = useCallback(async () => {
     detail.stopPolling();

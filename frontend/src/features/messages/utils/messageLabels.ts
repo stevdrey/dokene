@@ -129,7 +129,9 @@ export const COPY = {
   mayHaveCompleted: 'La acción pudo haberse completado. Revisa el estado actual.',
   unconfirmed: 'No se pudo confirmar la acción.',
   actionFailed: 'No se pudo completar la acción.',
-  sendLimitReached: 'Se alcanzó el límite de envíos.'
+  sendLimitReached: 'Se alcanzó el límite de envíos.',
+  correctionContactRemoved:
+    'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;
 
 export function statusLabel(status: MessageStatus): string {
@@ -175,6 +177,11 @@ export function submittedSentence(status: MessageStatus): string {
   return status === 'PENDING_APPROVAL'
     ? COPY.submitted
     : `Este mensaje ya se había enviado a aprobación. Estado actual: ${statusLabel(status)}.`;
+}
+
+/** A replayed approval returns the message as it is now, which another operator may have sent or cancelled. */
+export function approvedSentence(status: MessageStatus): string {
+  return status === 'APPROVED' ? COPY.approved : `Este mensaje ya se había aprobado. Estado actual: ${statusLabel(status)}.`;
 }
 
 export function sendResultSentence(status: MessageStatus): string {

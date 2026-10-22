@@ -99,8 +99,8 @@ export function ConfirmGroup({
 
 /**
  * Remembers the control that opened a group and focuses it again once the group closes by dismissal.
- * When the group closes for another reason (an action result), focus moves to `fallback` instead, but only
- * if it would otherwise be lost because the focused control left the page.
+ * When the group closes for another reason (an action result), or the opener cannot take focus, focus moves to
+ * `fallback` instead, but only if it would otherwise be lost because the focused control left the page.
  */
 export function useReturnFocus(isOpen: boolean, fallback?: RefObject<HTMLElement | null>) {
   const opener = useRef<HTMLElement | null>(null);
@@ -114,7 +114,8 @@ export function useReturnFocus(isOpen: boolean, fallback?: RefObject<HTMLElement
     if (restore.current) {
       restore.current = false;
       opener.current?.focus();
-      return;
+      // A natively disabled opener (Enviar during a send lockout) refuses focus, so the fallback takes it.
+      if (opener.current && document.activeElement === opener.current) return;
     }
     const active = document.activeElement;
     if (!active || active === document.body || !active.isConnected) fallback?.current?.focus();
