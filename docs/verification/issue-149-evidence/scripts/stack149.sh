@@ -9,6 +9,8 @@
 #   stack149.sh stub                    # (re)start only the stub
 #   stack149.sh down                    # stop the stub and restore the plain compose backend
 set -euo pipefail
+# The verify token is looked up by this reference name; the value itself lives in the local secret entries.
+VERIFY_REF=qa149-verify
 cd "$(git rev-parse --show-toplevel)"
 QA149_DIR=${QA149_DIR:-docs/verification/issue-149-evidence}
 OUTD=${OUTD:-$QA149_DIR/out}; STUBDIR=${STUBDIR:-$QA149_DIR/stub}; STUBBIN=${STUBBIN:-$OUTD/stub-bin}
@@ -52,7 +54,7 @@ services:
       DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_3_REF: qa149-token-b
       DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_3_PURPOSE: WHATSAPP_ACCESS_TOKEN
       DOKENE_INTEGRATION_SECRETS_LOCAL_ENTRIES_3_VALUE: QA149-TOKEN-B-SYNTHETIC
-      DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF: qa149-verify
+      DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF: ${VERIFY_REF}
       DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF: qa149-app-secret
       DOKENE_INTEGRATION_WHATSAPP_GRAPH_BASE_URL: http://127.0.0.1:18080
       DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_INTERVAL: PT10S
