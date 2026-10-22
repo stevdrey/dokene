@@ -25,9 +25,9 @@ export const CURSOR_2 = 'eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTEyVDE1OjAwOjAwWiJ9';
 
 /** Copies only the MessageListItem members, independently of the production helper, so the page shape is the contract's. */
 export function listItemOf(detail: MessageResponse): MessageListItem {
-  const { messageId, customerId, contactRemoved, status, outcomeUnknown, action, templateIntent, origin, createdAt, updatedAt, version } =
+  const { messageId, customerId, contactRemoved, status, outcomeUnknown, action, templateIntent, locale, origin, createdAt, updatedAt, version } =
     detail;
-  return { messageId, customerId, contactRemoved, status, outcomeUnknown, action, templateIntent, origin, createdAt, updatedAt, version };
+  return { messageId, customerId, contactRemoved, status, outcomeUnknown, action, templateIntent, locale, origin, createdAt, updatedAt, version };
 }
 
 export function pageOf(messages: readonly MessageResponse[], nextCursor: string | null = null): MessagePageResponse {

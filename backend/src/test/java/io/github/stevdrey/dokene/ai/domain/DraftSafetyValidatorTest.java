@@ -919,4 +919,52 @@ class DraftSafetyValidatorTest {
         assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay una oferta, pero tienes 10\uff05", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isPresent();
     }
+
+    /** Operator-written English messages (issue 268) get the English offer vocabulary on top of the Spanish one. */
+    @Test
+    void rejectsUngroundedEnglishOfferAndPriceTermsInAnEnglishText() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        for (String body : List.of("Hi John, enjoy a discount on your next order.",
+                "Hi John, your next bag is free.", "Hi John, use this coupon today.",
+                "Hi John, our sale ends soon.", "Hi John, there is a gift waiting for you.",
+                "Hi John, ask for a refund anytime.", "Hi John, buy one get one this week.",
+                "Hi John, oferta especial para ti.", "Hi John, we have a special deal for you.",
+                "Hi John, save on your next order.", "Hi John, enjoy big savings this month.",
+                "Hi John, it is a real bargain.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context))
+                    .as(body).hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, it costs 25 now.", "en-US", List.of()), context))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, take 10 percent.", "en-US", List.of()), context))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only 20 dollars.", "en-US", List.of()), context))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, see shop.example.com", "en-US", List.of()),
+                context)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL));
+    }
+
+    @Test
+    void allowsAPlainEnglishTextAndKeepsEnglishOnlyWordsOutOfSpanishTexts() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Welcome and congratulations!! This message demonstrates "
+                + "your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you "
+                + "for taking the time to test with us.", "en-US", List.of()), context)).isEmpty();
+        // "sale" is ordinary Spanish ("sale mañana"); the English vocabulary never applies to a Spanish text.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu pedido sale mañana.", "es-419", List.of()),
+                context)).isEmpty();
+    }
+
+    @Test
+    void groundsAnEnglishOfferTermInTheOfferContext() {
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coupon is still valid.", "en-US", List.of()),
+                "Customer: John. Notes: has a coupon from the store.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, the deal is still on.", "en-US", List.of()),
+                "Customer: John. Notes: asked about the deal from the store.")).isEmpty();
+    }
 }

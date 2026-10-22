@@ -64,6 +64,13 @@ describe('messageApi', () => {
     }
   });
 
+  it('reads a detail without template, as a backend from before issue 268 sends it, as null', async () => {
+    const { template: _omitted, ...older } = details.pendingApproval;
+    server.on(detailPath(older.messageId), detailReply(older as typeof details.pendingApproval));
+    const read = await messageApi.getDetail(older.messageId);
+    expect(read.detail.template).toBeNull();
+  });
+
   it('treats a detail without a strong ETag as invalid', async () => {
     server.on(detailPath(id), ok(pendingApproval));
     await expect(messageApi.getDetail(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
@@ -177,7 +184,7 @@ describe('messageApi', () => {
 
   it('sends approval and rejection bodies that match the fixtures', async () => {
     server.on(approvalsPath(id), { status: 201, body: { ...details.approved, messageId: id }, etag: '"2"' });
-    await messageApi.decide(id, 'APPROVE', undefined, 1, 'key-a');
+    await messageApi.decide(id, 'APPROVE', undefined, 1, 'key-a', undefined, requests.approval.valid.approve.templateRevision);
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.approve));
     await messageApi.decide(id, 'REJECT', requests.approval.valid.rejectWithNote.note, 1, 'key-r');
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.rejectWithNote));
@@ -233,6 +240,14 @@ describe('listCustomerHistory', () => {
     server.on(historyPath(customerId), ok({ items: [stranger, firstItem], nextCursor: null }));
     const page = await messageApi.listCustomerHistory(customerId, null);
     expect(page.items.map((item) => item.messageId)).toEqual([firstItem.messageId]);
+  });
+
+  it('accepts an item without locale, as a backend from before issue 268 sends it', async () => {
+    const { locale: _omitted, ...older } = firstItem;
+    server.on(historyPath(customerId), ok({ items: [older], nextCursor: null }));
+    const page = await messageApi.listCustomerHistory(customerId, null);
+    expect(page.items.map((item) => item.messageId)).toEqual([firstItem.messageId]);
+    expect(page.items[0].locale).toBeUndefined();
   });
 
   it('accepts a status the contract does not know', async () => {

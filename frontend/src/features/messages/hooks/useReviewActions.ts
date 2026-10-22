@@ -25,6 +25,8 @@ export type GroupStep =
 export interface ConfirmState {
   intent: ReviewIntent;
   openedOnVersion: number;
+  /** The template preview shown when the group opened; an approval names it (issue 268). */
+  openedOnTemplate: string | null;
   key: string;
   note: string;
   step: GroupStep;
@@ -35,10 +37,10 @@ function call(
   group: ConfirmState,
   signal: AbortSignal
 ): Promise<VersionedMessage> {
-  const { intent, note, openedOnVersion: version, key } = group;
+  const { intent, note, openedOnVersion: version, openedOnTemplate, key } = group;
   switch (intent) {
     case 'approve':
-      return messageApi.decide(messageId, 'APPROVE', undefined, version, key, signal);
+      return messageApi.decide(messageId, 'APPROVE', undefined, version, key, signal, openedOnTemplate);
     case 'reject':
       return messageApi.decide(messageId, 'REJECT', note, version, key, signal);
     case 'cancel':
@@ -154,9 +156,17 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
         return;
       }
       setAlert(null);
-      setGroup({ intent, openedOnVersion: version, key: crypto.randomUUID(), note: '', step: { kind: 'open' } });
+      const template = detail.state.kind === 'loaded' ? (detail.state.detail.template?.revision ?? null) : null;
+      setGroup({
+        intent,
+        openedOnVersion: version,
+        openedOnTemplate: template,
+        key: crypto.randomUUID(),
+        note: '',
+        step: { kind: 'open' }
+      });
     },
-    [heldUnsure, version]
+    [detail.state, heldUnsure, version]
   );
 
   const close = useCallback(() => {

@@ -43,7 +43,8 @@ class OutboundMessageCommandServiceValidationTest {
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
     private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
             customers, new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
-            new MessageCommandSupport(messages, authorization, contexts), mock(CurrentMembershipAuthorizer.class),
+            new MessageCommandSupport(messages, authorization, contexts, mock(MessageTemplatePreviews.class)),
+            mock(CurrentMembershipAuthorizer.class),
             audit, Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
 
     @Test
@@ -58,8 +59,10 @@ class OutboundMessageCommandServiceValidationTest {
 
     @Test
     void refusesUnsupportedLocaleUnknownEnumsAndMissingIds() {
-        assertRefused(() -> service.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")),
-                MessagingErrorCode.INVALID_INPUT);
+        for (String locale : new String[] {"fr-FR", "en-GB", "en_US", "en", "es", "EN-US", ""}) {
+            assertRefused(() -> service.submit(submit(BODY, locale, "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")),
+                    MessagingErrorCode.INVALID_INPUT);
+        }
         assertRefused(() -> service.submit(submit(BODY, "es-419", "SELL_HARD", "GENERAL_FOLLOW_UP", "1", "k1")),
                 MessagingErrorCode.INVALID_INPUT);
         assertRefused(() -> service.submit(submit(BODY, "es-419", "GENERAL_CHECK_IN", "NOT_AN_INTENT", "1", "k1")),
@@ -69,6 +72,14 @@ class OutboundMessageCommandServiceValidationTest {
         assertRefused(() -> service.submit(new SubmitMessageCommand(UUID.randomUUID(), UUID.randomUUID(),
                 "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", BODY, "es-419", "ROBOT", "1", "k1")),
                 MessagingErrorCode.INVALID_INPUT);
+    }
+
+    /** AI drafts are generated and safety-checked in Spanish only; an English one cannot claim AI origin (issue 268). */
+    @Test
+    void refusesAnAiDraftInAnythingButTheDefaultLocale() {
+        assertRefused(() -> service.submit(new SubmitMessageCommand(UUID.randomUUID(), UUID.randomUUID(),
+                "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "Hello, how was your purchase?", "en-US", "AI_DRAFT", "1",
+                "k1")), MessagingErrorCode.INVALID_INPUT);
     }
 
     @ParameterizedTest

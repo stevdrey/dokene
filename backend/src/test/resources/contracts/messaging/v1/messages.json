@@ -15,6 +15,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": null,
       "attempts": [],
@@ -42,6 +43,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -73,6 +75,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -104,6 +107,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "REJECT",
@@ -135,6 +139,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": null,
       "attempts": [],
@@ -162,6 +167,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -193,6 +199,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -231,6 +238,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -269,6 +277,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -307,6 +316,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -345,6 +355,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -383,6 +394,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -421,6 +433,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -459,6 +472,7 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+      "template": null,
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",
@@ -481,6 +495,43 @@
       "createdAt": "2026-10-13T15:00:00Z",
       "updatedAt": "2026-10-13T15:20:00Z",
       "version": 6
+    },
+    "englishHelloWorldPendingApproval": {
+      "messageId": "7a5c0000-0000-4000-8000-000000000020",
+      "customerId": "7a5c0000-0000-4000-8000-0000000c0001",
+      "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+      "contactRemoved": false,
+      "recipientPhone": "+50600000001",
+      "channel": "WHATSAPP",
+      "status": "PENDING_APPROVAL",
+      "outcomeUnknown": false,
+      "failureCategory": null,
+      "action": "GENERAL_CHECK_IN",
+      "templateIntent": "GENERAL_FOLLOW_UP",
+      "locale": "en-US",
+      "origin": "MANUAL",
+      "body": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
+      "template": {
+        "revision": "5f0e3b4a1c2d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f",
+        "providerTemplateName": "hello_world",
+        "language": "en_US",
+        "headerText": "Hello World",
+        "bodyText": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
+        "footerText": "WhatsApp Business Platform sample message",
+        "buttons": [],
+        "parameterNames": []
+      },
+      "sourcePolicyVersion": 7,
+      "approval": null,
+      "attempts": [],
+      "providerMessageId": null,
+      "sentAt": null,
+      "deliveredAt": null,
+      "readAt": null,
+      "createdByMembershipId": "7a5c0000-0000-4000-8000-0000000a0001",
+      "createdAt": "2026-10-13T15:00:00Z",
+      "updatedAt": "2026-10-13T15:00:00Z",
+      "version": 1
     }
   },
   "pages": {
@@ -494,6 +545,7 @@
           "outcomeUnknown": false,
           "action": "REPEAT_PURCHASE_FOLLOW_UP",
           "templateIntent": "REPEAT_PURCHASE",
+          "locale": "es-419",
           "origin": "AI_DRAFT",
           "createdAt": "2026-10-13T15:00:00Z",
           "updatedAt": "2026-10-13T15:05:00Z",
@@ -507,6 +559,7 @@
           "outcomeUnknown": false,
           "action": "REPEAT_PURCHASE_FOLLOW_UP",
           "templateIntent": "REPEAT_PURCHASE",
+          "locale": "es-419",
           "origin": "AI_DRAFT",
           "createdAt": "2026-10-13T15:00:00Z",
           "updatedAt": "2026-10-13T15:00:00Z",

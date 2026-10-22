@@ -30,12 +30,14 @@ public class OutboundMessageQueryService {
     private final OutboundMessageRepository messages;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
+    private final MessageTemplatePreviews previews;
 
     public OutboundMessageQueryService(OutboundMessageRepository messages, TenantAuthorizationService authorization,
-            TenantContextProvider contexts) {
+            TenantContextProvider contexts, MessageTemplatePreviews previews) {
         this.messages = Objects.requireNonNull(messages);
         this.authorization = Objects.requireNonNull(authorization);
         this.contexts = Objects.requireNonNull(contexts);
+        this.previews = Objects.requireNonNull(previews);
     }
 
     public record MessagePage(List<ListedMessage> items, String nextCursor) {
@@ -54,7 +56,8 @@ public class OutboundMessageQueryService {
         ListedMessage listed = messages.findListedById(tenantId, Objects.requireNonNull(messageId))
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
         return new MessageDetail(listed.message(), listed.contactRemoved(),
-                messages.findApprovalByMessage(tenantId, messageId), messages.findAttempts(tenantId, messageId));
+                messages.findApprovalByMessage(tenantId, messageId), messages.findAttempts(tenantId, messageId),
+                previews.of(listed.message()));
     }
 
     /** An unknown or foreign {@code customerId} simply matches nothing. */

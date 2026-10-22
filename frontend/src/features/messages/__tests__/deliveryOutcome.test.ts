@@ -139,6 +139,14 @@ describe('mergeItem', () => {
     expect(merged).not.toBe(held);
   });
 
+  it('fills in a locale an older backend left out from an equal version, and never replaces one', () => {
+    const { locale: _omitted, ...older } = held;
+    const merged = mergeItem(older, { ...held, status: 'DELIVERED' as const });
+    expect(merged).toEqual({ ...older, locale: held.locale });
+    expect(mergeItem(held, { ...held, locale: 'en-US' })).toBe(held);
+    expect(mergeItem(older, { ...older })).toBe(older);
+  });
+
   it('drops a lower version even when it carries contactRemoved', () => {
     const incoming = { ...held, contactRemoved: true, status: 'FAILED' as const, version: held.version - 1 };
     expect(mergeItem(held, incoming)).toBe(held);
@@ -152,6 +160,7 @@ describe('mergeItem', () => {
         'contactRemoved',
         'createdAt',
         'customerId',
+        'locale',
         'messageId',
         'origin',
         'outcomeUnknown',

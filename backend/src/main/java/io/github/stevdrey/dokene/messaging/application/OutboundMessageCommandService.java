@@ -174,7 +174,8 @@ public class OutboundMessageCommandService {
         TenantContext context = support.currentContext();
         UUID tenantId = context.tenantId().value();
         String fingerprint = RequestFingerprint.of(MessageOperation.APPROVAL, Arrays.asList(
-                command.messageId().toString(), decision.name(), input.note(), Long.toString(input.ifMatch())));
+                command.messageId().toString(), decision.name(), input.note(), Long.toString(input.ifMatch()),
+                command.templateRevision()));
         idempotency.acquireLock(tenantId, MessageOperation.APPROVAL, input.idempotencyKey());
         var replay = idempotency.find(tenantId, MessageOperation.APPROVAL, input.idempotencyKey());
         if (replay.isPresent()) {
@@ -205,7 +206,12 @@ public class OutboundMessageCommandService {
             // kill switches are not checked here, so approving while sending is off is allowed.
             ApprovalFingerprint.SenderRevision sender = safety.configuredSender(context.tenantId())
                     .orElseThrow(() -> refuse(MessagingErrorCode.INTEGRATION_DISABLED));
-            ApprovalFingerprint binding = ApprovalFingerprint.of(bindings.bind(message, customer, sender));
+            ApprovalFingerprint.Binding bound = bindings.bind(message, customer, sender);
+            // The reviewer approved the template preview it was shown; a template changed since then is stale.
+            if (command.templateRevision() != null && !command.templateRevision().equals(bound.template().digest())) {
+                throw refuse(MessagingErrorCode.STALE_VERSION);
+            }
+            ApprovalFingerprint binding = ApprovalFingerprint.of(bound);
             transition = message.approve(context.membershipId().value(), now);
             approval = MessageApproval.approve(UUID.randomUUID(), tenantId, message.id(), input.note(), binding,
                     now, context.membershipId().value(), context.identityId().value());
@@ -297,6 +303,10 @@ public class OutboundMessageCommandService {
         SemanticAction action = parse(SemanticAction.class, command.action());
         SemanticTemplateIntent intent = parse(SemanticTemplateIntent.class, command.templateIntent());
         MessageOrigin origin = parse(MessageOrigin.class, command.origin());
+        // AI drafts are generated and safety-checked in the default locale only (ADR 0018); another locale is manual.
+        if (origin == MessageOrigin.AI_DRAFT && !MessagingLocales.DEFAULT.equals(command.locale())) {
+            throw refuse(MessagingErrorCode.INVALID_INPUT);
+        }
         return new SubmitInput(action, intent, command.body(), command.locale(), origin,
                 support.ifMatch(command.ifMatch()), support.idempotencyKey(command.idempotencyKey()));
     }

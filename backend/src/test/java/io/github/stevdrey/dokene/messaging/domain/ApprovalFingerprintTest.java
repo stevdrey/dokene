@@ -59,6 +59,21 @@ class ApprovalFingerprintTest {
         }
     }
 
+    /** Issue 268: the preview names its exact template revision, so an approval can say which one was reviewed. */
+    @Test
+    void theTemplateRevisionDigestIdentifiesExactlyTheTemplateAndItsContent() {
+        String digest = revision(List.of()).digest();
+        assertThat(digest).matches("^[0-9a-f]{64}$").isEqualTo(revision(List.of()).digest());
+        assertThat(digest).isNotEqualTo(ApprovalFingerprint.of(BASE).value());
+        assertThat(revision(List.of(new ButtonRevision("QUICK_REPLY", "Sí", null))).digest()).isNotEqualTo(digest);
+        assertThat(new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL,
+                List.of("customer_name", "product_name"), null, BODY_TEXT + ".", null, List.of()).digest())
+                .isNotEqualTo(digest);
+        assertThat(new TemplateRevision(4, "repeat_purchase_v1", "es", POSITIONAL,
+                List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()).digest())
+                .isNotEqualTo(digest);
+    }
+
     private static TemplateRevision revision(List<ButtonRevision> buttons) {
         return new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"),
                 null, BODY_TEXT, null, buttons);

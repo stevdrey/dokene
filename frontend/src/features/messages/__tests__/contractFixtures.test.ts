@@ -40,6 +40,7 @@ import {
   type MessageListItem,
   type MessagePageResponse,
   type MessageResponse,
+  type MessageTemplatePreview,
   type MessagingProblem,
   type ResolutionRequest,
   type SubmitMessageRequest
@@ -49,7 +50,13 @@ import {
 // from its TypeScript type (kind, enum values, nullability and optionality), so tsc fails when a DTO member is added,
 // removed, retyped or changes nullability without its rule; the runtime check then pins every fixture to the rules.
 type Rule =
-  | { kind: 'string' | 'uuid' | 'instant' | 'integer' | 'boolean'; nullable?: boolean; optional?: boolean; maxLength?: number }
+  | {
+      kind: 'string' | 'uuid' | 'instant' | 'integer' | 'boolean';
+      nullable?: boolean;
+      optional?: boolean;
+      maxLength?: number;
+      pattern?: RegExp;
+    }
   | { kind: 'enum'; values: readonly string[]; nullable?: boolean; optional?: boolean }
   | { kind: 'object'; shape: Record<string, Rule>; nullable?: boolean; optional?: boolean }
   | { kind: 'array'; item: Rule; nullable?: boolean; optional?: boolean };
@@ -62,7 +69,7 @@ type KindFor<V> = [V] extends [boolean]
       ? { kind: 'array'; item: RuleFor<E, false> }
       : [V] extends [string]
         ? string extends V
-          ? { kind: 'string' | 'uuid' | 'instant'; maxLength?: number }
+          ? { kind: 'string' | 'uuid' | 'instant'; maxLength?: number; pattern?: RegExp }
           : { kind: 'enum'; values: readonly V[] }
         : [V] extends [object]
           ? { kind: 'object'; shape: Shape<V> }
@@ -97,6 +104,21 @@ const attemptShape: Shape<AttemptSummary> = {
   outcome: enumOf(SEND_ATTEMPT_OUTCOMES),
   failureCategory: nullableEnumOf(FAILURE_CATEGORIES)
 };
+const templateButtonShape: Shape<TemplateButton> = {
+  type: enumOf(TEMPLATE_BUTTON_TYPES),
+  text,
+  value: { kind: 'string', nullable: true }
+};
+const templatePreviewShape: Shape<MessageTemplatePreview> = {
+  revision: text,
+  providerTemplateName: text,
+  language: text,
+  headerText: { kind: 'string', nullable: true },
+  bodyText: text,
+  footerText: { kind: 'string', nullable: true },
+  buttons: { kind: 'array', item: { kind: 'object', shape: templateButtonShape } },
+  parameterNames: { kind: 'array', item: text }
+};
 const messageShape: Shape<MessageResponse> = {
   messageId: uuid,
   customerId: uuid,
@@ -112,6 +134,7 @@ const messageShape: Shape<MessageResponse> = {
   locale: text,
   origin: enumOf(MESSAGE_ORIGINS),
   body: text,
+  template: { kind: 'object', shape: templatePreviewShape, nullable: true, optional: true },
   sourcePolicyVersion: integer,
   approval: { kind: 'object', shape: approvalShape, nullable: true },
   attempts: { kind: 'array', item: { kind: 'object', shape: attemptShape } },
@@ -132,6 +155,7 @@ const listItemShape: Shape<MessageListItem> = {
   outcomeUnknown: bool,
   action: enumOf(SEMANTIC_ACTIONS),
   templateIntent: enumOf(SEMANTIC_TEMPLATE_INTENTS),
+  locale: { kind: 'string', optional: true },
   origin: enumOf(MESSAGE_ORIGINS),
   createdAt: instant,
   updatedAt: instant,
@@ -188,11 +212,6 @@ const templateRequestShape: Shape<TemplateRequest> = {
   parameterNames: { kind: 'array', item: text },
   enabled: bool
 };
-const templateButtonShape: Shape<TemplateButton> = {
-  type: enumOf(TEMPLATE_BUTTON_TYPES),
-  text,
-  value: { kind: 'string', nullable: true }
-};
 const templateContentShape: Shape<TemplateContent> = {
   headerText: { kind: 'string', nullable: true },
   bodyText: text,
@@ -224,7 +243,11 @@ const requestShapes = {
     locale: text,
     origin: enumOf(MESSAGE_ORIGINS)
   } satisfies Shape<SubmitMessageRequest>,
-  approval: { decision: enumOf(APPROVAL_DECISIONS), note } satisfies Shape<ApprovalRequest>,
+  approval: {
+    decision: enumOf(APPROVAL_DECISIONS),
+    note,
+    templateRevision: { kind: 'string', nullable: true, optional: true, pattern: /^[0-9a-f]{64}$/ }
+  } satisfies Shape<ApprovalRequest>,
   cancellation: { note } satisfies Shape<CancellationRequest>,
   resolution: { outcome: enumOf(RESOLUTION_OUTCOMES), note } satisfies Shape<ResolutionRequest>
 };
@@ -253,7 +276,9 @@ function check(value: unknown, rule: Rule, path: string): string[] {
   }
   switch (rule.kind) {
     case 'string':
-      return typeof value === 'string' && value.length <= (rule.maxLength ?? Infinity) ? [] : [`${path} is not a valid string`];
+      return typeof value === 'string' && value.length <= (rule.maxLength ?? Infinity) && (rule.pattern?.test(value) ?? true)
+        ? []
+        : [`${path} is not a valid string`];
     case 'uuid':
       return typeof value === 'string' && UUID.test(value) ? [] : [`${path} is not a UUID`];
     case 'instant':
@@ -276,6 +301,17 @@ function check(value: unknown, rule: Rule, path: string): string[] {
 type Named = Record<string, unknown>;
 const enums = JSON.parse(enumsJson) as Record<string, string[]>;
 const messages = JSON.parse(messagesJson) as { details: Named; pages: Named; events: Named };
+/** Rules that span members, which a per-member Shape cannot express. */
+const requestInvariants: Partial<Record<keyof typeof requestShapes, (fixture: unknown) => string[]>> = {
+  // An approval names the reviewed template preview (issue 268); a rejection does not need one.
+  approval: (fixture) => {
+    const request = fixture as ApprovalRequest;
+    return request.decision === 'APPROVE' && (request.templateRevision ?? null) === null
+      ? ['templateRevision is required to approve']
+      : [];
+  }
+};
+
 const requests = JSON.parse(requestsJson) as Record<keyof typeof requestShapes, { valid: Named; invalid: Named }>;
 const integration = JSON.parse(integrationJson) as {
   request: { valid: Named; invalid: Named };
@@ -329,12 +365,14 @@ describe('messaging v1 contract fixtures', () => {
   describe.each(Object.keys(requestShapes) as (keyof typeof requestShapes)[])('%s request', (operation) => {
     const shape = requestShapes[operation] as Record<string, Rule>;
 
+    const all = (fixture: unknown) => [...violations(fixture, shape), ...(requestInvariants[operation]?.(fixture) ?? [])];
+
     it.each(Object.entries(requests[operation].valid))('accepts %s', (_name, fixture) => {
-      expect(violations(fixture, shape)).toEqual([]);
+      expect(all(fixture)).toEqual([]);
     });
 
     it.each(Object.entries(requests[operation].invalid))('rejects %s', (_name, fixture) => {
-      expect(violations(fixture, shape)).not.toEqual([]);
+      expect(all(fixture)).not.toEqual([]);
     });
   });
 

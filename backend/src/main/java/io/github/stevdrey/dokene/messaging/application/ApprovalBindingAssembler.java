@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.messaging.domain.MessagingLocales;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
@@ -16,7 +17,6 @@ import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -84,13 +84,7 @@ public class ApprovalBindingAssembler {
         return new ApprovalFingerprint.Binding(message.tenantId(), message.id(), message.customerId(),
                 message.contactId(), message.recipientPhone(), message.channel(), message.action(),
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(),
-                consentRevision, new ApprovalFingerprint.TemplateRevision(mapping.version(),
-                        mapping.providerTemplateName(), mapping.language(), parameterFormat(mapping.parameterFormat()),
-                        mapping.parameterNames(), mapping.content().header(), mapping.content().body(),
-                        mapping.content().footer(), mapping.content().buttons().stream()
-                                .map(button -> new ApprovalFingerprint.ButtonRevision(button.type().name(),
-                                        button.text(), button.value()))
-                                .toList()),
+                consentRevision, revision(mapping),
                 rendered.values(), sender);
     }
 
@@ -100,7 +94,7 @@ public class ApprovalBindingAssembler {
                 ResolvedTemplateMapping mapping))) {
             throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
         }
-        if (!sameLanguage(mapping.language(), locale)) {
+        if (!MessagingLocales.acceptsTemplateLanguage(locale, mapping.language())) {
             throw refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED);
         }
         var values = new ArrayList<String>(mapping.parameterNames().size());
@@ -141,25 +135,27 @@ public class ApprovalBindingAssembler {
         return rendered.toString();
     }
 
+    /**
+     * The template revision an approval binds, and whose digest a review preview shows: the reviewer approves by
+     * naming it, so a template changed after review cannot be approved unseen (issue 268).
+     */
+    public static ApprovalFingerprint.TemplateRevision revision(ResolvedTemplateMapping mapping) {
+        Objects.requireNonNull(mapping, "Mapping is required");
+        return new ApprovalFingerprint.TemplateRevision(mapping.version(), mapping.providerTemplateName(),
+                mapping.language(), parameterFormat(mapping.parameterFormat()), mapping.parameterNames(),
+                mapping.content().header(), mapping.content().body(), mapping.content().footer(),
+                mapping.content().buttons().stream()
+                        .map(button -> new ApprovalFingerprint.ButtonRevision(button.type().name(), button.text(),
+                                button.value()))
+                        .toList());
+    }
+
     /** Exhaustive, so a new template format cannot reach a fingerprint without a deliberate mapping here. */
     private static ApprovalFingerprint.ParameterFormat parameterFormat(TemplateParameterFormat format) {
         return switch (format) {
             case POSITIONAL -> ApprovalFingerprint.ParameterFormat.POSITIONAL;
             case NAMED -> ApprovalFingerprint.ParameterFormat.NAMED;
         };
-    }
-
-    /**
-     * Meta language codes ({@code es}, {@code es_MX}) differ from the BCP 47 message locale ({@code es-419}); the
-     * template must at least be written in the message's language (ADR 0025, Consequences).
-     */
-    private static boolean sameLanguage(String templateLanguage, String locale) {
-        return primarySubtag(templateLanguage, '_').equals(primarySubtag(locale, '-'));
-    }
-
-    private static String primarySubtag(String code, char separator) {
-        int index = code.indexOf(separator);
-        return (index < 0 ? code : code.substring(0, index)).toLowerCase(Locale.ROOT);
     }
 
     private static MessagingRefusedException refuse(MessagingErrorCode code) {

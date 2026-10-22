@@ -39,6 +39,10 @@ class ApprovalBindingAssemblerTest {
     private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final Instant NOW = Instant.parse("2026-10-14T12:00:00Z");
     private static final String BODY = "Hola, ¿cómo le ha ido con su compra?";
+    private static final String HELLO_WORLD_BODY = "Welcome and congratulations!! This message demonstrates your "
+            + "ability to send a WhatsApp message notification from the Cloud API, hosted by Meta.";
+    private static final TemplateContent HELLO_WORLD = new TemplateContent("Hello World", HELLO_WORLD_BODY,
+            "WhatsApp Business Platform sample message");
 
     private final TemplateMappingResolver templates = mock(TemplateMappingResolver.class);
     private final ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
@@ -100,6 +104,40 @@ class ApprovalBindingAssemblerTest {
 
         mapping("en_US", List.of("message_body"), 3);
         assertRefused(() -> assembler.bind(message(BODY), customer, sender), MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+    }
+
+    @Test
+    void anEnglishMessageBindsAZeroParameterEnUsTemplateAndItsFixedText() {
+        mapping("en_US", TemplateParameterFormat.POSITIONAL, List.of(), HELLO_WORLD, 1);
+
+        ApprovalFingerprint.Binding binding = assembler.bind(message("en-US", HELLO_WORLD_BODY), customer, sender);
+
+        assertThat(binding.locale()).isEqualTo("en-US");
+        assertThat(binding.parameterValues()).isEmpty();
+        assertThat(binding.template().language()).isEqualTo("en_US");
+        assertThat(binding.template().headerText()).isEqualTo("Hello World");
+        assertThat(binding.template().bodyText()).isEqualTo(HELLO_WORLD_BODY);
+        assertThat(binding.template().footerText()).isEqualTo("WhatsApp Business Platform sample message");
+    }
+
+    @Test
+    void anEnglishMessageRefusesEveryTemplateLanguageButEnUs() {
+        for (String language : List.of("en", "en_GB", "es", "es_MX")) {
+            mapping(language, TemplateParameterFormat.POSITIONAL, List.of(), HELLO_WORLD, 1);
+            assertRefused(() -> assembler.bind(message("en-US", HELLO_WORLD_BODY), customer, sender),
+                    MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+            assertRefused(() -> assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "en-US",
+                    HELLO_WORLD_BODY, customer), MessagingErrorCode.TEMPLATE_NOT_MAPPED);
+        }
+    }
+
+    @Test
+    void anEnglishFixedTemplateRequiresItsFixedTextAsTheBody() {
+        mapping("en_US", TemplateParameterFormat.POSITIONAL, List.of(), HELLO_WORLD, 1);
+        assertRefused(() -> assembler.bind(message("en-US", "Hello, here is a different text."), customer, sender),
+                MessagingErrorCode.BODY_REJECTED);
+        assertRefused(() -> assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "en-US",
+                HELLO_WORLD_BODY + " ", customer), MessagingErrorCode.BODY_REJECTED);
     }
 
     /** Without message_body the body is never sent, so it must be the template's fixed text (issue 268). */
@@ -236,9 +274,13 @@ class ApprovalBindingAssemblerTest {
     }
 
     private OutboundMessage message(String body) {
+        return message("es-419", body);
+    }
+
+    private OutboundMessage message(String locale, String body) {
         return OutboundMessage.submit(new OutboundMessage.Submission(UUID.randomUUID(), tenantId.value(),
                 customer.id().value(), phone.id(), phone.e164(), SemanticAction.GENERAL_CHECK_IN,
-                SemanticTemplateIntent.GENERAL_FOLLOW_UP, "es-419", MessageOrigin.MANUAL, body, 4,
+                SemanticTemplateIntent.GENERAL_FOLLOW_UP, locale, MessageOrigin.MANUAL, body, 4,
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), NOW).next();
     }
 

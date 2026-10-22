@@ -210,6 +210,11 @@ class TemplateMappingTest {
             assertThat(verified.approval().content()).isNull();
             assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
         }
+        // English fixed text is checked with the English offer vocabulary as well (issue 268, part 2).
+        TemplateMapping english = fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
+                TemplateParameterFormat.POSITIONAL, List.of(), new TemplateContent(null, "Thanks for your order.",
+                        "Get a great deal next week")), WABA, NOW);
+        assertThat(english.approval().status()).isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
         // Button targets are structured and shown in review, so a static URL or phone target alone is fine.
         TemplateContent withTargets = new TemplateContent("Hello World", "Welcome and congratulations!! Thank you "
                 + "for taking the time to test with us.", "WhatsApp Business Platform sample message", List.of(

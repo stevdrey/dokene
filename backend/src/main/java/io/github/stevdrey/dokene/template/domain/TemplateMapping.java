@@ -168,7 +168,8 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
                 && content.body().codePointCount(0, content.body().length()) > MessageDraft.MAX_BODY_LENGTH;
     }
 
-    private static boolean fixedTextIsSafe(TemplateContent content) {
+    /** Checked in the template's own language, whose Meta code ({@code en_US}) maps to a BCP 47 tag ({@code en-US}). */
+    private boolean fixedTextIsSafe(TemplateContent content) {
         Map<String, String> texts = new LinkedHashMap<>();
         texts.put("body", content.body());
         if (content.header() != null) {
@@ -180,7 +181,7 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
         for (int i = 0; i < content.buttons().size(); i++) {
             texts.put("button " + (i + 1), content.buttons().get(i).text());
         }
-        return DraftSafetyValidator.validateFixedText(texts).isEmpty();
+        return DraftSafetyValidator.validateFixedText(texts, language.replace('_', '-')).isEmpty();
     }
 
     private TemplateMapping withEvidence(ApprovalEvidence evidence, Instant now) {

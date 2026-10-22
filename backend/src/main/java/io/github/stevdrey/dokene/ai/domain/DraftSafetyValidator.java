@@ -30,7 +30,8 @@ public final class DraftSafetyValidator {
     private static final String CURRENCY_SYMBOLS = "$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢";
     private static final String CURRENCY_SYMBOL_CLASS = "[\\" + CURRENCY_SYMBOLS + "]";
     private static final String CURRENCY_WORDS =
-            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras";
+            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras|euros"
+                    + "|dollars|dollar|bucks|pounds|cents";
 
     private static final Pattern URL_PATTERN = Pattern.compile(
             "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
@@ -43,9 +44,12 @@ public final class DraftSafetyValidator {
     private static final List<String> OFFER_SYMBOLS = Stream.concat(
             Stream.of("%"), CURRENCY_SYMBOLS.chars().mapToObj(Character::toString)).toList();
 
-    /** Percentage markers written out after a number ("10 por ciento", "10 pct"); canonicalised to {@code %}. */
+    /**
+     * Percentage markers written out after a number ("10 por ciento", "10 pct", "10 percent"); canonicalised to
+     * {@code %} in every locale.
+     */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
-            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
+            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
@@ -98,6 +102,33 @@ public final class DraftSafetyValidator {
             "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
     );
 
+    /**
+     * English offer vocabulary (issue 268), applied on top of the Spanish one to English texts only: words such as
+     * "sale" or "free" are ordinary Spanish or appear in Spanish drafts with another meaning. English AI drafts stay
+     * unavailable (ADR 0018); this covers operator-written English messages.
+     */
+    private static final Pattern ENGLISH_OFFER_WORD_PATTERN = Pattern.compile(
+            "(?i)\\b(discount|discounts|coupon|coupons|voucher|vouchers|free|freebie|freebies|sale|promo|promos|promotion"
+                    + "|promotions|promotional|offer|offers|gift|gifts|bonus|bonuses|rebate|rebates|refund|refunds"
+                    + "|clearance|giveaway|giveaways|complimentary|no cost|no charge|half off|bogo|buy one get one"
+                    + "|cyber monday|price|prices|pricing|deal|deals|bargain|bargains|save|saves|saving|savings)\\b");
+    private static final Pattern ENGLISH_PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
+            "(?i)\\b(?:prices?|priced|costs?|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
+    );
+
+    /** The offer and price vocabularies one text is checked against. */
+    private record Vocabulary(List<Pattern> offerWords, List<Pattern> priceTerms) {
+        static final Vocabulary SPANISH = new Vocabulary(OFFER_WORD_PATTERNS, List.of(PRICE_TERM_NUMBER_PATTERN));
+        static final Vocabulary ENGLISH = new Vocabulary(
+                Stream.concat(OFFER_WORD_PATTERNS.stream(), Stream.of(ENGLISH_OFFER_WORD_PATTERN)).toList(),
+                List.of(PRICE_TERM_NUMBER_PATTERN, ENGLISH_PRICE_TERM_NUMBER_PATTERN));
+
+        /** English texts get both vocabularies; every other locale keeps the Spanish one it was validated with. */
+        static Vocabulary of(String locale) {
+            return locale != null && Locale.forLanguageTag(locale).getLanguage().equals("en") ? ENGLISH : SPANISH;
+        }
+    }
+
     private DraftSafetyValidator() {}
 
     /**
@@ -129,7 +160,8 @@ public final class DraftSafetyValidator {
         texts.put("evidence", String.join("\n", draft.evidence()));
 
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
-        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText, offerContext);
+        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText, offerContext, false,
+                Vocabulary.of(draft.locale()));
         if (violation.isPresent()) {
             return violation;
         }
@@ -185,20 +217,21 @@ public final class DraftSafetyValidator {
     /**
      * Validates provider template text that every recipient receives unchanged (issue 268): a header, footer, button
      * label or fixed body. Such text cannot be grounded in one customer's context, so it is checked against an empty
-     * one: any link, provider identifier, amount, percentage or offer term is a violation.
+     * one: any link, provider identifier, amount, percentage or offer term is a violation. {@code locale} is the
+     * text's BCP 47 language, which selects the offer vocabulary as for a draft.
      */
-    public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts) {
+    public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts, String locale) {
         Objects.requireNonNull(texts, "Texts are required");
-        return validateTexts(texts, "", "", false);
-    }
-
-    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
-            String offerContextText) {
-        return validateTexts(texts, allowedContextText, offerContextText, false);
+        return validateTexts(texts, "", "", false, Vocabulary.of(locale));
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText, boolean refusalRationale) {
+        return validateTexts(texts, allowedContextText, offerContextText, refusalRationale, Vocabulary.SPANISH);
+    }
+
+    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
+            String offerContextText, boolean refusalRationale, Vocabulary vocabulary) {
         String offerContextLower = canonicalize(offerContextText);
         String normalizedContext = normalizeQuantities(offerContextLower);
         Map<String, String> canonicalTexts = new LinkedHashMap<>();
@@ -243,9 +276,11 @@ public final class DraftSafetyValidator {
         for (String contextView : contextViews) {
             contextPercentages.addAll(extractTokens(PERCENTAGE_PATTERN, contextView));
             contextAmounts.addAll(extractTokens(AMOUNT_PATTERN, contextView));
-            Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(contextView);
-            while (contextPriceMatcher.find()) {
-                contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+            for (Pattern priceTerm : vocabulary.priceTerms()) {
+                Matcher contextPriceMatcher = priceTerm.matcher(contextView);
+                while (contextPriceMatcher.find()) {
+                    contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+                }
             }
         }
         for (String amountToken : contextAmounts) {
@@ -270,12 +305,14 @@ public final class DraftSafetyValidator {
                             "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
                 }
             }
-            Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(view);
-            while (priceNumberMatcher.find()) {
-                String number = normalizeQuantities(priceNumberMatcher.group(1));
-                if (!contextNumbers.contains(number)) {
-                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
-                            "Draft contains hallucinated price not grounded in context: '" + number + "'"));
+            for (Pattern priceTerm : vocabulary.priceTerms()) {
+                Matcher priceNumberMatcher = priceTerm.matcher(view);
+                while (priceNumberMatcher.find()) {
+                    String number = normalizeQuantities(priceNumberMatcher.group(1));
+                    if (!contextNumbers.contains(number)) {
+                        return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                                "Draft contains hallucinated price not grounded in context: '" + number + "'"));
+                    }
                 }
             }
         }
@@ -300,7 +337,7 @@ public final class DraftSafetyValidator {
         // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
         for (String view : draftViews) {
             String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
-            for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
+            for (Pattern wordPattern : vocabulary.offerWords()) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {
                     String word = draftMatcher.group().toLowerCase(Locale.ROOT);

@@ -96,6 +96,18 @@ async function openWithFakeTimers(detail: MessageResponse) {
 describe('review actions', () => {
   // covers: AC-7, AC-8, AC-13, AC-14
   describe('approve, reject and cancel', () => {
+    it('approves the template preview it showed, naming its revision (issue 268)', async () => {
+      const english = details.englishHelloWorldPendingApproval;
+      await openMessage(english);
+      server.on(approvalsPath(english.messageId), created(variant(approved, { messageId: english.messageId })));
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
+      expect(server.last(approvalsPath(english.messageId)).body).toBe(
+        JSON.stringify({ decision: 'APPROVE', templateRevision: english.template?.revision })
+      );
+    });
+
     it('approves with If-Match and a key, announces it, and never calls /sends', async () => {
       await openMessage(pendingApproval);
       server.on(approvalsPath(pendingApproval.messageId), created(approvedHere));

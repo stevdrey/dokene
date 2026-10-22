@@ -38,7 +38,7 @@ class OutboundMessageInvariantsTest {
     @Test
     void rejectsUnsupportedLocalesNegativeCountersAndInconsistentFlags() {
         OutboundMessage base = message(MessageStatus.APPROVED, false, 0);
-        assertThatThrownBy(() -> copy(base, "en-US", 0, false, null, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> copy(base, "en-GB", 0, false, null, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> copy(base, "es-419", -1, false, null, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> copy(base, "es-419", 0, true, null, null)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SENDING");
@@ -159,11 +159,31 @@ class OutboundMessageInvariantsTest {
     }
 
     @Test
-    void onlyLatinAmericanSpanishIsSupportedForNow() {
+    void onlyLatinAmericanSpanishAndUsEnglishAreSupported() {
         assertThat(MessagingLocales.supported("es-419")).isTrue();
+        assertThat(MessagingLocales.supported("en-US")).isTrue();
+        assertThat(MessagingLocales.DEFAULT).isEqualTo("es-419");
         assertThat(MessagingLocales.supported("es-CL")).isFalse();
         assertThat(MessagingLocales.supported("ES-419")).isFalse();
+        assertThat(MessagingLocales.supported("en-GB")).isFalse();
+        assertThat(MessagingLocales.supported("en_US")).isFalse();
+        assertThat(MessagingLocales.supported("en-us")).isFalse();
         assertThat(MessagingLocales.supported(null)).isFalse();
+    }
+
+    /** es-419 keeps accepting any Spanish template; en-US accepts exactly Meta's en_US (issue 268). */
+    @Test
+    void eachLocaleAcceptsOnlyItsOwnTemplateLanguages() {
+        assertThat(MessagingLocales.acceptsTemplateLanguage("es-419", "es")).isTrue();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("es-419", "es_MX")).isTrue();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("es-419", "en_US")).isFalse();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("en-US", "en_US")).isTrue();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("en-US", "en")).isFalse();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("en-US", "en_GB")).isFalse();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("en-US", "es")).isFalse();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("en-GB", "en_GB")).isFalse();
+        assertThat(MessagingLocales.acceptsTemplateLanguage(null, "es")).isFalse();
+        assertThat(MessagingLocales.acceptsTemplateLanguage("es-419", null)).isFalse();
     }
 
     private static OutboundMessage withPhoneAndBody(String phone, String body) {

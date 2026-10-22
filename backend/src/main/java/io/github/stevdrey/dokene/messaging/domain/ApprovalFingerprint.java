@@ -93,22 +93,7 @@ public record ApprovalFingerprint(String value) {
             fields.add(body);
             fields.add(Long.toString(sourcePolicyVersion));
             fields.add(Long.toString(consentRevision));
-            fields.add(Long.toString(template.version()));
-            fields.add(template.providerTemplateName());
-            fields.add(template.language());
-            fields.add(template.parameterFormat().name());
-            fields.add(Integer.toString(template.parameterNames().size()));
-            fields.addAll(template.parameterNames());
-            // The fixed text the recipient reads; header and footer are optional and encode null distinctly.
-            fields.add(template.headerText());
-            fields.add(template.bodyText());
-            fields.add(template.footerText());
-            fields.add(Integer.toString(template.buttons().size()));
-            for (ButtonRevision button : template.buttons()) {
-                fields.add(button.type());
-                fields.add(button.text());
-                fields.add(button.value());
-            }
+            fields.addAll(template.canonicalFields());
             fields.addAll(parameterValues);
             fields.add(sender.integrationId().toString());
             fields.add(sender.phoneNumberId());
@@ -140,6 +125,8 @@ public record ApprovalFingerprint(String value) {
          * because this package cannot depend on the template module.
          */
         private static final Pattern PROVIDER_TEMPLATE_NAME = Pattern.compile("^[a-z0-9_]{1,512}$");
+        /** Domain label of {@link #digest()}; a different encoding needs a new label. */
+        public static final String DIGEST_SCHEME = "template-revision/v1";
 
         public TemplateRevision {
             Objects.requireNonNull(providerTemplateName, "Provider template name is required");
@@ -157,6 +144,39 @@ public record ApprovalFingerprint(String value) {
             if (version < 0) {
                 throw new IllegalArgumentException("Template mapping version cannot be negative");
             }
+        }
+
+        /**
+         * The template part of the approval binding, in the fingerprint's canonical order: mapping version, name,
+         * language, format, parameter names, then the fixed text the recipient reads (header and footer optional,
+         * null encoded distinctly) and each button.
+         */
+        List<String> canonicalFields() {
+            var fields = new ArrayList<String>();
+            fields.add(Long.toString(version));
+            fields.add(providerTemplateName);
+            fields.add(language);
+            fields.add(parameterFormat.name());
+            fields.add(Integer.toString(parameterNames.size()));
+            fields.addAll(parameterNames);
+            fields.add(headerText);
+            fields.add(bodyText);
+            fields.add(footerText);
+            fields.add(Integer.toString(buttons.size()));
+            for (ButtonRevision button : buttons) {
+                fields.add(button.type());
+                fields.add(button.text());
+                fields.add(button.value());
+            }
+            return fields;
+        }
+
+        /**
+         * Identifies this exact template revision and content, so a reviewer's approval can name the preview it was
+         * given (issue 268). Not secret: it is derived from the template the reviewer already sees.
+         */
+        public String digest() {
+            return RequestFingerprint.digest(DIGEST_SCHEME, canonicalFields());
         }
     }
 
