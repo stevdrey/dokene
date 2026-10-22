@@ -97,6 +97,21 @@ class SendPolicyGateTest {
         verifyNoInteractions(bindings);
     }
 
+    /** covers: AC-6 of spec 0013 (a zero interval stays allowed: no frequency bound, the send still binds). */
+    @Test
+    void aZeroContactIntervalSkipsTheFrequencyBoundAndStillBinds() {
+        permitted();
+        approvedWith(ApprovalFingerprint.of(binding));
+        when(bindings.bind(approved, customer, sender)).thenReturn(binding);
+
+        OutboundSendCommand command = gate(new MessagingDispatchProperties(null, Duration.ZERO, null, null))
+                .evaluate(context, customer, approved, NOW);
+
+        assertThat(command.parameters()).containsExactly("Ana", BODY);
+        verify(messages, never()).sentToCustomerSince(any(), any(), any());
+        verify(bindings).bind(approved, customer, sender);
+    }
+
     @Test
     void theTenantRateRefusalCarriesTheRemainingWindow() {
         UUID tenant = approved.tenantId();

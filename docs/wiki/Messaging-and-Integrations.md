@@ -57,7 +57,7 @@ FAILED      (permanent provider failure, attempt limit reached, or an operator r
 
 There is no `DRAFT` state. A draft, whether an AI suggestion or operator text, lives only in the browser until the operator submits it; submission creates the message directly in `PENDING_APPROVAL`. Every message is born there, also when a tenant later enables automated sending.
 
-`READ`, `REJECTED`, `CANCELLED` and `FAILED` are terminal. Every other state counts as open, and a partial unique index (`one_open_message_per_customer`) keeps at most one open message per customer per tenant.
+`READ`, `REJECTED`, `CANCELLED` and `FAILED` are terminal. The states before the provider accepts a message (`PENDING_APPROVAL`, `APPROVED`, `QUEUED` and `SENDING`, an unknown outcome included) count as open, and a partial unique index (`one_open_message_per_customer`) keeps at most one open message per customer per tenant. `SENT` and `DELIVERED` are neither terminal nor open: they still take delivery reports, but a new message to the customer is allowed, because those reports may never arrive ([#198](https://github.com/stevdrey/dokene/issues/198)). The follow up cadence and the minimum contact interval still space messages out.
 
 Transitions are validated in the aggregate; arbitrary status mutation is refused with `INVALID_TRANSITION`. Each applied transition advances the message version by one and appends one row to the event log, so the latest event sequence number always equals the message version.
 

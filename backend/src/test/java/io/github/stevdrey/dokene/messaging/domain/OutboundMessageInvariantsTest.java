@@ -50,19 +50,24 @@ class OutboundMessageInvariantsTest {
         assertThatCode(() -> copy(base, "es-419", 0, false, null, "wamid.ok")).doesNotThrowAnyException();
     }
 
+    /** covers: AC-3, AC-4 of spec 0013 (only the states before provider acceptance are open). */
     @Test
-    void openAndTerminalAreComplementsOverEveryStatus() {
+    void openCoversOnlyTheStatesBeforeProviderAcceptance() {
         for (MessageStatus status : MessageStatus.values()) {
             OutboundMessage m = message(status, false, 0);
-            assertThat(m.isOpen()).as(status.name()).isEqualTo(!m.isTerminal());
+            assertThat(m.isOpen()).as(status.name()).isEqualTo(status.open());
             assertThat(m.isTerminal()).as(status.name()).isEqualTo(status.terminal());
+            assertThat(status.open() && status.terminal()).as(status.name()).isFalse();
         }
-        for (MessageStatus status : MessageStatus.values()) {
-            assertThat(status.open()).as(status.name()).isEqualTo(!status.terminal());
-        }
+        assertThat(message(MessageStatus.SENDING, true, 1).isOpen()).isTrue();
+        assertThat(MessageStatus.values()).filteredOn(MessageStatus::open)
+                .containsExactlyInAnyOrder(MessageStatus.PENDING_APPROVAL, MessageStatus.APPROVED,
+                        MessageStatus.QUEUED, MessageStatus.SENDING);
         assertThat(MessageStatus.values()).filteredOn(MessageStatus::terminal)
                 .containsExactlyInAnyOrder(MessageStatus.READ, MessageStatus.REJECTED, MessageStatus.CANCELLED,
                         MessageStatus.FAILED);
+        assertThat(MessageStatus.values()).filteredOn(status -> !status.open() && !status.terminal())
+                .containsExactlyInAnyOrder(MessageStatus.SENT, MessageStatus.DELIVERED);
     }
 
     @Test
