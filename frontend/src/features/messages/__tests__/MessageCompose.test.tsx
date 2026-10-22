@@ -72,6 +72,27 @@ const type = (value: string) => fireEvent.change(textarea(), { target: { value }
 
 // covers: AC-2, AC-3, AC-13, AC-14
 describe('compose mode', () => {
+  it('closes the confirmation and offers no retry once the role can no longer act', async () => {
+    const mode = composeMode();
+    const view = render(<MessageReview tenantId="tenant-a" role="OPERATOR" mode={mode} />);
+    fireEvent.click(submitButton());
+    expect(group()).toBeInTheDocument();
+    view.rerender(<MessageReview tenantId="tenant-a" role="VIEWER" mode={mode} />);
+    expect(screen.queryByRole('group', { name: 'Confirmar envío a aprobación' })).toBeNull();
+    expect(screen.getByText('Tu rol solo permite consultar mensajes.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enviar a aprobación' })).toBeNull();
+
+    view.rerender(<MessageReview tenantId="tenant-a" role="OPERATOR" mode={mode} />);
+    server.on(submitPath(customerId), networkFailure());
+    fireEvent.click(submitButton());
+    confirmSubmit();
+    expect(await screen.findByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+    view.rerender(<MessageReview tenantId="tenant-a" role="VIEWER" mode={mode} />);
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).toBeNull();
+    expect(screen.getByText('No se pudo confirmar la acción.')).toBeInTheDocument();
+    expect(server.count(submitPath(customerId))).toBe(1);
+  });
+
   it('shows the customer, the masked phone, the labels and the starting text with a counter', () => {
     renderCompose();
     expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toBeInTheDocument();
@@ -230,7 +251,8 @@ describe('compose mode', () => {
 
     it('goes stale on STALE_VERSION, tells the parent, and recovers on a new policy version with a new key', async () => {
       const onPolicyStale = vi.fn();
-      server.on(submitPath(customerId), problem('STALE_VERSION'), created(pendingApproval));
+      // The reply must describe the draft that was submitted, body included, or the client refuses it.
+      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Texto del operador.' }));
       server.on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
       const view = renderCompose(composeMode(), 'OPERATOR', { onPolicyStale });
       type('Texto del operador.');
@@ -349,8 +371,8 @@ describe('Corregir', () => {
 
     expect(await screen.findByLabelText('Texto final del mensaje')).toHaveValue('Texto aprobado con un error.');
     expect(server.last(cancellationsPath(pendingApproval.messageId)).body).toBe('{}');
-    // The confirm button that had focus left the page, so the draft heading takes it.
-    expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
+    // The confirm button that had focus left the page, so the draft heading takes it (in a passive effect, so wait).
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
 
     const next = { ...pendingApproval, messageId: '7a5c0000-0000-4000-8000-0000000000ff', body: 'Texto corregido.' };
     server.on(submitPath(customerId), created(next)).on(eventsPath(next.messageId), eventsReply(next));
