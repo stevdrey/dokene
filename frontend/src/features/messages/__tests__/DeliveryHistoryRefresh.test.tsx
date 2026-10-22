@@ -51,11 +51,14 @@ describe('DeliveryHistory refresh', () => {
       suite.server.on(detailPath(uncertain.messageId), detailReply(resolved));
       renderHistory();
       await listed();
+      refreshButton(uncertain.messageId).focus();
       fireEvent.click(refreshButton(uncertain.messageId));
       expect(suite.server.last(detailPath(uncertain.messageId)).key).toBe(`GET /api/messages/${uncertain.messageId}`);
       await act(async () => {});
       const toggle = toggleOf(uncertain.messageId);
       expect(toggle).toHaveTextContent('Fallido');
+      // Actualizar left with the resolved outcome, so the row toggle takes the focus it held.
+      await waitFor(() => expect(toggle).toHaveFocus());
       expect(toggle).toHaveTextContent('No se entregó al cliente.');
       expect(toggle).not.toHaveTextContent('Resultado sin confirmar');
       expect(liveRegion()).toHaveTextContent('El estado cambió: ahora Fallido.');
@@ -116,11 +119,34 @@ describe('DeliveryHistory refresh', () => {
       suite.server.on(detailPath(uncertain.messageId), status(404));
       renderHistory();
       await listed();
+      refreshButton(uncertain.messageId).focus();
       fireEvent.click(refreshButton(uncertain.messageId));
       const alert = await within(rowOf(uncertain.messageId)).findByRole('alert');
       expect(alert).toHaveTextContent('Este mensaje ya no está disponible.');
       expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull();
       expect(toggleOf(uncertain.messageId)).toHaveAttribute('aria-disabled', 'true');
+      await waitFor(() => expect(toggleOf(uncertain.messageId)).toHaveFocus());
+    });
+
+    it('leaves focus alone when Actualizar was not focused and leaves, or when it stays', async () => {
+      const sent = details.sent;
+      servePage(suite.server, [uncertain, sent]);
+      suite.server.on(detailPath(uncertain.messageId), detailReply(resolved));
+      serveRow(suite.server, sent, eventsFixtures.rejected.events, detailReply(sent), detailReply(sent));
+      renderHistory();
+      await listed();
+      const heading = screen.getByRole('heading', { name: 'Historial de mensajes' });
+      heading.focus();
+      fireEvent.click(refreshButton(uncertain.messageId));
+      await act(async () => {});
+      expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull();
+      expect(heading).toHaveFocus();
+      fireEvent.click(toggleOf(sent.messageId));
+      await rowLoaded(sent);
+      refreshButton(sent.messageId).focus();
+      fireEvent.click(refreshButton(sent.messageId));
+      await act(async () => {});
+      expect(refreshButton(sent.messageId)).toHaveFocus();
     });
 
     it('closes an open row on a 404 and keeps the notice on the collapsed row', async () => {
@@ -253,7 +279,9 @@ describe('DeliveryHistory refresh', () => {
       fireEvent.click(refreshButton(delivered.messageId));
       await act(async () => {});
       expect(toggleOf(delivered.messageId)).toHaveTextContent('El teléfono ya no pertenece a este cliente.');
-      expect(liveRegion()).toHaveTextContent('Sin cambios desde la última lectura.');
+      // The tag appeared, so "no change" would be wrong even though the status stayed.
+      expect(liveRegion()).toHaveTextContent('El teléfono ya no pertenece a este cliente.');
+      expect(liveRegion()).not.toHaveTextContent('Sin cambios');
       expect(suite.server.count(eventsPath(delivered.messageId))).toBe(2);
       fireEvent.click(refreshButton(delivered.messageId));
       await act(async () => {});
@@ -451,6 +479,28 @@ describe('DeliveryHistory refresh', () => {
       await act(async () => {});
       expect(rowIds()).toEqual([sent.messageId, details.read.messageId]);
       expect(suite.server.count(historyPath(CUSTOMER_A, CURSOR_1))).toBe(1);
+    });
+
+    it('announces a status change and the removed contact together, and a contact given back on its own', async () => {
+      const waiting = details.pendingApproval;
+      const approvedRemoved = variant(details.approved, { messageId: waiting.messageId, version: waiting.version + 1, contactRemoved: true });
+      const givenBack = variant(approvedRemoved, { contactRemoved: false });
+      servePage(suite.server, [waiting]);
+      serveRow(suite.server, waiting, eventsFixtures.rejected.events, detailReply(waiting), detailReply(approvedRemoved), detailReply(givenBack));
+      renderHistory();
+      await listed();
+      fireEvent.click(toggleOf(waiting.messageId));
+      await rowLoaded(waiting);
+      fireEvent.click(refreshButton(waiting.messageId));
+      await act(async () => {});
+      await rowLoaded(approvedRemoved);
+      expect(liveRegion()).toHaveTextContent(
+        'El estado cambió: ahora Aún no enviado. Aprobado, sin enviar. El teléfono ya no pertenece a este cliente.'
+      );
+      fireEvent.click(refreshButton(waiting.messageId));
+      await act(async () => {});
+      expect(toggleOf(waiting.messageId)).not.toHaveTextContent('El teléfono ya no pertenece a este cliente.');
+      expect(liveRegion()).toHaveTextContent('El teléfono vuelve a pertenecer a este cliente.');
     });
 
     it('starts the list again when the refreshed first page does not overlap the held rows', async () => {

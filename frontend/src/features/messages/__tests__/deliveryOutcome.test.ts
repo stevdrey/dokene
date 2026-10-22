@@ -7,7 +7,8 @@ import {
   deliveryOutcome,
   failureGuidance,
   loadedMoreSentence,
-  outcomeChangedSentence
+  outcomeChangedSentence,
+  contactChangedSentence
 } from '../utils/deliveryOutcome';
 import { listItemFromDetail, mergeItem } from '../utils/mergeItem';
 import { canReadMessages } from '../utils/permissions';
@@ -93,6 +94,8 @@ describe('failureGuidance', () => {
       ...Object.values(HISTORY_COPY),
       outcomeChangedSentence(deliveryOutcome('FAILED', false)),
       outcomeChangedSentence(deliveryOutcome('APPROVED', false), true),
+      contactChangedSentence(true),
+      contactChangedSentence(false),
       loadedMoreSentence(3)
     ];
     for (const sentence of sentences) {
@@ -109,6 +112,8 @@ describe('failureGuidance', () => {
       'El estado cambió: ahora Fallido. No se entregó al cliente.'
     );
     expect(outcomeChangedSentence(deliveryOutcome('BOGUS', false), true)).toBe('El estado cambió: ahora BOGUS.');
+    expect(contactChangedSentence(true)).toBe('El teléfono ya no pertenece a este cliente.');
+    expect(contactChangedSentence(false)).toBe('El teléfono vuelve a pertenecer a este cliente.');
     expect(loadedMoreSentence(4)).toBe('Se cargaron 4 mensajes más.');
   });
 });

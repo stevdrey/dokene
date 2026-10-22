@@ -117,7 +117,12 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
       <p role="status" className="delivery-history__live">
         <span key={liveKey}>{liveText}</span>
       </p>
-      {state.kind === 'forbidden' && <p className="message-review__placeholder">{HISTORY_COPY.forbidden}</p>}
+      {state.kind === 'forbidden' && (
+        // Nothing takes focus and the status region is empty here, so the denial announces itself.
+        <p role="alert" className="message-review__placeholder">
+          {HISTORY_COPY.forbidden}
+        </p>
+      )}
       {state.kind === 'error' && (
         <div role="alert" className="message-review__inline-error">
           <span>{HISTORY_COPY.loadFailed}</span>
@@ -202,12 +207,22 @@ function DeliveryRow({ row, open, onToggle, onRefresh, children }: DeliveryRowPr
   const outcome = deliveryOutcome(item.status, item.outcomeUnknown);
   const id = panelId(item.messageId);
   const showRefresh = !row.notFound && (open || outcome.outcome === 'uncertain');
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  // Actualizar can leave with its own reply (an uncertain row resolved, a 404); the toggle then takes its focus.
+  const refreshFocused = useRef(false);
+  useEffect(() => {
+    if (!refreshFocused.current || row.refreshing) return;
+    refreshFocused.current = false;
+    const active = document.activeElement;
+    if (!showRefresh && (!active || active === document.body)) toggleRef.current?.focus();
+  }, [row.refreshing, showRefresh]);
   const classes = ['delivery-row', `delivery-row--${outcome.outcome}`, open ? 'delivery-row--open' : ''].join(' ').trim();
 
   return (
     <li className={classes}>
       <div className="delivery-row__header">
         <button
+          ref={toggleRef}
           type="button"
           className="delivery-row__toggle"
           aria-expanded={open}
@@ -231,7 +246,13 @@ function DeliveryRow({ row, open, onToggle, onRefresh, children }: DeliveryRowPr
           {item.contactRemoved && <span className="delivery-row__tag">{HISTORY_COPY.contactRemoved}</span>}
         </button>
         {showRefresh && (
-          <BusyButton busy={row.refreshing} onClick={() => onRefresh(item.messageId)}>
+          <BusyButton
+            busy={row.refreshing}
+            onClick={(event) => {
+              refreshFocused.current = document.activeElement === event.currentTarget;
+              onRefresh(item.messageId);
+            }}
+          >
             {HISTORY_COPY.refreshRow}
           </BusyButton>
         )}

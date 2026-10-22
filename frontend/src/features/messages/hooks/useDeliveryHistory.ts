@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { messageApi, type VersionedMessage } from '../api/messageApi';
 import type { MessageListItem, MessagePageResponse } from '../types';
-import { deliveryOutcome, HISTORY_COPY, loadedMoreSentence, outcomeChangedSentence } from '../utils/deliveryOutcome';
+import {
+  contactChangedSentence,
+  deliveryOutcome,
+  HISTORY_COPY,
+  loadedMoreSentence,
+  outcomeChangedSentence
+} from '../utils/deliveryOutcome';
 import { classifyFailure, type MessageFailure } from '../utils/messageErrors';
 import { listItemFromDetail, mergeItem } from '../utils/mergeItem';
 
@@ -320,13 +326,17 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
         if (!before) return;
         const merged = mergeItem(before.item, listItemFromDetail(outcome.value.detail));
         commitRow(messageId, (row) => ({ ...row, refreshing: false, item: merged }));
-        // The status decides, not the label: two statuses may share one label (both "Aún no enviado").
+        // The status decides, not the label: two statuses may share one label (both "Aún no enviado"). A flipped
+        // contactRemoved is a change too, since the row shows or drops its tag with it.
         const statusChanged = merged.status !== before.item.status || merged.outcomeUnknown !== before.item.outcomeUnknown;
+        const contactChanged = merged.contactRemoved !== before.item.contactRemoved;
         const previous = deliveryOutcome(before.item.status, before.item.outcomeUnknown);
         const next = deliveryOutcome(merged.status, merged.outcomeUnknown);
-        announce(
-          statusChanged ? outcomeChangedSentence(next, previous.label === next.label) : HISTORY_COPY.unchanged
-        );
+        const sentences = [
+          statusChanged ? outcomeChangedSentence(next, previous.label === next.label) : null,
+          contactChanged ? contactChangedSentence(merged.contactRemoved) : null
+        ].filter((sentence): sentence is string => sentence !== null);
+        announce(sentences.length > 0 ? sentences.join(' ') : HISTORY_COPY.unchanged);
         if (openRef.current === messageId) onRowRefreshed?.(messageId, outcome.value);
       });
     },

@@ -92,6 +92,7 @@ export const HISTORY_COPY = {
   unchanged: 'Sin cambios desde la última lectura.',
   noAutomaticResend: 'Este mensaje no se reenviará automáticamente.',
   contactRemoved: 'El teléfono ya no pertenece a este cliente.',
+  contactRestored: 'El teléfono vuelve a pertenecer a este cliente.',
   refreshList: 'Actualizar historial',
   loadMore: 'Cargar más',
   refreshRow: 'Actualizar',
@@ -107,6 +108,11 @@ export function outcomeChangedSentence(outcome: DeliveryOutcome, sameLabel = fal
   const sentence = `El estado cambió: ahora ${outcome.label}.`;
   if (!sameLabel || outcome.secondary === null) return sentence;
   return `${sentence} ${outcome.secondary.replace(/\.$/, '')}.`;
+}
+
+/** An equal version can flip only `contactRemoved`; that change is heard even though the status did not move. */
+export function contactChangedSentence(removed: boolean): string {
+  return removed ? HISTORY_COPY.contactRemoved : HISTORY_COPY.contactRestored;
 }
 
 export function loadedMoreSentence(count: number): string {

@@ -353,6 +353,8 @@ describe('DeliveryHistory', () => {
       suite.server.on(historyPath(CUSTOMER_A), status(403));
       const forbidden = renderHistory();
       expect(await screen.findByText('No tienes permiso para ver estos mensajes.')).toBeInTheDocument();
+      // Nothing takes focus and the status region empties, so the denial has to be announced on its own.
+      expect(screen.getByRole('alert')).toHaveTextContent('No tienes permiso para ver estos mensajes.');
       forbidden.unmount();
 
       suite.server.on(historyPath(CUSTOMER_A), status(401));
@@ -469,7 +471,9 @@ describe('DeliveryHistory', () => {
       renderHistory();
       expect(await screen.findByText('No tienes permiso para ver estos mensajes.')).toBeInTheDocument();
       expect(screen.queryAllByRole('button')).toHaveLength(0);
-      expect(screen.queryByRole('alert')).toBeNull();
+      // The permission sentence is the only alert; there is no Reintentar alert beside it.
+      expect(screen.getByRole('alert')).toHaveTextContent('No tienes permiso para ver estos mensajes.');
+      expect(screen.queryByText('Reintentar')).toBeNull();
       expect(suite.server.count(historyPath(CUSTOMER_A))).toBe(1);
     });
 
