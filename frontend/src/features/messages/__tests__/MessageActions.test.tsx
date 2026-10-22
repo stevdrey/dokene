@@ -497,12 +497,20 @@ describe('review actions', () => {
       server.on(detailPath(approved.messageId), detailReply(sentFromApproved));
       click('Enviar');
       const confirm = group('Confirmar envío');
-      click('Confirmar envío', confirm);
+      const lockedConfirm = within(confirm).getByRole('button', { name: 'Confirmar envío' });
+      lockedConfirm.focus();
+      fireEvent.click(lockedConfirm);
       await flush();
       // The alert fires once; the ticking count lives outside it so it is not announced every second.
       expect(within(confirm).getByRole('alert')).toHaveTextContent(/^Se alcanzó el límite de envíos\.$/);
       expect(confirm).toHaveTextContent('Se alcanzó el límite de envíos. Espera 60 s.');
-      expect(within(confirm).getByRole('button', { name: 'Confirmar envío' })).toBeDisabled();
+      // Locked means aria-disabled, never natively disabled, so the keyboard user stays on the button for the lockout.
+      expect(lockedConfirm).not.toBeDisabled();
+      expect(lockedConfirm).toHaveAttribute('aria-disabled', 'true');
+      expect(lockedConfirm).toHaveFocus();
+      fireEvent.click(lockedConfirm);
+      await flush();
+      expect(server.count(sendsPath(approved.messageId))).toBe(1);
       expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
 
       await advance(1000);
@@ -511,6 +519,7 @@ describe('review actions', () => {
       await advance(59000);
       const confirmButton = within(group('Confirmar envío')).getByRole('button', { name: 'Confirmar envío' });
       expect(confirmButton).toBeEnabled();
+      expect(confirmButton).not.toHaveAttribute('aria-disabled');
       expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
       fireEvent.click(confirmButton);
       await flush();
@@ -629,9 +638,19 @@ describe('review actions', () => {
       const eventsBefore = server.count(eventsPath(queued.messageId));
       click('Actualizar');
       expect(await screen.findByText('Entregado')).toBeInTheDocument();
-      // DELIVERED is not terminal (READ may follow), so Actualizar stays.
+      // DELIVERED is not terminal (READ may follow), so Actualizar stays, and the change is heard.
       expect(screen.getByRole('button', { name: 'Actualizar' })).toBeInTheDocument();
+      expect(liveRegion()).toHaveTextContent('Este mensaje cambió: ahora está Entregado.');
       await waitFor(() => expect(server.count(eventsPath(queued.messageId))).toBe(eventsBefore + 1));
+    });
+
+    it('announces no change when the read brings the same status', async () => {
+      await openMessage(queued);
+      server.on(detailPath(queued.messageId), detailReply(variant(queued, { version: queued.version + 1 })));
+      click('Actualizar');
+      expect(await screen.findByText(`Revisión ${queued.version + 1}`)).toBeInTheDocument();
+      expect(liveRegion()).toHaveTextContent('Sin cambios desde la última lectura.');
+      expect(screen.getByRole('button', { name: 'Actualizar' })).toBeInTheDocument();
     });
 
     it('keeps the detail and shows an alert when the read fails', async () => {
@@ -721,6 +740,25 @@ describe('review actions', () => {
       expect(screen.getByRole('button', { name: 'Cancelar' })).toBeEnabled();
       expect(server.count(detailPath(pendingApproval.messageId))).toBe(2);
       expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1);
+    });
+
+    it('closes an open group and moves focus to the heading when the role can no longer act', async () => {
+      const view = await openMessage(pendingApproval);
+      click('Aprobar');
+      expect(group('Confirmar aprobación')).toBeInTheDocument();
+      view.rerender(
+        <MessageReview tenantId="tenant-a" role="VIEWER" mode={{ kind: 'review', messageId: pendingApproval.messageId, customerDisplayName: 'Ana Pérez' }} />
+      );
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      expect(screen.getByText('Tu rol solo permite consultar mensajes.')).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
+      view.rerender(
+        <MessageReview tenantId="tenant-a" role="OPERATOR" mode={{ kind: 'review', messageId: pendingApproval.messageId, customerDisplayName: 'Ana Pérez' }} />
+      );
+      // The old confirmation does not come back with the role; the operator starts again from the controls.
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Aprobar' })).toBeEnabled();
+      expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(0);
     });
 
     it('moves focus to the heading when Cerrar leaves a rate limited group whose opener is locked', async () => {

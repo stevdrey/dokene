@@ -124,7 +124,7 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
     [announce]
   );
   const detail = useMessageDetail(messageId, initial, { onPolledChange });
-  const actions = useReviewActions({ messageId, detail, announce, onCorrect });
+  const actions = useReviewActions({ messageId, detail, canAct: canActOnMessages(role), announce, onCorrect });
   const { state } = detail;
 
   if (state.kind === 'sessionEnded' || state.kind === 'notFound') {

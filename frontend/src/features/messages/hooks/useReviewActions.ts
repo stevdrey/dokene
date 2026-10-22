@@ -67,6 +67,8 @@ function successSentence(intent: ReviewIntent, detail: MessageResponse): string 
 interface Options {
   messageId: string;
   detail: MessageDetailHandle;
+  /** Whether the current role may act; when it stops, any open or held group is dropped. */
+  canAct: boolean;
   announce: (text: string) => void;
   onCorrect: (cancelled: MessageResponse) => void;
 }
@@ -86,7 +88,7 @@ export interface ReviewActions {
   refresh: () => Promise<void>;
 }
 
-export function useReviewActions({ messageId, detail, announce, onCorrect }: Options): ReviewActions {
+export function useReviewActions({ messageId, detail, canAct, announce, onCorrect }: Options): ReviewActions {
   const [group, setGroup] = useState<ConfirmState | null>(null);
   const [alert, setAlert] = useState<string | null>(null);
   const [lockUntil, setLockUntil] = useState<number | null>(null);
@@ -110,6 +112,13 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
       setAlert(COPY.versionMoved);
     }
   }, [version]);
+
+  // A role that can no longer act loses its confirmation at once, and it does not come back with the role.
+  useEffect(() => {
+    if (canAct) return;
+    setGroup(null);
+    setHeldUnsure(null);
+  }, [canAct]);
 
   useEffect(() => {
     if (lockUntil === null) return;
@@ -300,16 +309,21 @@ export function useReviewActions({ messageId, detail, announce, onCorrect }: Opt
   const refresh = useCallback(async () => {
     detail.stopPolling();
     setAlert(null);
+    const held = detail.state.kind === 'loaded' ? detail.state.detail : null;
     const read = await detail.readAgain();
     if (read.kind === 'dropped') return;
     if (read.kind === 'ok') {
       detail.apply(read.value);
       detail.loadEvents();
+      // Actualizar usually keeps its control and focus, so the result is heard rather than seen.
+      const next = read.value.detail;
+      const changed = held === null || held.status !== next.status || held.outcomeUnknown !== next.outcomeUnknown;
+      announce(changed ? changedSentence(next.status) : COPY.unchanged);
       return;
     }
     if (read.failure.kind === 'notFound') return detail.markNotFound();
     setAlert(COPY.refreshFailed);
-  }, [detail]);
+  }, [announce, detail]);
 
   const lockSeconds = lockUntil === null ? 0 : Math.max(0, Math.ceil((lockUntil - now) / 1000));
 

@@ -170,7 +170,8 @@ export const messageApi = {
       detail.templateIntent === request.templateIntent &&
       detail.body === request.body &&
       detail.locale === request.locale &&
-      detail.origin === request.origin;
+      detail.origin === request.origin &&
+      detail.sourcePolicyVersion === policyVersion;
     if (!matches) throw new InvalidMessageResponseError();
     return read;
   },

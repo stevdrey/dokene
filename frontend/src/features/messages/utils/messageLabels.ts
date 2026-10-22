@@ -130,6 +130,7 @@ export const COPY = {
   unconfirmed: 'No se pudo confirmar la acción.',
   actionFailed: 'No se pudo completar la acción.',
   sendLimitReached: 'Se alcanzó el límite de envíos.',
+  unchanged: 'Sin cambios desde la última lectura.',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;

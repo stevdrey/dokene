@@ -252,7 +252,7 @@ describe('compose mode', () => {
     it('goes stale on STALE_VERSION, tells the parent, and recovers on a new policy version with a new key', async () => {
       const onPolicyStale = vi.fn();
       // The reply must describe the draft that was submitted, body included, or the client refuses it.
-      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Texto del operador.' }));
+      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Texto del operador.', sourcePolicyVersion: 8 }));
       server.on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
       const view = renderCompose(composeMode(), 'OPERATOR', { onPolicyStale });
       type('Texto del operador.');
@@ -278,7 +278,8 @@ describe('compose mode', () => {
 
     it('adopts a policy version that arrived while submitting once STALE_VERSION comes back', async () => {
       const reply = pending();
-      server.on(submitPath(customerId), reply, created(pendingApproval));
+      // The second submit goes out under policy version 8, so its reply must say it was created under 8.
+      server.on(submitPath(customerId), reply, created({ ...pendingApproval, sourcePolicyVersion: 8 }));
       server.on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
       const view = renderCompose();
       fireEvent.click(submitButton());
