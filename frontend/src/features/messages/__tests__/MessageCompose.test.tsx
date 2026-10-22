@@ -249,10 +249,10 @@ describe('compose mode', () => {
       expect(third).not.toBe(first);
     });
 
-    it('goes stale on STALE_VERSION, tells the parent, and recovers on a new policy version with a new key', async () => {
+    it('goes stale on STALE_VERSION, tells the parent, and keeps the edited text when a new policy version arrives', async () => {
       const onPolicyStale = vi.fn();
-      // The second submit carries the fresh draft under policy version 8, and the reply must describe exactly that.
-      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Borrador nuevo.', sourcePolicyVersion: 8 }));
+      // The second submit carries the operator's text under policy version 8, and the reply must describe exactly that.
+      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Texto del operador.', sourcePolicyVersion: 8 }));
       server.on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
       const view = renderCompose(composeMode(), 'OPERATOR', { onPolicyStale });
       type('Texto del operador.');
@@ -265,18 +265,46 @@ describe('compose mode', () => {
       expect(submitButton()).toBeDisabled();
       expect(textarea()).toHaveValue('Texto del operador.');
 
-      // A new policy version arrives with its own draft; the text typed on the old evaluation is not carried over
-      // (ADR 0023 §4.1: never reuse a draft once the policy version changed).
+      // A new policy version arrives with its own draft. The operator's edits are kept (ADR 0020 §4, edited drafts are
+      // not lost) and the live region says so; only the stale state and the intent key are replaced.
       view.rerenderWith(composeMode({ policyVersion: 8, initialBody: 'Borrador nuevo.' }));
       expect(screen.queryByRole('alert')).toBeNull();
-      expect(textarea()).toHaveValue('Borrador nuevo.');
+      expect(textarea()).toHaveValue('Texto del operador.');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'El seguimiento se actualizó. Tu texto se conserva; revísalo antes de enviarlo a aprobación.'
+      );
       fireEvent.click(submitButton());
       confirmSubmit();
       expect(await screen.findByText('Revisión 1')).toBeInTheDocument();
       const [first, second] = server.all(submitPath(customerId));
       expect(second.headers['If-Match']).toBe('"8"');
       expect(second.headers['Idempotency-Key']).not.toBe(first.headers['Idempotency-Key']);
-      expect(JSON.parse(second.body!).body).toBe('Borrador nuevo.');
+      expect(JSON.parse(second.body!).body).toBe('Texto del operador.');
+    });
+
+    it('adopts the new draft on a new policy version when the text was not edited, and says so', async () => {
+      server.on(submitPath(customerId), problem('STALE_VERSION'));
+      const view = renderCompose();
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      expect(await screen.findByRole('alert')).toHaveTextContent('La situación del cliente cambió');
+      // The draft shown was written for the old evaluation and was never edited, so it is not reused (ADR 0020 §4).
+      view.rerenderWith(composeMode({ policyVersion: 8, initialBody: 'Borrador nuevo.' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(textarea()).toHaveValue('Borrador nuevo.');
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'El seguimiento se actualizó. El borrador mostrado corresponde a la situación actual.'
+      );
+      expect(submitButton()).toBeEnabled();
+    });
+
+    it('keeps edited text when the policy version changes while editing, even with the same draft', async () => {
+      const view = renderCompose();
+      type('Texto del operador.');
+      view.rerenderWith(composeMode({ policyVersion: 8 }));
+      expect(textarea()).toHaveValue('Texto del operador.');
+      expect(screen.getByRole('status')).toHaveTextContent('Tu texto se conserva');
+      expect(submitButton()).toBeEnabled();
     });
 
     it('adopts a policy version that arrived while submitting once STALE_VERSION comes back', async () => {

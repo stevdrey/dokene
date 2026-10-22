@@ -97,9 +97,9 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
   const [heldUnsure, setHeldUnsure] = useState<ConfirmState | null>(null);
   const groupRef = useRef(group);
   groupRef.current = group;
-  // Read after an await: a result that lands once the role lost the right to act must not restore a group.
-  const canActRef = useRef(canAct);
-  canActRef.current = canAct;
+  // Counts the times the role lost the right to act. A request remembers the count it started under, so a result that
+  // lands after a loss is dropped even when the role has already come back; a live flag would let it reopen the group.
+  const roleLoss = useRef(0);
 
   const version = detail.state.kind === 'loaded' ? detail.state.version : null;
   const versionRef = useRef(version);
@@ -119,6 +119,7 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
   // A role that can no longer act loses its confirmation at once, and it does not come back with the role.
   useEffect(() => {
     if (canAct) return;
+    roleLoss.current += 1;
     setGroup(null);
     setHeldUnsure(null);
   }, [canAct]);
@@ -211,10 +212,11 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
   );
 
   const resolveUncertain = useCallback(
-    async (attempt: ConfirmState) => {
+    async (attempt: ConfirmState, generation: number) => {
       const read = await detail.readAgain();
       if (read.kind === 'dropped') return;
-      const stillUnsure = () => setGroup(canActRef.current ? { ...attempt, step: { kind: 'uncertain' } } : null);
+      const roleKept = roleLoss.current === generation;
+      const stillUnsure = () => setGroup(roleKept ? { ...attempt, step: { kind: 'uncertain' } } : null);
       if (read.kind === 'failed') {
         if (read.failure.kind === 'notFound') {
           setGroup(null);
@@ -230,10 +232,11 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
       setGroup(null);
       detail.apply(read.value);
       detail.loadEvents();
-      // The lost reply was a cancel for Corregir and the server shows it cancelled, so the copy opens as on success.
+      // The lost reply was a cancel for Corregir and the server shows it cancelled, so the copy opens as on success,
+      // unless the role lost the right to act meanwhile: a read only role is shown the cancellation, not an editable copy.
       if (attempt.intent === 'correct' && read.value.detail.status === 'CANCELLED') {
         announce(COPY.cancelled);
-        startCorrection(read.value.detail);
+        if (roleKept) startCorrection(read.value.detail);
         return;
       }
       setAlert(COPY.mayHaveCompleted);
@@ -253,8 +256,10 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
     const submitting = { ...attempt, step: { kind: 'submitting' } as const };
     groupRef.current = submitting;
     setGroup(submitting);
+    const generation = roleLoss.current;
 
     const outcome = await detail.run((signal) => call(messageId, attempt, signal));
+    const roleKept = roleLoss.current === generation;
     if (outcome.kind === 'dropped') {
       setGroup(null);
       return;
@@ -266,12 +271,12 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
       detail.loadEvents();
       announce(successSentence(attempt.intent, read.detail));
       if (attempt.intent === 'send' && isAwaitingProvider(read.detail)) detail.startPolling();
-      if (attempt.intent === 'correct') startCorrection(read.detail);
+      if (attempt.intent === 'correct' && roleKept) startCorrection(read.detail);
       return;
     }
     const keepOpen = (step: GroupStep) => {
       // The role lost the right to act while the request was in flight; its result does not reopen the group.
-      if (!canActRef.current) {
+      if (!roleKept) {
         setGroup(null);
         return;
       }
@@ -306,7 +311,7 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
         keepOpen({ kind: 'rateLimited' });
         return;
       case 'uncertain':
-        return resolveUncertain(attempt);
+        return resolveUncertain(attempt, generation);
       case 'refused':
         keepOpen({ kind: 'refused', message: errorCodeSentence(failure.code) });
         return;

@@ -131,6 +131,8 @@ export const COPY = {
   actionFailed: 'No se pudo completar la acción.',
   sendLimitReached: 'Se alcanzó el límite de envíos.',
   unchanged: 'Sin cambios desde la última lectura.',
+  policyUpdatedTextKept: 'El seguimiento se actualizó. Tu texto se conserva; revísalo antes de enviarlo a aprobación.',
+  policyUpdatedDraft: 'El seguimiento se actualizó. El borrador mostrado corresponde a la situación actual.',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;

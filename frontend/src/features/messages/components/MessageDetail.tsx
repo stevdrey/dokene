@@ -274,9 +274,13 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
   }, [message, focusAfterResult]);
 
   // A role that loses the right to act unmounts every trigger at once; a focused one hands focus to the heading.
+  // Only the loss moves focus: a read only role that opens a message keeps focus where it was.
   const canAct = canActOnMessages(role);
+  const couldAct = useRef(canAct);
   useEffect(() => {
-    if (canAct) return;
+    const lost = couldAct.current && !canAct;
+    couldAct.current = canAct;
+    if (!lost) return;
     const active = document.activeElement;
     if (!active || active === document.body) focusAfterResult.current?.focus();
   }, [canAct, focusAfterResult]);

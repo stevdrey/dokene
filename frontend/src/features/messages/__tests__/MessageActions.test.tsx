@@ -789,6 +789,8 @@ describe('review actions', () => {
       await act(async () => reply.resolve(networkFailure()));
       await waitFor(() => expect(server.count(detailPath(pendingApproval.messageId))).toBe(2));
       view.rerender(OPERATOR_VIEW);
+      // The read's reply still has to settle, or the assertions below would only see what role loss already did.
+      await act(async () => {});
       expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
       // No unsure attempt is held, so every control is open again instead of only the approve retry.
       expect(screen.getByRole('button', { name: 'Rechazar' })).toBeEnabled();
@@ -859,6 +861,61 @@ describe('review actions', () => {
       expect(screen.queryByLabelText('Texto final del mensaje')).toBeNull();
       expect(liveRegion()).toHaveTextContent('Mensaje cancelado. No se enviará al cliente.');
       expect(screen.getByRole('alert')).toHaveTextContent('Redacta un mensaje nuevo con el número correcto.');
+    });
+
+    it('keeps the group closed when the role returns before a late refused result lands', async () => {
+      const view = await openMessage(pendingApproval);
+      const reply = pending();
+      server.on(approvalsPath(pendingApproval.messageId), reply);
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await waitFor(() => expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1));
+      view.rerender(VIEWER_VIEW);
+      view.rerender(OPERATOR_VIEW);
+      await act(async () => reply.resolve(problem('FORBIDDEN')));
+      // The role flapped while the request was in flight; the result belongs to the dropped group and stays dropped.
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Aprobar' })).toBeEnabled();
+    });
+
+    it('holds no retry when the role returns before a late unsure read settles', async () => {
+      const view = await openMessage(pendingApproval);
+      const reply = pending();
+      const read = pending();
+      server.on(approvalsPath(pendingApproval.messageId), reply).on(detailPath(pendingApproval.messageId), read);
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await waitFor(() => expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1));
+      view.rerender(VIEWER_VIEW);
+      await act(async () => reply.resolve(networkFailure()));
+      await waitFor(() => expect(server.count(detailPath(pendingApproval.messageId))).toBe(2));
+      view.rerender(OPERATOR_VIEW);
+      await act(async () => read.resolve(detailReply(pendingApproval)));
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Cancelar' })).toBeEnabled();
+    });
+
+    it('stays on the review view when a Corregir result lands after the role lost the right to act', async () => {
+      const view = await openMessage(pendingApproval);
+      const reply = pending();
+      server.on(cancellationsPath(pendingApproval.messageId), reply);
+      click('Corregir');
+      click('Confirmar corrección', group('Confirmar corrección'));
+      await waitFor(() => expect(server.count(cancellationsPath(pendingApproval.messageId))).toBe(1));
+      view.rerender(VIEWER_VIEW);
+      await act(async () => reply.resolve(created(cancelledHere)));
+      // The cancel went through and is shown; a read only role is not moved into an editable copy.
+      expect(await screen.findByText(`Revisión ${cancelledHere.version}`)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Texto final del mensaje')).toBeNull();
+      expect(liveRegion()).toHaveTextContent('Mensaje cancelado. No se enviará al cliente.');
+    });
+
+    it('leaves focus where it was when a read only role opens a message', async () => {
+      await openMessage(pendingApproval, 'VIEWER');
+      expect(screen.getByText('Tu rol solo permite consultar mensajes.')).toBeInTheDocument();
+      expect(document.body).toHaveFocus();
     });
   });
 });

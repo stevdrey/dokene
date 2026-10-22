@@ -83,6 +83,7 @@ function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale 
       fromCorrection={fromCorrection}
       onSubmitted={(read) => handleSubmitted(read, input.customerDisplayName)}
       onPolicyStale={fromCorrection ? undefined : onPolicyStale}
+      announce={announce}
     />
   );
 
