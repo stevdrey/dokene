@@ -34,16 +34,16 @@ Read the table as: a case is `FAIL` when any of its checks failed, `BLOCKED` whe
 commit and nothing failed, `PASS` otherwise. The channel column lists every channel that contributed. The raw lines
 (one per check, with the values seen) are in `out/results.tsv`; `out/verdicts.tsv` is the per-case reduction.
 
-## Findings for Chock to file
+## Findings
 
-None of these were fixed during the run. Severity is my reading; none of them lets a send happen or a secret out.
+Findings 1 and 2 are filed as #265 and #266. None of these were fixed during the run. Severity is my reading; none of them lets a send happen or a secret out.
 
-1. **The cancellation route writes two `AUTHORIZATION_DENIED` audit rows for one denied request (Low, audit noise).**
+1. **The cancellation route writes two `AUTHORIZATION_DENIED` audit rows for one denied request (Low, audit noise; filed as #265).**
    `POST /api/messages/{id}/cancellations` is guarded with `anyOf(MESSAGE_DRAFT, MESSAGE_APPROVE)`. When `A-VIEWER`
    calls it, each permission of the pair is evaluated and audited, so the table gets two rows for one `403`, and the
    latest row names `MESSAGE_APPROVE` although the viewer was trying to cancel. P3-PERM-03 and P3-PERM-05 expect one
    row per denial. Every other denial writes exactly one row. Repro: `sec149-perm.sh`, the VIEWER cancel checks.
-2. **`POST /webhooks/other` answers `403` with a `Set-Cookie: JSESSIONID` (Low, hygiene).** The webhook sibling path
+2. **`POST /webhooks/other` answers `403` with a `Set-Cookie: JSESSIONID` (Low, hygiene; filed as #266).** The webhook sibling path
    is not a handler (good), but it falls through to the session-backed chain and mints a session cookie, both direct
    and through the proxy. `/webhooks/whatsapp` itself never sets a cookie. P3-CSRF-05 expects no cookie on any path
    under `/webhooks`. Repro: `sec149-csrf.sh`, the `/webhooks/other` checks.
@@ -106,9 +106,9 @@ resolutions route and the screens should turn them into `PASS` or `FAIL`.
 | --- | --- | --- | --- | --- |
 | P3-PERM-01 | PASS | HTTP | 4 |  |
 | P3-PERM-02 | PASS | HTTP, Automated | 8 |  |
-| P3-PERM-03 | FAIL | HTTP | 7 | finding 1: two denial rows for one denied cancel |
+| P3-PERM-03 | FAIL | HTTP | 7 | finding 1 (#265): two denial rows for one denied cancel |
 | P3-PERM-04 | PASS | HTTP | 14 |  |
-| P3-PERM-05 | FAIL | HTTP | 7 | finding 1: two denial rows for one denied cancel |
+| P3-PERM-05 | FAIL | HTTP | 7 | finding 1 (#265): two denial rows for one denied cancel |
 | P3-PERM-06 | PASS | HTTP | 8 |  |
 | P3-PERM-07 | BLOCKED | HTTP | 1 | POST /api/messages/{id}/resolutions is not deployed on this commit (404); T12 is owed by #138 |
 | P3-PERM-08 | PASS | HTTP | 4 |  |
@@ -141,7 +141,7 @@ resolutions route and the screens should turn them into `PASS` or `FAIL`.
 | P3-CSRF-02 | PASS | HTTP | 23 |  |
 | P3-CSRF-03 | PASS | Database, Browser | 4 |  |
 | P3-CSRF-04 | PASS | HTTP, Automated | 3 |  |
-| P3-CSRF-05 | FAIL | HTTP, Automated | 13 | finding 2: `Set-Cookie` on `/webhooks/other` |
+| P3-CSRF-05 | FAIL | HTTP, Automated | 13 | finding 2 (#266): `Set-Cookie` on `/webhooks/other` |
 | P3-APPR-01 | PASS | HTTP, Automated | 4 |  |
 | P3-APPR-02 | PASS | HTTP, Automated | 5 |  |
 | P3-APPR-03 | PASS | HTTP | 8 |  |
