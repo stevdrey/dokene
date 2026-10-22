@@ -97,6 +97,9 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
   const [heldUnsure, setHeldUnsure] = useState<ConfirmState | null>(null);
   const groupRef = useRef(group);
   groupRef.current = group;
+  // Read after an await: a result that lands once the role lost the right to act must not restore a group.
+  const canActRef = useRef(canAct);
+  canActRef.current = canAct;
 
   const version = detail.state.kind === 'loaded' ? detail.state.version : null;
   const versionRef = useRef(version);
@@ -211,16 +214,17 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
     async (attempt: ConfirmState) => {
       const read = await detail.readAgain();
       if (read.kind === 'dropped') return;
+      const stillUnsure = () => setGroup(canActRef.current ? { ...attempt, step: { kind: 'uncertain' } } : null);
       if (read.kind === 'failed') {
         if (read.failure.kind === 'notFound') {
           setGroup(null);
           return detail.markNotFound();
         }
-        setGroup({ ...attempt, step: { kind: 'uncertain' } });
+        stillUnsure();
         return;
       }
       if (read.value.version === attempt.openedOnVersion) {
-        setGroup({ ...attempt, step: { kind: 'uncertain' } });
+        stillUnsure();
         return;
       }
       setGroup(null);
@@ -266,6 +270,11 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
       return;
     }
     const keepOpen = (step: GroupStep) => {
+      // The role lost the right to act while the request was in flight; its result does not reopen the group.
+      if (!canActRef.current) {
+        setGroup(null);
+        return;
+      }
       // The held version moved while the request was in flight, so a retry would carry a stale If-Match.
       if (versionRef.current !== attempt.openedOnVersion) {
         setGroup(null);

@@ -251,8 +251,8 @@ describe('compose mode', () => {
 
     it('goes stale on STALE_VERSION, tells the parent, and recovers on a new policy version with a new key', async () => {
       const onPolicyStale = vi.fn();
-      // The reply must describe the draft that was submitted, body included, or the client refuses it.
-      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Texto del operador.', sourcePolicyVersion: 8 }));
+      // The second submit carries the fresh draft under policy version 8, and the reply must describe exactly that.
+      server.on(submitPath(customerId), problem('STALE_VERSION'), created({ ...pendingApproval, body: 'Borrador nuevo.', sourcePolicyVersion: 8 }));
       server.on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
       const view = renderCompose(composeMode(), 'OPERATOR', { onPolicyStale });
       type('Texto del operador.');
@@ -265,15 +265,18 @@ describe('compose mode', () => {
       expect(submitButton()).toBeDisabled();
       expect(textarea()).toHaveValue('Texto del operador.');
 
-      view.rerenderWith(composeMode({ policyVersion: 8 }));
+      // A new policy version arrives with its own draft; the text typed on the old evaluation is not carried over
+      // (ADR 0023 §4.1: never reuse a draft once the policy version changed).
+      view.rerenderWith(composeMode({ policyVersion: 8, initialBody: 'Borrador nuevo.' }));
       expect(screen.queryByRole('alert')).toBeNull();
-      expect(textarea()).toHaveValue('Texto del operador.');
+      expect(textarea()).toHaveValue('Borrador nuevo.');
       fireEvent.click(submitButton());
       confirmSubmit();
       expect(await screen.findByText('Revisión 1')).toBeInTheDocument();
       const [first, second] = server.all(submitPath(customerId));
       expect(second.headers['If-Match']).toBe('"8"');
       expect(second.headers['Idempotency-Key']).not.toBe(first.headers['Idempotency-Key']);
+      expect(JSON.parse(second.body!).body).toBe('Borrador nuevo.');
     });
 
     it('adopts a policy version that arrived while submitting once STALE_VERSION comes back', async () => {

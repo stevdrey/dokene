@@ -69,6 +69,8 @@ async function openMessage(detail: MessageResponse, role = 'OPERATOR') {
 }
 
 const liveRegion = () => screen.getByRole('status');
+const VIEWER_VIEW = <MessageReview tenantId="tenant-a" role="VIEWER" mode={{ kind: 'review', messageId: pendingApproval.messageId, customerDisplayName: 'Ana Pérez' }} />;
+const OPERATOR_VIEW = <MessageReview tenantId="tenant-a" role="OPERATOR" mode={{ kind: 'review', messageId: pendingApproval.messageId, customerDisplayName: 'Ana Pérez' }} />;
 const group = (name: string) => screen.getByRole('group', { name });
 const click = (name: string, scope: HTMLElement = document.body) =>
   fireEvent.click(within(scope).getByRole('button', { name }));
@@ -759,6 +761,46 @@ describe('review actions', () => {
       expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
       expect(screen.getByRole('button', { name: 'Aprobar' })).toBeEnabled();
       expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(0);
+    });
+
+    it('drops a late refused result after the role lost the right to act, so nothing comes back with the role', async () => {
+      const view = await openMessage(pendingApproval);
+      const reply = pending();
+      server.on(approvalsPath(pendingApproval.messageId), reply);
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await waitFor(() => expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1));
+      view.rerender(VIEWER_VIEW);
+      await act(async () => reply.resolve(problem('FORBIDDEN')));
+      view.rerender(OPERATOR_VIEW);
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Aprobar' })).toBeEnabled();
+    });
+
+    it('drops a late unsure result after the role lost the right to act and holds no retry', async () => {
+      const view = await openMessage(pendingApproval);
+      const reply = pending();
+      server.on(approvalsPath(pendingApproval.messageId), reply).on(detailPath(pendingApproval.messageId), detailReply(pendingApproval));
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await waitFor(() => expect(server.count(approvalsPath(pendingApproval.messageId))).toBe(1));
+      view.rerender(VIEWER_VIEW);
+      await act(async () => reply.resolve(networkFailure()));
+      await waitFor(() => expect(server.count(detailPath(pendingApproval.messageId))).toBe(2));
+      view.rerender(OPERATOR_VIEW);
+      expect(screen.queryByRole('group', { name: 'Confirmar aprobación' })).toBeNull();
+      // No unsure attempt is held, so every control is open again instead of only the approve retry.
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Cancelar' })).toBeEnabled();
+    });
+
+    it('moves focus to the heading when the role loses the right to act while a trigger has focus', async () => {
+      const view = await openMessage(pendingApproval);
+      screen.getByRole('button', { name: 'Aprobar' }).focus();
+      view.rerender(VIEWER_VIEW);
+      expect(screen.queryByRole('button', { name: 'Aprobar' })).toBeNull();
+      await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
     });
 
     it('moves focus to the heading when Cerrar leaves a rate limited group whose opener is locked', async () => {

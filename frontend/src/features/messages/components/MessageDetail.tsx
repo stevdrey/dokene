@@ -273,7 +273,15 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
     if (!active || active === document.body || !active.isConnected) focusAfterResult.current?.focus();
   }, [message, focusAfterResult]);
 
-  if (!canActOnMessages(role)) {
+  // A role that loses the right to act unmounts every trigger at once; a focused one hands focus to the heading.
+  const canAct = canActOnMessages(role);
+  useEffect(() => {
+    if (canAct) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) focusAfterResult.current?.focus();
+  }, [canAct, focusAfterResult]);
+
+  if (!canAct) {
     return <p className="message-review__muted">{COPY.readOnly}</p>;
   }
 

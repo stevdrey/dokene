@@ -67,13 +67,15 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   // A refusal unmounts the focused confirm button; the heading then takes focus so keyboard users keep their place.
   const focus = useReturnFocus(phase.kind === 'confirming' || phase.kind === 'submitting', headingRef);
 
-  // A fresh policy version from the parent clears the stale state and starts a new intent. While a request is in
+  // A fresh policy version from the parent installs its draft whole: text, stale state and intent are replaced
+  // together, since a draft is never reused once the policy version changed (ADR 0023 §4.1). While a request is in
   // flight or unsure it stays unadopted, so the phase that settles it can still pick it up and recover from a stale reply.
   if (input.policyVersion !== seenPolicyVersion && phase.kind !== 'uncertain' && phase.kind !== 'submitting') {
     setSeenPolicyVersion(input.policyVersion);
+    setText(input.initialBody);
     setStale(false);
     setAttempt(null);
-    if (phase.kind === 'confirming') setPhase({ kind: 'editing' });
+    if (phase.kind === 'confirming' || phase.kind === 'refused') setPhase({ kind: 'editing' });
   }
 
   useEffect(() => {
