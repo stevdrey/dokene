@@ -6,13 +6,22 @@ export { AbortedTenantRequestError, StaleSessionError };
 export class ApiError extends Error {
   readonly status: number;
   readonly payload?: ApiErrorPayload;
+  /** Whole seconds from a delta-seconds `Retry-After` header on a 429; undefined when absent or not a plain number. */
+  readonly retryAfterSeconds?: number;
 
-  constructor(status: number, message: string, payload?: ApiErrorPayload) {
+  constructor(status: number, message: string, payload?: ApiErrorPayload, retryAfterSeconds?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.payload = payload;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+function retryAfterSeconds(response: Response): number | undefined {
+  if (response.status !== 429) return undefined;
+  const header = response.headers.get('Retry-After')?.trim();
+  return header !== undefined && /^\d{1,9}$/.test(header) ? Number(header) : undefined;
 }
 
 export function getFriendlyErrorMessage(status: number, method?: string): string {
@@ -188,7 +197,7 @@ class HttpClient {
           errorMessage = getFriendlyErrorMessage(response.status, method);
         }
 
-        throw new ApiError(response.status, errorMessage, errorPayload);
+        throw new ApiError(response.status, errorMessage, errorPayload, retryAfterSeconds(response));
       }
 
       const etag = response.headers.get('ETag');
