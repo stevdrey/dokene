@@ -138,7 +138,7 @@ describe('review actions', () => {
       click('Aprobar');
       click('Confirmar aprobación', group('Confirmar aprobación'));
       await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
-      expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus();
+      await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
     });
 
     it.each([
@@ -414,6 +414,26 @@ describe('review actions', () => {
       expect(server.count(detailPath(approved.messageId))).toBe(reads);
     });
 
+    it('announces each status a poll tick applies, and stays quiet when only the version moved', async () => {
+      await openWithFakeTimers(approved);
+      const sentAgain = variant(sentFromApproved, { version: sentFromApproved.version + 1 });
+      server
+        .on(sendsPath(approved.messageId), created(queuedFromApproved))
+        .on(detailPath(approved.messageId), detailReply(sentFromApproved), detailReply(sentAgain), detailReply(deliveredFromApproved));
+      click('Enviar');
+      click('Confirmar envío', group('Confirmar envío'));
+      await flush();
+      expect(liveRegion()).toHaveTextContent('Envío procesado. Estado actual: En cola.');
+      await advance(2000);
+      expect(liveRegion()).toHaveTextContent('Este mensaje cambió: ahora está Enviado.');
+      await advance(2000);
+      expect(screen.getByText(`Revisión ${sentAgain.version}`)).toBeInTheDocument();
+      expect(liveRegion()).toHaveTextContent('Este mensaje cambió: ahora está Enviado.');
+      expect(liveRegion().childElementCount).toBe(1);
+      await advance(2000);
+      expect(liveRegion()).toHaveTextContent('Este mensaje cambió: ahora está Entregado.');
+    });
+
     it('stops after 20 s and leaves Actualizar', async () => {
       await openWithFakeTimers(approved);
       server.on(sendsPath(approved.messageId), created(queuedFromApproved)).on(detailPath(approved.messageId), detailReply(queuedFromApproved));
@@ -637,6 +657,29 @@ describe('review actions', () => {
       click('Actualizar');
       expect(await screen.findByText('Leído')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Actualizar' })).toBeNull();
+    });
+
+    it('moves focus to the heading when the refresh result removes Actualizar', async () => {
+      const delivered = details.delivered;
+      await openMessage(delivered);
+      server.on(detailPath(delivered.messageId), detailReply(variant(details.read, { messageId: delivered.messageId })));
+      const refresh = screen.getByRole('button', { name: 'Actualizar' });
+      refresh.focus();
+      fireEvent.click(refresh);
+      expect(await screen.findByText('Leído')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Actualizar' })).toBeNull();
+      await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
+    });
+
+    it('keeps focus on Actualizar when the refresh result keeps it', async () => {
+      const queued = details.queued;
+      await openMessage(queued);
+      server.on(detailPath(queued.messageId), detailReply(variant(details.delivered, { messageId: queued.messageId })));
+      const refresh = screen.getByRole('button', { name: 'Actualizar' });
+      refresh.focus();
+      fireEvent.click(refresh);
+      expect(await screen.findByText('Entregado')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Actualizar' })).toHaveFocus();
     });
 
     it('drops an earlier Actualizar reply that lands after a later one', async () => {

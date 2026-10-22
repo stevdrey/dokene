@@ -160,10 +160,18 @@ export const messageApi = {
       { method: 'POST', body: request, ifMatch: policyVersion, idempotencyKey, signal }
     );
     const read = versioned(data, etag);
-    // The new message id is unknown, but it must belong to the customer and contact that were submitted.
-    if (read.detail.customerId !== customerId || read.detail.contactId !== request.contactId) {
-      throw new InvalidMessageResponseError();
-    }
+    // The new message id is unknown, so the reply is bound to the customer and to every field the request fixed:
+    // the server stores them verbatim, and a reply for another draft must never read as this one's success.
+    const { detail } = read;
+    const matches =
+      detail.customerId === customerId &&
+      detail.contactId === request.contactId &&
+      detail.action === request.action &&
+      detail.templateIntent === request.templateIntent &&
+      detail.body === request.body &&
+      detail.locale === request.locale &&
+      detail.origin === request.origin;
+    if (!matches) throw new InvalidMessageResponseError();
     return read;
   },
 

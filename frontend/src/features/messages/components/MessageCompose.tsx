@@ -99,6 +99,8 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   const overLimit = length > DRAFT_BODY_MAX_CODE_POINTS;
   const busy = phase.kind === 'submitting';
   const canAct = canActOnMessages(role);
+  // A role that lost the right to act mid confirmation closes the group; the read only sentence takes its place.
+  if (!canAct && phase.kind === 'confirming') setPhase({ kind: 'editing' });
   const canSubmit =
     canAct && text.trim() !== '' && !overLimit && !stale && !busy && phase.kind !== 'uncertain';
   const recipient = maskPhone(input.recipientPhone);
@@ -246,9 +248,11 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
       {phase.kind === 'uncertain' && attempt && (
         <div role="alert" className="message-review__inline-error">
           <span>{COPY.unconfirmed}</span>
-          <Button variant="secondary" size="sm" onClick={() => void submit(attempt)}>
-            Reintentar
-          </Button>
+          {canAct && (
+            <Button variant="secondary" size="sm" onClick={() => void submit(attempt)}>
+              Reintentar
+            </Button>
+          )}
         </div>
       )}
 
@@ -268,7 +272,7 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
         <p className="message-review__muted">{COPY.readOnly}</p>
       )}
 
-      {(phase.kind === 'confirming' || busy) && attempt && (
+      {canAct && (phase.kind === 'confirming' || busy) && attempt && (
         <ConfirmGroup
           label="Confirmar envío a aprobación"
           recipient={recipient}

@@ -143,7 +143,12 @@ describe('messageApi', () => {
 
   it.each([
     ['another customer', { customerId: 'someone-else' }],
-    ['another contact', { contactId: 'other-contact' }]
+    ['another contact', { contactId: 'other-contact' }],
+    ['another body', { body: 'Otro texto que nadie confirmó.' }],
+    ['another action', { action: 'GENERAL_CHECK_IN' }],
+    ['another template intent', { templateIntent: 'GENERAL_FOLLOW_UP' }],
+    ['another locale', { locale: 'es-CL' }],
+    ['another origin', { origin: 'MANUAL' }]
   ])('refuses a submit reply for %s', async (_name, changes) => {
     const request = requests.submit.valid.aiDraft;
     server.on(submitPath(pendingApproval.customerId), { status: 201, body: { ...pendingApproval, ...changes }, etag: '"1"' });

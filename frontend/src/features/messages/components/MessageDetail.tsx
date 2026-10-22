@@ -1,6 +1,6 @@
 // ABOUTME: Review mode of the message component: shows a submitted message, its outcome and history, and its allowed actions.
 // ABOUTME: Offers controls only where the status and role allow; approving never sends, and only a confirmed Enviar calls /sends.
-import { useId, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useRef, type RefObject } from 'react';
 import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
 import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
@@ -12,6 +12,7 @@ import { formatDateTime, maskPhone } from '../utils/format';
 import {
   COPY,
   attemptOutcomeLabel,
+  changedSentence,
   failureCategoryLabel,
   originLabel,
   revisionLabel,
@@ -117,7 +118,12 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   const headingId = useId();
   const timelineHeadingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const detail = useMessageDetail(messageId, initial);
+  // A status the poll applied is otherwise only visible; the live region says it, as the direct action result did.
+  const onPolledChange = useCallback(
+    (read: VersionedMessage) => announce(changedSentence(read.detail.status)),
+    [announce]
+  );
+  const detail = useMessageDetail(messageId, initial, { onPolledChange });
   const actions = useReviewActions({ messageId, detail, announce, onCorrect });
   const { state } = detail;
 
@@ -258,6 +264,14 @@ interface ActionAreaProps {
 function ActionArea({ message, role, poll, actions, customerDisplayName, focusAfterResult }: ActionAreaProps) {
   const { group } = actions;
   const focus = useReturnFocus(group !== null, focusAfterResult);
+  // Actualizar can remove itself with its own result (DELIVERED to READ); focus then goes to the heading, not the body.
+  const refreshFocused = useRef(false);
+  useEffect(() => {
+    if (!refreshFocused.current) return;
+    refreshFocused.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) focusAfterResult.current?.focus();
+  }, [message, focusAfterResult]);
 
   if (!canActOnMessages(role)) {
     return <p className="message-review__muted">{COPY.readOnly}</p>;
@@ -276,7 +290,14 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
       {controls.kind !== 'none' && (
         <div className="message-actions">
           {controls.kind === 'refresh' ? (
-            <Button variant="secondary" size="sm" onClick={() => void actions.refresh()}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={(event) => {
+                refreshFocused.current = document.activeElement === event.currentTarget;
+                void actions.refresh();
+              }}
+            >
               Actualizar
             </Button>
           ) : (

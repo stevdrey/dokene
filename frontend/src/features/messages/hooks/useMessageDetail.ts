@@ -49,7 +49,16 @@ export interface MessageDetailHandle {
   stopPolling: () => void;
 }
 
-export function useMessageDetail(messageId: string, initial?: VersionedMessage): MessageDetailHandle {
+export interface MessageDetailOptions {
+  /** A poll tick applied a reply whose status or outcome differs from the held one; the caller announces it. */
+  onPolledChange?: (read: VersionedMessage) => void;
+}
+
+export function useMessageDetail(
+  messageId: string,
+  initial?: VersionedMessage,
+  { onPolledChange }: MessageDetailOptions = {}
+): MessageDetailHandle {
   const [state, setState] = useState<DetailState>(() =>
     initial ? { kind: 'loaded', detail: initial.detail, version: initial.version } : { kind: 'loading' }
   );
@@ -192,6 +201,11 @@ export function useMessageDetail(messageId: string, initial?: VersionedMessage):
     if (held.kind !== 'loaded' || held.version !== read.version) {
       apply(read);
       loadEvents();
+      const changed =
+        held.kind !== 'loaded' ||
+        held.detail.status !== read.detail.status ||
+        held.detail.outcomeUnknown !== read.detail.outcomeUnknown;
+      if (changed) onPolledChange?.(read);
     }
     if (!isAwaitingProvider(read.detail)) {
       setPoll('idle');
@@ -200,7 +214,7 @@ export function useMessageDetail(messageId: string, initial?: VersionedMessage):
     } else {
       pollTimer.current = setTimeout(() => void tick(), POLL_INTERVAL_MS);
     }
-  }, [apply, loadEvents, markNotFound, messageId, runWith]);
+  }, [apply, loadEvents, markNotFound, messageId, onPolledChange, runWith]);
 
   const startPolling = useCallback(() => {
     clearPoll();
