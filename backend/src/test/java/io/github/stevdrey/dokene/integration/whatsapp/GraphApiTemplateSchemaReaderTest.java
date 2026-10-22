@@ -8,6 +8,8 @@ import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.BodyParameters;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unreadable;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unsupported;
+import io.github.stevdrey.dokene.template.domain.TemplateButton;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
 import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.util.List;
@@ -75,7 +77,10 @@ class GraphApiTemplateSchemaReaderTest {
                         + "{\"type\":\"PHONE_NUMBER\",\"text\":\"Llamar\",\"phone_number\":\"+50600000000\"},"
                         + "{\"type\":\"URL\",\"text\":\"Ver\",\"url\":\"https://example.test/catalogo\"}]}"))
                 .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"),
-                        new TemplateContent("Aviso", "Hola {{1}}, tu pedido {{2}}", "Gracias")));
+                        new TemplateContent("Aviso", "Hola {{1}}, tu pedido {{2}}", "Gracias", List.of(
+                                new TemplateButton(TemplateButtonType.QUICK_REPLY, "Si", null),
+                                new TemplateButton(TemplateButtonType.PHONE_NUMBER, "Llamar", "+50600000000"),
+                                new TemplateButton(TemplateButtonType.URL, "Ver", "https://example.test/catalogo")))));
     }
 
     @ParameterizedTest
@@ -116,6 +121,14 @@ class GraphApiTemplateSchemaReaderTest {
                     + "{\"type\":\"HEADER\",\"format\":\"IMAGE\"}," + BODY + "]}",
             "{\"components\":[" + BODY + ",{\"type\":\"FOOTER\",\"text\":\"Uno\"},"
                     + "{\"type\":\"FOOTER\",\"text\":\"Dos\"}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"a\"}]},"
+                    + "{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"b\"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\" \"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"PHONE_NUMBER\","
+                    + "\"text\":\"Llamar\"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"URL\",\"url\":"
+                    + "\"https://example.test\"}]}]}",
             "{\"components\":[{\"type\":\"BODY\"}]}",
             "{\"components\":[{\"type\":\"BODY\",\"text\":5}]}",
             "{\"components\":[{\"type\":\"BODY\",\"text\":\"Hola {{1\"}]}",
@@ -143,10 +156,10 @@ class GraphApiTemplateSchemaReaderTest {
 
     @Test
     void untrustedMetadataIsBounded() {
-        // Header and footer are singletons, so the component bound is reached with button groups.
-        String buttons = ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"x\"}]}";
-        assertThat(read("{\"components\":[" + BODY + buttons.repeat(9) + "]}")).isInstanceOf(BodyParameters.class);
-        assertThat(read("{\"components\":[" + BODY + buttons.repeat(10) + "]}")).isEqualTo(new Unreadable());
+        // Header, footer and buttons are singletons, so the component bound is reached with unknown components.
+        String unknown = ",{\"type\":\"SOMETHING_NEW\"}";
+        assertThat(read("{\"components\":[" + BODY + unknown.repeat(9) + "]}")).isEqualTo(new Unsupported());
+        assertThat(read("{\"components\":[" + BODY + unknown.repeat(10) + "]}")).isEqualTo(new Unreadable());
         String quickReply = ",{\"type\":\"QUICK_REPLY\",\"text\":\"x\"}";
         assertThat(withComponents(BODY, "{\"type\":\"BUTTONS\",\"buttons\":[" + quickReply.substring(1)
                 + quickReply.repeat(10) + "]}")).isEqualTo(new Unreadable());

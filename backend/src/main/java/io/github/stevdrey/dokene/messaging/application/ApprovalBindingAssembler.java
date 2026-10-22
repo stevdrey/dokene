@@ -112,7 +112,10 @@ public class ApprovalBindingAssembler {
                 consentRevision, new ApprovalFingerprint.TemplateRevision(mapping.version(),
                         mapping.providerTemplateName(), mapping.language(), parameterFormat(mapping.parameterFormat()),
                         mapping.parameterNames(), mapping.content().header(), mapping.content().body(),
-                        mapping.content().footer()),
+                        mapping.content().footer(), mapping.content().buttons().stream()
+                                .map(button -> new ApprovalFingerprint.ButtonRevision(button.type().name(),
+                                        button.text(), button.value()))
+                                .toList()),
                 rendered.values(), sender);
     }
 

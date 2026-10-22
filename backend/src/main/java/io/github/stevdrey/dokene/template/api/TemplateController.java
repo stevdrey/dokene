@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.template.api;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.InvalidRequestException;
+import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateButtonResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateContentResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateListResponse;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateRequest;
@@ -110,7 +111,10 @@ public class TemplateController {
 
     private static TemplateContentResponse content(TemplateContent content) {
         return content == null ? null
-                : new TemplateContentResponse(content.header(), content.body(), content.footer());
+                : new TemplateContentResponse(content.header(), content.body(), content.footer(),
+                        content.buttons().stream()
+                                .map(button -> new TemplateButtonResponse(button.type(), button.text(), button.value()))
+                                .toList());
     }
 
     /** Exactly one strong canonical numeric precondition, as for the integration endpoint. */

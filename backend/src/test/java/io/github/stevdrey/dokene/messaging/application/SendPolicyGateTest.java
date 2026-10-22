@@ -148,7 +148,7 @@ class SendPolicyGateTest {
                 binding.action(), binding.templateIntent(), binding.locale(), binding.body(),
                 binding.sourcePolicyVersion(), binding.consentRevision(),
                 new ApprovalFingerprint.TemplateRevision(2, "general_follow_up", "es", POSITIONAL,
-                        List.of("customer_name", "message_body"), null, "Synthetic body", null),
+                        List.of("customer_name", "message_body"), null, "Synthetic body", null, List.of()),
                 binding.parameterValues(), sender);
         when(bindings.bind(approved, customer, sender)).thenReturn(edited);
 
@@ -179,7 +179,7 @@ class SendPolicyGateTest {
                 binding.action(), binding.templateIntent(), binding.locale(), binding.body(),
                 binding.sourcePolicyVersion(), binding.consentRevision(),
                 new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es", NAMED,
-                        List.of("customer_name", "message_body"), null, "Synthetic body", null),
+                        List.of("customer_name", "message_body"), null, "Synthetic body", null, List.of()),
                 binding.parameterValues(), sender);
         permitted();
         approvedWith(ApprovalFingerprint.of(named));
@@ -289,7 +289,7 @@ class SendPolicyGateTest {
                 message.contactId(), message.recipientPhone(), MessageChannel.WHATSAPP, message.action(),
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(), 1,
                 new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es", POSITIONAL,
-                        List.of("customer_name", "message_body"), null, "Synthetic body", null),
+                        List.of("customer_name", "message_body"), null, "Synthetic body", null, List.of()),
                 List.of("Ana", BODY), sender);
     }
 }

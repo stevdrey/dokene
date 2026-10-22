@@ -10,6 +10,7 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -140,6 +141,17 @@ class TemplateMappingTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(new TemplateContent("Aviso", "a".repeat(TemplateContent.MAX_TEXT_LENGTH), "Gracias").toString())
                 .doesNotContain("Aviso", "Gracias");
+        assertThatThrownBy(() -> new TemplateButton(TemplateButtonType.QUICK_REPLY, "Sí", "+50600000000"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateButton(TemplateButtonType.PHONE_NUMBER, "Llamar", null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TemplateButton(TemplateButtonType.URL, " ", "https://example.test"))
+                .isInstanceOf(IllegalArgumentException.class);
+        TemplateButton reply = new TemplateButton(TemplateButtonType.QUICK_REPLY, "Sí", null);
+        assertThatThrownBy(() -> new TemplateContent(null, "Hola", null,
+                Collections.nCopies(TemplateContent.MAX_BUTTONS + 1, reply)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(new TemplateContent(null, "Hola", null, List.of(reply)).toString()).doesNotContain("Sí");
     }
 
     @Test

@@ -6,6 +6,7 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.http.StrictRequests;
 import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -62,10 +63,20 @@ public final class TemplateApiContract {
             boolean sendable, Long version) {
     }
 
-    /** Placeholders are left as written; header and footer are optional. */
-    public record TemplateContentResponse(String headerText, String bodyText, String footerText) {
+    /** Placeholders are left as written; header and footer are optional; buttons are always emitted, maybe empty. */
+    public record TemplateContentResponse(String headerText, String bodyText, String footerText,
+            List<TemplateButtonResponse> buttons) {
         public TemplateContentResponse {
             Objects.requireNonNull(bodyText, "bodyText is required");
+            buttons = List.copyOf(Objects.requireNonNull(buttons, "buttons is required"));
+        }
+    }
+
+    /** One fixed button in order; {@code value} is the phone number or URL, null for a quick reply. */
+    public record TemplateButtonResponse(TemplateButtonType type, String text, String value) {
+        public TemplateButtonResponse {
+            Objects.requireNonNull(type, "type is required");
+            Objects.requireNonNull(text, "text is required");
         }
     }
 

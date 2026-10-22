@@ -7,10 +7,12 @@ import requestsJson from '../../../../../backend/src/test/resources/contracts/me
 import { describe, expect, it } from 'vitest';
 import {
   TEMPLATE_APPROVAL_STATUSES,
+  TEMPLATE_BUTTON_TYPES,
   type IntegrationRequest,
   type IntegrationResponse,
   type OutboundRequest,
   type TemplateListResponse,
+  type TemplateButton,
   type TemplateContent,
   type TemplateRequest,
   type TemplateResponse
@@ -186,10 +188,16 @@ const templateRequestShape: Shape<TemplateRequest> = {
   parameterNames: { kind: 'array', item: text },
   enabled: bool
 };
+const templateButtonShape: Shape<TemplateButton> = {
+  type: enumOf(TEMPLATE_BUTTON_TYPES),
+  text,
+  value: { kind: 'string', nullable: true }
+};
 const templateContentShape: Shape<TemplateContent> = {
   headerText: { kind: 'string', nullable: true },
   bodyText: text,
-  footerText: { kind: 'string', nullable: true }
+  footerText: { kind: 'string', nullable: true },
+  buttons: { kind: 'array', item: { kind: 'object', shape: templateButtonShape } }
 };
 const templateResponseShape: Shape<TemplateResponse> = {
   templateIntent: enumOf(SEMANTIC_TEMPLATE_INTENTS),

@@ -4,8 +4,10 @@ import { httpClient } from '@/shared/api/httpClient';
 import { SEMANTIC_TEMPLATE_INTENTS } from '@/features/followups/types';
 import {
   TEMPLATE_APPROVAL_STATUSES,
+  TEMPLATE_BUTTON_TYPES,
   type IntegrationRequest,
   type IntegrationResponse,
+  type TemplateButton,
   type TemplateContent,
   type TemplateListResponse,
   type TemplateResponse
@@ -96,12 +98,23 @@ function narrowIntegration(body: unknown): IntegrationResponse {
   };
 }
 
+function isTemplateButton(value: unknown): value is TemplateButton {
+  return (
+    isRecord(value) &&
+    isOneOf(TEMPLATE_BUTTON_TYPES, value.type) &&
+    isString(value.text) &&
+    isNullableString(value.value)
+  );
+}
+
 function isTemplateContent(value: unknown): value is TemplateContent {
   return (
     isRecord(value) &&
     isNullableString(value.headerText) &&
     isString(value.bodyText) &&
-    isNullableString(value.footerText)
+    isNullableString(value.footerText) &&
+    Array.isArray(value.buttons) &&
+    value.buttons.every(isTemplateButton)
   );
 }
 
@@ -145,7 +158,15 @@ function narrowTemplate(item: unknown): TemplateResponse {
     parameterNames: [...parameterNames],
     approvalStatus,
     approvalCheckedAt,
-    content: content === undefined || content === null ? null : { ...content },
+    content:
+      content === undefined || content === null
+        ? null
+        : {
+            headerText: content.headerText,
+            bodyText: content.bodyText,
+            footerText: content.footerText,
+            buttons: content.buttons.map(({ type, text, value }) => ({ type, text, value }))
+          },
     sendable,
     version
   };

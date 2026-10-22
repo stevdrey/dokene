@@ -114,10 +114,10 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
 
     /**
      * The provider approved the template: the evidence is {@code APPROVED} only when its parameter schema matches the
-     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable. Approval keeps
-     * the template's fixed text, so review shows what will be sent. A template that does not carry the message body
-     * sends its fixed body as the message, so a fixed body longer than a message body may be is unsupported: no message
-     * could ever be submitted against it.
+     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable. Approval
+     * keeps the template's fixed text and buttons, so review shows what will be sent. A template that does not carry
+     * the message body sends its fixed body as the message, so a fixed body longer than a message body may be is
+     * unsupported: no message could ever be submitted against it.
      */
     public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
         ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")

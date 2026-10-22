@@ -103,6 +103,12 @@ public record ApprovalFingerprint(String value) {
             fields.add(template.headerText());
             fields.add(template.bodyText());
             fields.add(template.footerText());
+            fields.add(Integer.toString(template.buttons().size()));
+            for (ButtonRevision button : template.buttons()) {
+                fields.add(button.type());
+                fields.add(button.text());
+                fields.add(button.value());
+            }
             fields.addAll(parameterValues);
             fields.add(sender.integrationId().toString());
             fields.add(sender.phoneNumberId());
@@ -122,12 +128,13 @@ public record ApprovalFingerprint(String value) {
 
     /**
      * The template mapping revision the approval was given against, including the parameter format its provider
-     * schema was verified to declare, and the template's fixed text read in that check: a template re-verified under
-     * another format or with other text voids the approval. {@code headerText} and {@code footerText} are optional.
+     * schema was verified to declare, and the template's fixed text and buttons read in that check: a template
+     * re-verified under another format, with other text or with other buttons voids the approval. {@code headerText}
+     * and {@code footerText} are optional.
      */
     public record TemplateRevision(long version, String providerTemplateName, String language,
             ParameterFormat parameterFormat, List<String> parameterNames, String headerText, String bodyText,
-            String footerText) {
+            String footerText, List<ButtonRevision> buttons) {
         /**
          * Meta's naming grammar. The name and language rules mirror TemplateMappingResolver.ResolvedTemplateMapping,
          * because this package cannot depend on the template module.
@@ -146,9 +153,21 @@ public record ApprovalFingerprint(String value) {
             Objects.requireNonNull(parameterFormat, "Parameter format is required");
             parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "Parameter names are required"));
             Objects.requireNonNull(bodyText, "Template body text is required");
+            buttons = List.copyOf(Objects.requireNonNull(buttons, "Template buttons are required"));
             if (version < 0) {
                 throw new IllegalArgumentException("Template mapping version cannot be negative");
             }
+        }
+    }
+
+    /**
+     * One fixed button of the approved template, in order: its kind, label and target (null for a quick reply). It
+     * mirrors the template module's TemplateButton, because this package cannot depend on the template module.
+     */
+    public record ButtonRevision(String type, String text, String value) {
+        public ButtonRevision {
+            Objects.requireNonNull(type, "Button type is required");
+            Objects.requireNonNull(text, "Button text is required");
         }
     }
 

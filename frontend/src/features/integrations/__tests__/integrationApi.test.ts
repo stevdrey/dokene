@@ -239,7 +239,12 @@ describe('integrationApi', () => {
     it.each([
       ['an unknown approval status', { approvalStatus: 'MAYBE' }],
       ['content without a body text', { content: { headerText: null, footerText: null } }],
-      ['a non string header text', { content: { headerText: 1, bodyText: 'Hola', footerText: null } }],
+      ['a non string header text', { content: { headerText: 1, bodyText: 'Hola', footerText: null, buttons: [] } }],
+      ['content without buttons', { content: { headerText: null, bodyText: 'Hola', footerText: null } }],
+      [
+        'an unknown button type',
+        { content: { headerText: null, bodyText: 'Hola', footerText: null, buttons: [{ type: 'FLOW', text: 'x', value: null }] } }
+      ],
       ['an unknown intent', { templateIntent: 'COUPON' }],
       ['a non string parameter name', { parameterNames: [1] }],
       ['a string sendable flag', { sendable: 'true' }],

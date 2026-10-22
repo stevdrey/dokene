@@ -1,5 +1,5 @@
 -- ABOUTME: Template content snapshot (issue 268, ADR 0025 §2a): approval evidence keeps the template's fixed header,
--- ABOUTME: body and footer text, and approvals recorded without it return to UNVERIFIED.
+-- ABOUTME: body, footer and buttons, and approvals recorded without them return to UNVERIFIED.
 
 -- Expand phase only, like V27: instances still running the previous release never write the new columns, so none of
 -- the constraints below can refuse their writes. The application trusts stored content only when
@@ -10,6 +10,10 @@ ALTER TABLE dokene.tenant_provider_templates
     ADD COLUMN approval_header_text TEXT,
     ADD COLUMN approval_body_text TEXT,
     ADD COLUMN approval_footer_text TEXT,
+    -- One entry per button, in order, in three aligned arrays; the value is NULL for a quick reply.
+    ADD COLUMN approval_button_types TEXT[],
+    ADD COLUMN approval_button_texts TEXT[],
+    ADD COLUMN approval_button_values TEXT[],
     ADD COLUMN approval_content_checked_at TIMESTAMPTZ;
 
 -- Approvals recorded before this change cannot show the reviewer what is sent, so they are not trusted: those
@@ -27,4 +31,17 @@ ALTER TABLE dokene.tenant_provider_templates
     ADD CONSTRAINT ck_tenant_provider_templates_content_length CHECK (
         coalesce(char_length(approval_header_text), 0) <= 4096
         AND coalesce(char_length(approval_body_text), 0) <= 4096
-        AND coalesce(char_length(approval_footer_text), 0) <= 4096);
+        AND coalesce(char_length(approval_footer_text), 0) <= 4096),
+    -- Buttons are stored exactly with a body, as aligned arrays of at most ten known, bounded entries. A value is
+    -- present exactly for phone and URL buttons; text is never NULL.
+    ADD CONSTRAINT ck_tenant_provider_templates_buttons CHECK (
+        (approval_button_types IS NULL) = (approval_body_text IS NULL)
+        AND (approval_button_texts IS NULL) = (approval_body_text IS NULL)
+        AND (approval_button_values IS NULL) = (approval_body_text IS NULL)
+        AND coalesce(cardinality(approval_button_types), 0) <= 10
+        AND cardinality(approval_button_texts) IS NOT DISTINCT FROM cardinality(approval_button_types)
+        AND cardinality(approval_button_values) IS NOT DISTINCT FROM cardinality(approval_button_types)
+        AND approval_button_types <@ ARRAY['QUICK_REPLY', 'PHONE_NUMBER', 'URL']::TEXT[]
+        AND array_position(approval_button_texts, NULL) IS NULL
+        AND coalesce(char_length(array_to_string(approval_button_texts, '')), 0)
+            + coalesce(char_length(array_to_string(approval_button_values, '')), 0) <= 81920);

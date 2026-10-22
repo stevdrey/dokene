@@ -52,11 +52,22 @@ export interface TemplateRequest {
   enabled: boolean;
 }
 
-/** Placeholders stay as written; header and footer are optional. */
+export const TEMPLATE_BUTTON_TYPES = ['QUICK_REPLY', 'PHONE_NUMBER', 'URL'] as const;
+export type TemplateButtonType = (typeof TEMPLATE_BUTTON_TYPES)[number];
+
+/** One fixed button in order; `value` is the phone number or URL, null for a quick reply. */
+export interface TemplateButton {
+  type: TemplateButtonType;
+  text: string;
+  value: string | null;
+}
+
+/** Placeholders stay as written; header and footer are optional; buttons may be empty. */
 export interface TemplateContent {
   headerText: string | null;
   bodyText: string;
   footerText: string | null;
+  buttons: TemplateButton[];
 }
 
 export interface TemplateResponse {

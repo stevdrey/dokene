@@ -67,7 +67,24 @@
         "content": {
           "headerText": null,
           "bodyText": "Hola {{1}}, gracias por tu compra de {{2}}.",
-          "footerText": null
+          "footerText": null,
+          "buttons": [
+            {
+              "type": "QUICK_REPLY",
+              "text": "Sí, me interesa",
+              "value": null
+            },
+            {
+              "type": "PHONE_NUMBER",
+              "text": "Llamar",
+              "value": "+50600000099"
+            },
+            {
+              "type": "URL",
+              "text": "Ver catálogo",
+              "value": "https://example.test/catalogo"
+            }
+          ]
         },
         "sendable": true,
         "version": 2
@@ -125,7 +142,8 @@
         "content": {
           "headerText": "Hello World",
           "bodyText": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
-          "footerText": "WhatsApp Business Platform sample message"
+          "footerText": "WhatsApp Business Platform sample message",
+          "buttons": []
         },
         "sendable": true,
         "version": 1

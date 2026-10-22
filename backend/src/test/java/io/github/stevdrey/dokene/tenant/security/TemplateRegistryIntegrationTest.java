@@ -28,7 +28,6 @@ import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
-import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -43,6 +42,9 @@ import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateButton;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -441,10 +443,20 @@ class TemplateRegistryIntegrationTest {
     @Test
     void theTemplateTextIsTrustedOnlyWithTheEvidenceThatReadIt() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
-        gateway.next = approved(WABA_ID);
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"),
+                        new TemplateContent(null, CONTENT.body(), "Gracias", List.of(
+                                new TemplateButton(TemplateButtonType.QUICK_REPLY, "Sí", null),
+                                new TemplateButton(TemplateButtonType.URL, "Ver", "https://example.test/catalogo")))));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.bodyText").value(CONTENT.body()))
-                .andExpect(jsonPath("$.content.headerText").doesNotExist());
+                .andExpect(jsonPath("$.content.headerText").doesNotExist())
+                .andExpect(jsonPath("$.content.footerText").value("Gracias"))
+                .andExpect(jsonPath("$.content.buttons[0].type").value("QUICK_REPLY"))
+                .andExpect(jsonPath("$.content.buttons[0].value").doesNotExist())
+                .andExpect(jsonPath("$.content.buttons[1].type").value("URL"))
+                .andExpect(jsonPath("$.content.buttons[1].text").value("Ver"))
+                .andExpect(jsonPath("$.content.buttons[1].value").value("https://example.test/catalogo"));
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                 .isInstanceOf(TemplateMappingResolver.Resolved.class);
 
@@ -456,6 +468,13 @@ class TemplateRegistryIntegrationTest {
                 + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = "
                 + "repeat('a', 4097) WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        // Buttons are three aligned arrays of known types, stored exactly with a body.
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_texts = "
+                + "ARRAY['Sí'] WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_types = "
+                + "ARRAY['FLOW', 'URL'] WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_types = NULL "
+                + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
         // An instance of the previous release rewrites the evidence without touching the text: it is not trusted.
         execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = approval_checked_at + interval "
                 + "'1 second', approval_parameter_checked_at = approval_parameter_checked_at + interval '1 second' "

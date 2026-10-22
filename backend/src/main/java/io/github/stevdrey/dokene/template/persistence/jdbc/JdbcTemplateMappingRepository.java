@@ -6,6 +6,8 @@ import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateMappingRepository;
 import io.github.stevdrey.dokene.template.application.TemplateRefusedException;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateButton;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
 import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
@@ -14,10 +16,12 @@ import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.function.Function;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -87,6 +91,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                             approval_checked_business_account_id = NULL, approval_checked_version = NULL,
                             approval_parameter_format = NULL, approval_parameter_checked_at = NULL,
                             approval_header_text = NULL, approval_body_text = NULL, approval_footer_text = NULL,
+                            approval_button_types = NULL, approval_button_texts = NULL,
+                            approval_button_values = NULL,
                             approval_content_checked_at = NULL, updated_at = ?, version = version + 1
                         WHERE tenant_id = ? AND id = ? AND version = ?
                         RETURNING version
@@ -116,6 +122,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                 SET approval_status = ?, approval_checked_at = ?, approval_checked_business_account_id = ?,
                     approval_checked_version = ?, approval_parameter_format = ?, approval_parameter_checked_at = ?,
                     approval_header_text = ?, approval_body_text = ?, approval_footer_text = ?,
+                    approval_button_types = ?, approval_button_texts = ?, approval_button_values = ?,
                     approval_content_checked_at = ?, updated_at = ?
                 WHERE tenant_id = ? AND id = ? AND version = ?
                     AND approval_status = ? AND approval_checked_at IS NOT DISTINCT FROM ?
@@ -125,10 +132,19 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                 evidence.checkedVersion(), format(evidence),
                 evidence.parameterFormat() == null ? null : timestamp(evidence),
                 content == null ? null : content.header(), content == null ? null : content.body(),
-                content == null ? null : content.footer(), content == null ? null : timestamp(evidence),
+                content == null ? null : content.footer(),
+                content == null ? null : buttonColumn(content, button -> button.type().name()),
+                content == null ? null : buttonColumn(content, TemplateButton::text),
+                content == null ? null : buttonColumn(content, TemplateButton::value),
+                content == null ? null : timestamp(evidence),
                 Timestamp.from(mapping.updatedAt()),
                 mapping.tenantId().value(), mapping.id(), expectedVersion, expected.status().name(),
                 timestamp(expected), expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
+    }
+
+    /** One of the three aligned button arrays; a quick reply's value is a NULL element. */
+    private static String[] buttonColumn(TemplateContent content, Function<TemplateButton, String> part) {
+        return content.buttons().stream().map(part).toArray(String[]::new);
     }
 
     private static String format(ApprovalEvidence evidence) {
@@ -162,7 +178,23 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         if (format == null || body == null || !checkedAt.equals(contentCheckedAt)) {
             return null;
         }
-        return new TemplateContent(rs.getString("approval_header_text"), body, rs.getString("approval_footer_text"));
+        return new TemplateContent(rs.getString("approval_header_text"), body, rs.getString("approval_footer_text"),
+                buttons(rs));
+    }
+
+    private static List<TemplateButton> buttons(ResultSet rs) throws SQLException {
+        String[] types = strings(rs.getArray("approval_button_types"));
+        String[] texts = strings(rs.getArray("approval_button_texts"));
+        String[] values = strings(rs.getArray("approval_button_values"));
+        List<TemplateButton> buttons = new ArrayList<>(types.length);
+        for (int i = 0; i < types.length; i++) {
+            buttons.add(new TemplateButton(TemplateButtonType.valueOf(types[i]), texts[i], values[i]));
+        }
+        return buttons;
+    }
+
+    private static String[] strings(Array array) throws SQLException {
+        return array == null ? new String[0] : (String[]) array.getArray();
     }
 
     private static TemplateMapping map(ResultSet rs) throws SQLException {
