@@ -110,6 +110,12 @@ class GraphApiTemplateSchemaReaderTest {
             "{\"parameter_format\":\"MIXED\",\"components\":[" + BODY + "]}",
             "{\"components\":[{\"type\":\"FOOTER\",\"text\":\"Sin cuerpo\"}]}",
             "{\"components\":[" + BODY + "," + BODY + "]}",
+            "{\"components\":[{\"type\":\"HEADER\",\"format\":\"TEXT\",\"text\":\"Uno\"},"
+                    + "{\"type\":\"HEADER\",\"format\":\"TEXT\",\"text\":\"Dos\"}," + BODY + "]}",
+            "{\"components\":[{\"type\":\"HEADER\",\"format\":\"IMAGE\"},"
+                    + "{\"type\":\"HEADER\",\"format\":\"IMAGE\"}," + BODY + "]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"FOOTER\",\"text\":\"Uno\"},"
+                    + "{\"type\":\"FOOTER\",\"text\":\"Dos\"}]}",
             "{\"components\":[{\"type\":\"BODY\"}]}",
             "{\"components\":[{\"type\":\"BODY\",\"text\":5}]}",
             "{\"components\":[{\"type\":\"BODY\",\"text\":\"Hola {{1\"}]}",
@@ -137,9 +143,10 @@ class GraphApiTemplateSchemaReaderTest {
 
     @Test
     void untrustedMetadataIsBounded() {
-        String footer = ",{\"type\":\"FOOTER\",\"text\":\"x\"}";
-        assertThat(read("{\"components\":[" + BODY + footer.repeat(9) + "]}")).isInstanceOf(BodyParameters.class);
-        assertThat(read("{\"components\":[" + BODY + footer.repeat(10) + "]}")).isEqualTo(new Unreadable());
+        // Header and footer are singletons, so the component bound is reached with button groups.
+        String buttons = ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"x\"}]}";
+        assertThat(read("{\"components\":[" + BODY + buttons.repeat(9) + "]}")).isInstanceOf(BodyParameters.class);
+        assertThat(read("{\"components\":[" + BODY + buttons.repeat(10) + "]}")).isEqualTo(new Unreadable());
         String quickReply = ",{\"type\":\"QUICK_REPLY\",\"text\":\"x\"}";
         assertThat(withComponents(BODY, "{\"type\":\"BUTTONS\",\"buttons\":[" + quickReply.substring(1)
                 + quickReply.repeat(10) + "]}")).isEqualTo(new Unreadable());

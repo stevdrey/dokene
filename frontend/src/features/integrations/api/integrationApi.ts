@@ -130,7 +130,7 @@ function narrowTemplate(item: unknown): TemplateResponse {
     !parameterNames.every(isString) ||
     !isOneOf(TEMPLATE_APPROVAL_STATUSES, approvalStatus) ||
     !isNullableString(approvalCheckedAt) ||
-    !(content === null || isTemplateContent(content)) ||
+    !(content === undefined || content === null || isTemplateContent(content)) ||
     !isBoolean(sendable) ||
     !(version === null || isVersion(version))
   ) {
@@ -145,7 +145,7 @@ function narrowTemplate(item: unknown): TemplateResponse {
     parameterNames: [...parameterNames],
     approvalStatus,
     approvalCheckedAt,
-    content: content === null ? null : { ...content },
+    content: content === undefined || content === null ? null : { ...content },
     sendable,
     version
   };

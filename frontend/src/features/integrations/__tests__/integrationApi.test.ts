@@ -227,8 +227,19 @@ describe('integrationApi', () => {
       expect(result).toEqual({ items: [templates.response.valid.approvedAndSendable] });
     });
 
+    it('reads a template without content, as a backend from before issue 268 sends it, as null', async () => {
+      const { content: _omitted, ...withoutContent } = templates.response.valid.approvedAndSendable;
+      stubFetch(() => reply({ items: [withoutContent] }));
+
+      const result = await integrationApi.getTemplates(signal());
+
+      expect(result).toEqual({ items: [{ ...withoutContent, content: null }] });
+    });
+
     it.each([
       ['an unknown approval status', { approvalStatus: 'MAYBE' }],
+      ['content without a body text', { content: { headerText: null, footerText: null } }],
+      ['a non string header text', { content: { headerText: 1, bodyText: 'Hola', footerText: null } }],
       ['an unknown intent', { templateIntent: 'COUPON' }],
       ['a non string parameter name', { parameterNames: [1] }],
       ['a string sendable flag', { sendable: 'true' }],

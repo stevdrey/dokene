@@ -5,6 +5,7 @@ package io.github.stevdrey.dokene.template.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Duration;
@@ -151,6 +152,33 @@ class TemplateMappingTest {
                 assertThatThrownBy(() -> base.verified(status, WABA, NOW)).isInstanceOf(IllegalArgumentException.class);
             }
         }
+    }
+
+    /** Without message_body the fixed body is the message, so it must fit a message body (issue 268). */
+    @Test
+    void aFixedBodyLongerThanAMessageBodyIsUnsupportedUnlessTheBodyIsAParameter() {
+        ProviderTemplateSchema fits = fixedBody("é".repeat(MessageDraft.MAX_BODY_LENGTH));
+        ProviderTemplateSchema tooLong = fixedBody("é".repeat(MessageDraft.MAX_BODY_LENGTH + 1));
+
+        TemplateMapping fixed = mapping("hello_world", "en_US", List.of());
+        assertThat(fixed.verifiedApproval(fits, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
+        TemplateMapping refused = fixed.verifiedApproval(tooLong, WABA, NOW);
+        assertThat(refused.approval().status()).isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
+        assertThat(refused.approval().content()).isNull();
+        assertThat(refused.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+
+        // With message_body the operator's text is sent as a parameter, so a long fixed body is not the limit.
+        ProviderTemplateSchema withBody = new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
+                List.of(TemplateMapping.MESSAGE_BODY_PARAMETER), new TemplateContent(null,
+                        "é".repeat(MessageDraft.MAX_BODY_LENGTH) + " {{message_body}}", null));
+        assertThat(mapping("t", "es", List.of(TemplateMapping.MESSAGE_BODY_PARAMETER))
+                .verifiedApproval(withBody, WABA, NOW).approval().status())
+                .isEqualTo(TemplateApprovalStatus.APPROVED);
+    }
+
+    private static ProviderTemplateSchema fixedBody(String body) {
+        return new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(),
+                new TemplateContent(null, body, null));
     }
 
     @Test

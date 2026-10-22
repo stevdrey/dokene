@@ -68,8 +68,11 @@ export interface TemplateResponse {
   parameterNames: string[];
   approvalStatus: TemplateApprovalStatus;
   approvalCheckedAt: string | null;
-  /** The fixed template text read with APPROVED evidence; null otherwise (issue 268). */
-  content: TemplateContent | null;
+  /**
+   * The fixed template text read with APPROVED evidence; null otherwise (issue 268). Optional in v1 (ADR 0024):
+   * a backend from before issue 268 omits it, and the client reads that as null.
+   */
+  content?: TemplateContent | null;
   sendable: boolean;
   version: number | null;
 }

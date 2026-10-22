@@ -2,6 +2,7 @@
 // ABOUTME: Operator-editable fields and provider-derived evidence are separate; edits drop the evidence.
 package io.github.stevdrey.dokene.template.domain;
 
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TimestampPrecision;
@@ -22,6 +23,12 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     public static final Pattern LANGUAGE = Pattern.compile("^[a-z]{2,3}(_[A-Z]{2})?$");
     public static final Pattern PARAMETER_NAME = Pattern.compile("^[a-z][a-z0-9_]{0,31}$");
     public static final int MAX_PARAMETERS = 10;
+    /**
+     * The parameter that carries the message body. It mirrors ApprovalBindingAssembler.TemplateParameter.MESSAGE_BODY,
+     * because this package cannot depend on the messaging module (ADR 0024 §3); FixedTemplateBodyParityTest pins both.
+     * A mapping without it sends only the template's fixed text, which must then be a submittable message body.
+     */
+    public static final String MESSAGE_BODY_PARAMETER = "message_body";
 
     public TemplateMapping {
         Objects.requireNonNull(id, "Mapping id is required");
@@ -108,13 +115,20 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     /**
      * The provider approved the template: the evidence is {@code APPROVED} only when its parameter schema matches the
      * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable. Approval keeps
-     * the template's fixed text, so review shows what will be sent.
+     * the template's fixed text, so review shows what will be sent. A template that does not carry the message body
+     * sends its fixed body as the message, so a fixed body longer than a message body may be is unsupported: no message
+     * could ever be submitted against it.
      */
     public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
         ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")
                 .check(parameterNames);
         TemplateContent content = verdict.status() == TemplateApprovalStatus.APPROVED
                 && schema instanceof ProviderTemplateSchema.BodyParameters body ? body.content() : null;
+        if (content != null && !parameterNames.contains(MESSAGE_BODY_PARAMETER)
+                && content.body().codePointCount(0, content.body().length()) > MessageDraft.MAX_BODY_LENGTH) {
+            verdict = new ProviderTemplateSchema.Verdict(TemplateApprovalStatus.SCHEMA_UNSUPPORTED, null);
+            content = null;
+        }
         return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format(),
                 content), now);
     }

@@ -76,7 +76,7 @@ Template and integration endpoints (ADR 0023 §3.2 and §3.3) add their records 
 
 ### 2. Approval fingerprint
 
-`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`; `approval/v2` and then `approval/v3` since the addenda below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
+`messaging.domain.ApprovalFingerprint` (scheme `approval/v1`; `approval/v2`, `approval/v3` and then `approval/v4` since the addenda below) is the SHA-256 of a canonical encoding. The encoding writes the scheme label, then each field as a 4-byte big-endian length plus its UTF-8 bytes. This is the same encoding `RequestFingerprint` uses, through one shared helper.
 
 The fields, in this order:
 
@@ -86,7 +86,7 @@ The fields, in this order:
 | Recipient and content | recipient E.164, channel, semantic action, template intent, locale, body |
 | Policy snapshot | `sourcePolicyVersion`, the snapshot the operator submitted against |
 | Consent revision | the contact policy version (`customer_consent_history.policy_version`) of the history row that started the contact's current WhatsApp `GRANTED` run: the first `GRANTED` row after the latest non-`GRANTED` row, or the first row when consent was never withdrawn. Every consent change advances the version by compare-and-set, so a revocation followed by a re-grant always yields a new value, and re-saving `GRANTED` over `GRANTED` does not void approvals. A timestamp is not used because two changes can share one at database precision |
-| Template mapping | mapping version, provider template name, language, verified parameter format (since `approval/v3`), parameter count, then each parameter name in order |
+| Template mapping | mapping version, provider template name, language, verified parameter format (since `approval/v3`), parameter count, each parameter name in order, then the template's fixed header, body and footer text (since `approval/v4`; an absent header or footer is encoded as the null field, distinct from any text) |
 | Parameter values | the exact ordered values the provider will receive, one per parameter name |
 | Sender identity | integration id, `phoneNumberId`, `businessAccountId` |
 
@@ -182,6 +182,16 @@ A provider template declares its body placeholders either positionally (`{{1}}`)
 - `OutboundSendCommand` carries the format and the parameter names of the binding that matched, aligned one to one with the values, so the adapter sends exactly the approved shape.
 
 Every stored `approval/v2` fingerprint stops covering its binding, so open approvals taken before this change are invalidated at send time. This is accepted: live sending is off (the global kill switch is hardcoded until [#144](https://github.com/stevdrey/dokene/issues/144)), so no approval that a customer could be waiting on is lost. No migration rewrites them, because a fingerprint cannot be recomputed without the approver.
+
+## Addendum (issue 268): fixed template text in the template revision
+
+[#268](https://github.com/stevdrey/dokene/issues/268) makes the template's fixed text reviewable: an approved refresh stores the header, body and footer text Meta returned (ADR 0025, addendum for issue 268). That text is what the recipient reads around and between the parameter values, so the approval binds it.
+
+- `TemplateRevision` gains `headerText`, `bodyText` and `footerText`. The body is required; header and footer are optional. Placeholders stay as written; their values are already bound as parameter values.
+- The three texts are encoded after the parameter names and before the parameter values, in that order. An absent header or footer is written as the null field, which no text can produce. Because the canonical encoding changes, the scheme label moves from `approval/v3` to `approval/v4`, as the label rule requires.
+- A text change at Meta followed by a refresh changes the binding, so a send under an earlier approval fails step 5b with `APPROVAL_INVALIDATED`. For a template without `message_body`, where the body must equal the fixed text, the re-render already refuses it with `BODY_REJECTED`.
+
+Every stored `approval/v3` fingerprint stops covering its binding, so open approvals taken before this change are invalidated at send time: the operator cancels the message and submits it again. No migration rewrites them, because a fingerprint cannot be recomputed without the approver. Migration V30 also returns every approved template mapping to `UNVERIFIED`, so nothing is sendable until the mapping is refreshed, whichever scheme an approval used.
 
 ## Addendum (issue 134): integration endpoint preconditions and filter-level rejections
 

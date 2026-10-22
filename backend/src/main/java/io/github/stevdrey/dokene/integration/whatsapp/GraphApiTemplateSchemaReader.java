@@ -37,6 +37,8 @@ final class GraphApiTemplateSchemaReader {
         String bodyText = null;
         String headerText = null;
         String footerText = null;
+        boolean seenHeader = false;
+        boolean seenFooter = false;
         boolean unsupported = false;
         for (JsonNode component : components) {
             if (!component.isObject() || !component.path("type").isString()) {
@@ -54,10 +56,20 @@ final class GraphApiTemplateSchemaReader {
                     check = ComponentCheck.ALLOWED;
                 }
                 case "HEADER" -> {
+                    // A template has at most one header and one footer; a second one would be missing from the
+                    // reviewed and approved text, so nothing can be concluded from such metadata.
+                    if (seenHeader) {
+                        return new Unreadable();
+                    }
+                    seenHeader = true;
                     check = header(component);
                     headerText = check == ComponentCheck.ALLOWED ? component.path("text").asString() : null;
                 }
                 case "FOOTER" -> {
+                    if (seenFooter) {
+                        return new Unreadable();
+                    }
+                    seenFooter = true;
                     check = withoutPlaceholders(component.path("text"));
                     footerText = check == ComponentCheck.ALLOWED ? component.path("text").asString() : null;
                 }

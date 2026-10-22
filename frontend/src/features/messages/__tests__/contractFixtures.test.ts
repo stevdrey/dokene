@@ -200,7 +200,7 @@ const templateResponseShape: Shape<TemplateResponse> = {
   parameterNames: { kind: 'array', item: text },
   approvalStatus: enumOf(TEMPLATE_APPROVAL_STATUSES),
   approvalCheckedAt: nullableInstant,
-  content: { kind: 'object', shape: templateContentShape, nullable: true },
+  content: { kind: 'object', shape: templateContentShape, nullable: true, optional: true },
   sendable: bool,
   version: { kind: 'integer', nullable: true }
 };
