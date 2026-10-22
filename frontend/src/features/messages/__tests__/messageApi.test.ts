@@ -116,7 +116,7 @@ describe('messageApi', () => {
 
   it('returns events ordered by sequence number', async () => {
     const fixture = eventsFixtures.transientFailureBackToApproved;
-    server.on(eventsPath(id), ok({ ...fixture, events: [...fixture.events].reverse() }));
+    server.on(eventsPath(id), ok({ ...fixture, messageId: id, events: [...fixture.events].reverse() }));
     const events = await messageApi.getEvents(id);
     expect(events.map((event) => event.sequenceNumber)).toEqual(fixture.events.map((event) => event.sequenceNumber));
   });
@@ -126,14 +126,30 @@ describe('messageApi', () => {
     ['a string attemptNumber', { attemptNumber: '1' }]
   ])('refuses an event with %s', async (_name, changes) => {
     const fixture = eventsFixtures.rejected;
-    server.on(eventsPath(id), ok({ ...fixture, events: [{ ...fixture.events[0], ...changes }] }));
+    server.on(eventsPath(id), ok({ ...fixture, messageId: id, events: [{ ...fixture.events[0], ...changes }] }));
     await expect(messageApi.getEvents(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
   });
 
   it('refuses an events body with an unknown event type', async () => {
     const fixture = eventsFixtures.rejected;
-    server.on(eventsPath(id), ok({ ...fixture, events: [{ ...fixture.events[0], type: 'EDITED' }] }));
+    server.on(eventsPath(id), ok({ ...fixture, messageId: id, events: [{ ...fixture.events[0], type: 'EDITED' }] }));
     await expect(messageApi.getEvents(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
+  });
+
+  it('refuses a history that belongs to another message', async () => {
+    server.on(eventsPath(id), ok(eventsFixtures.rejected));
+    await expect(messageApi.getEvents(id)).rejects.toBeInstanceOf(InvalidMessageResponseError);
+  });
+
+  it.each([
+    ['another customer', { customerId: 'someone-else' }],
+    ['another contact', { contactId: 'other-contact' }]
+  ])('refuses a submit reply for %s', async (_name, changes) => {
+    const request = requests.submit.valid.aiDraft;
+    server.on(submitPath(pendingApproval.customerId), { status: 201, body: { ...pendingApproval, ...changes }, etag: '"1"' });
+    await expect(messageApi.submit(pendingApproval.customerId, { ...request }, 7, 'key-x')).rejects.toBeInstanceOf(
+      InvalidMessageResponseError
+    );
   });
 
   it('submits the aiDraft fixture body byte for byte with the policy version and key', async () => {

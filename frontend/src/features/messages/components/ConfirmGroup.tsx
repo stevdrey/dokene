@@ -85,13 +85,8 @@ export function ConfirmGroup({
       )}
       {alert}
       <div className="message-actions">
-        <Button
-          variant={confirmVariant}
-          size="sm"
-          onClick={onConfirm}
-          disabled={busy || confirmDisabled}
-          isLoading={busy}
-        >
+        {/* While busy the button is aria-disabled, not natively disabled, so focus stays on it for a refusal. */}
+        <Button variant={confirmVariant} size="sm" onClick={onConfirm} disabled={confirmDisabled} isLoading={busy}>
           {confirmLabel}
         </Button>
         <Button variant="ghost" size="sm" onClick={onDismiss} disabled={busy}>
