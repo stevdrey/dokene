@@ -1,0 +1,131 @@
+== P3-PERM-01 reads for the four roles
+PASS  P3-PERM-01  [HTTP]  testuser list, read, events
+PASS  P3-PERM-01  [HTTP]  testadmin list, read, events
+PASS  P3-PERM-01  [HTTP]  testoperator list, read, events
+PASS  P3-PERM-01  [HTTP]  testviewer list, read, events
+== P3-PERM-02 submit: OWNER, ADMIN, OPERATOR allow; VIEWER denied
+PASS  P3-PERM-02  [HTTP]  testuser submit
+PASS  P3-PERM-02  [HTTP]  testadmin submit
+PASS  P3-PERM-02  [HTTP]  testoperator submit
+PASS  P3-PERM-02  [HTTP]  VIEWER submit: 403
+PASS  P3-PERM-02  [HTTP]  VIEWER submit: problem body FORBIDDEN
+PASS  P3-PERM-02  [HTTP]  VIEWER submit: nothing written except the denial audit row
+PASS  P3-PERM-02  [HTTP]  VIEWER submit: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_DRAFT
+== P3-PERM-03 cancel a pending message: allowed roles; VIEWER denied
+PASS  P3-PERM-03  [HTTP]  testuser cancel pending
+PASS  P3-PERM-03  [HTTP]  testadmin cancel pending
+PASS  P3-PERM-03  [HTTP]  testoperator cancel pending
+PASS  P3-PERM-03  [HTTP]  VIEWER cancel pending: 403
+PASS  P3-PERM-03  [HTTP]  VIEWER cancel pending: problem body FORBIDDEN
+FAIL  P3-PERM-03  [HTTP]  VIEWER cancel pending: nothing written except the denial audit row (expected 'ok', got 'before=[228 628 494 57 1884 57] after=[228 628 494 57 1886 57]')
+FAIL  P3-PERM-03  [HTTP]  VIEWER cancel pending: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_DRAFT (expected 'AUTHORIZATION_DENIED|MESSAGE_DRAFT|INSUFFICIENT_PERMISSION', got 'AUTHORIZATION_DENIED|MESSAGE_APPROVE|INSUFFICIENT_PERMISSION')
+== P3-PERM-04 approve or reject: allowed roles; VIEWER denied
+PASS  P3-PERM-04  [HTTP]  testuser approve
+PASS  P3-PERM-04  [HTTP]  testuser reject
+PASS  P3-PERM-04  [HTTP]  testadmin approve
+PASS  P3-PERM-04  [HTTP]  testadmin reject
+PASS  P3-PERM-04  [HTTP]  testoperator approve
+PASS  P3-PERM-04  [HTTP]  testoperator reject
+PASS  P3-PERM-04  [HTTP]  VIEWER approve: 403
+PASS  P3-PERM-04  [HTTP]  VIEWER approve: problem body FORBIDDEN
+PASS  P3-PERM-04  [HTTP]  VIEWER approve: nothing written except the denial audit row
+PASS  P3-PERM-04  [HTTP]  VIEWER approve: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+PASS  P3-PERM-04  [HTTP]  VIEWER reject: 403
+PASS  P3-PERM-04  [HTTP]  VIEWER reject: problem body FORBIDDEN
+PASS  P3-PERM-04  [HTTP]  VIEWER reject: nothing written except the denial audit row
+PASS  P3-PERM-04  [HTTP]  VIEWER reject: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+== P3-PERM-05 cancel an approved message: allowed roles; VIEWER denied
+PASS  P3-PERM-05  [HTTP]  testuser cancel approved
+PASS  P3-PERM-05  [HTTP]  testadmin cancel approved
+PASS  P3-PERM-05  [HTTP]  testoperator cancel approved
+PASS  P3-PERM-05  [HTTP]  VIEWER cancel approved: 403
+PASS  P3-PERM-05  [HTTP]  VIEWER cancel approved: problem body FORBIDDEN
+FAIL  P3-PERM-05  [HTTP]  VIEWER cancel approved: nothing written except the denial audit row (expected 'ok', got 'before=[237 653 519 57 1940 57] after=[237 653 519 57 1942 57]')
+PASS  P3-PERM-05  [HTTP]  VIEWER cancel approved: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+== P3-PERM-06 send: allowed roles; VIEWER denied with no attempt row and no provider call
+PASS  P3-PERM-06  [HTTP]  testuser send
+PASS  P3-PERM-06  [HTTP]  testadmin send
+PASS  P3-PERM-06  [HTTP]  testoperator send
+PASS  P3-PERM-06  [HTTP]  VIEWER send: 403
+PASS  P3-PERM-06  [HTTP]  VIEWER send: problem body FORBIDDEN
+PASS  P3-PERM-06  [HTTP]  VIEWER send: nothing written except the denial audit row
+PASS  P3-PERM-06  [HTTP]  VIEWER send: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_SEND
+PASS  P3-PERM-06  [HTTP]  VIEWER send: message still APPROVED, no attempt
+== P3-PERM-07 resolutions route
+BLOCKED  P3-PERM-07  [HTTP]  POST /api/messages/{id}/resolutions is not deployed on this commit (404); T12 is owed by #138
+== P3-PERM-08 template reads
+PASS  P3-PERM-08  [HTTP]  testuser GET /api/templates
+PASS  P3-PERM-08  [HTTP]  testadmin GET /api/templates
+PASS  P3-PERM-08  [HTTP]  testoperator GET /api/templates
+PASS  P3-PERM-08  [HTTP]  testviewer GET /api/templates
+== P3-PERM-09 template writes on an unused intent (SEASONAL_EVENT)
+PASS  P3-PERM-09  [HTTP]  testuser PUT template
+PASS  P3-PERM-09  [HTTP]  testadmin PUT template
+PASS  P3-PERM-09  [HTTP]  testoperator PUT template
+PASS  P3-PERM-09  [HTTP]  VIEWER PUT template: 403
+PASS  P3-PERM-09  [HTTP]  VIEWER PUT template: problem body FORBIDDEN
+PASS  P3-PERM-09  [HTTP]  VIEWER PUT template: nothing written except the denial audit row
+PASS  P3-PERM-09  [HTTP]  VIEWER PUT template: the new audit row is AUTHORIZATION_DENIED naming TEMPLATE_WRITE
+== P3-PERM-10 integration reads
+PASS  P3-PERM-10  [HTTP]  testuser GET integration
+PASS  P3-PERM-10  [HTTP]  testadmin GET integration
+PASS  P3-PERM-10  [HTTP]  testoperator GET integration
+PASS  P3-PERM-10  [HTTP]  testviewer GET integration
+== P3-PERM-11 integration writes: OWNER, ADMIN allow; OPERATOR, VIEWER denied
+PASS  P3-PERM-11  [HTTP]  testuser PUT integration
+PASS  P3-PERM-11  [HTTP]  testadmin PUT integration
+PASS  P3-PERM-11  [HTTP]  testoperator PUT integration: 403
+PASS  P3-PERM-11  [HTTP]  testoperator PUT integration: problem body FORBIDDEN
+PASS  P3-PERM-11  [HTTP]  testoperator PUT integration: nothing written except the denial audit row
+PASS  P3-PERM-11  [HTTP]  testoperator PUT integration: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-PERM-11  [HTTP]  testviewer PUT integration: 403
+PASS  P3-PERM-11  [HTTP]  testviewer PUT integration: problem body FORBIDDEN
+PASS  P3-PERM-11  [HTTP]  testviewer PUT integration: nothing written except the denial audit row
+PASS  P3-PERM-11  [HTTP]  testviewer PUT integration: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+  restored integration in b4e76a77-ae7e-46fd-a165-b80280155bd7: verified=true outbound=true
+== P3-PERM-12 tenant kill switch: OWNER, ADMIN allow; OPERATOR, VIEWER denied
+PASS  P3-PERM-12  [HTTP]  testuser switch off then on
+PASS  P3-PERM-12  [HTTP]  testadmin switch off then on
+PASS  P3-PERM-12  [HTTP]  testoperator switch off: 403
+PASS  P3-PERM-12  [HTTP]  testoperator switch off: problem body FORBIDDEN
+PASS  P3-PERM-12  [HTTP]  testoperator switch off: nothing written except the denial audit row
+PASS  P3-PERM-12  [HTTP]  testoperator switch off: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-PERM-12  [HTTP]  testviewer switch off: 403
+PASS  P3-PERM-12  [HTTP]  testviewer switch off: problem body FORBIDDEN
+PASS  P3-PERM-12  [HTTP]  testviewer switch off: nothing written except the denial audit row
+PASS  P3-PERM-12  [HTTP]  testviewer switch off: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-PERM-12  [HTTP]  switch still on after the denials
+== P3-PERM-14 one OPERATOR submits, approves and sends (allowed by ADR 0023 §2)
+PASS  P3-PERM-14  [HTTP]  operator alone: submit, approve, send
+== P3-PERM-15 VIEWER approval straight from curl with a valid session and CSRF token
+PASS  P3-PERM-15  [HTTP]  VIEWER approve via curl: 403
+PASS  P3-PERM-15  [HTTP]  VIEWER approve via curl: problem body FORBIDDEN
+PASS  P3-PERM-15  [HTTP]  VIEWER approve via curl: nothing written except the denial audit row
+PASS  P3-PERM-15  [HTTP]  VIEWER approve via curl: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+== P3-PERM-16 VIEWER approval with no Idempotency-Key and no If-Match: 403 before validation
+PASS  P3-PERM-16  [HTTP]  VIEWER approve without headers: 403
+PASS  P3-PERM-16  [HTTP]  VIEWER approve without headers: problem body FORBIDDEN
+PASS  P3-PERM-16  [HTTP]  VIEWER approve without headers: nothing written except the denial audit row
+PASS  P3-PERM-16  [HTTP]  VIEWER approve without headers: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_APPROVE
+PASS  P3-PERM-16  [HTTP]  control: OPERATOR without headers is the validation 400
+== P3-PERM-17 role read at execution: OPERATOR demoted to VIEWER mid session
+PASS  P3-PERM-17  [HTTP]  owner demotes the operator
+PASS  P3-PERM-17  [HTTP]  demoted operator send in the old session: 403
+PASS  P3-PERM-17  [HTTP]  demoted operator send in the old session: problem body FORBIDDEN
+PASS  P3-PERM-17  [HTTP]  demoted operator send in the old session: nothing written except the denial audit row
+PASS  P3-PERM-17  [HTTP]  demoted operator send in the old session: the new audit row is AUTHORIZATION_DENIED naming MESSAGE_SEND
+PASS  P3-PERM-17  [HTTP]  no attempt row
+  restored operator role: 204
+== P3-PERM-18 revoked membership, old session (throwaway identity)
+PASS  P3-PERM-18  [HTTP]  member added, usable (409 stale), then revoked
+PASS  P3-PERM-18  [HTTP]  revoked member send: 403
+PASS  P3-PERM-18  [HTTP]  revoked member send: no attempt row, no provider call, nothing else written
+== P3-PERM-19 signed in identity with no membership, X-Tenant-Id of tenant A
+PASS  P3-PERM-19  [HTTP]  X-NONE GET /api/messages: 403, nothing written, no tenant A data
+PASS  P3-PERM-19  [HTTP]  X-NONE GET /api/messages/71d2a931-a0cb-4658-9ce3-31f1d1d93518: 403, nothing written, no tenant A data
+PASS  P3-PERM-19  [HTTP]  X-NONE POST /api/messages/71d2a931-a0cb-4658-9ce3-31f1d1d93518/approvals: 403, nothing written, no tenant A data
+PASS  P3-PERM-19  [HTTP]  X-NONE POST /api/messages/71d2a931-a0cb-4658-9ce3-31f1d1d93518/sends: 403, nothing written, no tenant A data
+PASS  P3-PERM-19  [HTTP]  X-NONE GET /api/templates: 403, nothing written, no tenant A data
+PASS  P3-PERM-19  [HTTP]  X-NONE GET /api/integrations/whatsapp: 403, nothing written, no tenant A data
+PASS  P3-PERM-19  [HTTP]  X-NONE PUT /api/integrations/whatsapp/outbound: 403, nothing written, no tenant A data
+== sec149-perm.sh: PASS=106 FAIL=3 BLOCKED=1

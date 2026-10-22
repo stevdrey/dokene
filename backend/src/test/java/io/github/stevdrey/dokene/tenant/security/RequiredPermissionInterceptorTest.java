@@ -1,3 +1,5 @@
+// ABOUTME: Unit tests for RequiredPermissionInterceptor: all-of and any-of guards, order, and fail closed handling.
+// ABOUTME: Pins one audited denial per denied request, including any-of guards (issue 265).
 package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,18 +90,34 @@ class RequiredPermissionInterceptorTest {
         verifyNoMoreInteractions(authorization);
     }
 
+    /** Issue 265: one denied request writes one AUTHORIZATION_DENIED row, naming the first listed permission. */
     @Test
-    void anyOfDeniesAndAuditsEveryListedPermissionWhenNoneIsHeld() throws Exception {
+    void anyOfDeniesWithOneAuditedDenialWhenNoneIsHeld() throws Exception {
+        when(authorization.evaluate(TenantPermission.MESSAGE_DRAFT)).thenReturn(new AuthorizationDecision(false, "no"));
+        when(authorization.evaluate(TenantPermission.MESSAGE_APPROVE)).thenReturn(new AuthorizationDecision(false, "no"));
+        doThrow(new TenantAccessDeniedException("Forbidden"))
+                .when(authorization).requirePermission(TenantPermission.MESSAGE_DRAFT);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("either")))
+                .isInstanceOf(TenantAccessDeniedException.class);
+
+        InOrder order = inOrder(authorization);
+        order.verify(authorization).evaluate(TenantPermission.MESSAGE_DRAFT);
+        order.verify(authorization).evaluate(TenantPermission.MESSAGE_APPROVE);
+        order.verify(authorization).requirePermission(TenantPermission.MESSAGE_DRAFT);
+        verify(authorization, never()).hasPermission(any());
+        verifyNoMoreInteractions(authorization);
+    }
+
+    @Test
+    void anyOfStillDeniesWhenTheAuditedCheckUnexpectedlyPasses() throws Exception {
         when(authorization.evaluate(TenantPermission.MESSAGE_DRAFT)).thenReturn(new AuthorizationDecision(false, "no"));
         when(authorization.evaluate(TenantPermission.MESSAGE_APPROVE)).thenReturn(new AuthorizationDecision(false, "no"));
 
         assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("either")))
                 .isInstanceOf(TenantAccessDeniedException.class);
 
-        // hasPermission audits a denial; the caller lacked both, so both are recorded, not an arbitrary one.
-        verify(authorization).hasPermission(TenantPermission.MESSAGE_DRAFT);
-        verify(authorization).hasPermission(TenantPermission.MESSAGE_APPROVE);
-        verify(authorization, never()).requirePermission(any());
+        verify(authorization).requirePermission(TenantPermission.MESSAGE_DRAFT);
     }
 
     @Test

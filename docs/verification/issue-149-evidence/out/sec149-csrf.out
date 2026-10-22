@@ -1,0 +1,56 @@
+== fixtures
+== P3-CSRF-01 valid session, no X-CSRF-TOKEN
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/customers/0a757f1a-be2e-4daa-8ecb-252ec8fb0797/messages -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/approvals -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/cancellations -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/sends -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/resolutions -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: PUT /api/templates/SEASONAL_EVENT -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: PUT /api/integrations/whatsapp -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/integrations/whatsapp/credential-rotations -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: POST /api/integrations/whatsapp/ownership-verifications -> 403 and nothing written
+PASS  P3-CSRF-01  [HTTP]  no token: PUT /api/integrations/whatsapp/outbound -> 403 and nothing written
+== P3-CSRF-02 token of another session, then a random token
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/customers/0a757f1a-be2e-4daa-8ecb-252ec8fb0797/messages -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/approvals -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/cancellations -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/sends -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/resolutions -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: PUT /api/templates/SEASONAL_EVENT -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: PUT /api/integrations/whatsapp -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/integrations/whatsapp/credential-rotations -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: POST /api/integrations/whatsapp/ownership-verifications -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  operator's token on the owner session: PUT /api/integrations/whatsapp/outbound -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/customers/0a757f1a-be2e-4daa-8ecb-252ec8fb0797/messages -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/approvals -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/messages/31236a01-3915-4781-a74a-e8709e53cbf3/cancellations -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/sends -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/messages/4974e339-5412-4e22-8aa0-fa7801a3a0ab/resolutions -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: PUT /api/templates/SEASONAL_EVENT -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/templates/GENERAL_FOLLOW_UP/approval-refresh -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: PUT /api/integrations/whatsapp -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/integrations/whatsapp/credential-rotations -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: POST /api/integrations/whatsapp/ownership-verifications -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  random token: PUT /api/integrations/whatsapp/outbound -> 403 and nothing written
+PASS  P3-CSRF-02  [HTTP]  control: the right token on the owner session cancels MP (201)
+PASS  P3-CSRF-01  [HTTP]  message states unchanged by the CSRF attempts: MA still APPROVED, no attempt
+PASS  P3-CSRF-01  [HTTP]  tenant switch still on, integration still verified
+== P3-CSRF-04 the webhook is exempt on its signature alone; /api is not
+PASS  P3-CSRF-04  [HTTP]  signed webhook without any CSRF token: 200 and one inbox row
+PASS  P3-CSRF-04  [HTTP]  /api send without token still 403, nothing written
+== P3-CSRF-05 webhook path handling, direct and through the proxy
+PASS  P3-CSRF-05  [HTTP]  direct: unsigned webhook: 403, no Set-Cookie, no redirect
+PASS  P3-CSRF-05  [HTTP]  direct: unsigned webhook with the owner's session cookie: 403, no Set-Cookie
+FAIL  P3-CSRF-05  [HTTP]  direct: /webhooks/other is not a handler (403 or 404), no cookie (expected 'yes 0', got 'yes 1')
+PASS  P3-CSRF-05  [HTTP]  direct: /webhooks/whatsapp/../../api/session never answers with the session JSON
+PASS  P3-CSRF-05  [HTTP]  direct: the same path without a session is not a login redirect to Keycloak
+PASS  P3-CSRF-05  [HTTP]  direct: webhook GET with a wrong verify token: 403, no Set-Cookie
+PASS  P3-CSRF-05  [HTTP]  proxy: unsigned webhook: 403, no Set-Cookie, no redirect
+PASS  P3-CSRF-05  [HTTP]  proxy: unsigned webhook with the owner's session cookie: 403, no Set-Cookie
+FAIL  P3-CSRF-05  [HTTP]  proxy: /webhooks/other is not a handler (403 or 404), no cookie (expected 'yes 0', got 'yes 1')
+PASS  P3-CSRF-05  [HTTP]  proxy: /webhooks/whatsapp/../../api/session never answers with the session JSON
+PASS  P3-CSRF-05  [HTTP]  proxy: the same path without a session is not a login redirect to Keycloak
+PASS  P3-CSRF-05  [HTTP]  proxy: webhook GET with a wrong verify token: 403, no Set-Cookie
+== sec149-csrf.sh: PASS=48 FAIL=2 BLOCKED=0

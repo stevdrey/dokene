@@ -1,0 +1,54 @@
+== fixtures: messaging rows in both tenants
+PASS  P3-RLS-01  [Database]  outbound_messages: forced RLS on
+PASS  P3-RLS-01  [Database]  outbound_messages: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+PASS  P3-RLS-01  [Database]  outbound_messages: no capability reads 0 rows
+PASS  P3-RLS-01  [Database]  outbound_messages: tenant A capability reads exactly tenant A rows (232) and 0 of B (19 exist)
+PASS  P3-RLS-01  [Database]  outbound_message_approvals: forced RLS on
+PASS  P3-RLS-01  [Database]  outbound_message_approvals: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+PASS  P3-RLS-01  [Database]  outbound_message_approvals: no capability reads 0 rows
+PASS  P3-RLS-01  [Database]  outbound_message_approvals: tenant A capability reads exactly tenant A rows (180) and 0 of B (10 exist)
+PASS  P3-RLS-01  [Database]  outbound_message_cancellations: forced RLS on
+PASS  P3-RLS-01  [Database]  outbound_message_cancellations: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+PASS  P3-RLS-01  [Database]  outbound_message_cancellations: no capability reads 0 rows
+PASS  P3-RLS-01  [Database]  outbound_message_cancellations: tenant A capability reads exactly tenant A rows (43) and 0 of B (0 exist)
+PASS  P3-RLS-01  [Database]  outbound_send_attempts: forced RLS on
+PASS  P3-RLS-01  [Database]  outbound_send_attempts: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+PASS  P3-RLS-01  [Database]  outbound_send_attempts: no capability reads 0 rows
+PASS  P3-RLS-01  [Database]  outbound_send_attempts: tenant A capability reads exactly tenant A rows (55) and 0 of B (6 exist)
+PASS  P3-RLS-01  [Database]  outbound_message_events: forced RLS on
+PASS  P3-RLS-01  [Database]  outbound_message_events: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+PASS  P3-RLS-01  [Database]  outbound_message_events: no capability reads 0 rows
+PASS  P3-RLS-01  [Database]  outbound_message_events: tenant A capability reads exactly tenant A rows (640) and 0 of B (47 exist)
+PASS  P3-RLS-01  [Database]  outbound_message_idempotency_keys: forced RLS on
+PASS  P3-RLS-01  [Database]  outbound_message_idempotency_keys: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+PASS  P3-RLS-01  [Database]  outbound_message_idempotency_keys: no capability reads 0 rows
+PASS  P3-RLS-01  [Database]  outbound_message_idempotency_keys: tenant A capability reads exactly tenant A rows (510) and 0 of B (35 exist)
+PASS  P3-RLS-01  [Database]  runtime role: not superuser, no bypassrls
+== P3-RLS-02 forged and expired capabilities for tenant B
+PASS  P3-RLS-02  [Database]  outbound_messages: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+PASS  P3-RLS-02  [Database]  outbound_message_approvals: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+PASS  P3-RLS-02  [Database]  outbound_message_cancellations: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+PASS  P3-RLS-02  [Database]  outbound_send_attempts: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+PASS  P3-RLS-02  [Database]  outbound_message_events: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+PASS  P3-RLS-02  [Database]  outbound_message_idempotency_keys: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+PASS  P3-RLS-02  [Database]  forged capability cannot insert an event row for tenant B
+PASS  P3-RLS-02  [Database]  expired capability cannot update tenant B message
+== P3-RLS-03 the owning tenant cannot rewrite what was submitted, and the event log is append only
+PASS  P3-RLS-03  [Database]  body and recipient rewrite refused ('permission denied' or 0 rows) and stored values unchanged
+PASS  P3-RLS-03  [Database]  event update and delete denied, rows intact
+== P3-RLS-04 the integration, template and webhook inbox tables
+PASS  P3-RLS-04  [Database]  tenant_messaging_integrations: forced RLS on
+PASS  P3-RLS-04  [Database]  tenant_messaging_integrations: no DELETE/TRUNCATE grant for the runtime role
+PASS  P3-RLS-04  [Database]  tenant_messaging_integrations: no capability 0, A capability 1 and 0 of B, forged 0, expired 0
+PASS  P3-RLS-04  [Database]  tenant_provider_templates: forced RLS on
+PASS  P3-RLS-04  [Database]  tenant_provider_templates: no DELETE/TRUNCATE grant for the runtime role
+PASS  P3-RLS-04  [Database]  tenant_provider_templates: no capability 0, A capability 3 and 0 of B, forged 0, expired 0
+PASS  P3-RLS-04  [Database]  provider_webhook_events: forced RLS on
+PASS  P3-RLS-04  [Database]  provider_webhook_events: no DELETE/TRUNCATE grant for the runtime role
+PASS  P3-RLS-04  [Database]  provider_webhook_events: no capability 0, A capability 27 and 0 of B, forged 0, expired 0
+== P3-HOOK-13 provider attributed audit append with forged or expired provider capabilities
+PASS  P3-HOOK-13  [Database]  forged provider capability cannot append
+PASS  P3-HOOK-13  [Database]  expired provider capability cannot append
+PASS  P3-HOOK-13  [Database]  member capability cannot append a provider attributed event
+PASS  P3-HOOK-13  [Database]  audit row count unchanged
+== sec149-rls.sh: PASS=48 FAIL=0 BLOCKED=0

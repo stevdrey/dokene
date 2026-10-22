@@ -256,7 +256,8 @@ class TenantIsolationSecurityIntegrationTest {
                 SELECT indexdef FROM pg_indexes
                 WHERE schemaname = 'dokene' AND indexname = 'one_open_message_per_customer'
                 """, String.class)).contains("UNIQUE").contains("(tenant_id, customer_id)")
-                .contains("'REJECTED'").contains("'FAILED'");
+                .contains("'PENDING_APPROVAL'").contains("'SENDING'").doesNotContain("'SENT'")
+                .doesNotContain("'DELIVERED'");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_trigger
                 WHERE tgname = 'outbound_messages_identity_immutable' AND NOT tgisinternal
