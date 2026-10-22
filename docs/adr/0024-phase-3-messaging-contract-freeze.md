@@ -147,7 +147,7 @@ Phase 3 dispatch enforces, fail closed and in ADR 0023 §4.3 order:
 - both kill switches and the integration enabled flag (steps 3 and 4);
 - the approval fingerprint (step 5b);
 - live consent, do-not-contact and eligibility (steps 6 and 7);
-- at most one open message per customer, and no message `SENT`, `DELIVERED` or `READ` to the customer since the current cadence anchor (step 8);
+- at most one open message per customer, and no message `SENT`, `DELIVERED` or `READ` to the customer since the current cadence anchor (step 8). "Open" is the amended ADR 0023 §2 definition (2026-10-22, [#198](https://github.com/stevdrey/dokene/issues/198)): only `PENDING_APPROVAL`, `APPROVED`, `QUEUED` and `SENDING` block;
 - the attempt limit (step 10);
 - `dokene.messaging.send-rate-limit.per-tenant-per-minute`, which returns `429 RATE_LIMITED` with `Retry-After`.
 
