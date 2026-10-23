@@ -571,13 +571,21 @@ public final class DraftSafetyValidator {
      * The value of one quantity run, or the run as written when it has no word (plain digits keep their own
      * formatting and grouping). Units, teens, tens and digits add; "hundred" and "dozen" multiply what precedes them;
      * a scale (thousand, million, billion) closes a group, or multiplies the total when it directly follows another
-     * scale ("mil millones"). A singular fraction adds ("one and a half"), a plural one multiplies ("two thirds"), and
-     * a fraction right after a scale is a fraction of it ("a million and a half"). A run that is not a well-formed
+     * scale ("mil millones"). A fraction joined by "and" or "y" adds ("one and a half"), one that directly follows a
+     * count multiplies it ("one third", "two thirds"), and a fraction right after a scale is a fraction of it ("a
+     * million and a half"). A run that is not a well-formed
      * cardinal still yields one number, the same in the text and the context, so a quantity is never left as a bare
      * currency word.
      */
     private static String writtenQuantity(String run, String written) {
-        String[] tokens = QUANTITY_JOINER_PATTERN.split(run.trim());
+        String trimmed = run.trim();
+        String[] tokens = QUANTITY_JOINER_PATTERN.split(trimmed);
+        // The joiner before each token: "and" or "y" makes a fraction add to the whole before it.
+        List<Boolean> additive = new ArrayList<>(List.of(false));
+        Matcher joiners = QUANTITY_JOINER_PATTERN.matcher(trimmed);
+        while (joiners.find()) {
+            additive.add(joiners.group().matches("(?s).*\\b(?:and|y)\\b.*"));
+        }
         if (java.util.Arrays.stream(tokens).allMatch(token -> token.isEmpty() || Character.isDigit(token.charAt(0))
                 || token.equals("a") || token.equals("an"))) {
             return written;
@@ -585,7 +593,8 @@ public final class DraftSafetyValidator {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal group = BigDecimal.ZERO;
         BigDecimal lastScale = null;
-        for (String token : tokens) {
+        for (int index = 0; index < tokens.length; index++) {
+            String token = tokens[index];
             if (token.isEmpty() || token.equals("a") || token.equals("an")) {
                 continue;
             }
@@ -596,10 +605,11 @@ public final class DraftSafetyValidator {
                 BigDecimal fraction = FRACTION_WORDS.get(token);
                 if (lastScale != null && group.signum() == 0) {
                     total = total.add(lastScale.multiply(fraction));
-                } else if (token.endsWith("s")) {
-                    group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(fraction);
-                } else {
+                } else if (index < additive.size() && additive.get(index)) {
                     group = group.add(fraction);
+                } else {
+                    // A counted fraction: "one third", "two thirds", "a half" multiply the count before them.
+                    group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(fraction);
                 }
                 lastScale = null;
             } else {

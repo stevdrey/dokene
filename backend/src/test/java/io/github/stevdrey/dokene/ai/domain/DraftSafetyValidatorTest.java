@@ -1089,6 +1089,18 @@ class DraftSafetyValidatorTest {
         }
         assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1500000 colones.", "es-419",
                 List.of()), "Cliente: Juan. Notas: plan de un millón y medio de colones.")).isEmpty();
+        // A counted fraction multiplies its count; only "and" makes it add to a whole.
+        String oneAndAThird = "Customer: John. Notes: plan for one and a third million dollars.";
+        for (String body : List.of("Hi John, only one third million dollars.", "Hi John, only one third of a million "
+                + "dollars.", "Hi John, only one half million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), oneAndAThird)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for one half million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is one and a third million dollars.",
+                "en-US", List.of()), oneAndAThird)).isEmpty();
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only five and a half dollars.", "en-US",
                 List.of()), "Customer: John. Notes: paid 5.5 dollars.")).isEmpty();
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
