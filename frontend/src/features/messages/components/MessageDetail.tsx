@@ -1,8 +1,10 @@
 // ABOUTME: Review mode of the message component: shows a submitted message, its outcome and history, and its allowed actions.
 // ABOUTME: Offers controls only where the status and role allow; approving never sends, and only a confirmed Enviar calls /sends.
-import { useCallback, useEffect, useId, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
+import { useSettleIntent } from '@/shared/hooks/useSettleIntent';
+import { isFocusLost } from '@/shared/utils/focus';
 import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
 import type { VersionedMessage } from '../api/messageApi';
 import { useMessageDetail, type PollState } from '../hooks/useMessageDetail';
@@ -265,13 +267,11 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
   const { group } = actions;
   const focus = useReturnFocus(group !== null, focusAfterResult);
   // Actualizar can remove itself with its own result (DELIVERED to READ); focus then goes to the heading, not the body.
-  const refreshFocused = useRef(false);
-  useEffect(() => {
-    if (!refreshFocused.current) return;
-    refreshFocused.current = false;
-    const active = document.activeElement;
-    if (!active || active === document.body || !active.isConnected) focusAfterResult.current?.focus();
-  }, [message, focusAfterResult]);
+  // The refresh has no busy state of its own, so the reads in flight are counted here to know when one settled.
+  const [refreshes, setRefreshes] = useState(0);
+  const armRefreshFocused = useSettleIntent<true>(refreshes > 0, () => {
+    if (isFocusLost()) focusAfterResult.current?.focus();
+  });
 
   // A role that loses the right to act unmounts every trigger at once; a focused one hands focus to the heading.
   // Only the loss moves focus: a read only role that opens a message keeps focus where it was.
@@ -280,9 +280,7 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
   useEffect(() => {
     const lost = couldAct.current && !canAct;
     couldAct.current = canAct;
-    if (!lost) return;
-    const active = document.activeElement;
-    if (!active || active === document.body) focusAfterResult.current?.focus();
+    if (lost && isFocusLost()) focusAfterResult.current?.focus();
   }, [canAct, focusAfterResult]);
 
   if (!canAct) {
@@ -306,8 +304,9 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
               variant="secondary"
               size="sm"
               onClick={(event) => {
-                refreshFocused.current = document.activeElement === event.currentTarget;
-                void actions.refresh();
+                armRefreshFocused(document.activeElement === event.currentTarget ? true : null);
+                setRefreshes((count) => count + 1);
+                void actions.refresh().finally(() => setRefreshes((count) => count - 1));
               }}
             >
               Actualizar

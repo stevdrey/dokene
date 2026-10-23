@@ -1,9 +1,11 @@
 // ABOUTME: The read only history of one customer's messages: collapsed rows with their delivery outcome, one open row at a time.
 // ABOUTME: Renders nothing for an inactive tenant or a missing role, remounts on a tenant or customer change, and only ever reads.
-import { useCallback, useEffect, useId, useRef, type MouseEvent, type ReactNode, type Ref } from 'react';
+import { useCallback, useId, useRef, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { httpClient } from '@/shared/api/httpClient';
 import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
+import { useSettleIntent } from '@/shared/hooks/useSettleIntent';
+import { isFocusLost } from '@/shared/utils/focus';
 import { actionLabel } from '@/features/followups/utils/aiLabels';
 import type { VersionedMessage } from '../api/messageApi';
 import { useDeliveryHistory, type HistoryRow, type ReadFailure } from '../hooks/useDeliveryHistory';
@@ -61,8 +63,6 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
   const headingRef = useRef<HTMLHeadingElement>(null);
   const loadMoreRef = useRef<HTMLButtonElement>(null);
   const openRowRef = useRef<OpenDeliveryRowHandle>(null);
-  // Which read the focused control started, so focus has somewhere to go when that control leaves with the reply.
-  const focusedRead = useRef<'none' | 'firstPage' | 'more'>('none');
 
   const onRowRefreshed = useCallback((_messageId: string, read: VersionedMessage) => {
     openRowRef.current?.applyRefresh(read);
@@ -71,22 +71,19 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
   const history = useDeliveryHistory(customerId, { onRowRefreshed });
   const { state, openMessageId, announcement } = history;
 
+  // Which read the focused control started, so focus has somewhere to go when that control leaves with the reply.
+  const reading = state.kind === 'loading' || (state.kind === 'ready' && state.loadingMore);
+  const armFocusedRead = useSettleIntent<'firstPage' | 'more'>(reading, (settled) => {
+    if (!isFocusLost()) return;
+    // Reintentar unmounts with its alert and Cargar más with the last page; focus moves on instead of vanishing.
+    if (settled === 'more' && loadMoreRef.current) loadMoreRef.current.focus();
+    else headingRef.current?.focus();
+  });
+
   const startRead = (kind: 'firstPage' | 'more', start: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
-    focusedRead.current = document.activeElement === event.currentTarget ? kind : 'none';
+    armFocusedRead(document.activeElement === event.currentTarget ? kind : null);
     start();
   };
-
-  useEffect(() => {
-    if (state.kind === 'loading' || (state.kind === 'ready' && state.loadingMore)) return;
-    const settled = focusedRead.current;
-    focusedRead.current = 'none';
-    if (settled === 'none') return;
-    const active = document.activeElement;
-    const lost = active === null || active === document.body;
-    // Reintentar unmounts with its alert and Cargar más with the last page; focus moves on instead of vanishing.
-    if (settled === 'more' && lost && loadMoreRef.current) loadMoreRef.current.focus();
-    else if (lost) headingRef.current?.focus();
-  }, [state]);
 
   if (state.kind === 'sessionEnded') {
     return (
@@ -209,13 +206,9 @@ function DeliveryRow({ row, open, onToggle, onRefresh, children }: DeliveryRowPr
   const showRefresh = !row.notFound && (open || outcome.outcome === 'uncertain');
   const toggleRef = useRef<HTMLButtonElement>(null);
   // Actualizar can leave with its own reply (an uncertain row resolved, a 404); the toggle then takes its focus.
-  const refreshFocused = useRef(false);
-  useEffect(() => {
-    if (!refreshFocused.current || row.refreshing) return;
-    refreshFocused.current = false;
-    const active = document.activeElement;
-    if (!showRefresh && (!active || active === document.body)) toggleRef.current?.focus();
-  }, [row.refreshing, showRefresh]);
+  const armRefreshFocused = useSettleIntent<true>(row.refreshing, () => {
+    if (!showRefresh && isFocusLost()) toggleRef.current?.focus();
+  });
   const classes = ['delivery-row', `delivery-row--${outcome.outcome}`, open ? 'delivery-row--open' : ''].join(' ').trim();
 
   return (
@@ -249,7 +242,7 @@ function DeliveryRow({ row, open, onToggle, onRefresh, children }: DeliveryRowPr
           <BusyButton
             busy={row.refreshing}
             onClick={(event) => {
-              refreshFocused.current = document.activeElement === event.currentTarget;
+              armRefreshFocused(document.activeElement === event.currentTarget ? true : null);
               onRefresh(item.messageId);
             }}
           >
