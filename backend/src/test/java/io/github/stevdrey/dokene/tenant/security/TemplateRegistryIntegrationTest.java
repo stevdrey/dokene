@@ -42,6 +42,9 @@ import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateButton;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -69,6 +72,7 @@ import org.springframework.web.context.WebApplicationContext;
 @SpringBootTest(properties = "dokene.ai.provider=fake")
 @Import(ScriptedTemplateProviderGateway.Configuration.class)
 class TemplateRegistryIntegrationTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final AtomicLong NEXT_ID = new AtomicLong(
             300_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "400000000000001";
@@ -266,9 +270,9 @@ class TemplateRegistryIntegrationTest {
     void anApprovalWhoseSchemaDoesNotMatchIsRecordedButNeverSendable() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         var cases = List.of(
-                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")),
+                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"), CONTENT),
                         TemplateApprovalStatus.SCHEMA_MISMATCH),
-                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED, List.of("1", "2")),
+                List.of(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED, List.of("1", "2"), CONTENT),
                         TemplateApprovalStatus.SCHEMA_MISMATCH),
                 List.of(new ProviderTemplateSchema.Unsupported(), TemplateApprovalStatus.SCHEMA_UNSUPPORTED),
                 List.of(new ProviderTemplateSchema.Unreadable(), TemplateApprovalStatus.SCHEMA_UNREADABLE));
@@ -297,7 +301,7 @@ class TemplateRegistryIntegrationTest {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                        List.of("product", "customer_name")));
+                        List.of("product", "customer_name"), CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.sendable").value(true));
@@ -349,14 +353,14 @@ class TemplateRegistryIntegrationTest {
 
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                        List.of("customer_name", "product")));
+                        List.of("customer_name", "product"), CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"));
         assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
 
         gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
-                        List.of("product", "customer_name")));
+                        List.of("product", "customer_name"), CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
         assertThat(auditCount(tenantA)).isEqualTo(audits + 1);
     }
@@ -435,6 +439,63 @@ class TemplateRegistryIntegrationTest {
         }
     }
 
+    /** Issue 268, V31: the fixed text is returned and trusted only when written with the current evidence. */
+    @Test
+    void theTemplateTextIsTrustedOnlyWithTheEvidenceThatReadIt() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"),
+                        new TemplateContent(null, CONTENT.body(), "Gracias", List.of(
+                                new TemplateButton(TemplateButtonType.QUICK_REPLY, "Sí", null),
+                                new TemplateButton(TemplateButtonType.URL, "Ver", "https://example.test/catalogo")))));
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.bodyText").value(CONTENT.body()))
+                .andExpect(jsonPath("$.content.headerText").doesNotExist())
+                .andExpect(jsonPath("$.content.footerText").value("Gracias"))
+                .andExpect(jsonPath("$.content.buttons[0].type").value("QUICK_REPLY"))
+                .andExpect(jsonPath("$.content.buttons[0].value").doesNotExist())
+                .andExpect(jsonPath("$.content.buttons[1].type").value("URL"))
+                .andExpect(jsonPath("$.content.buttons[1].text").value("Ver"))
+                .andExpect(jsonPath("$.content.buttons[1].value").value("https://example.test/catalogo"));
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Resolved.class);
+
+        // The previous release trusts only the V27 format columns. Current evidence leaves them empty, so to an older
+        // instance this approval has no verified format and is never sent: it cannot ignore the fixed content.
+        assertThat(queryString("SELECT concat_ws('/', approval_status, approval_parameter_format, "
+                + "approval_parameter_checked_at, approval_content_parameter_format) FROM "
+                + "dokene.tenant_provider_templates WHERE tenant_id = ?", tenantA)).isEqualTo("APPROVED/POSITIONAL");
+        // Text and its format are only ever stored together with the time of the check that read them, and bounded.
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                + "approval_content_parameter_format = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = NULL "
+                + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_body_text = "
+                + "repeat('a', 4097) WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        // Buttons are three aligned arrays of known types, stored exactly with a body.
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_texts = "
+                + "ARRAY['Sí'] WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_types = "
+                + "ARRAY['FLOW', 'URL'] WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_button_types = NULL "
+                + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+        // An instance of the previous release refreshes the approval as it always did, with a V27 format and without
+        // touching the text: the text no longer matches the evidence, so the database clears it and nothing is
+        // sendable.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = approval_checked_at + interval "
+                + "'1 second', approval_parameter_format = 'POSITIONAL', approval_parameter_checked_at = "
+                + "approval_checked_at + interval '1 second' WHERE tenant_id = ?", tenantA.id().value());
+        assertThat(queryString("SELECT concat_ws('/', approval_status, approval_header_text, approval_body_text, "
+                + "approval_footer_text, approval_button_types, approval_content_parameter_format, "
+                + "approval_content_checked_at) FROM dokene.tenant_provider_templates WHERE tenant_id = ?", tenantA))
+                .isEqualTo("APPROVED");
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        list(adminA, tenantA).andExpect(jsonPath(
+                "$.items[?(@.templateIntent == 'REPEAT_PURCHASE' && @.content == null)]").isNotEmpty());
+    }
+
     @Test
     void staleEvidenceAndAChangedBusinessAccountFailClosed() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
@@ -487,17 +548,19 @@ class TemplateRegistryIntegrationTest {
             // An approved status can never be kept without complete provider evidence.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = NULL "
                     + "WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            // A format is only ever stored together with the time of the schema check that produced it.
+            // A V27 format, which only the previous release writes, is only ever stored together with the time of the
+            // schema check that produced it.
             assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
-                    + "= NULL WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
-                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value()))
+                    + "= 'POSITIONAL' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
+                    + "= 'MIXED', approval_parameter_checked_at = now() WHERE tenant_id = ?", tenantA.id().value()))
                     .isInstanceOf(SQLException.class);
-            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format "
-                    + "= 'MIXED' WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
-            // Expand phase: an older instance's approval without any format stays writable (and is never sendable).
-            execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format = NULL, "
-                    + "approval_parameter_checked_at = NULL WHERE tenant_id = ?", tenantA.id().value());
+            assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET "
+                    + "approval_content_parameter_format = 'MIXED' WHERE tenant_id = ?", tenantA.id().value()))
+                    .isInstanceOf(SQLException.class);
+            // Expand phase: an older instance's approval with its own V27 format stays writable.
+            execute("UPDATE dokene.tenant_provider_templates SET approval_parameter_format = 'POSITIONAL', "
+                    + "approval_parameter_checked_at = approval_checked_at WHERE tenant_id = ?", tenantA.id().value());
         }
     }
 
@@ -629,13 +692,24 @@ class TemplateRegistryIntegrationTest {
     /** Approval for the shared TEMPLATE fixture, whose two parameters match a positional {{1}} and {{2}} body. */
     private static TemplateProviderGateway.Reported approved(String businessAccountId) {
         return new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, businessAccountId,
-                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")));
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"), CONTENT));
     }
 
     private String parameterFormat(Tenant tenant) throws SQLException {
         try (Connection migration = migrationConnection();
                 var statement = migration.prepareStatement(
-                        "SELECT approval_parameter_format FROM dokene.tenant_provider_templates WHERE tenant_id = ?")) {
+                        "SELECT approval_content_parameter_format FROM dokene.tenant_provider_templates "
+                                + "WHERE tenant_id = ?")) {
+            statement.setObject(1, tenant.id().value());
+            try (var rs = statement.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String queryString(String sql, Tenant tenant) throws SQLException {
+        try (Connection migration = migrationConnection(); var statement = migration.prepareStatement(sql)) {
             statement.setObject(1, tenant.id().value());
             try (var rs = statement.executeQuery()) {
                 rs.next();

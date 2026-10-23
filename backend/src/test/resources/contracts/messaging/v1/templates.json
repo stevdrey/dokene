@@ -4,7 +4,10 @@
       "withParameters": {
         "providerTemplateName": "synthetic_repeat_purchase",
         "language": "es_MX",
-        "parameterNames": ["customer_name", "product"],
+        "parameterNames": [
+          "customer_name",
+          "product"
+        ],
         "enabled": true
       },
       "disabledWithoutParameters": {
@@ -12,6 +15,12 @@
         "language": "es",
         "parameterNames": [],
         "enabled": false
+      },
+      "englishWithoutParameters": {
+        "providerTemplateName": "hello_world",
+        "language": "en_US",
+        "parameterNames": [],
+        "enabled": true
       }
     },
     "invalid": {
@@ -49,9 +58,34 @@
         "enabled": true,
         "providerTemplateName": "synthetic_repeat_purchase",
         "language": "es_MX",
-        "parameterNames": ["customer_name", "product"],
+        "parameterNames": [
+          "customer_name",
+          "product"
+        ],
         "approvalStatus": "APPROVED",
         "approvalCheckedAt": "2026-10-13T12:00:00Z",
+        "content": {
+          "headerText": null,
+          "bodyText": "Hola {{1}}, gracias por tu compra de {{2}}.",
+          "footerText": null,
+          "buttons": [
+            {
+              "type": "QUICK_REPLY",
+              "text": "Sí, me interesa",
+              "value": null
+            },
+            {
+              "type": "PHONE_NUMBER",
+              "text": "Llamar",
+              "value": "+50600000099"
+            },
+            {
+              "type": "URL",
+              "text": "Ver catálogo",
+              "value": "https://example.test/catalogo"
+            }
+          ]
+        },
         "sendable": true,
         "version": 2
       },
@@ -64,6 +98,7 @@
         "parameterNames": [],
         "approvalStatus": "UNVERIFIED",
         "approvalCheckedAt": null,
+        "content": null,
         "sendable": false,
         "version": 0
       },
@@ -78,6 +113,7 @@
         ],
         "approvalStatus": "SCHEMA_MISMATCH",
         "approvalCheckedAt": "2026-10-13T12:00:00Z",
+        "content": null,
         "sendable": false,
         "version": 1
       },
@@ -90,8 +126,27 @@
         "parameterNames": [],
         "approvalStatus": "UNVERIFIED",
         "approvalCheckedAt": null,
+        "content": null,
         "sendable": false,
         "version": null
+      },
+      "englishHelloWorldApproved": {
+        "templateIntent": "GENERAL_FOLLOW_UP",
+        "mapped": true,
+        "enabled": true,
+        "providerTemplateName": "hello_world",
+        "language": "en_US",
+        "parameterNames": [],
+        "approvalStatus": "APPROVED",
+        "approvalCheckedAt": "2026-10-22T12:00:00Z",
+        "content": {
+          "headerText": "Hello World",
+          "bodyText": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
+          "footerText": "WhatsApp Business Platform sample message",
+          "buttons": []
+        },
+        "sendable": true,
+        "version": 1
       }
     }
   },
@@ -108,6 +163,7 @@
             "parameterNames": [],
             "approvalStatus": "UNVERIFIED",
             "approvalCheckedAt": null,
+            "content": null,
             "sendable": false,
             "version": null
           }

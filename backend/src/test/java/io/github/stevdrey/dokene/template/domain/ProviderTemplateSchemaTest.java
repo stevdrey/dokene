@@ -16,14 +16,15 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class ProviderTemplateSchemaTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final List<String> TWO = List.of("customer_name", "message_body");
 
     private static Verdict positional(List<String> names, String... tokens) {
-        return new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(tokens)).check(names);
+        return new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(tokens), CONTENT).check(names);
     }
 
     private static Verdict named(List<String> names, String... tokens) {
-        return new BodyParameters(TemplateParameterFormat.NAMED, List.of(tokens)).check(names);
+        return new BodyParameters(TemplateParameterFormat.NAMED, List.of(tokens), CONTENT).check(names);
     }
 
     private static final Verdict APPROVED_POSITIONAL =
@@ -123,7 +124,7 @@ class ProviderTemplateSchemaTest {
 
     @Test
     void bodyParametersDoNotPrintTheirTokens() {
-        assertThat(new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name")).toString())
+        assertThat(new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name"), CONTENT).toString())
                 .doesNotContain("customer_name");
     }
 }

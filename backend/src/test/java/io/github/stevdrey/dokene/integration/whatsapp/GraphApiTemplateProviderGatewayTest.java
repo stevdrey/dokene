@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolv
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.ResolvedSecret;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -45,7 +46,8 @@ class GraphApiTemplateProviderGatewayTest {
     private static final String WABA = "400000000000001";
     private static final String ONE_BODY_PARAMETER = "[{\"type\":\"BODY\",\"text\":\"Hola {{1}}\"}]";
     private static final Reported APPROVED_ONE = new Reported(TemplateApprovalStatus.APPROVED, WABA,
-            new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")));
+            new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"), new TemplateContent(null, "Hola {{1}}",
+                    null)));
 
     private HttpServer server;
     private final AtomicReference<String> authorization = new AtomicReference<>();
@@ -157,7 +159,8 @@ class GraphApiTemplateProviderGatewayTest {
                 + "\"format\":\"TEXT\",\"text\":\"Aviso\"},{\"type\":\"BODY\",\"text\":\"Hola {{customer_name}}\"},"
                 + "{\"type\":\"FOOTER\",\"text\":\"Gracias\"}]");
         assertThat(find()).isEqualTo(new Reported(TemplateApprovalStatus.APPROVED, WABA,
-                new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name"))));
+                new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name"),
+                        new TemplateContent("Aviso", "Hola {{customer_name}}", "Gracias"))));
 
         body = listWith("APPROVED", "\"components\":[{\"type\":\"HEADER\",\"format\":\"IMAGE\"},"
                 + "{\"type\":\"BODY\",\"text\":\"Hola {{1}}\"}]");

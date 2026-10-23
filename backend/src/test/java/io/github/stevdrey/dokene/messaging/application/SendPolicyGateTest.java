@@ -33,6 +33,7 @@ import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -48,6 +49,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class SendPolicyGateTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final String BODY = "Hola, queríamos saber cómo le ha ido con su compra.";
     private static final Instant NOW = Instant.parse("2026-10-15T12:00:00Z");
 
@@ -146,7 +148,7 @@ class SendPolicyGateTest {
                 binding.action(), binding.templateIntent(), binding.locale(), binding.body(),
                 binding.sourcePolicyVersion(), binding.consentRevision(),
                 new ApprovalFingerprint.TemplateRevision(2, "general_follow_up", "es", POSITIONAL,
-                        List.of("customer_name", "message_body")),
+                        List.of("customer_name", "message_body"), null, "Synthetic body", null, List.of()),
                 binding.parameterValues(), sender);
         when(bindings.bind(approved, customer, sender)).thenReturn(edited);
 
@@ -177,7 +179,7 @@ class SendPolicyGateTest {
                 binding.action(), binding.templateIntent(), binding.locale(), binding.body(),
                 binding.sourcePolicyVersion(), binding.consentRevision(),
                 new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es", NAMED,
-                        List.of("customer_name", "message_body")),
+                        List.of("customer_name", "message_body"), null, "Synthetic body", null, List.of()),
                 binding.parameterValues(), sender);
         permitted();
         approvedWith(ApprovalFingerprint.of(named));
@@ -251,7 +253,7 @@ class SendPolicyGateTest {
     private static void resolvesAs(TemplateMappingResolver resolver, TemplateParameterFormat format) {
         when(resolver.resolve(SemanticTemplateIntent.GENERAL_FOLLOW_UP)).thenReturn(new TemplateMappingResolver.Resolved(
                 new ResolvedTemplateMapping(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "general_follow_up", "es",
-                        format, List.of("customer_name", "message_body"), 1)));
+                        format, List.of("customer_name", "message_body"), CONTENT, 1)));
     }
 
     private void permitted() {
@@ -287,7 +289,7 @@ class SendPolicyGateTest {
                 message.contactId(), message.recipientPhone(), MessageChannel.WHATSAPP, message.action(),
                 message.templateIntent(), message.locale(), message.body(), message.sourcePolicyVersion(), 1,
                 new ApprovalFingerprint.TemplateRevision(1, "general_follow_up", "es", POSITIONAL,
-                        List.of("customer_name", "message_body")),
+                        List.of("customer_name", "message_body"), null, "Synthetic body", null, List.of()),
                 List.of("Ana", BODY), sender);
     }
 }

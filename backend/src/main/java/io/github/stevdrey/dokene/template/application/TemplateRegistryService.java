@@ -146,9 +146,10 @@ public class TemplateRegistryService {
             if (!repository.updateApproval(next, expectedVersion, current.approval())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
             }
-            // The verified format decides sendability (and, later, the payload shape) like the status does.
+            // The verified format and the fixed text decide sendability and what is approved, like the status does.
             if (next.approval().status() != current.approval().status()
-                    || next.approval().parameterFormat() != current.approval().parameterFormat()) {
+                    || next.approval().parameterFormat() != current.approval().parameterFormat()
+                    || !Objects.equals(next.approval().content(), current.approval().content())) {
                 audit.updated(next.id(), next.enabled());
             }
             return next;

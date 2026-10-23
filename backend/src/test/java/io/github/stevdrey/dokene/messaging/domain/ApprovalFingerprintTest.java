@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.Binding;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ButtonRevision;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.TemplateRevision;
 import java.util.Arrays;
@@ -20,6 +21,7 @@ import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
 class ApprovalFingerprintTest {
+    private static final String BODY_TEXT = "Synthetic body";
     private static final UUID TENANT = UUID.fromString("7a5c0000-0000-4000-8000-0000000b0001");
     private static final UUID MESSAGE = UUID.fromString("7a5c0000-0000-4000-8000-000000000002");
     private static final UUID CUSTOMER = UUID.fromString("7a5c0000-0000-4000-8000-0000000c0001");
@@ -30,13 +32,36 @@ class ApprovalFingerprintTest {
     private static final Binding BASE = new Binding(TENANT, MESSAGE, CUSTOMER, CONTACT, "+50600000001",
             MessageChannel.WHATSAPP, SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
             "es-419", "Hola Ana", 7, CONSENT,
-            new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name")),
+            new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()),
             List.of("Ana", "Café 1 kg"), new SenderRevision(INTEGRATION, "100000000000001", "200000000000001", 1));
 
     @Test
     /** Independently reproducible: SHA-256 of each field as a 4 byte big endian length plus UTF-8 bytes. */
     void encodingIsStable() {
-        assertThat(ApprovalFingerprint.of(BASE).value()).isEqualTo("c7be85b0549957d5ce583fa8cc47523ef6802ceebbcbb9b5768273e5719bd7f6");
+        assertThat(ApprovalFingerprint.of(BASE).value()).isEqualTo("9babce5d8b975809aaaae901b1cf0ae0763d6b469643ea09fdec93c23963e5d6");
+    }
+
+    /** Issue 268: a button the recipient can use is bound like the text, so changing it at Meta voids approvals. */
+    @Test
+    void everyButtonFieldAndTheirOrderVoidTheApproval() {
+        ButtonRevision url = new ButtonRevision("URL", "Ver catálogo", "https://example.test/catalogo");
+        ButtonRevision call = new ButtonRevision("PHONE_NUMBER", "Llamar", "+50600000099");
+        Binding base = withTemplate(BASE, revision(List.of(url, call)));
+        ApprovalFingerprint stored = ApprovalFingerprint.of(base);
+        assertThat(stored.covers(withTemplate(BASE, revision(List.of(url, call))))).isTrue();
+        for (List<ButtonRevision> changed : List.of(
+                List.of(new ButtonRevision("URL", "Ver ofertas", url.value()), call),
+                List.of(new ButtonRevision("URL", url.text(), "https://example.test/otro"), call),
+                List.of(new ButtonRevision("QUICK_REPLY", url.text(), null), call),
+                List.of(call, url),
+                List.of(url))) {
+            assertThat(stored.covers(withTemplate(BASE, revision(changed)))).as(changed.toString()).isFalse();
+        }
+    }
+
+    private static TemplateRevision revision(List<ButtonRevision> buttons) {
+        return new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"),
+                null, BODY_TEXT, null, buttons);
     }
 
     @Test
@@ -58,12 +83,16 @@ class ApprovalFingerprintTest {
                 Map.entry("consent re-granted", b -> with(b, b.tenantId(), b.messageId(), b.contactId(), b.recipientPhone(), b.body(), CONSENT + 2, b.template(), b.sender(), b.templateIntent(), b.sourcePolicyVersion())),
                 Map.entry("intent", b -> with(b, b.tenantId(), b.messageId(), b.contactId(), b.recipientPhone(), b.body(), b.consentRevision(), b.template(), b.sender(), SemanticTemplateIntent.GENERAL_FOLLOW_UP, b.sourcePolicyVersion())),
                 Map.entry("policy snapshot", b -> with(b, b.tenantId(), b.messageId(), b.contactId(), b.recipientPhone(), b.body(), b.consentRevision(), b.template(), b.sender(), b.templateIntent(), 8)),
-                Map.entry("template version", b -> withTemplate(b, new TemplateRevision(4, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name")))),
-                Map.entry("template name", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v2", "es", POSITIONAL, List.of("customer_name", "product_name")))),
-                Map.entry("template language", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es_MX", POSITIONAL, List.of("customer_name", "product_name")))),
+                Map.entry("template header", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"), "Aviso", BODY_TEXT, null, List.of()))),
+                Map.entry("template body text", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT + ".", null, List.of()))),
+                Map.entry("template footer", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT, "Gracias", List.of()))),
+                Map.entry("template button", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of(new ButtonRevision("QUICK_REPLY", "Sí", null))))),
+                Map.entry("template version", b -> withTemplate(b, new TemplateRevision(4, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()))),
+                Map.entry("template name", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v2", "es", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()))),
+                Map.entry("template language", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es_MX", POSITIONAL, List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()))),
                 // A template re-verified with named placeholders is sent differently, so it voids approvals.
-                Map.entry("parameter format", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", NAMED, List.of("customer_name", "product_name")))),
-                Map.entry("parameter order", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("product_name", "customer_name")))),
+                Map.entry("parameter format", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", NAMED, List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()))),
+                Map.entry("parameter order", b -> withTemplate(b, new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("product_name", "customer_name"), null, BODY_TEXT, null, List.of()))),
                 Map.entry("parameter value", b -> withValues(b, List.of("Ana", "Café 2 kg"))),
                 Map.entry("parameter value order", b -> withValues(b, List.of("Café 1 kg", "Ana"))),
                 Map.entry("integration", b -> withSender(b, new SenderRevision(UUID.randomUUID(), "100000000000001", "200000000000001", 1))),
@@ -103,17 +132,17 @@ class ApprovalFingerprintTest {
         assertThatThrownBy(() -> with(BASE, TENANT, MESSAGE, CONTACT, null, BASE.body(), CONSENT, BASE.template(),
                 BASE.sender(), BASE.templateIntent(), 7)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new ApprovalFingerprint("ABC")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new TemplateRevision(-1, "t", "es", POSITIONAL, List.of()))
+        assertThatThrownBy(() -> new TemplateRevision(-1, "t", "es", POSITIONAL, List.of(), null, BODY_TEXT, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new TemplateRevision(3, "Repeat Purchase", "es", POSITIONAL, List.of()))
+        assertThatThrownBy(() -> new TemplateRevision(3, "Repeat Purchase", "es", POSITIONAL, List.of(), null, BODY_TEXT, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", " ", POSITIONAL, List.of()))
+        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", " ", POSITIONAL, List.of(), null, BODY_TEXT, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Template language is required");
-        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", "", POSITIONAL, List.of()))
+        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", "", POSITIONAL, List.of(), null, BODY_TEXT, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Template language is required");
-        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", "es", null, List.of()))
+        assertThatThrownBy(() -> new TemplateRevision(3, "repeat_purchase_v1", "es", null, List.of(), null, BODY_TEXT, null, List.of()))
                 .isInstanceOf(NullPointerException.class);
     }
 

@@ -20,11 +20,13 @@ public sealed interface ProviderTemplateSchema
 
     /**
      * The only schema Dokene can send to: text parameters in the body, declared in {@code format}. Holds the raw
-     * placeholder tokens in order of appearance; no other provider text is kept, and {@link #toString()} omits them.
+     * placeholder tokens in order of appearance and the template's fixed text; {@link #toString()} omits both.
      */
-    record BodyParameters(TemplateParameterFormat format, List<String> placeholders) implements ProviderTemplateSchema {
+    record BodyParameters(TemplateParameterFormat format, List<String> placeholders, TemplateContent content)
+            implements ProviderTemplateSchema {
         public BodyParameters {
             Objects.requireNonNull(format, "Parameter format is required");
+            Objects.requireNonNull(content, "Template content is required");
             placeholders = List.copyOf(Objects.requireNonNull(placeholders, "Placeholders are required"));
             if (placeholders.size() > MAX_PLACEHOLDERS) {
                 throw new IllegalArgumentException("Too many placeholders");
