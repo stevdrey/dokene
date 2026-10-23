@@ -1012,6 +1012,44 @@ class DraftSafetyValidatorTest {
                 List.of()), spanish)).isEmpty();
     }
 
+    /** A written-out currency amount is compared by value, like its digits, not grounded by the currency name. */
+    @Test
+    void comparesWrittenOutCurrencyAmountsByValue() {
+        String fiveDollars = "Customer: John. Purchases: Roasted Coffee for five dollars.";
+        for (String body : List.of("Hi John, only ten dollars today.", "Hi John, only 10 dollars today.",
+                "Hi John, only one dollar today.", "Hi John, only a hundred dollars today.",
+                "Hi John, only two hundred and fifty dollars today.", "Hi John, only five thousand dollars today.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fiveDollars)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        for (String body : List.of("Hi John, your coffee was five dollars.", "Hi John, your coffee was 5 dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fiveDollars)).as(body)
+                    .isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coffee was 250 euros.", "en-US", List.of()),
+                "Customer: John. Purchases: Roasted Coffee for two hundred and fifty euros.")).isEmpty();
+        String spanish = "Cliente: Juan. Compras: Café por cinco mil colones.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó seis mil colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó 5000 colones.", "es-419",
+                List.of()), spanish)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó trescientos colones.", "es-419",
+                List.of()), "Cliente: Juan. Compras: Café por 300 colones.")).isEmpty();
+    }
+
+    /** A non-offer phrase in the context grounds no offer word, as in the draft (issue 268). */
+    @Test
+    void anOrdinaryPhraseInTheContextGroundsNoOffer() {
+        String context = "Customer: John. Purchases: Save the Date cards.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, save on your next order.", "en-US", List.of()),
+                context)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, how are the cards? Please save the date.",
+                "en-US", List.of()), context)).isEmpty();
+    }
+
     @Test
     void groundsAnEnglishOfferTermInTheOfferContext() {
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coupon is still valid.", "en-US", List.of()),

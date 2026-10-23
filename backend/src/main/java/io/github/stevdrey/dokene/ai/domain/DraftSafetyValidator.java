@@ -50,20 +50,22 @@ public final class DraftSafetyValidator {
      */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
             "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
-    /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     /**
-     * Cardinals written out before a percentage marker ("five percent", "veinticinco por ciento", "twenty-five
-     * percent"), English and Spanish up to one hundred. They are rewritten to digits first, so the marker then
-     * canonicalises to "%" and the value is compared token-exact like "5%" (issue 268): grounding the generic word
-     * "percent" alone would let "ten percent" pass against a context that only has "five percent".
+     * Cardinals written out before a percentage marker or a currency name ("five percent", "ten dollars",
+     * "veinticinco por ciento", "two hundred and fifty euros"), in English and Spanish. They are rewritten to digits
+     * first, so the marker canonicalises to "%" and both are compared token-exact like "5%" or "10 dollars" (issue
+     * 268): grounding the generic word "percent" or "dollars" alone would let "ten" pass against a context with "five".
      */
     private static final Map<String, Integer> NUMBER_WORDS = numberWords();
     private static final String NUMBER_WORD = NUMBER_WORDS.keySet().stream()
             .sorted(java.util.Comparator.comparingInt(String::length).reversed())
-            .collect(java.util.stream.Collectors.joining("|", "(?:", ")"));
-    private static final Pattern WRITTEN_PERCENT_NUMBER_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])((?:(?:one|a)\\s+hundred)|" + NUMBER_WORD + "(?:(?:-|\\s+y\\s+|\\s+and\\s+|\\s+)"
-                    + NUMBER_WORD + ")?)(?=" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?![\\p{L}]))");
+            .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
+    private static final String NUMBER_WORD_SEPARATOR = "(?:-|\\s+(?:and\\s+|y\\s+)?)";
+    private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
+            "(?<![\\p{L}\\p{N}])((?:a\\s+)?" + NUMBER_WORD + "(?:" + NUMBER_WORD_SEPARATOR + NUMBER_WORD + ")*)(?=" + SP
+                    + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct|" + CURRENCY_CODES + "|" + CURRENCY_WORDS
+                    + ")(?![\\p{L}]))");
+    /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
@@ -351,13 +353,14 @@ public final class DraftSafetyValidator {
 
         // 4. Offer symbols and terms grounding check, both against the same normalized offer-context views as the
         // quantity checks (a purchase "10 pc7" grounds "%"); token-exact quantities were already validated above.
+        // Non-offer phrases are blanked in the context as in the draft, so "Save the Date cards" grounds no "save".
         List<String> offerContextViews = null;
         for (String symbol : OFFER_SYMBOLS) {
             if (!combinedDraftText.contains(symbol)) {
                 continue;
             }
             if (offerContextViews == null) {
-                offerContextViews = withLeetViews(offerContextLower);
+                offerContextViews = withLeetViews(vocabulary.withoutNonOffers(offerContextLower));
             }
             if (offerContextViews.stream().noneMatch(context -> context.contains(symbol))) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_SYMBOL,
@@ -376,7 +379,7 @@ public final class DraftSafetyValidator {
                     String word = draftMatcher.group().toLowerCase(Locale.ROOT);
                     Pattern specificPattern = offerTermBoundary(word);
                     if (offerContextViews == null) {
-                        offerContextViews = withLeetViews(offerContextLower);
+                        offerContextViews = withLeetViews(vocabulary.withoutNonOffers(offerContextLower));
                     }
                     if (offerContextViews.stream().noneMatch(context -> specificPattern.matcher(context).find())) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
@@ -530,29 +533,34 @@ public final class DraftSafetyValidator {
     }
 
     private static String rewriteWrittenPercentages(String canonicalBase) {
-        String digits = WRITTEN_PERCENT_NUMBER_PATTERN.matcher(canonicalBase).replaceAll(match -> {
-            Integer value = writtenNumber(match.group(1));
-            return value == null ? Matcher.quoteReplacement(match.group()) : value.toString();
-        });
+        String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase)
+                .replaceAll(match -> Long.toString(writtenNumber(match.group(1))));
         return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
     }
 
-    /** A tens word followed by a unit adds ("twenty-five", "treinta y cinco"); any other pair is left as written. */
-    private static Integer writtenNumber(String phrase) {
-        String[] words = phrase.trim().split("(?:-|\\s+y\\s+|\\s+and\\s+|\\s+)");
-        if (words.length == 2 && (words[0].equals("one") || words[0].equals("a")) && words[1].equals("hundred")) {
-            return 100;
+    /**
+     * The value of a run of number words: units, teens and tens add; "hundred" multiplies what precedes it (one when
+     * nothing does), Spanish hundreds add; "thousand" and "mil" close a group. A run that is not a well-formed
+     * cardinal still yields one number, so a quantity is never left as a bare currency word.
+     */
+    private static long writtenNumber(String phrase) {
+        long total = 0;
+        long group = 0;
+        for (String word : phrase.trim().split(NUMBER_WORD_SEPARATOR)) {
+            if (word.equals("a")) {
+                continue;
+            }
+            int value = NUMBER_WORDS.get(word);
+            if (value == 1_000) {
+                total += Math.max(group, 1) * 1_000;
+                group = 0;
+            } else if (word.equals("hundred")) {
+                group = Math.max(group, 1) * 100;
+            } else {
+                group += value;
+            }
         }
-        if (words.length == 1) {
-            return NUMBER_WORDS.get(words[0]);
-        }
-        Integer tens = NUMBER_WORDS.get(words[0]);
-        Integer unit = NUMBER_WORDS.get(words[1]);
-        if (words.length != 2 || tens == null || unit == null || tens < 20 || tens > 90 || tens % 10 != 0
-                || unit < 1 || unit > 9) {
-            return null;
-        }
-        return tens + unit;
+        return total + group;
     }
 
     private static Map<String, Integer> numberWords() {
@@ -585,6 +593,15 @@ public final class DraftSafetyValidator {
         words.put("veintiseis", 26);
         words.put("hundred", 100);
         words.put("cien", 100);
+        words.put("ciento", 100);
+        String[] spanishHundreds = {"doscient", "trescient", "cuatrocient", "quinient", "seiscient", "setecient",
+                "ochocient", "novecient"};
+        for (int i = 0; i < spanishHundreds.length; i++) {
+            words.put(spanishHundreds[i] + "os", 200 + 100 * i);
+            words.put(spanishHundreds[i] + "as", 200 + 100 * i);
+        }
+        words.put("thousand", 1_000);
+        words.put("mil", 1_000);
         return Map.copyOf(words);
     }
 
