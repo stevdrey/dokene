@@ -969,6 +969,22 @@ class DraftSafetyValidatorTest {
                 context)).isEmpty();
     }
 
+    /** Written-out percentages are promotions too, while ordinary phrases with an offer word are not (issue 268). */
+    @Test
+    void refusesWrittenPercentagesAndAllowsOrdinaryPhrasesWithOfferWords() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        for (String body : List.of("Get ten percent off your next order.", "Enjoy a twenty per cent discount.",
+                "Everything is half price this week.", "Get a free bag with your next order.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hi John. " + body, "en-US", List.of()), context))
+                    .as(body).isPresent();
+        }
+        for (String body : List.of("Feel free to contact us with any questions.", "Please save your receipt.",
+                "We will deal with your request today.", "You are free to reply whenever it suits you.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hi John. " + body, "en-US", List.of()), context))
+                    .as(body).isEmpty();
+        }
+    }
+
     @Test
     void groundsAnEnglishOfferTermInTheOfferContext() {
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coupon is still valid.", "en-US", List.of()),

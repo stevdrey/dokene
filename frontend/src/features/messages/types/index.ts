@@ -107,12 +107,13 @@ export interface SubmitMessageRequest {
   origin: MessageOrigin;
 }
 
-export interface ApprovalRequest {
-  decision: ApprovalDecision;
-  note?: string | null;
-  /** The reviewed `MessageTemplatePreview.revision`; the backend requires it to approve (issue 268). */
-  templateRevision?: string | null;
-}
+/**
+ * Approving names the reviewed `MessageTemplatePreview.revision`, which the backend requires (issue 268); rejecting
+ * names none. The union makes an approval without a revision a compile error instead of a 400.
+ */
+export type ApprovalRequest =
+  | { decision: 'APPROVE'; note?: string | null; templateRevision: string }
+  | { decision: 'REJECT'; note?: string | null; templateRevision?: null };
 
 export interface CancellationRequest {
   note?: string | null;

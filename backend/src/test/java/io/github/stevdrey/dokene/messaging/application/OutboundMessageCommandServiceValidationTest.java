@@ -2,6 +2,7 @@
 // ABOUTME: Covers the INVALID_INPUT and FORBIDDEN clauses of AC-4 of spec 0001 with no repository interaction.
 package io.github.stevdrey.dokene.messaging.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -41,11 +42,25 @@ class OutboundMessageCommandServiceValidationTest {
     private final TenantAuthorizationService authorization = mock(TenantAuthorizationService.class);
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
-    private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
-            customers, new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
-            new MessageCommandSupport(messages, authorization, contexts, mock(MessageTemplatePreviews.class)),
-            mock(CurrentMembershipAuthorizer.class),
-            audit, Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
+    private final OutboundMessageCommandService service = service(true);
+
+    private OutboundMessageCommandService service(boolean englishEnabled) {
+        return new OutboundMessageCommandService(messages, idempotency, customers,
+                new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
+                new MessageCommandSupport(messages, authorization, contexts, mock(MessageTemplatePreviews.class)),
+                mock(CurrentMembershipAuthorizer.class), audit,
+                Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC),
+                new EnglishOutboundProperties(englishEnabled));
+    }
+
+    /** Issue 268, expand first: en-US is refused until the deployment switch is on, before anything is touched. */
+    @Test
+    void refusesEnglishUntilTheDeploymentEnablesIt() {
+        OutboundMessageCommandService off = service(false);
+        assertRefused(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")),
+                MessagingErrorCode.INVALID_INPUT);
+        assertThat(new EnglishOutboundProperties(null).enabled()).isFalse();
+    }
 
     @Test
     void refusesMissingOrOversizedBodyBeforeTouchingAnything() {

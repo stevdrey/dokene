@@ -11,7 +11,7 @@ import {
   MESSAGE_ORIGINS,
   MESSAGE_STATUSES,
   SEND_ATTEMPT_OUTCOMES,
-  type ApprovalDecision,
+  type ApprovalRequest,
   type AttemptSummary,
   type MessageEventItem,
   type MessageListItem,
@@ -248,17 +248,18 @@ export const messageApi = {
   /** An approval names the template preview that was reviewed, when the detail showed one (issue 268). */
   async decide(
     messageId: string,
-    decision: ApprovalDecision,
-    note: string | undefined,
+    request: ApprovalRequest,
     version: number,
     idempotencyKey: string,
-    signal?: AbortSignal,
-    templateRevision?: string | null
+    signal?: AbortSignal
   ): Promise<VersionedMessage> {
-    const base = decision === 'APPROVE' && templateRevision ? { decision, templateRevision } : { decision };
+    const base =
+      request.decision === 'APPROVE'
+        ? { decision: request.decision, templateRevision: request.templateRevision }
+        : { decision: request.decision };
     const { data, etag } = await httpClient.request<unknown>(messagePath(messageId, '/approvals'), {
       method: 'POST',
-      body: withNote(base, note),
+      body: withNote(base, request.note ?? undefined),
       ifMatch: version,
       idempotencyKey,
       signal

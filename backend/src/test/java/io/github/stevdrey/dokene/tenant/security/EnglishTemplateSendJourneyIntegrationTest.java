@@ -65,6 +65,7 @@ import tools.jackson.databind.json.JsonMapper;
  * refusal can prove it reached the provider zero times. All values are synthetic.
  */
 @SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.outbound.enabled=true",
+        "dokene.messaging.english.enabled=true",
         "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s"})
 class EnglishTemplateSendJourneyIntegrationTest {
     private static final char[] APP_SECRET = "SYNTHETIC-APP-SECRET-NOT-REAL-0268".toCharArray();

@@ -111,17 +111,36 @@ public final class DraftSafetyValidator {
             "(?i)\\b(discount|discounts|coupon|coupons|voucher|vouchers|free|freebie|freebies|sale|promo|promos|promotion"
                     + "|promotions|promotional|offer|offers|gift|gifts|bonus|bonuses|rebate|rebates|refund|refunds"
                     + "|clearance|giveaway|giveaways|complimentary|no cost|no charge|half off|bogo|buy one get one"
-                    + "|cyber monday|price|prices|pricing|deal|deals|bargain|bargains|save|saves|saving|savings)\\b");
+                    + "|cyber monday|price|prices|pricing|deal|deals|bargain|bargains|save|saves|saving|savings"
+                    + "|percent|per cent|percentage|half price)\\b");
+    /**
+     * Ordinary English phrases that use an offer word without making an offer ("feel free to ask", "save your
+     * receipt", "deal with"). They are blanked before the English vocabulary is matched, so a plain follow-up is not
+     * refused; the same word in any other construction still is.
+     */
+    private static final Pattern ENGLISH_NON_OFFER_PATTERN = Pattern.compile(
+            "(?i)\\b(?:feel free|free to (?:contact|ask|reach|call|reply|write|let|text|message|visit|stop by)"
+                    + "|save (?:your|the|this|our|my) (?:receipt|receipts|invoice|date|number|contact|details"
+                    + "|confirmation|order number|time|seat|spot)|deal(?:s|t)? with)\\b");
     private static final Pattern ENGLISH_PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
             "(?i)\\b(?:prices?|priced|costs?|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
     );
 
-    /** The offer and price vocabularies one text is checked against. */
-    private record Vocabulary(List<Pattern> offerWords, List<Pattern> priceTerms) {
-        static final Vocabulary SPANISH = new Vocabulary(OFFER_WORD_PATTERNS, List.of(PRICE_TERM_NUMBER_PATTERN));
+    /**
+     * The offer and price vocabularies one text is checked against, and the non-offer phrases (if any) blanked
+     * before the offer words are matched.
+     */
+    private record Vocabulary(List<Pattern> offerWords, List<Pattern> priceTerms, Optional<Pattern> nonOffer) {
+        static final Vocabulary SPANISH = new Vocabulary(OFFER_WORD_PATTERNS, List.of(PRICE_TERM_NUMBER_PATTERN),
+                Optional.empty());
         static final Vocabulary ENGLISH = new Vocabulary(
                 Stream.concat(OFFER_WORD_PATTERNS.stream(), Stream.of(ENGLISH_OFFER_WORD_PATTERN)).toList(),
-                List.of(PRICE_TERM_NUMBER_PATTERN, ENGLISH_PRICE_TERM_NUMBER_PATTERN));
+                List.of(PRICE_TERM_NUMBER_PATTERN, ENGLISH_PRICE_TERM_NUMBER_PATTERN),
+                Optional.of(ENGLISH_NON_OFFER_PATTERN));
+
+        String withoutNonOffers(String text) {
+            return nonOffer.map(pattern -> pattern.matcher(text).replaceAll(" ")).orElse(text);
+        }
 
         /** English texts get both vocabularies; every other locale keeps the Spanish one it was validated with. */
         static Vocabulary of(String locale) {
@@ -336,7 +355,8 @@ public final class DraftSafetyValidator {
         // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits. The refusal
         // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
         for (String view : draftViews) {
-            String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
+            String candidate = vocabulary.withoutNonOffers(
+                    refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view);
             for (Pattern wordPattern : vocabulary.offerWords()) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {

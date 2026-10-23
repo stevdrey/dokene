@@ -15,7 +15,19 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
-      "template": null,
+      "template": {
+        "revision": "3c1f0e9d8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d",
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "headerText": null,
+        "bodyText": "{{1}}",
+        "renderedBody": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+        "footerText": null,
+        "buttons": [],
+        "parameterNames": [
+          "message_body"
+        ]
+      },
       "sourcePolicyVersion": 7,
       "approval": null,
       "attempts": [],
@@ -43,7 +55,19 @@
       "locale": "es-419",
       "origin": "AI_DRAFT",
       "body": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
-      "template": null,
+      "template": {
+        "revision": "3c1f0e9d8b7a6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d",
+        "providerTemplateName": "synthetic_repeat_purchase",
+        "language": "es_MX",
+        "headerText": null,
+        "bodyText": "{{1}}",
+        "renderedBody": "Hola Ana, gracias por tu compra. ¿Te gustaría reponer tu pedido este mes?",
+        "footerText": null,
+        "buttons": [],
+        "parameterNames": [
+          "message_body"
+        ]
+      },
       "sourcePolicyVersion": 7,
       "approval": {
         "decision": "APPROVE",

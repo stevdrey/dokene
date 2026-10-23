@@ -122,7 +122,9 @@ describe('review actions', () => {
       const call = server.last(approvalsPath(pendingApproval.messageId));
       expect(call.headers['If-Match']).toBe('"1"');
       expect(call.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
-      expect(call.body).toBe(JSON.stringify({ decision: 'APPROVE' }));
+      expect(call.body).toBe(
+        JSON.stringify({ decision: 'APPROVE', templateRevision: pendingApproval.template?.revision })
+      );
       expect(screen.getByText('Revisión 2')).toBeInTheDocument();
       expect(screen.getByText('Aprobado')).toBeInTheDocument();
       expect(screen.queryByText('Enviado')).toBeNull();
@@ -317,6 +319,15 @@ describe('review actions', () => {
       expect(screen.getByText('Entregado')).toBeInTheDocument();
       expect(screen.queryByRole('group')).toBeNull();
       expect(server.count(sendsPath(approved.messageId))).toBe(1);
+    });
+
+    it('never sends an approval without a reviewed preview, since it would carry no revision', async () => {
+      const unpreviewed = variant(pendingApproval, { template: null });
+      await openMessage(unpreviewed);
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      expect(await screen.findByText('No se pudo completar la acción.')).toBeInTheDocument();
+      expect(server.count(approvalsPath(unpreviewed.messageId))).toBe(0);
     });
 
     it('settles an unsure approval whose preview moved, so the new preview is approved with a new key', async () => {

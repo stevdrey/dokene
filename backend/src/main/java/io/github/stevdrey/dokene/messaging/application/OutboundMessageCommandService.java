@@ -33,14 +33,17 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@EnableConfigurationProperties(EnglishOutboundProperties.class)
 public class OutboundMessageCommandService {
     private static final Logger log = LoggerFactory.getLogger(OutboundMessageCommandService.class);
     private static final int MAX_NOTE_LENGTH = 500;
 
+    private final EnglishOutboundProperties english;
     private final OutboundMessageRepository messages;
     private final MessageIdempotencyStore idempotency;
     private final CustomerRepository customers;
@@ -55,7 +58,8 @@ public class OutboundMessageCommandService {
     public OutboundMessageCommandService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, MessageSendGuards guards, ApprovalBindingAssembler bindings,
             OutboundSafetyControl safety, MessageCommandSupport support, CurrentMembershipAuthorizer members,
-            MessageAuditPort audit, Clock clock) {
+            MessageAuditPort audit, Clock clock, EnglishOutboundProperties english) {
+        this.english = Objects.requireNonNull(english);
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -304,6 +308,10 @@ public class OutboundMessageCommandService {
         SemanticAction action = parse(SemanticAction.class, command.action());
         SemanticTemplateIntent intent = parse(SemanticTemplateIntent.class, command.templateIntent());
         MessageOrigin origin = parse(MessageOrigin.class, command.origin());
+        // Writing en-US waits for the deployment switch, so no row an earlier release cannot read exists before it is on.
+        if (MessagingLocales.ENGLISH_US.equals(command.locale()) && !english.enabled()) {
+            throw refuse(MessagingErrorCode.INVALID_INPUT);
+        }
         // AI drafts are generated and safety-checked in the default locale only (ADR 0018); another locale is manual.
         if (origin == MessageOrigin.AI_DRAFT && !MessagingLocales.DEFAULT.equals(command.locale())) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);

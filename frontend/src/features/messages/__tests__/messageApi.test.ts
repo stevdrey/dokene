@@ -184,9 +184,14 @@ describe('messageApi', () => {
 
   it('sends approval and rejection bodies that match the fixtures', async () => {
     server.on(approvalsPath(id), { status: 201, body: { ...details.approved, messageId: id }, etag: '"2"' });
-    await messageApi.decide(id, 'APPROVE', undefined, 1, 'key-a', undefined, requests.approval.valid.approve.templateRevision);
+    await messageApi.decide(
+      id,
+      { decision: 'APPROVE', templateRevision: requests.approval.valid.approve.templateRevision },
+      1,
+      'key-a'
+    );
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.approve));
-    await messageApi.decide(id, 'REJECT', requests.approval.valid.rejectWithNote.note, 1, 'key-r');
+    await messageApi.decide(id, { decision: 'REJECT', note: requests.approval.valid.rejectWithNote.note }, 1, 'key-r');
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.rejectWithNote));
   });
 

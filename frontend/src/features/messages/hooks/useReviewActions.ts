@@ -40,9 +40,17 @@ function call(
   const { intent, note, openedOnVersion: version, openedOnTemplate, key } = group;
   switch (intent) {
     case 'approve':
-      return messageApi.decide(messageId, 'APPROVE', undefined, version, key, signal, openedOnTemplate);
+      // Without a reviewed preview there is nothing to approve, so no request is made (the server would refuse it).
+      if (openedOnTemplate === null) return Promise.reject(new Error('No template preview to approve'));
+      return messageApi.decide(
+        messageId,
+        { decision: 'APPROVE', templateRevision: openedOnTemplate },
+        version,
+        key,
+        signal
+      );
     case 'reject':
-      return messageApi.decide(messageId, 'REJECT', note, version, key, signal);
+      return messageApi.decide(messageId, { decision: 'REJECT', note }, version, key, signal);
     case 'cancel':
       return messageApi.cancel(messageId, note, version, key, signal);
     case 'correct':

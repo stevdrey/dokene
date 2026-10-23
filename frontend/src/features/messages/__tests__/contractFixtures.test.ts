@@ -31,6 +31,7 @@ import {
   RESOLUTION_OUTCOMES,
   SEND_ATTEMPT_OUTCOMES,
   parseMessagingProblem,
+  type ApprovalDecision,
   type ApprovalRequest,
   type ApprovalSummary,
   type AttemptSummary,
@@ -248,7 +249,7 @@ const requestShapes = {
     decision: enumOf(APPROVAL_DECISIONS),
     note,
     templateRevision: { kind: 'string', nullable: true, optional: true, pattern: /^[0-9a-f]{64}$/ }
-  } satisfies Shape<ApprovalRequest>,
+  } satisfies Shape<ApprovalRequestMembers>,
   cancellation: { note } satisfies Shape<CancellationRequest>,
   resolution: { outcome: enumOf(RESOLUTION_OUTCOMES), note } satisfies Shape<ResolutionRequest>
 };
@@ -302,11 +303,19 @@ function check(value: unknown, rule: Rule, path: string): string[] {
 type Named = Record<string, unknown>;
 const enums = JSON.parse(enumsJson) as Record<string, string[]>;
 const messages = JSON.parse(messagesJson) as { details: Named; pages: Named; events: Named };
+/**
+ * Every member an approval request body may carry. ApprovalRequest is a union (an approval requires the revision), so
+ * the per-member Shape is checked against this flat view, and the union must stay assignable to it.
+ */
+type ApprovalRequestMembers = { decision: ApprovalDecision; note?: string | null; templateRevision?: string | null };
+const approvalRequestFitsMembers = (request: ApprovalRequest): ApprovalRequestMembers => request;
+void approvalRequestFitsMembers;
+
 /** Rules that span members, which a per-member Shape cannot express. */
 const requestInvariants: Partial<Record<keyof typeof requestShapes, (fixture: unknown) => string[]>> = {
   // An approval names the reviewed template preview (issue 268); a rejection does not need one.
   approval: (fixture) => {
-    const request = fixture as ApprovalRequest;
+    const request = fixture as ApprovalRequestMembers;
     return request.decision === 'APPROVE' && (request.templateRevision ?? null) === null
       ? ['templateRevision is required to approve']
       : [];
