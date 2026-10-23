@@ -46,8 +46,9 @@ public final class MessagingApiContract {
     }
 
     /**
-     * {@code POST /api/messages/{messageId}/approvals}, executes T2 or T3. An approval names the template preview it
-     * was given ({@code MessageTemplatePreview.revision}, issue 268); a rejection does not need one.
+     * {@code POST /api/messages/{messageId}/approvals}, executes T2 or T3. This client's approval names the template
+     * preview it was given ({@code MessageTemplatePreview.revision}, issue 268); an older client's approval without one
+     * is accepted for a default-locale message only (expand first), and a rejection carrying one is refused.
      */
     public record ApprovalRequest(ApprovalDecision decision, String note, String templateRevision) {
         private static final Pattern TEMPLATE_REVISION = Pattern.compile("^[0-9a-f]{64}$");
@@ -103,7 +104,7 @@ public final class MessagingApiContract {
     /**
      * The template as the provider approved it, with placeholders left as written in {@code bodyText}, and the body as
      * the recipient reads it in {@code renderedBody}, every parameter filled in. {@code revision} identifies this exact
-     * template, content and rendered values, and an approval must name it (issue 268). When {@code parameterNames}
+     * template, content and rendered values; a current client approves by naming it (issue 268, ApprovalRequest). When {@code parameterNames}
      * lacks {@code message_body} the message body is not sent and equals {@code renderedBody}.
      */
     public record MessageTemplatePreview(String revision, String providerTemplateName, String language,

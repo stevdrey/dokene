@@ -5,9 +5,10 @@ package io.github.stevdrey.dokene.messaging.application;
 import java.util.UUID;
 
 /**
- * {@code templateRevision} is the digest of the template preview the reviewer approved (issue 268). The HTTP contract
- * requires it for an approval; when present, approval refuses with {@code STALE_VERSION} unless the template it binds
- * is still exactly that revision.
+ * {@code templateRevision} is the digest of the template preview the reviewer approved (issue 268). When present,
+ * approval refuses with {@code STALE_VERSION} unless the template it binds is still exactly that revision. It is
+ * introduced expand first: a client older than issue 268 approves without one, which is accepted only for a
+ * default-locale message; a rejection never carries one (the HTTP contract refuses it).
  */
 public record ApprovalCommand(UUID messageId, String note, String ifMatch, String idempotencyKey,
         String templateRevision) {

@@ -31,12 +31,21 @@ public final class DraftSafetyValidator {
     /** Currency symbols recognised after NFKC folding (fullwidth forms such as {@code ＄} and {@code ￥} fold to these). */
     private static final String CURRENCY_SYMBOLS = "$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢";
     private static final String CURRENCY_SYMBOL_CLASS = "[\\" + CURRENCY_SYMBOLS + "]";
-    private static final String CURRENCY_WORDS =
-            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras|euros"
-                    + "|dollars|dollar|bucks|buck|pounds|pound|cents|cent|euro|dólar|dolar"
-                    // Other common English currency names; ambiguous words ("won", "real", "peso") stay out.
+    /** Currency names that are Spanish offer vocabulary; the Spanish offer list keeps exactly these. */
+    private static final String SPANISH_CURRENCY_WORDS =
+            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras|euros";
+    /**
+     * Currency names added for English texts (issue 268), plus the Spanish singular "dólar". With a number they are
+     * amounts in every locale; alone they are offer terms in English only, so a Spanish text gains no new offer word.
+     * Ambiguous words stay out: "won", "real" and "peso" are ordinary words, and "pound" is a unit of weight in en-US
+     * ("£" and "GBP" still mark pounds sterling).
+     */
+    private static final String ENGLISH_CURRENCY_WORDS =
+            "dollars|dollar|bucks|buck|cents|cent|euro|dólar|dolar"
                     + "|yen|yuan|renminbi|rupees|rupee|francs|franc|roubles|rouble|rubles|ruble|kronor|krona|kroner"
                     + "|krone|dinars|dinar|dirhams|dirham|riyals|riyal|rand";
+    /** Every currency name: a number next to any of them is an amount. */
+    private static final String CURRENCY_WORDS = SPANISH_CURRENCY_WORDS + "|" + ENGLISH_CURRENCY_WORDS;
 
     private static final Pattern URL_PATTERN = Pattern.compile(
             "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
@@ -71,8 +80,17 @@ public final class DraftSafetyValidator {
             .sorted(java.util.Comparator.comparingInt(String::length).reversed())
             .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
     private static final String QUANTITY_TOKEN = "(?:\\d+(?:[.,]\\d+)*|" + QUANTITY_WORD + ")";
-    /** Up to two words between a written quantity and its marker ("five Australian dollars"); "per cent" is not one. */
-    private static final String CURRENCY_QUALIFIERS = "(?:(?!per\\s)\\p{L}+\\s+){0,2}?";
+    /**
+     * A word that may qualify a currency ("Australian", "more"). Function words never do: "per" ("per cent"), and a
+     * determiner, pronoun, preposition or conjunction joins the number to an unrelated phrase ("in 2 days your
+     * dollars", "once the euros arrive"), so with one in between the number is not an amount. "de" and "of" are only
+     * grammar ("1.000.000 de colones") and stay allowed.
+     */
+    private static final String QUALIFIER_WORD = "(?!(?:per|your|yours|the|my|our|their|his|her|its|this|that|these"
+            + "|those|a|an|in|on|at|for|to|by|with|from|into|and|or|but|if|when|once|after|before|until|el|la|los|las"
+            + "|tu|tus|su|sus|mi|mis|en|por|para|con|y|o|que|cuando)(?!\\p{L}))\\p{L}+";
+    /** Up to two qualifier words between a written quantity and its marker ("five Australian dollars"). */
+    private static final String CURRENCY_QUALIFIERS = "(?:" + QUALIFIER_WORD + "\\s+){0,2}?";
     /** Joins the tokens of one quantity: hyphens, and "and", "y", "of", "de", "a" or "an" between them. */
     private static final String QUANTITY_JOINER = "(?:\\s*-\\s*|\\s+(?:(?:and|y|of|de|an|a)\\s+)*)";
     private static final Pattern QUANTITY_JOINER_PATTERN = Pattern.compile(QUANTITY_JOINER);
@@ -90,7 +108,7 @@ public final class DraftSafetyValidator {
      * or "of" is only grammar and is dropped.
      */
     private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
-            "(?<=\\d)((?:\\s+(?!per\\s)\\p{L}+){1,2}?)\\s+((?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+            "(?<=\\d)((?:\\s+" + QUALIFIER_WORD + "){1,2}?)\\s+((?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     private static final Pattern QUALIFIED_AMOUNT_PATTERN = Pattern.compile(
             "(?i)\\b" + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
     /** A minus sign directly before an amount or percentage ("-5 dollars", "negative five dollars" once rewritten). */
@@ -118,7 +136,7 @@ public final class DraftSafetyValidator {
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
             Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),
-            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)(?!\\p{L})")
+            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + SPANISH_CURRENCY_WORDS + "|precio|precios)(?!\\p{L})")
     );
 
     /**
@@ -128,7 +146,7 @@ public final class DraftSafetyValidator {
      */
     private static final String NEGATABLE_OFFER_TERMS = "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?"
             + "|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo|precios?|black\\s+friday"
-            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")";
+            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY_CODES + "|" + SPANISH_CURRENCY_WORDS + ")";
     private static final String NEGATION_MODIFIERS = "(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+)";
     private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
@@ -166,7 +184,10 @@ public final class DraftSafetyValidator {
      */
     private static final Pattern ENGLISH_AMOUNT_OFF_PATTERN = Pattern.compile(
             "(?i)(?<![\\p{L}\\p{N}])(?:" + CURRENCY_SYMBOL_CLASS + SP + ")?" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES
-                    + "|" + CURRENCY_WORDS + ")(?!\\p{L}))?" + SP + "off(?!\\p{L})");
+                    + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?: ⟦[^⟧]+⟧)?)?" + SP + "off(?!\\p{L})");
+    /** The English currency names as offer terms of an English text, like the Spanish ones in a Spanish text. */
+    private static final Pattern ENGLISH_CURRENCY_OFFER_PATTERN = Pattern.compile(
+            "(?i)\\b(" + ENGLISH_CURRENCY_WORDS + ")(?!\\p{L})");
     /**
      * Ordinary English phrases that use an offer word without making an offer ("feel free to ask", "save your
      * receipt", "we will deal with it"). They are blanked before the English vocabulary is matched, so a plain
@@ -192,7 +213,7 @@ public final class DraftSafetyValidator {
                 Optional.empty());
         static final Vocabulary ENGLISH = new Vocabulary(
                 Stream.concat(OFFER_WORD_PATTERNS.stream(), Stream.of(ENGLISH_OFFER_WORD_PATTERN,
-                        ENGLISH_AMOUNT_OFF_PATTERN)).toList(),
+                        ENGLISH_CURRENCY_OFFER_PATTERN, ENGLISH_AMOUNT_OFF_PATTERN)).toList(),
                 List.of(PRICE_TERM_NUMBER_PATTERN, ENGLISH_PRICE_TERM_NUMBER_PATTERN),
                 Optional.of(ENGLISH_NON_OFFER_PATTERN));
 
@@ -346,13 +367,19 @@ public final class DraftSafetyValidator {
         List<String> draftViews = withLeetViews(combinedDraftText);
         Set<String> contextPercentages = new HashSet<>();
         Set<String> contextAmounts = new HashSet<>();
+        // Qualified ("5 dollars ⟦australian⟧") and signed ("-5 dollars") amounts must match exactly, sign included.
+        Set<String> contextQualified = new HashSet<>();
+        Set<String> contextSigned = new HashSet<>();
         // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
         // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
         List<String> contextViews = withLeetViews(normalizedContext);
         for (String contextView : contextViews) {
-            contextPercentages.addAll(extractTokens(PERCENTAGE_PATTERN, contextView));
-            contextAmounts.addAll(extractTokens(AMOUNT_PATTERN, contextView));
+            // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
+            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView));
+            contextQualified.addAll(extractTokens(QUALIFIED_AMOUNT_PATTERN, contextView));
+            contextSigned.addAll(extractTokens(SIGNED_QUANTITY_PATTERN, contextView));
             for (Pattern priceTerm : vocabulary.priceTerms()) {
                 Matcher contextPriceMatcher = priceTerm.matcher(contextView);
                 while (contextPriceMatcher.find()) {
@@ -369,16 +396,20 @@ public final class DraftSafetyValidator {
         for (String view : draftViews) {
             Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(view);
             while (draftPctMatcher.find()) {
+                // A signed percentage is checked with its sign below.
+                if (signedAt(view, draftPctMatcher.start())) {
+                    continue;
+                }
                 if (!contextPercentages.contains(quantityKey(draftPctMatcher.group()))) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PERCENTAGE,
                             "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
                 }
             }
-            for (Pattern exact : List.of(QUALIFIED_AMOUNT_PATTERN, SIGNED_QUANTITY_PATTERN)) {
-                Matcher draftExact = exact.matcher(view);
+            for (var exact : Map.of(QUALIFIED_AMOUNT_PATTERN, contextQualified, SIGNED_QUANTITY_PATTERN, contextSigned)
+                    .entrySet()) {
+                Matcher draftExact = exact.getKey().matcher(view);
                 while (draftExact.find()) {
-                    String key = quantityKey(draftExact.group());
-                    if (contextViews.stream().noneMatch(context -> extractTokens(exact, context).contains(key))) {
+                    if (!exact.getValue().contains(quantityKey(draftExact.group()))) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                                 "Draft contains a qualified or signed amount not grounded in context: '"
                                         + draftExact.group().trim() + "'"));
@@ -387,6 +418,9 @@ public final class DraftSafetyValidator {
             }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
+                if (signedAt(view, draftAmtMatcher.start())) {
+                    continue;
+                }
                 if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
                         && !isGroundedIdentifier(view, draftAmtMatcher, contextViews)) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
@@ -479,6 +513,30 @@ public final class DraftSafetyValidator {
             }
         }
         return Optional.empty();
+    }
+
+    /** The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. */
+    private static Set<String> unsignedTokens(Pattern pattern, String text) {
+        if (text == null || text.isBlank()) {
+            return Set.of();
+        }
+        Set<String> tokens = new HashSet<>();
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())) {
+                tokens.add(quantityKey(matcher.group()));
+            }
+        }
+        return tokens;
+    }
+
+    /** A digit-first quantity at {@code start} with a minus sign right before it, as {@code SIGNED_QUANTITY_PATTERN}. */
+    private static boolean signedAt(String text, int start) {
+        if (start < 1 || start >= text.length() || !Character.isDigit(text.charAt(start))) {
+            return false;
+        }
+        char sign = text.charAt(start - 1);
+        return (sign == '-' || sign == '−') && (start < 2 || !Character.isLetterOrDigit(text.charAt(start - 2)));
     }
 
     private static Set<String> extractTokens(Pattern pattern, String text) {
@@ -625,13 +683,17 @@ public final class DraftSafetyValidator {
                 || token.equals("a") || token.equals("an"))) {
             return written;
         }
-        // A range or list ("between five and ten", "five and ten") is several quantities, each read on its own; "and"
-        // or "y" joins one quantity only after a hundred or a scale ("one hundred and five"), before a fraction ("one
-        // and a half", "one and three quarters") or between Spanish tens and units ("treinta y cinco").
+        // A range or list ("between five and ten", "five and ten", "1-2 million") is several quantities, each read on
+        // its own; "and" or "y" joins one quantity only after a hundred or a scale ("one hundred and five"), before a
+        // fraction ("one and a half", "one and three quarters") or between Spanish tens and units ("treinta y cinco"),
+        // and a hyphen only between tens and units ("twenty-five") or before a fraction ("one-half").
         List<String> quantities = new ArrayList<>();
         int start = 0;
         for (int index = 1; index < tokens.length; index++) {
-            if (isAnd(joinerBefore.get(index)) && !joinsOneQuantity(tokens, index)) {
+            String joiner = joinerBefore.get(index);
+            boolean splits = isAnd(joiner) ? !joinsOneQuantity(tokens, index)
+                    : isHyphen(joiner) && !hyphenJoinsOneQuantity(tokens, index);
+            if (splits) {
                 quantities.add(segmentQuantity(tokens, joinerBefore, start, index));
                 start = index;
             }
@@ -642,6 +704,21 @@ public final class DraftSafetyValidator {
 
     private static boolean isAnd(String joiner) {
         return joiner.matches("(?s).*\\b(?:and|y)\\b.*");
+    }
+
+    private static boolean isHyphen(String joiner) {
+        return joiner.contains("-");
+    }
+
+    /** A hyphen joins tens and a unit ("twenty-five") or a count and a fraction ("one-half", "two-thirds"). */
+    private static boolean hyphenJoinsOneQuantity(String[] tokens, int index) {
+        if (FRACTION_WORDS.containsKey(tokens[index])) {
+            return true;
+        }
+        Integer previous = NUMBER_WORDS.get(tokens[index - 1]);
+        Integer next = NUMBER_WORDS.get(tokens[index]);
+        return previous != null && next != null && previous >= 20 && previous <= 90 && previous % 10 == 0
+                && next >= 1 && next <= 9;
     }
 
     /** Whether the "and" before {@code tokens[index]} joins one quantity; a counted fraction ("and three quarters") does. */

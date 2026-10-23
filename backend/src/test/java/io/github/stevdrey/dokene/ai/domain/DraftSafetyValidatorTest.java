@@ -945,7 +945,7 @@ class DraftSafetyValidatorTest {
                 .hasValueSatisfying(violation -> assertThat(violation.code())
                         .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
         // Singular currency names are amounts too, not only their plurals.
-        for (String body : List.of("Hi John, only 1 euro.", "Hi John, pay 1 pound.", "Hi John, just 1 cent.",
+        for (String body : List.of("Hi John, only 1 euro.", "Hi John, just 1 cent.",
                 "Hi John, only 1 buck.", "Hi John, 1 dollar today.")) {
             assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
                     .hasValueSatisfying(violation -> assertThat(violation.code())
@@ -1071,6 +1071,44 @@ class DraftSafetyValidatorTest {
                 "en-US", List.of()), "Customer: John. Notes: plan for 1999998000 dollars.")).isPresent();
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 2000000000 dollars.", "en-US",
                 List.of()), "Customer: John. Notes: plan for two thirds of three billion dollars.")).isEmpty();
+    }
+
+    /** Code review of issue 268: ranges, qualified discounts, signs, weights, ordinary phrases and Spanish texts. */
+    @Test
+    void handlesRangesQualifiedDiscountsSignsAndOrdinaryPhrases() {
+        // A hyphen joins only tens and units; any other hyphen separates a range.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, a plan of 1-2 million dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for 3 million dollars.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, it costs five-ten dollars.", "en-US",
+                List.of()), "Customer: John. Notes: paid 15 dollars.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, you paid twenty-five dollars.", "en-US",
+                List.of()), "Customer: John. Notes: paid 25 dollars.")).isEmpty();
+
+        // A qualified amount taken off is still a discount.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, get 10 Australian dollars off your next order.",
+                "en-US", List.of()), "Customer: John. Purchases: Coffee for 10 Australian dollars."))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+
+        // A negative context amount does not ground its unsigned magnitude.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your balance is five dollars.", "en-US",
+                List.of()), "Customer: John. Notes: balance negative five dollars.")).hasValueSatisfying(
+                        violation -> assertThat(violation.code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+
+        // Weights and ordinary phrases are not amounts (the currency names alone are grounded by the context here).
+        String coffee = "Customer: John. Purchases: Roasted Coffee 1kg. Notes: pays in euros or dollars.";
+        for (String body : List.of("Hi John, your 2 pound bag of coffee shipped today.",
+                "Hi John, once your euros clear we will ship.", "Hi John, in 2 days your dollars are refunded.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), coffee)).as(body).isEmpty();
+        }
+
+        // The English currency names are amounts with a number, but not new Spanish offer words on their own.
+        String juan = "Cliente: Juan. Compras: Café 1kg.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, aceptamos pagos en dólar.", "es-419",
+                List.of()), juan)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, solo un dólar.", "es-419", List.of()), juan))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
     }
 
     /** Percentage points are percentages, compared by value rather than grounded by the word "percentage". */
