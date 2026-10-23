@@ -319,6 +319,27 @@ describe('review actions', () => {
       expect(server.count(sendsPath(approved.messageId))).toBe(1);
     });
 
+    it('settles an unsure approval whose preview moved, so the new preview is approved with a new key', async () => {
+      const english = details.englishHelloWorldPendingApproval;
+      const moved = variant(english, { template: { ...english.template!, revision: 'f'.repeat(64) } });
+      await openMessage(english);
+      server
+        .on(approvalsPath(english.messageId), status(502), created(variant(approved, { messageId: english.messageId })))
+        .on(detailPath(english.messageId), detailReply(moved));
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      expect(await screen.findByText('Este mensaje cambió. Revísalo de nuevo antes de continuar.')).toBeInTheDocument();
+      expect(screen.queryByRole('group')).toBeNull();
+
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
+      const [first, second] = server.all(approvalsPath(english.messageId));
+      expect(JSON.parse(first.body!)).toMatchObject({ templateRevision: english.template!.revision });
+      expect(JSON.parse(second.body!)).toMatchObject({ templateRevision: 'f'.repeat(64) });
+      expect(second.headers['Idempotency-Key']).not.toBe(first.headers['Idempotency-Key']);
+    });
+
     it('offers Reintentar with the same key when the version did not move', async () => {
       await openMessage(approved);
       server

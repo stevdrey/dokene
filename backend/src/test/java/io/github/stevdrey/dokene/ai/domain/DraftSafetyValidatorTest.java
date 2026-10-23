@@ -944,6 +944,15 @@ class DraftSafetyValidatorTest {
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only 20 dollars.", "en-US", List.of()), context))
                 .hasValueSatisfying(violation -> assertThat(violation.code())
                         .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        // Singular currency names are amounts too, not only their plurals.
+        for (String body : List.of("Hi John, only 1 euro.", "Hi John, pay 1 pound.", "Hi John, just 1 cent.",
+                "Hi John, only 1 buck.", "Hi John, 1 dollar today.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your 1 euro credit is still there.", "en-US",
+                List.of()), "Customer: John. Notes: has a 1 euro credit.")).isEmpty();
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, see shop.example.com", "en-US", List.of()),
                 context)).hasValueSatisfying(violation -> assertThat(violation.code())
                         .isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL));

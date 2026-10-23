@@ -235,6 +235,18 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
         stillUnsure();
         return;
       }
+      // An approval that landed always moves the version. The same version with another template preview means the
+      // server refused the reviewed preview as stale (a renamed customer, a refreshed mapping), so nothing is unsure:
+      // the operator reviews the new preview, with a new key, instead of retrying the stale one forever.
+      const previewMoved = (read.value.detail.template?.revision ?? null) !== attempt.openedOnTemplate;
+      if (attempt.intent === 'approve' && read.value.version === attempt.openedOnVersion && previewMoved) {
+        setGroup(null);
+        setHeldUnsure(null);
+        detail.apply(read.value);
+        detail.loadEvents();
+        setAlert(COPY.versionMoved);
+        return;
+      }
       if (read.value.version === attempt.openedOnVersion) {
         stillUnsure();
         return;

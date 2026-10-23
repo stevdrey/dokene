@@ -31,7 +31,7 @@ public final class DraftSafetyValidator {
     private static final String CURRENCY_SYMBOL_CLASS = "[\\" + CURRENCY_SYMBOLS + "]";
     private static final String CURRENCY_WORDS =
             "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras|euros"
-                    + "|dollars|dollar|bucks|pounds|cents";
+                    + "|dollars|dollar|bucks|buck|pounds|pound|cents|cent|euro";
 
     private static final Pattern URL_PATTERN = Pattern.compile(
             "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
