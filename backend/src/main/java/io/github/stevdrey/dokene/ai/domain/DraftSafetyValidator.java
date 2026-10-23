@@ -51,6 +51,19 @@ public final class DraftSafetyValidator {
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
             "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
+    /**
+     * Cardinals written out before a percentage marker ("five percent", "veinticinco por ciento", "twenty-five
+     * percent"), English and Spanish up to one hundred. They are rewritten to digits first, so the marker then
+     * canonicalises to "%" and the value is compared token-exact like "5%" (issue 268): grounding the generic word
+     * "percent" alone would let "ten percent" pass against a context that only has "five percent".
+     */
+    private static final Map<String, Integer> NUMBER_WORDS = numberWords();
+    private static final String NUMBER_WORD = NUMBER_WORDS.keySet().stream()
+            .sorted(java.util.Comparator.comparingInt(String::length).reversed())
+            .collect(java.util.stream.Collectors.joining("|", "(?:", ")"));
+    private static final Pattern WRITTEN_PERCENT_NUMBER_PATTERN = Pattern.compile(
+            "(?<![\\p{L}\\p{N}])((?:(?:one|a)\\s+hundred)|" + NUMBER_WORD + "(?:(?:-|\\s+y\\s+|\\s+and\\s+|\\s+)"
+                    + NUMBER_WORD + ")?)(?=" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?![\\p{L}]))");
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
@@ -517,7 +530,62 @@ public final class DraftSafetyValidator {
     }
 
     private static String rewriteWrittenPercentages(String canonicalBase) {
-        return PERCENT_WORD_PATTERN.matcher(canonicalBase).replaceAll("%");
+        String digits = WRITTEN_PERCENT_NUMBER_PATTERN.matcher(canonicalBase).replaceAll(match -> {
+            Integer value = writtenNumber(match.group(1));
+            return value == null ? Matcher.quoteReplacement(match.group()) : value.toString();
+        });
+        return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
+    }
+
+    /** A tens word followed by a unit adds ("twenty-five", "treinta y cinco"); any other pair is left as written. */
+    private static Integer writtenNumber(String phrase) {
+        String[] words = phrase.trim().split("(?:-|\\s+y\\s+|\\s+and\\s+|\\s+)");
+        if (words.length == 2 && (words[0].equals("one") || words[0].equals("a")) && words[1].equals("hundred")) {
+            return 100;
+        }
+        if (words.length == 1) {
+            return NUMBER_WORDS.get(words[0]);
+        }
+        Integer tens = NUMBER_WORDS.get(words[0]);
+        Integer unit = NUMBER_WORDS.get(words[1]);
+        if (words.length != 2 || tens == null || unit == null || tens < 20 || tens > 90 || tens % 10 != 0
+                || unit < 1 || unit > 9) {
+            return null;
+        }
+        return tens + unit;
+    }
+
+    private static Map<String, Integer> numberWords() {
+        Map<String, Integer> words = new HashMap<>();
+        String[] english = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"};
+        String[] englishTens = {"twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"};
+        String[] spanish = {"cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez",
+                "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve"};
+        String[] spanishTens = {"veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta",
+                "noventa"};
+        String[] veinti = {"veintiuno", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis",
+                "veintisiete", "veintiocho", "veintinueve"};
+        for (int i = 0; i < english.length; i++) {
+            words.put(english[i], i);
+            words.put(spanish[i], i);
+        }
+        for (int i = 0; i < englishTens.length; i++) {
+            words.put(englishTens[i], 20 + 10 * i);
+            words.put(spanishTens[i], 20 + 10 * i);
+        }
+        for (int i = 0; i < veinti.length; i++) {
+            words.put(veinti[i], 21 + i);
+        }
+        words.put("un", 1);
+        words.put("una", 1);
+        words.put("dieciseis", 16);
+        words.put("veintidos", 22);
+        words.put("veintitres", 23);
+        words.put("veintiseis", 26);
+        words.put("hundred", 100);
+        words.put("cien", 100);
+        return Map.copyOf(words);
     }
 
     /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */

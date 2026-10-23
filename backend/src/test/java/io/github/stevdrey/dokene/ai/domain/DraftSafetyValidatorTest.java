@@ -985,6 +985,33 @@ class DraftSafetyValidatorTest {
         }
     }
 
+    /** A written-out percentage is compared by value, like its digits, not grounded by the word "percent" alone. */
+    @Test
+    void comparesWrittenOutPercentagesByValue() {
+        String fivePercent = "Customer: John. Notes: has a five percent discount on coffee.";
+        for (String body : List.of("Hi John, your ten percent discount is ready.",
+                "Hi John, your 10 percent discount is ready.", "Hi John, your twenty-five per cent discount is ready.",
+                "Hi John, your one hundred percent discount is ready.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fivePercent)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        }
+        for (String body : List.of("Hi John, your five percent discount is ready.",
+                "Hi John, your 5 percent discount is ready.", "Hi John, your 5% discount is ready.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fivePercent)).as(body)
+                    .isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your thirty-five percent discount is ready.",
+                "en-US", List.of()), "Customer: John. Notes: has a 35% discount.")).isEmpty();
+        // Spanish cardinals are compared the same way.
+        String spanish = "Cliente: Juan. Notas: tiene un descuento del cinco por ciento.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu descuento del diez por ciento te espera.",
+                "es-419", List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu descuento del 5 % te espera.", "es-419",
+                List.of()), spanish)).isEmpty();
+    }
+
     @Test
     void groundsAnEnglishOfferTermInTheOfferContext() {
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coupon is still valid.", "en-US", List.of()),
