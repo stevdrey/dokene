@@ -59,6 +59,7 @@ class MessagingContractFixturesTest {
             Map.entry("approval.noteTooLong", IllegalArgumentException.class),
             Map.entry("approval.approveWithoutTemplateRevision", NullPointerException.class),
             Map.entry("approval.malformedTemplateRevision", IllegalArgumentException.class),
+            Map.entry("approval.rejectWithTemplateRevision", IllegalArgumentException.class),
             Map.entry("cancellation.noteTooLong", IllegalArgumentException.class),
             Map.entry("cancellation.unknownMember", UnrecognizedPropertyException.class),
             Map.entry("resolution.markedSent", InvalidFormatException.class),

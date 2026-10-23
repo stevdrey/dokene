@@ -135,7 +135,7 @@ public class MessageController {
         String version = version(ifMatch);
         ApprovalRequest request = read(body, ApprovalRequest.class);
         var command = new ApprovalCommand(messageId, request.note(), version, idempotencyKey,
-                request.decision() == ApprovalDecision.APPROVE ? request.templateRevision() : null);
+                request.templateRevision());
         CommandResult result = request.decision() == ApprovalDecision.APPROVE ? commands.approve(command)
                 : commands.reject(command);
         return respond(result, false);

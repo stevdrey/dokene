@@ -90,6 +90,10 @@
       "malformedTemplateRevision": {
         "decision": "APPROVE",
         "templateRevision": "NOT-A-DIGEST"
+      },
+      "rejectWithTemplateRevision": {
+        "decision": "REJECT",
+        "templateRevision": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     }
   },

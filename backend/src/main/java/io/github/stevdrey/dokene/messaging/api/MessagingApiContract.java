@@ -57,6 +57,9 @@ public final class MessagingApiContract {
             requireNoteWithinLimit(note);
             if (decision == ApprovalDecision.APPROVE) {
                 Objects.requireNonNull(templateRevision, "templateRevision is required to approve");
+            } else if (templateRevision != null) {
+                // A rejection binds no preview; accepting one would let a retry change it under the same key.
+                throw new IllegalArgumentException("templateRevision is only accepted to approve");
             }
             if (templateRevision != null && !TEMPLATE_REVISION.matcher(templateRevision).matches()) {
                 throw new IllegalArgumentException("templateRevision must be 64 lowercase hex characters");

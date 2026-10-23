@@ -1059,6 +1059,44 @@ class DraftSafetyValidatorTest {
                 List.of()), "Cliente: Juan. Compras: Café por 300 colones.")).isEmpty();
     }
 
+    /** A fraction or digit amount scaling written words is read with them, never the scaled words alone. */
+    @Test
+    void readsScaledWrittenAmountsAsAWhole() {
+        String oneMillion = "Customer: John. Notes: plan for one million dollars.";
+        for (String body : List.of("Hi John, only half a million dollars.", "Hi John, only a quarter of a million dollars.",
+                "Hi John, only 1.5 million dollars.", "Hi John, only two thirds of a million dollars.",
+                "Hi John, only 2 million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), oneMillion)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is one million dollars.", "en-US",
+                List.of()), oneMillion)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for half a million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 1500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for 1.5 million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de medio millón de colones.",
+                "es-419", List.of()), "Cliente: Juan. Notas: plan de un millón de colones.")).hasValueSatisfying(
+                        violation -> assertThat(violation.code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1,5 millones de colones.",
+                "es-419", List.of()), "Cliente: Juan. Notas: plan de 1500000 colones.")).isEmpty();
+    }
+
+    /** Common English currency names are amounts too (issue 268). */
+    @Test
+    void readsCommonEnglishCurrencyNamesAsAmounts() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        for (String body : List.of("Hi John, only ten yen today.", "Hi John, only 10 yen today.",
+                "Hi John, only 5 rupees today.", "Hi John, only 3 francs today.", "Hi John, only 1 yuan today.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your 10 yen voucher is noted.", "en-US",
+                List.of()), "Customer: John. Notes: has a 10 yen voucher.")).isEmpty();
+    }
+
     /** A non-offer phrase in the context grounds no offer word, as in the draft (issue 268). */
     @Test
     void anOrdinaryPhraseInTheContextGroundsNoOffer() {

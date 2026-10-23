@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,7 +33,10 @@ public final class DraftSafetyValidator {
     private static final String CURRENCY_SYMBOL_CLASS = "[\\" + CURRENCY_SYMBOLS + "]";
     private static final String CURRENCY_WORDS =
             "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras|euros"
-                    + "|dollars|dollar|bucks|buck|pounds|pound|cents|cent|euro";
+                    + "|dollars|dollar|bucks|buck|pounds|pound|cents|cent|euro|dólar|dolar"
+                    // Other common English currency names; ambiguous words ("won", "real", "peso") stay out.
+                    + "|yen|yuan|renminbi|rupees|rupee|francs|franc|roubles|rouble|rubles|ruble|kronor|krona|kroner"
+                    + "|krone|dinars|dinar|dirhams|dirham|riyals|riyal|rand";
 
     private static final Pattern URL_PATTERN = Pattern.compile(
             "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
@@ -63,8 +68,20 @@ public final class DraftSafetyValidator {
             .sorted(java.util.Comparator.comparingInt(String::length).reversed())
             .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
     private static final String NUMBER_WORD_SEPARATOR = "(?:-|\\s+(?:and\\s+|y\\s+)?)";
+    /**
+     * A fraction or a digit amount scaling the words that follow ("half a million", "a quarter of a million",
+     * "1.5 million", "medio millón"), read with them as one quantity so the scaled words are never compared alone.
+     */
+    private static final Map<String, BigDecimal> FRACTION_WORDS = Map.of("half", new BigDecimal("0.5"), "quarter",
+            new BigDecimal("0.25"), "three quarters", new BigDecimal("0.75"), "third", BigDecimal.ONE.divide(
+                    BigDecimal.valueOf(3), 6, RoundingMode.HALF_EVEN), "two thirds", BigDecimal.valueOf(2).divide(
+                    BigDecimal.valueOf(3), 6, RoundingMode.HALF_EVEN), "medio", new BigDecimal("0.5"), "media",
+            new BigDecimal("0.5"), "cuarto", new BigDecimal("0.25"));
+    private static final String MULTIPLIER = "(?:(\\d+(?:[.,]\\d+)?)|(?:(?:an?|un|una|one)\\s+)?(three\\s+quarters"
+            + "|two\\s+thirds|half|quarter|third|medio|media|cuarto))\\s+(?:(?:of|de)\\s+)?";
     private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])((?:a\\s+)?" + NUMBER_WORD + "(?:" + NUMBER_WORD_SEPARATOR + NUMBER_WORD + ")*)"
+            "(?<![\\p{L}\\p{N}])(?:" + MULTIPLIER + ")?((?:an?\\s+)?" + NUMBER_WORD + "(?:" + NUMBER_WORD_SEPARATOR
+                    + NUMBER_WORD + ")*)"
                     + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct|"
                     + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     /** The "de" or "of" between a number and its currency ("1.000.000 de colones"), dropped so the amount is read. */
@@ -542,9 +559,23 @@ public final class DraftSafetyValidator {
 
     private static String rewriteWrittenPercentages(String canonicalBase) {
         String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase)
-                .replaceAll(match -> Long.toString(writtenNumber(match.group(1))));
+                .replaceAll(match -> writtenQuantity(match.group(1), match.group(2), match.group(3)));
         digits = NUMBER_OF_CURRENCY_PATTERN.matcher(digits).replaceAll("");
         return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
+    }
+
+    /** The words' value, scaled by a leading digit amount or fraction when there is one. */
+    private static String writtenQuantity(String digits, String fraction, String words) {
+        BigDecimal value = BigDecimal.valueOf(writtenNumber(words));
+        if (digits != null) {
+            // "1,5 millones" and "1.5 million" are decimals; a three-digit group ("1,500 million") is a thousands one.
+            String[] parts = digits.split("[.,]");
+            value = value.multiply(new BigDecimal(parts.length == 2 && parts[1].length() != 3
+                    ? parts[0] + "." + parts[1] : String.join("", parts)));
+        } else if (fraction != null) {
+            value = value.multiply(FRACTION_WORDS.get(fraction.replaceAll("\\s+", " ")));
+        }
+        return value.setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
     }
 
     /**
@@ -557,7 +588,7 @@ public final class DraftSafetyValidator {
         long total = 0;
         long group = 0;
         for (String word : phrase.trim().split(NUMBER_WORD_SEPARATOR)) {
-            if (word.equals("a")) {
+            if (word.equals("a") || word.equals("an")) {
                 continue;
             }
             long value = NUMBER_WORDS.get(word);
