@@ -59,6 +59,32 @@ class ApprovalFingerprintTest {
         }
     }
 
+    /**
+     * Issue 268: the preview names exactly what the reviewer saw, the template and the values it renders to, so an
+     * approval can say which one was reviewed.
+     */
+    @Test
+    void theReviewRevisionIdentifiesTheTemplateItsContentAndTheRenderedValues() {
+        List<String> values = List.of("Ana", "Café 1 kg");
+        String reviewed = ApprovalFingerprint.reviewRevision(revision(List.of()), values);
+        assertThat(reviewed).matches("^[0-9a-f]{64}$")
+                .isEqualTo(ApprovalFingerprint.reviewRevision(revision(List.of()), List.of("Ana", "Café 1 kg")));
+        assertThat(reviewed).isNotEqualTo(ApprovalFingerprint.of(BASE).value());
+        // A value re-rendered after review (a renamed customer) or reordered is a different review.
+        assertThat(ApprovalFingerprint.reviewRevision(revision(List.of()), List.of("Ana María", "Café 1 kg")))
+                .isNotEqualTo(reviewed);
+        assertThat(ApprovalFingerprint.reviewRevision(revision(List.of()), List.of("Café 1 kg", "Ana")))
+                .isNotEqualTo(reviewed);
+        assertThat(ApprovalFingerprint.reviewRevision(revision(List.of(new ButtonRevision("QUICK_REPLY", "Sí", null))),
+                values)).isNotEqualTo(reviewed);
+        assertThat(ApprovalFingerprint.reviewRevision(new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL,
+                List.of("customer_name", "product_name"), null, BODY_TEXT + ".", null, List.of()), values))
+                .isNotEqualTo(reviewed);
+        assertThat(ApprovalFingerprint.reviewRevision(new TemplateRevision(4, "repeat_purchase_v1", "es", POSITIONAL,
+                List.of("customer_name", "product_name"), null, BODY_TEXT, null, List.of()), values))
+                .isNotEqualTo(reviewed);
+    }
+
     private static TemplateRevision revision(List<ButtonRevision> buttons) {
         return new TemplateRevision(3, "repeat_purchase_v1", "es", POSITIONAL, List.of("customer_name", "product_name"),
                 null, BODY_TEXT, null, buttons);

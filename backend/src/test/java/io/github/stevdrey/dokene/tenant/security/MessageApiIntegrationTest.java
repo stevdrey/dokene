@@ -45,6 +45,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -56,6 +57,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubSafetyControl;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubTemplateResolver;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -476,6 +478,56 @@ class MessageApiIntegrationTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
     }
 
+    /** Issue 268: the approval names the template preview that was reviewed, so a template changed since is stale. */
+    @Test
+    void anApprovalMustNameTheTemplatePreviewThatWasReviewed() throws Exception {
+        String messageId = submittedMessageId();
+        // A revision that is not a digest is refused; omitting it is the expand-first path of an older client.
+        approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
+                "{\"decision\":\"APPROVE\",\"templateRevision\":\"stale\"}")
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        String reviewed = reviewedRevision(ownerA, messageId);
+        assertThat(reviewed).matches("^[0-9a-f]{64}$");
+
+        // The fixed text changes at the provider and is refreshed after the review: the reviewed preview is stale.
+        templates.content = new TemplateContent(null, "Hola {{1}}: {{2}}. Oferta nueva.", null);
+        assertThat(reviewedRevision(ownerA, messageId)).isNotEqualTo(reviewed);
+        approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
+                "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewed + "\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.PENDING_APPROVAL);
+
+        // Reviewing again shows the new template, and approving what was shown succeeds.
+        approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
+                "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewedRevision(ownerA, messageId) + "\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    /** Issue 268: renaming the customer after review re-renders customer_name, so the reviewed preview is stale. */
+    @Test
+    void anApprovalCannotBindAParameterValueChangedAfterReview() throws Exception {
+        String messageId = submittedMessageId();
+        String reviewed = reviewedRevision(ownerA, messageId);
+        // The preview shows the body as the customer reads it, with the customer's name and the message filled in.
+        JsonNode preview = json.readTree(mvc.perform(get("/api/messages/" + messageId).with(user(ownerA))
+                .header("X-Tenant-Id", tenant(tenantA))).andReturn().getResponse().getContentAsString(
+                        StandardCharsets.UTF_8)).path("template");
+        assertThat(preview.path("renderedBody").asString()).contains(BODY);
+
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        inContext(ownerA, () -> customers.update(customer.id(), current.version(), current.displayName() + " Mora",
+                current.notes(), current.phones().stream().map(phone -> new PhoneInput(phone.e164().substring(4), "CR",
+                        phone.primary())).toList()));
+        assertThat(reviewedRevision(ownerA, messageId)).isNotEqualTo(reviewed);
+
+        approve(ownerA, messageId, "n-" + UUID.randomUUID(), "\"1\"",
+                "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewed + "\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        approve(ownerA, messageId, "n-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated());
+    }
+
     @Test
     void anApprovalCoversOnlyWhatWasApprovedAndChangingTheTextNeedsANewReview() throws Exception {
         String first = submittedMessageId();
@@ -629,9 +681,29 @@ class MessageApiIntegrationTest {
                 content));
     }
 
+    /**
+     * An approval names the template preview the reviewer was shown (issue 268). Unless the test passes one, the
+     * approval names the preview the caller reads now; where there is none (not pending, not readable) any well-formed
+     * revision serves, since those requests are refused before the template is compared.
+     */
     private ResultActions approve(Member who, String messageId, String key, String ifMatch, String content)
             throws Exception {
-        return mvc.perform(command(post("/api/messages/" + messageId + "/approvals"), who, key, ifMatch, content));
+        String withRevision = content;
+        if (content != null && content.contains("\"APPROVE\"") && !content.contains("templateRevision")) {
+            withRevision = content.replaceFirst("\\}$", ",\"templateRevision\":\"" + reviewedRevision(who, messageId)
+                    + "\"}");
+        }
+        return mvc.perform(command(post("/api/messages/" + messageId + "/approvals"), who, key, ifMatch,
+                withRevision));
+    }
+
+    private String reviewedRevision(Member who, String messageId) throws Exception {
+        Tenant tenant = who == ownerB ? tenantB : tenantA;
+        var response = mvc.perform(get("/api/messages/" + messageId).with(user(who)).header("X-Tenant-Id",
+                tenant(tenant))).andReturn().getResponse();
+        JsonNode revision = response.getStatus() == 200
+                ? json.readTree(response.getContentAsString()).path("template").path("revision") : null;
+        return revision != null && revision.isString() ? revision.asString() : "0".repeat(64);
     }
 
     private ResultActions cancel(Member who, String messageId, String key, String ifMatch, String content)

@@ -12,7 +12,10 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageEvent
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageListItem;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagePageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageResponse;
+import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplateButton;
+import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplatePreview;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.SubmitMessageRequest;
+import io.github.stevdrey.dokene.messaging.application.ApprovalBindingAssembler.ReviewedTemplate;
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
 import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.CommandResult;
@@ -30,6 +33,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
+import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
 import io.github.stevdrey.dokene.tenant.application.RequiredPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.http.HttpServletResponse;
@@ -130,7 +134,8 @@ public class MessageController {
             @RequestBody(required = false) JsonNode body) {
         String version = version(ifMatch);
         ApprovalRequest request = read(body, ApprovalRequest.class);
-        var command = new ApprovalCommand(messageId, request.note(), version, idempotencyKey);
+        var command = new ApprovalCommand(messageId, request.note(), version, idempotencyKey,
+                request.templateRevision());
         CommandResult result = request.decision() == ApprovalDecision.APPROVE ? commands.approve(command)
                 : commands.reject(command);
         return respond(result, false);
@@ -241,10 +246,22 @@ public class MessageController {
                 .orElse(null);
         return new MessageResponse(m.id(), m.customerId(), m.contactId(), detail.contactRemoved(), m.recipientPhone(),
                 m.channel(), m.status(), m.outcomeUnknown(), m.failureCategory(), m.action(), m.templateIntent(),
-                m.locale(), m.origin(), m.body(), m.sourcePolicyVersion(), approval,
+                m.locale(), m.origin(), m.body(), detail.template().map(MessageController::toPreview).orElse(null),
+                m.sourcePolicyVersion(), approval,
                 detail.attempts().stream().map(MessageController::toAttempt).toList(), m.providerMessageId(),
                 m.sentAt(), m.deliveredAt(), m.readAt(), m.createdByMembershipId(), m.createdAt(), m.updatedAt(),
                 m.version());
+    }
+
+    private static MessageTemplatePreview toPreview(ReviewedTemplate reviewed) {
+        ResolvedTemplateMapping mapping = reviewed.mapping();
+        return new MessageTemplatePreview(reviewed.revision(), mapping.providerTemplateName(), mapping.language(),
+                mapping.content().header(), mapping.content().body(), reviewed.renderedBody(),
+                mapping.content().footer(),
+                mapping.content().buttons().stream()
+                        .map(button -> new MessageTemplateButton(button.type(), button.text(), button.value()))
+                        .toList(),
+                mapping.parameterNames());
     }
 
     private static AttemptSummary toAttempt(SendAttempt attempt) {
@@ -255,7 +272,7 @@ public class MessageController {
     private static MessageListItem toListItem(ListedMessage listed) {
         OutboundMessage m = listed.message();
         return new MessageListItem(m.id(), m.customerId(), listed.contactRemoved(), m.status(), m.outcomeUnknown(),
-                m.action(), m.templateIntent(), m.origin(), m.createdAt(), m.updatedAt(), m.version());
+                m.action(), m.templateIntent(), m.locale(), m.origin(), m.createdAt(), m.updatedAt(), m.version());
     }
 
     private static MessageEventItem toEventItem(MessageEvent event) {

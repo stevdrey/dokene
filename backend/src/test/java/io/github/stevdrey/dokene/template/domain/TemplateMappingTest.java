@@ -108,6 +108,28 @@ class TemplateMappingTest {
         assertThat(unchecked.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
     }
 
+    /**
+     * Issue 268: evidence stored by an earlier release checked an en_US template only with the Spanish vocabulary; its
+     * fixed text is checked again with the current English rules before it can be sent.
+     */
+    @Test
+    void evidenceFromEarlierRulesIsNotSendableWhenTheFixedTextNowFails() {
+        TemplateMapping base = mapping("t", "en_US", List.of("message_body"));
+        TemplateMapping stored = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
+                base.providerTemplateName(), base.language(), base.parameterNames(), true,
+                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                        TemplateParameterFormat.POSITIONAL, new TemplateContent(null, "Get a great deal: {{1}}", null)),
+                base.createdAt(), base.updatedAt(), 0);
+        assertThat(stored.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+
+        TemplateMapping plain = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
+                base.providerTemplateName(), base.language(), base.parameterNames(), true,
+                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                        TemplateParameterFormat.POSITIONAL, new TemplateContent(null, "Hello: {{1}}", null)),
+                base.createdAt(), base.updatedAt(), 0);
+        assertThat(plain.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
+    }
+
     /** Issue 268: approval keeps the template's fixed text, and approval without it cannot be reviewed or sent. */
     @Test
     void approvalKeepsTheFixedTextAndIsNotSendableWithoutIt() {
@@ -210,6 +232,11 @@ class TemplateMappingTest {
             assertThat(verified.approval().content()).isNull();
             assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
         }
+        // English fixed text is checked with the English offer vocabulary as well (issue 268, part 2).
+        TemplateMapping english = fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
+                TemplateParameterFormat.POSITIONAL, List.of(), new TemplateContent(null, "Thanks for your order.",
+                        "Get a great deal next week")), WABA, NOW);
+        assertThat(english.approval().status()).isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
         // Button targets are structured and shown in review, so a static URL or phone target alone is fine.
         TemplateContent withTargets = new TemplateContent("Hello World", "Welcome and congratulations!! Thank you "
                 + "for taking the time to test with us.", "WhatsApp Business Platform sample message", List.of(

@@ -121,7 +121,7 @@ T13 to `DELIVERED` or `READ` also sets `sent_at` to the report time when it is n
 
 **T2 guard order**: 1 message exists in the tenant (`NOT_FOUND`); 2 `If-Match` equals the message version (`STALE_VERSION`); 3 state is `PENDING_APPROVAL` (`INVALID_TRANSITION`); 4 the customer still owns `message.contactId()`, checked against the phones loaded with the locked customer (`CONTACT_NOT_OWNED`, amended 2026-10-09); then T1 steps 3 to 6 and 8 to 9 unchanged, and step 10 as "no other open message for the customer, excluding this one". T3, T4 and T5 run only steps 1 to 3 with the state the transition expects.
 
-**Input validation** (`INVALID_INPUT`, before the idempotency lock): body null, blank or over 1000 characters; note over 500 characters; `action`, `templateIntent`, `origin` not in their enums; `locale` not in the allowed set, which is `es-419` only in Phase 3 (a constant `SUPPORTED_LOCALES` in `messaging.domain`); idempotency key not matching the ADR grammar; `If-Match` missing or not a non negative integer.
+**Input validation** (`INVALID_INPUT`, before the idempotency lock): body null, blank or over 1000 characters; note over 500 characters; `action`, `templateIntent`, `origin` not in their enums; `locale` not in the allowed set, which is `es-419` only in Phase 3 (a constant `SUPPORTED_LOCALES` in `messaging.domain`; amended by [#268](https://github.com/stevdrey/dokene/issues/268): `MessagingLocales.SUPPORTED` is `es-419` and `en-US`, and an `AI_DRAFT` origin is accepted in `es-419` only); idempotency key not matching the ADR grammar; `If-Match` missing or not a non negative integer.
 
 **Application ports** (`messaging.application`):
 

@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.ai.domain;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,8 +31,21 @@ public final class DraftSafetyValidator {
     /** Currency symbols recognised after NFKC folding (fullwidth forms such as {@code ＄} and {@code ￥} fold to these). */
     private static final String CURRENCY_SYMBOLS = "$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢";
     private static final String CURRENCY_SYMBOL_CLASS = "[\\" + CURRENCY_SYMBOLS + "]";
-    private static final String CURRENCY_WORDS =
-            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras";
+    /** Currency names that are Spanish offer vocabulary; the Spanish offer list keeps exactly these. */
+    private static final String SPANISH_CURRENCY_WORDS =
+            "colones|dólares|dolares|pesos|soles|quetzales|lempiras|bolívares|bolivares|reales|libras|euros";
+    /**
+     * Currency names added for English texts (issue 268), plus the Spanish singular "dólar". With a number they are
+     * amounts in every locale; alone they are offer terms in English only, so a Spanish text gains no new offer word.
+     * Ambiguous words stay out: "won", "real" and "peso" are ordinary words, and "pound" is a unit of weight in en-US
+     * ("£" and "GBP" still mark pounds sterling).
+     */
+    private static final String ENGLISH_CURRENCY_WORDS =
+            "dollars|dollar|bucks|buck|cents|cent|euro|dólar|dolar"
+                    + "|yen|yuan|renminbi|rupees|rupee|francs|franc|roubles|rouble|rubles|ruble|kronor|krona|kroner"
+                    + "|krone|dinars|dinar|dirhams|dirham|riyals|riyal|rand";
+    /** Every currency name: a number next to any of them is an amount. */
+    private static final String CURRENCY_WORDS = SPANISH_CURRENCY_WORDS + "|" + ENGLISH_CURRENCY_WORDS;
 
     private static final Pattern URL_PATTERN = Pattern.compile(
             "(?iu)(?:\\b[a-z][a-z0-9+.-]*://\\S+|\\b(?:mailto|tel|sms|sip|geo|data|javascript|file|whatsapp|skype|callto):\\S+|\\bwww\\.\\S+|\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d+)?(?:/\\S*)?\\b|(?<![\\p{L}\\p{N}-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.\\p{L}{2,}(?:/\\S*)?(?![\\p{L}\\p{N}]))"
@@ -43,9 +58,62 @@ public final class DraftSafetyValidator {
     private static final List<String> OFFER_SYMBOLS = Stream.concat(
             Stream.of("%"), CURRENCY_SYMBOLS.chars().mapToObj(Character::toString)).toList();
 
-    /** Percentage markers written out after a number ("10 por ciento", "10 pct"); canonicalised to {@code %}. */
+    /**
+     * Percentage markers written out after a number ("10 por ciento", "10 pct", "10 percent"); canonicalised to
+     * {@code %} in every locale.
+     */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
-            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
+            "(?<=\\d)" + SP + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento|percentage\\s+points?|percentage|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
+    /**
+     * A written quantity before a percentage marker or a currency name: the whole run of number words, fractions and
+     * digits ("five percent", "ten dollars", "veinticinco por ciento", "two hundred and fifty euros", "one and a half
+     * million dollars", "a million and a half", "1.5 million", "un millón y medio de colones"), in English and
+     * Spanish, up to billions. The run is rewritten to one number first, so the marker canonicalises to "%" and both
+     * are compared token-exact like "5%" or "10 dollars" (issue 268): grounding the generic word "percent" or
+     * "dollars" alone would let "ten" pass against a context with "five", and reading only part of the run would let
+     * "one and a half million" pass as "half million". A "de" or "of" before the marker is dropped with the run.
+     */
+    private static final Map<String, Integer> NUMBER_WORDS = numberWords();
+    private static final Map<String, BigDecimal> FRACTION_WORDS = fractionWords();
+    private static final String QUANTITY_WORD = Stream.concat(NUMBER_WORDS.keySet().stream(),
+                    FRACTION_WORDS.keySet().stream())
+            .sorted(java.util.Comparator.comparingInt(String::length).reversed())
+            .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
+    private static final String QUANTITY_TOKEN = "(?:\\d+(?:[.,]\\d+)*|" + QUANTITY_WORD + ")";
+    /**
+     * A word that may qualify a currency ("Australian", "more"). Function words never do: "per" ("per cent"), and a
+     * determiner, pronoun, preposition or conjunction joins the number to an unrelated phrase ("in 2 days your
+     * dollars", "once the euros arrive"), so with one in between the number is not an amount. "de" and "of" are only
+     * grammar ("1.000.000 de colones") and stay allowed.
+     */
+    private static final String QUALIFIER_WORD = "(?!(?:per|your|yours|the|my|our|their|his|her|its|this|that|these"
+            + "|those|a|an|in|on|at|for|to|by|with|from|into|and|or|but|if|when|once|after|before|until|el|la|los|las"
+            + "|tu|tus|su|sus|mi|mis|en|por|para|con|y|o|que|cuando)(?!\\p{L}))\\p{L}+";
+    /** Up to two qualifier words between a written quantity and its marker ("five Australian dollars"). */
+    private static final String CURRENCY_QUALIFIERS = "(?:" + QUALIFIER_WORD + "\\s+){0,2}?";
+    /** Joins the tokens of one quantity: hyphens, and "and", "y", "of", "de", "a" or "an" between them. */
+    private static final String QUANTITY_JOINER = "(?:\\s*-\\s*|\\s+(?:(?:and|y|of|de|an|a)\\s+)*)";
+    private static final Pattern QUANTITY_JOINER_PATTERN = Pattern.compile(QUANTITY_JOINER);
+    private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
+            "(?<![\\p{L}\\p{N}])(?<!\\p{N}[.,])(?:(?<sign>negative|minus|menos)\\s+)?(?<run>(?:an?\\s+)?" + QUANTITY_TOKEN
+                    + "(?:" + QUANTITY_JOINER + QUANTITY_TOKEN + ")*)"
+                    + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + CURRENCY_QUALIFIERS + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento"
+                    + "|percentage\\s+points?|percentage|per\\s*cent|percent|pct|"
+                    + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+    /**
+     * Up to two words between a number and its currency ("10 Australian dollars", "1.000.000 de colones", "5 more
+     * euros"); any words, not a list of qualifiers, so an unknown one cannot hide the amount. They move after the
+     * currency as a bracketed qualifier ("10 dollars ⟦australian⟧"), so the amount is read and compared as usual and
+     * the qualified amount must also match ("five Canadian dollars" is not "five Australian dollars"). A bare "de"
+     * or "of" is only grammar and is dropped.
+     */
+    private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
+            "(?<=\\d)((?:\\s+" + QUALIFIER_WORD + "){1,2}?)\\s+((?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+    private static final Pattern QUALIFIED_AMOUNT_PATTERN = Pattern.compile(
+            "(?i)\\b" + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
+    /** A minus sign directly before an amount or percentage ("-5 dollars", "negative five dollars" once rewritten). */
+    private static final Pattern SIGNED_QUANTITY_PATTERN = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}])[-−]" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
@@ -68,7 +136,7 @@ public final class DraftSafetyValidator {
 
     private static final List<Pattern> OFFER_WORD_PATTERNS = List.of(
             Pattern.compile("(?i)\\b(descuento|descuentos|rebaja|rebajas|cupón|cupon|cupones|gratis|oferta|ofertas|promoción|promocion|promociones|liquidación|liquidacion|gratuito|gratuita|gratuitos|gratuitas|regalo|regalos|obsequio|obsequios|bono|bonos|cashback|reembolso|reembolsos|sin costo|black friday|2 por 1|\\d+\\s*x\\s*\\d+)\\b"),
-            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + CURRENCY_WORDS + "|precio|precios)(?!\\p{L})")
+            Pattern.compile("(?i)\\b(" + CURRENCY_CODES + "|" + SPANISH_CURRENCY_WORDS + "|precio|precios)(?!\\p{L})")
     );
 
     /**
@@ -78,7 +146,7 @@ public final class DraftSafetyValidator {
      */
     private static final String NEGATABLE_OFFER_TERMS = "(?:descuentos?|rebajas?|cup[oó]n|cupones|promoci[oó]n(?:es)?|ofertas?|regalos?|bonos?|obsequios?"
             + "|cashback|liquidaci[oó]n(?:es)?|reembolsos?|gratis|gratuit[oa]s?|(?:opciones?\\s+)?sin\\s+costo|precios?|black\\s+friday"
-            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")";
+            + "|2\\s+por\\s+1|\\d+\\s*x\\s*\\d+|" + CURRENCY_CODES + "|" + SPANISH_CURRENCY_WORDS + ")";
     private static final String NEGATION_MODIFIERS = "(?:(?:una?|unos|unas|ning[uú]n[a]?|alguna?|relevantes?|disponibles?|vigentes?|aplicables?)\\s+)";
     private static final Pattern NEGATED_OFFER_PATTERN = Pattern.compile(
             "(?iu)(?<![\\p{L}\\p{N}])(?:no\\s+(?:hay|existe|existen|tenemos|tiene|se\\s+encontr(?:ó|o|aron)|aplica)|sin|ning[uú]n[a]?)"
@@ -97,6 +165,67 @@ public final class DraftSafetyValidator {
     private static final Pattern PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
             "(?i)\\b(?:precios?|cuestan?|costos?|vale|valen|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
     );
+
+    /**
+     * English offer vocabulary (issue 268), applied on top of the Spanish one to English texts only: words such as
+     * "sale" or "free" are ordinary Spanish or appear in Spanish drafts with another meaning. English AI drafts stay
+     * unavailable (ADR 0018); this covers operator-written English messages.
+     */
+    private static final Pattern ENGLISH_OFFER_WORD_PATTERN = Pattern.compile(
+            "(?i)\\b(discount|discounts|coupon|coupons|voucher|vouchers|free|freebie|freebies|sale|promo|promos|promotion"
+                    + "|promotions|promotional|offer|offers|gift|gifts|bonus|bonuses|rebate|rebates|refund|refunds"
+                    + "|clearance|giveaway|giveaways|complimentary|no cost|no charge|half off|bogo|buy one get one"
+                    + "|cyber monday|price|prices|pricing|deal|deals|bargain|bargains|save|saves|saving|savings"
+                    + "|percent|per cent|percentage|half price)\\b");
+    /**
+     * An amount or percentage taken off ("10 dollars off", "$10 off", "10% off", "ten bucks off" once written numbers
+     * are digits). The whole construction is the offer term, so it is grounded only by the same discount in the
+     * context, never by the amount alone (a purchase "for ten dollars") or by "off" in another sense.
+     */
+    private static final Pattern ENGLISH_AMOUNT_OFF_PATTERN = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}])(?:" + CURRENCY_SYMBOL_CLASS + SP + ")?" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES
+                    + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?: ⟦[^⟧]+⟧)?)?" + SP + "off(?!\\p{L})");
+    /** The English currency names as offer terms of an English text, like the Spanish ones in a Spanish text. */
+    private static final Pattern ENGLISH_CURRENCY_OFFER_PATTERN = Pattern.compile(
+            "(?i)\\b(" + ENGLISH_CURRENCY_WORDS + ")(?!\\p{L})");
+    /**
+     * Ordinary English phrases that use an offer word without making an offer ("feel free to ask", "save your
+     * receipt", "we will deal with it"). They are blanked before the English vocabulary is matched, so a plain
+     * follow-up is not refused; the same word in any other construction still is, so "deal with" is only the verb
+     * after a subject, modal or "to" ("a great deal with every order" stays an offer).
+     */
+    private static final Pattern ENGLISH_NON_OFFER_PATTERN = Pattern.compile(
+            "(?i)\\b(?:feel free|free to (?:contact|ask|reach|call|reply|write|let|text|message|visit|stop by)"
+                    + "|save (?:your|the|this|our|my) (?:receipt|receipts|invoice|date|number|contact|details"
+                    + "|confirmation|order number|time|seat|spot)|dealt with|dealing with"
+                    + "|(?:to|will|would|can|could|shall|should|must|we|i|you|they|we'll|i'll|let us|let me|help you)"
+                    + "\\s+deal with)\\b");
+    private static final Pattern ENGLISH_PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
+            "(?i)\\b(?:prices?|priced|costs?|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
+    );
+
+    /**
+     * The offer and price vocabularies one text is checked against, and the non-offer phrases (if any) blanked
+     * before the offer words are matched.
+     */
+    private record Vocabulary(List<Pattern> offerWords, List<Pattern> priceTerms, Optional<Pattern> nonOffer) {
+        static final Vocabulary SPANISH = new Vocabulary(OFFER_WORD_PATTERNS, List.of(PRICE_TERM_NUMBER_PATTERN),
+                Optional.empty());
+        static final Vocabulary ENGLISH = new Vocabulary(
+                Stream.concat(OFFER_WORD_PATTERNS.stream(), Stream.of(ENGLISH_OFFER_WORD_PATTERN,
+                        ENGLISH_CURRENCY_OFFER_PATTERN, ENGLISH_AMOUNT_OFF_PATTERN)).toList(),
+                List.of(PRICE_TERM_NUMBER_PATTERN, ENGLISH_PRICE_TERM_NUMBER_PATTERN),
+                Optional.of(ENGLISH_NON_OFFER_PATTERN));
+
+        String withoutNonOffers(String text) {
+            return nonOffer.map(pattern -> pattern.matcher(text).replaceAll(" ")).orElse(text);
+        }
+
+        /** English texts get both vocabularies; every other locale keeps the Spanish one it was validated with. */
+        static Vocabulary of(String locale) {
+            return locale != null && Locale.forLanguageTag(locale).getLanguage().equals("en") ? ENGLISH : SPANISH;
+        }
+    }
 
     private DraftSafetyValidator() {}
 
@@ -129,7 +258,8 @@ public final class DraftSafetyValidator {
         texts.put("evidence", String.join("\n", draft.evidence()));
 
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
-        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText, offerContext);
+        Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText, offerContext, false,
+                Vocabulary.of(draft.locale()));
         if (violation.isPresent()) {
             return violation;
         }
@@ -185,20 +315,21 @@ public final class DraftSafetyValidator {
     /**
      * Validates provider template text that every recipient receives unchanged (issue 268): a header, footer, button
      * label or fixed body. Such text cannot be grounded in one customer's context, so it is checked against an empty
-     * one: any link, provider identifier, amount, percentage or offer term is a violation.
+     * one: any link, provider identifier, amount, percentage or offer term is a violation. {@code locale} is the
+     * text's BCP 47 language, which selects the offer vocabulary as for a draft.
      */
-    public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts) {
+    public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts, String locale) {
         Objects.requireNonNull(texts, "Texts are required");
-        return validateTexts(texts, "", "", false);
-    }
-
-    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
-            String offerContextText) {
-        return validateTexts(texts, allowedContextText, offerContextText, false);
+        return validateTexts(texts, "", "", false, Vocabulary.of(locale));
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText, boolean refusalRationale) {
+        return validateTexts(texts, allowedContextText, offerContextText, refusalRationale, Vocabulary.SPANISH);
+    }
+
+    private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
+            String offerContextText, boolean refusalRationale, Vocabulary vocabulary) {
         String offerContextLower = canonicalize(offerContextText);
         String normalizedContext = normalizeQuantities(offerContextLower);
         Map<String, String> canonicalTexts = new LinkedHashMap<>();
@@ -236,16 +367,24 @@ public final class DraftSafetyValidator {
         List<String> draftViews = withLeetViews(combinedDraftText);
         Set<String> contextPercentages = new HashSet<>();
         Set<String> contextAmounts = new HashSet<>();
+        // Qualified ("5 dollars ⟦australian⟧") and signed ("-5 dollars") amounts must match exactly, sign included.
+        Set<String> contextQualified = new HashSet<>();
+        Set<String> contextSigned = new HashSet<>();
         // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
         // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
         List<String> contextViews = withLeetViews(normalizedContext);
         for (String contextView : contextViews) {
-            contextPercentages.addAll(extractTokens(PERCENTAGE_PATTERN, contextView));
-            contextAmounts.addAll(extractTokens(AMOUNT_PATTERN, contextView));
-            Matcher contextPriceMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(contextView);
-            while (contextPriceMatcher.find()) {
-                contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+            // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
+            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView));
+            contextQualified.addAll(extractTokens(QUALIFIED_AMOUNT_PATTERN, contextView));
+            contextSigned.addAll(extractTokens(SIGNED_QUANTITY_PATTERN, contextView));
+            for (Pattern priceTerm : vocabulary.priceTerms()) {
+                Matcher contextPriceMatcher = priceTerm.matcher(contextView);
+                while (contextPriceMatcher.find()) {
+                    contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
+                }
             }
         }
         for (String amountToken : contextAmounts) {
@@ -257,38 +396,59 @@ public final class DraftSafetyValidator {
         for (String view : draftViews) {
             Matcher draftPctMatcher = PERCENTAGE_PATTERN.matcher(view);
             while (draftPctMatcher.find()) {
+                // A signed percentage is checked with its sign below.
+                if (signedAt(view, draftPctMatcher.start())) {
+                    continue;
+                }
                 if (!contextPercentages.contains(quantityKey(draftPctMatcher.group()))) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PERCENTAGE,
                             "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
                 }
             }
+            for (var exact : Map.of(QUALIFIED_AMOUNT_PATTERN, contextQualified, SIGNED_QUANTITY_PATTERN, contextSigned)
+                    .entrySet()) {
+                Matcher draftExact = exact.getKey().matcher(view);
+                while (draftExact.find()) {
+                    if (!exact.getValue().contains(quantityKey(draftExact.group()))) {
+                        return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                                "Draft contains a qualified or signed amount not grounded in context: '"
+                                        + draftExact.group().trim() + "'"));
+                    }
+                }
+            }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
+                if (signedAt(view, draftAmtMatcher.start())) {
+                    continue;
+                }
                 if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
                         && !isGroundedIdentifier(view, draftAmtMatcher, contextViews)) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                             "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
                 }
             }
-            Matcher priceNumberMatcher = PRICE_TERM_NUMBER_PATTERN.matcher(view);
-            while (priceNumberMatcher.find()) {
-                String number = normalizeQuantities(priceNumberMatcher.group(1));
-                if (!contextNumbers.contains(number)) {
-                    return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
-                            "Draft contains hallucinated price not grounded in context: '" + number + "'"));
+            for (Pattern priceTerm : vocabulary.priceTerms()) {
+                Matcher priceNumberMatcher = priceTerm.matcher(view);
+                while (priceNumberMatcher.find()) {
+                    String number = normalizeQuantities(priceNumberMatcher.group(1));
+                    if (!contextNumbers.contains(number)) {
+                        return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                                "Draft contains hallucinated price not grounded in context: '" + number + "'"));
+                    }
                 }
             }
         }
 
         // 4. Offer symbols and terms grounding check, both against the same normalized offer-context views as the
         // quantity checks (a purchase "10 pc7" grounds "%"); token-exact quantities were already validated above.
+        // Non-offer phrases are blanked in the context as in the draft, so "Save the Date cards" grounds no "save".
         List<String> offerContextViews = null;
         for (String symbol : OFFER_SYMBOLS) {
             if (!combinedDraftText.contains(symbol)) {
                 continue;
             }
             if (offerContextViews == null) {
-                offerContextViews = withLeetViews(offerContextLower);
+                offerContextViews = withLeetViews(vocabulary.withoutNonOffers(offerContextLower));
             }
             if (offerContextViews.stream().noneMatch(context -> context.contains(symbol))) {
                 return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_SYMBOL,
@@ -299,14 +459,15 @@ public final class DraftSafetyValidator {
         // Leetspeak spellings ("d3scuento") are only folded for offer vocabulary; amounts keep their digits. The refusal
         // negation is removed from each view after folding, so "No hay d3scuento" is neutralised like "No hay descuento".
         for (String view : draftViews) {
-            String candidate = refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view;
-            for (Pattern wordPattern : OFFER_WORD_PATTERNS) {
+            String candidate = vocabulary.withoutNonOffers(
+                    refusalRationale ? NEGATED_OFFER_PATTERN.matcher(view).replaceAll(" ") : view);
+            for (Pattern wordPattern : vocabulary.offerWords()) {
                 Matcher draftMatcher = wordPattern.matcher(candidate);
                 while (draftMatcher.find()) {
                     String word = draftMatcher.group().toLowerCase(Locale.ROOT);
                     Pattern specificPattern = offerTermBoundary(word);
                     if (offerContextViews == null) {
-                        offerContextViews = withLeetViews(offerContextLower);
+                        offerContextViews = withLeetViews(vocabulary.withoutNonOffers(offerContextLower));
                     }
                     if (offerContextViews.stream().noneMatch(context -> specificPattern.matcher(context).find())) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_OFFER_TERM,
@@ -352,6 +513,30 @@ public final class DraftSafetyValidator {
             }
         }
         return Optional.empty();
+    }
+
+    /** The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. */
+    private static Set<String> unsignedTokens(Pattern pattern, String text) {
+        if (text == null || text.isBlank()) {
+            return Set.of();
+        }
+        Set<String> tokens = new HashSet<>();
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())) {
+                tokens.add(quantityKey(matcher.group()));
+            }
+        }
+        return tokens;
+    }
+
+    /** A digit-first quantity at {@code start} with a minus sign right before it, as {@code SIGNED_QUANTITY_PATTERN}. */
+    private static boolean signedAt(String text, int start) {
+        if (start < 1 || start >= text.length() || !Character.isDigit(text.charAt(start))) {
+            return false;
+        }
+        char sign = text.charAt(start - 1);
+        return (sign == '-' || sign == '−') && (start < 2 || !Character.isLetterOrDigit(text.charAt(start - 2)));
     }
 
     private static Set<String> extractTokens(Pattern pattern, String text) {
@@ -460,7 +645,235 @@ public final class DraftSafetyValidator {
     }
 
     private static String rewriteWrittenPercentages(String canonicalBase) {
-        return PERCENT_WORD_PATTERN.matcher(canonicalBase).replaceAll("%");
+        String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase).replaceAll(match -> {
+            String value = writtenQuantity(match.group("run"), match.group("run"));
+            // A sign word is kept as a minus sign, so "negative five dollars" is not grounded by "five dollars".
+            return Matcher.quoteReplacement(match.group("sign") == null ? value : "-" + value.trim());
+        });
+        digits = NUMBER_OF_CURRENCY_PATTERN.matcher(digits).replaceAll(match -> {
+            String qualifier = WHITESPACE_RUN_PATTERN.splitAsStream(match.group(1).trim())
+                    .filter(word -> !word.equals("de") && !word.equals("of"))
+                    .collect(java.util.stream.Collectors.joining(" "));
+            return Matcher.quoteReplacement(" " + match.group(2) + (qualifier.isEmpty() ? "" : " ⟦" + qualifier + "⟧"));
+        });
+        return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
+    }
+
+    /**
+     * The value of one quantity run, or the run as written when it has no word (plain digits keep their own
+     * formatting and grouping). Units, teens, tens and digits add; "hundred" and "dozen" multiply what precedes them;
+     * a scale (thousand, million, billion) closes a group, or multiplies the total when it directly follows another
+     * scale ("mil millones"). A fraction joined by "and" or "y" adds ("one and a half"), one that directly follows a
+     * count multiplies it ("one third", "two thirds"), and a fraction right after a scale is a fraction of it ("a
+     * million and a half"). A run that is not a well-formed
+     * cardinal still yields one number, the same in the text and the context, so a quantity is never left as a bare
+     * currency word.
+     */
+    private static String writtenQuantity(String run, String written) {
+        String trimmed = run.trim();
+        String[] tokens = QUANTITY_JOINER_PATTERN.split(trimmed);
+        // The joiner before each token: "and" or "y" makes a fraction add to the whole before it, while "of" or "de"
+        // after a fraction makes it a fraction of everything that follows ("half of one million").
+        List<String> joinerBefore = new ArrayList<>(List.of(""));
+        Matcher joiners = QUANTITY_JOINER_PATTERN.matcher(trimmed);
+        while (joiners.find()) {
+            joinerBefore.add(joiners.group());
+        }
+        if (java.util.Arrays.stream(tokens).allMatch(token -> token.isEmpty() || Character.isDigit(token.charAt(0))
+                || token.equals("a") || token.equals("an"))) {
+            return written;
+        }
+        // A range or list ("between five and ten", "five and ten", "1-2 million") is several quantities, each read on
+        // its own; "and" or "y" joins one quantity only after a hundred or a scale ("one hundred and five"), before a
+        // fraction ("one and a half", "one and three quarters") or between Spanish tens and units ("treinta y cinco"),
+        // and a hyphen only between tens and units ("twenty-five") or before a fraction ("one-half").
+        List<String> quantities = new ArrayList<>();
+        int start = 0;
+        for (int index = 1; index < tokens.length; index++) {
+            String joiner = joinerBefore.get(index);
+            boolean splits = isAnd(joiner) ? !joinsOneQuantity(tokens, index)
+                    : isHyphen(joiner) && !hyphenJoinsOneQuantity(tokens, index);
+            if (splits) {
+                quantities.add(segmentQuantity(tokens, joinerBefore, start, index));
+                start = index;
+            }
+        }
+        quantities.add(segmentQuantity(tokens, joinerBefore, start, tokens.length));
+        return String.join(" and ", quantities);
+    }
+
+    private static boolean isAnd(String joiner) {
+        return joiner.matches("(?s).*\\b(?:and|y)\\b.*");
+    }
+
+    private static boolean isHyphen(String joiner) {
+        return joiner.contains("-");
+    }
+
+    /** A hyphen joins tens and a unit ("twenty-five") or a count and a fraction ("one-half", "two-thirds"). */
+    private static boolean hyphenJoinsOneQuantity(String[] tokens, int index) {
+        if (FRACTION_WORDS.containsKey(tokens[index])) {
+            return true;
+        }
+        Integer previous = NUMBER_WORDS.get(tokens[index - 1]);
+        Integer next = NUMBER_WORDS.get(tokens[index]);
+        return previous != null && next != null && previous >= 20 && previous <= 90 && previous % 10 == 0
+                && next >= 1 && next <= 9;
+    }
+
+    /** Whether the "and" before {@code tokens[index]} joins one quantity; a counted fraction ("and three quarters") does. */
+    private static boolean joinsOneQuantity(String[] tokens, int index) {
+        String before = tokens[index - 1];
+        String after = tokens[index];
+        if (FRACTION_WORDS.containsKey(after)
+                || index + 1 < tokens.length && FRACTION_WORDS.containsKey(tokens[index + 1])) {
+            return true;
+        }
+        Integer previous = NUMBER_WORDS.get(before);
+        Integer next = NUMBER_WORDS.get(after);
+        if (previous == null) {
+            return false;
+        }
+        boolean hundredOrScale = previous >= 100 && previous % 100 == 0 || before.equals("dozen");
+        boolean tensThenUnit = previous >= 20 && previous <= 90 && previous % 10 == 0 && next != null && next >= 1
+                && next <= 9;
+        return hundredOrScale || tensThenUnit;
+    }
+
+    /** The value of tokens {@code [start, end)} of a run, as one quantity. */
+    private static String segmentQuantity(String[] tokens, List<String> joinerBefore, int start, int end) {
+        BigDecimal total = BigDecimal.ZERO;
+        // The whole before an "and" ("one" in "one and three quarters"), kept apart so a counted fraction after it
+        // multiplies only its own count; a scale applies to both again.
+        BigDecimal whole = BigDecimal.ZERO;
+        BigDecimal group = BigDecimal.ZERO;
+        BigDecimal lastScale = null;
+        BigDecimal fractionOf = null;
+        for (int index = start; index < end; index++) {
+            String token = tokens[index];
+            if (token.isEmpty() || token.equals("a") || token.equals("an")) {
+                continue;
+            }
+            boolean afterAnd = index > start && index < joinerBefore.size() && isAnd(joinerBefore.get(index));
+            if (afterAnd && !FRACTION_WORDS.containsKey(token)) {
+                whole = whole.add(group);
+                group = BigDecimal.ZERO;
+            }
+            if (Character.isDigit(token.charAt(0))) {
+                group = group.add(digitQuantity(token));
+                lastScale = null;
+            } else if (FRACTION_WORDS.containsKey(token)) {
+                BigDecimal fraction = FRACTION_WORDS.get(token);
+                if (lastScale != null && group.signum() == 0 && whole.signum() == 0) {
+                    total = total.add(lastScale.multiply(fraction));
+                } else if (afterAnd) {
+                    group = group.add(fraction);
+                } else {
+                    // A counted fraction: "one third", "two thirds", "a half" multiply the count before them.
+                    group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(fraction);
+                }
+                lastScale = null;
+                if (index + 1 < end && joinerBefore.get(index + 1).matches("(?s).*\\b(?:of|de)\\b.*")) {
+                    BigDecimal part = total.add(whole).add(group);
+                    fractionOf = fractionOf == null ? part : fractionOf.multiply(part);
+                    total = BigDecimal.ZERO;
+                    whole = BigDecimal.ZERO;
+                    group = BigDecimal.ZERO;
+                }
+            } else {
+                BigDecimal value = BigDecimal.valueOf(NUMBER_WORDS.get(token));
+                if (value.compareTo(BigDecimal.valueOf(1_000)) >= 0) {
+                    group = whole.add(group);
+                    whole = BigDecimal.ZERO;
+                    total = group.signum() == 0 && total.signum() > 0 ? total.multiply(value)
+                            : total.add((group.signum() == 0 ? BigDecimal.ONE : group).multiply(value));
+                    group = BigDecimal.ZERO;
+                    lastScale = value;
+                } else if (token.startsWith("hundred") || token.equals("dozen")) {
+                    group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(value);
+                    lastScale = null;
+                } else {
+                    group = group.add(value);
+                    lastScale = null;
+                }
+            }
+        }
+        BigDecimal value = total.add(whole).add(group);
+        if (fractionOf != null) {
+            value = fractionOf.multiply(value.signum() == 0 ? BigDecimal.ONE : value);
+        }
+        return value.setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
+    }
+
+    /** "1,5" and "1.5" are decimals; three-digit groups ("1,500", "1.000.000") are thousands. */
+    private static BigDecimal digitQuantity(String digits) {
+        String[] parts = digits.split("[.,]");
+        boolean decimal = parts.length == 2 && parts[1].length() != 3;
+        return new BigDecimal(decimal ? parts[0] + "." + parts[1] : String.join("", parts));
+    }
+
+    /** Singular fractions add to the whole before them; plural ones multiply the count before them. */
+    private static Map<String, BigDecimal> fractionWords() {
+        BigDecimal half = new BigDecimal("0.5");
+        BigDecimal quarter = new BigDecimal("0.25");
+        // Thirds keep 34 significant digits, so a scale applied after them rounds back to the exact amount.
+        BigDecimal third = BigDecimal.ONE.divide(BigDecimal.valueOf(3), java.math.MathContext.DECIMAL128);
+        return Map.ofEntries(Map.entry("half", half), Map.entry("halves", half), Map.entry("quarter", quarter),
+                Map.entry("quarters", quarter), Map.entry("third", third), Map.entry("thirds", third),
+                Map.entry("medio", half), Map.entry("media", half), Map.entry("cuarto", quarter),
+                Map.entry("cuartos", quarter), Map.entry("tercio", third), Map.entry("tercios", third),
+                Map.entry("mitad", half));
+    }
+
+    private static Map<String, Integer> numberWords() {
+        Map<String, Integer> words = new HashMap<>();
+        String[] english = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"};
+        String[] englishTens = {"twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"};
+        String[] spanish = {"cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez",
+                "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete", "dieciocho", "diecinueve"};
+        String[] spanishTens = {"veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta",
+                "noventa"};
+        String[] veinti = {"veintiuno", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis",
+                "veintisiete", "veintiocho", "veintinueve"};
+        for (int i = 0; i < english.length; i++) {
+            words.put(english[i], i);
+            words.put(spanish[i], i);
+        }
+        for (int i = 0; i < englishTens.length; i++) {
+            words.put(englishTens[i], 20 + 10 * i);
+            words.put(spanishTens[i], 20 + 10 * i);
+        }
+        for (int i = 0; i < veinti.length; i++) {
+            words.put(veinti[i], 21 + i);
+        }
+        words.put("un", 1);
+        words.put("una", 1);
+        words.put("dieciseis", 16);
+        words.put("veintidos", 22);
+        words.put("veintitres", 23);
+        words.put("veintiseis", 26);
+        words.put("hundred", 100);
+        words.put("cien", 100);
+        words.put("ciento", 100);
+        String[] spanishHundreds = {"doscient", "trescient", "cuatrocient", "quinient", "seiscient", "setecient",
+                "ochocient", "novecient"};
+        for (int i = 0; i < spanishHundreds.length; i++) {
+            words.put(spanishHundreds[i] + "os", 200 + 100 * i);
+            words.put(spanishHundreds[i] + "as", 200 + 100 * i);
+        }
+        for (String thousand : List.of("thousand", "thousands", "mil")) {
+            words.put(thousand, 1_000);
+        }
+        for (String million : List.of("million", "millions", "millón", "millon", "millones")) {
+            words.put(million, 1_000_000);
+        }
+        for (String billion : List.of("billion", "billions")) {
+            words.put(billion, 1_000_000_000);
+        }
+        words.put("hundreds", 100);
+        words.put("dozen", 12);
+        return Map.copyOf(words);
     }
 
     /** Turns defanged links ("promo[.]test", "hxxp", "[://]") back into their live form for URL detection only. */

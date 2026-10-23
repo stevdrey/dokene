@@ -96,6 +96,18 @@ async function openWithFakeTimers(detail: MessageResponse) {
 describe('review actions', () => {
   // covers: AC-7, AC-8, AC-13, AC-14
   describe('approve, reject and cancel', () => {
+    it('approves the template preview it showed, naming its revision (issue 268)', async () => {
+      const english = details.englishHelloWorldPendingApproval;
+      await openMessage(english);
+      server.on(approvalsPath(english.messageId), created(variant(approved, { messageId: english.messageId })));
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
+      expect(server.last(approvalsPath(english.messageId)).body).toBe(
+        JSON.stringify({ decision: 'APPROVE', templateRevision: english.template?.revision })
+      );
+    });
+
     it('approves with If-Match and a key, announces it, and never calls /sends', async () => {
       await openMessage(pendingApproval);
       server.on(approvalsPath(pendingApproval.messageId), created(approvedHere));
@@ -110,7 +122,9 @@ describe('review actions', () => {
       const call = server.last(approvalsPath(pendingApproval.messageId));
       expect(call.headers['If-Match']).toBe('"1"');
       expect(call.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
-      expect(call.body).toBe(JSON.stringify({ decision: 'APPROVE' }));
+      expect(call.body).toBe(
+        JSON.stringify({ decision: 'APPROVE', templateRevision: pendingApproval.template?.revision })
+      );
       expect(screen.getByText('Revisión 2')).toBeInTheDocument();
       expect(screen.getByText('Aprobado')).toBeInTheDocument();
       expect(screen.queryByText('Enviado')).toBeNull();
@@ -305,6 +319,36 @@ describe('review actions', () => {
       expect(screen.getByText('Entregado')).toBeInTheDocument();
       expect(screen.queryByRole('group')).toBeNull();
       expect(server.count(sendsPath(approved.messageId))).toBe(1);
+    });
+
+    it('never sends an approval without a reviewed preview, since it would carry no revision', async () => {
+      const unpreviewed = variant(pendingApproval, { template: null });
+      await openMessage(unpreviewed);
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      expect(await screen.findByText('No se pudo completar la acción.')).toBeInTheDocument();
+      expect(server.count(approvalsPath(unpreviewed.messageId))).toBe(0);
+    });
+
+    it('settles an unsure approval whose preview moved, so the new preview is approved with a new key', async () => {
+      const english = details.englishHelloWorldPendingApproval;
+      const moved = variant(english, { template: { ...english.template!, revision: 'f'.repeat(64) } });
+      await openMessage(english);
+      server
+        .on(approvalsPath(english.messageId), status(502), created(variant(approved, { messageId: english.messageId })))
+        .on(detailPath(english.messageId), detailReply(moved));
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      expect(await screen.findByText('Este mensaje cambió. Revísalo de nuevo antes de continuar.')).toBeInTheDocument();
+      expect(screen.queryByRole('group')).toBeNull();
+
+      click('Aprobar');
+      click('Confirmar aprobación', group('Confirmar aprobación'));
+      await screen.findByText('Mensaje aprobado. Aún no se ha enviado.');
+      const [first, second] = server.all(approvalsPath(english.messageId));
+      expect(JSON.parse(first.body!)).toMatchObject({ templateRevision: english.template!.revision });
+      expect(JSON.parse(second.body!)).toMatchObject({ templateRevision: 'f'.repeat(64) });
+      expect(second.headers['Idempotency-Key']).not.toBe(first.headers['Idempotency-Key']);
     });
 
     it('offers Reintentar with the same key when the version did not move', async () => {

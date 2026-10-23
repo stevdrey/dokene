@@ -919,4 +919,391 @@ class DraftSafetyValidatorTest {
         assertThat(DraftSafetyValidator.validate(new NoDraft(NoDraftReason.INSUFFICIENT_HISTORY,
                 "No hay una oferta, pero tienes 10\uff05", RecommendationConfidence.of(0.9)), "Customer: Juan.")).isPresent();
     }
+
+    /** Operator-written English messages (issue 268) get the English offer vocabulary on top of the Spanish one. */
+    @Test
+    void rejectsUngroundedEnglishOfferAndPriceTermsInAnEnglishText() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        for (String body : List.of("Hi John, enjoy a discount on your next order.",
+                "Hi John, your next bag is free.", "Hi John, use this coupon today.",
+                "Hi John, our sale ends soon.", "Hi John, there is a gift waiting for you.",
+                "Hi John, ask for a refund anytime.", "Hi John, buy one get one this week.",
+                "Hi John, oferta especial para ti.", "Hi John, we have a special deal for you.",
+                "Hi John, save on your next order.", "Hi John, enjoy big savings this month.",
+                "Hi John, it is a real bargain.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context))
+                    .as(body).hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, it costs 25 now.", "en-US", List.of()), context))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, take 10 percent.", "en-US", List.of()), context))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only 20 dollars.", "en-US", List.of()), context))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        // Singular currency names are amounts too, not only their plurals.
+        for (String body : List.of("Hi John, only 1 euro.", "Hi John, just 1 cent.",
+                "Hi John, only 1 buck.", "Hi John, 1 dollar today.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your 1 euro credit is still there.", "en-US",
+                List.of()), "Customer: John. Notes: has a 1 euro credit.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, see shop.example.com", "en-US", List.of()),
+                context)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.UNAUTHORIZED_URL));
+    }
+
+    @Test
+    void allowsAPlainEnglishTextAndKeepsEnglishOnlyWordsOutOfSpanishTexts() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Welcome and congratulations!! This message demonstrates "
+                + "your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you "
+                + "for taking the time to test with us.", "en-US", List.of()), context)).isEmpty();
+        // "sale" is ordinary Spanish ("sale mañana"); the English vocabulary never applies to a Spanish text.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu pedido sale mañana.", "es-419", List.of()),
+                context)).isEmpty();
+    }
+
+    /** Written-out percentages are promotions too, while ordinary phrases with an offer word are not (issue 268). */
+    @Test
+    void refusesWrittenPercentagesAndAllowsOrdinaryPhrasesWithOfferWords() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        for (String body : List.of("Get ten percent off your next order.", "Enjoy a twenty per cent discount.",
+                "Everything is half price this week.", "Get a free bag with your next order.",
+                "Get a great deal with every order.", "Enjoy special deals with your card.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hi John. " + body, "en-US", List.of()), context))
+                    .as(body).isPresent();
+        }
+        for (String body : List.of("Feel free to contact us with any questions.", "Please save your receipt.",
+                "We will deal with your request today.", "You are free to reply whenever it suits you.",
+                "Your request was dealt with this morning.", "We are dealing with your order now.",
+                "Let us know how to deal with the delivery.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hi John. " + body, "en-US", List.of()), context))
+                    .as(body).isEmpty();
+        }
+    }
+
+    /** A written-out percentage is compared by value, like its digits, not grounded by the word "percent" alone. */
+    @Test
+    void comparesWrittenOutPercentagesByValue() {
+        String fivePercent = "Customer: John. Notes: has a five percent discount on coffee.";
+        for (String body : List.of("Hi John, your ten percent discount is ready.",
+                "Hi John, your 10 percent discount is ready.", "Hi John, your twenty-five per cent discount is ready.",
+                "Hi John, your one hundred percent discount is ready.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fivePercent)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        }
+        for (String body : List.of("Hi John, your five percent discount is ready.",
+                "Hi John, your 5 percent discount is ready.", "Hi John, your 5% discount is ready.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fivePercent)).as(body)
+                    .isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your thirty-five percent discount is ready.",
+                "en-US", List.of()), "Customer: John. Notes: has a 35% discount.")).isEmpty();
+        // Spanish cardinals are compared the same way.
+        String spanish = "Cliente: Juan. Notas: tiene un descuento del cinco por ciento.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu descuento del diez por ciento te espera.",
+                "es-419", List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu descuento del 5 % te espera.", "es-419",
+                List.of()), spanish)).isEmpty();
+    }
+
+    /** A currency qualified by a word or two ("Australian dollars") is still an amount compared by value. */
+    @Test
+    void readsQualifiedCurrencyAmounts() {
+        String context = "Customer: John. Notes: paid five Australian dollars.";
+        for (String body : List.of("Hi John, only 10 Australian dollars.", "Hi John, only ten Australian dollars.",
+                "Hi John, only 10 New Zealand dollars.", "Hi John, only 10 more dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        for (String body : List.of("Hi John, you paid 5 Australian dollars.", "Hi John, you paid five Australian "
+                + "dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body).isEmpty();
+        }
+    }
+
+    /** A qualified currency must match its qualifier, a sign must match, and a range is not a sum (issue 268). */
+    @Test
+    void comparesQualifiersSignsRangesAndExactThirds() {
+        String australian = "Customer: John. Notes: paid five Australian dollars.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, you paid five Canadian dollars.", "en-US",
+                List.of()), australian)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, you paid 5 Australian dollars.", "en-US",
+                List.of()), australian)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1000000 de colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de un millón de colones.")).isEmpty();
+
+        String five = "Customer: John. Notes: paid five dollars.";
+        for (String body : List.of("Hi John, your balance is negative five dollars.",
+                "Hi John, your balance is minus 5 dollars.", "Hi John, your balance is -5 dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), five)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your balance is -5 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: balance negative five dollars.")).isEmpty();
+
+        String fifteen = "Customer: John. Notes: paid 15 dollars.";
+        for (String body : List.of("Hi John, it costs between five and ten dollars.",
+                "Hi John, it costs five and ten dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fifteen)).as(body)
+                    .isPresent();
+        }
+        for (String body : List.of("Hi John, you paid one hundred and five dollars.",
+                "Hola Juan, pagaste ciento cinco dólares.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, body.startsWith("Hola") ? "es-419" : "en-US",
+                    List.of()), "Customer: John. Notes: paid 105 dollars and 105 dólares.")).as(body).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, pagaste treinta y cinco dólares.", "es-419",
+                List.of()), "Cliente: Juan. Notas: pagó 35 dólares.")).isEmpty();
+
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only two thirds of three billion dollars.",
+                "en-US", List.of()), "Customer: John. Notes: plan for 1999998000 dollars.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 2000000000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for two thirds of three billion dollars.")).isEmpty();
+    }
+
+    /** Code review of issue 268: ranges, qualified discounts, signs, weights, ordinary phrases and Spanish texts. */
+    @Test
+    void handlesRangesQualifiedDiscountsSignsAndOrdinaryPhrases() {
+        // A hyphen joins only tens and units; any other hyphen separates a range.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, a plan of 1-2 million dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for 3 million dollars.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, it costs five-ten dollars.", "en-US",
+                List.of()), "Customer: John. Notes: paid 15 dollars.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, you paid twenty-five dollars.", "en-US",
+                List.of()), "Customer: John. Notes: paid 25 dollars.")).isEmpty();
+
+        // A qualified amount taken off is still a discount.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, get 10 Australian dollars off your next order.",
+                "en-US", List.of()), "Customer: John. Purchases: Coffee for 10 Australian dollars."))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+
+        // A negative context amount does not ground its unsigned magnitude.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your balance is five dollars.", "en-US",
+                List.of()), "Customer: John. Notes: balance negative five dollars.")).hasValueSatisfying(
+                        violation -> assertThat(violation.code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+
+        // Weights and ordinary phrases are not amounts (the currency names alone are grounded by the context here).
+        String coffee = "Customer: John. Purchases: Roasted Coffee 1kg. Notes: pays in euros or dollars.";
+        for (String body : List.of("Hi John, your 2 pound bag of coffee shipped today.",
+                "Hi John, once your euros clear we will ship.", "Hi John, in 2 days your dollars are refunded.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), coffee)).as(body).isEmpty();
+        }
+
+        // The English currency names are amounts with a number, but not new Spanish offer words on their own.
+        String juan = "Cliente: Juan. Compras: Café 1kg.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, aceptamos pagos en dólar.", "es-419",
+                List.of()), juan)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, solo un dólar.", "es-419", List.of()), juan))
+                .hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+    }
+
+    /** Percentage points are percentages, compared by value rather than grounded by the word "percentage". */
+    @Test
+    void comparesPercentagePointsByValue() {
+        String context = "Customer: John. Notes: rate lowered by five percentage points.";
+        for (String body : List.of("Hi John, your rate drops by ten percentage points.",
+                "Hi John, your rate drops by 10 percentage points.", "Hi John, your rate drops ten percentage.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your rate drops by 5 percentage points.",
+                "en-US", List.of()), context)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu tasa baja diez puntos porcentuales.",
+                "es-419", List.of()), "Cliente: Juan. Notas: tasa baja cinco puntos porcentuales.")).hasValueSatisfying(
+                        violation -> assertThat(violation.code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PERCENTAGE));
+    }
+
+    /** A written-out currency amount is compared by value, like its digits, not grounded by the currency name. */
+    @Test
+    void comparesWrittenOutCurrencyAmountsByValue() {
+        String fiveDollars = "Customer: John. Purchases: Roasted Coffee for five dollars.";
+        for (String body : List.of("Hi John, only ten dollars today.", "Hi John, only 10 dollars today.",
+                "Hi John, only one dollar today.", "Hi John, only a hundred dollars today.",
+                "Hi John, only two hundred and fifty dollars today.", "Hi John, only five thousand dollars today.",
+                "Hi John, only one million dollars today.", "Hi John, only two billion dollars today.",
+                "Hi John, only a dozen dollars today.", "Hi John, only five hundred thousand dollars today.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fiveDollars)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        for (String body : List.of("Hi John, your coffee was five dollars.", "Hi John, your coffee was 5 dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fiveDollars)).as(body)
+                    .isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coffee was 250 euros.", "en-US", List.of()),
+                "Customer: John. Purchases: Roasted Coffee for two hundred and fifty euros.")).isEmpty();
+        String spanish = "Cliente: Juan. Compras: Café por cinco mil colones.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó seis mil colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó 5000 colones.", "es-419",
+                List.of()), spanish)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó un millón de colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó 1.000.000 de colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, el plan es de 1000000 de colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de un millón de colones.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó dos millones colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, the plan is 1500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for one million five hundred thousand dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, el plan es de 1000000000 colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de mil millones colones.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó trescientos colones.", "es-419",
+                List.of()), "Cliente: Juan. Compras: Café por 300 colones.")).isEmpty();
+    }
+
+    /** A fraction or digit amount scaling written words is read with them, never the scaled words alone. */
+    @Test
+    void readsScaledWrittenAmountsAsAWhole() {
+        String oneMillion = "Customer: John. Notes: plan for one million dollars.";
+        for (String body : List.of("Hi John, only half a million dollars.", "Hi John, only a quarter of a million dollars.",
+                "Hi John, only 1.5 million dollars.", "Hi John, only two thirds of a million dollars.",
+                "Hi John, only 2 million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), oneMillion)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is one million dollars.", "en-US",
+                List.of()), oneMillion)).isEmpty();
+        // A whole number and a fraction are one quantity, before or after the scale.
+        String halfMillion = "Customer: John. Notes: plan for half a million dollars.";
+        for (String body : List.of("Hi John, only one and a half million dollars.",
+                "Hi John, only a million and a half dollars.", "Hi John, only two and a quarter million dollars.",
+                "Hi John,one and a half million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), halfMillion)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        for (String body : List.of("Hi John, your plan is 1500000 dollars.",
+                "Hi John, your plan is one and a half million dollars.",
+                "Hi John, your plan is a million and a half dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()),
+                    "Customer: John. Notes: plan for 1.5 million dollars.")).as(body).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1500000 colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de un millón y medio de colones.")).isEmpty();
+        // "Of" after a fraction makes it a fraction of everything that follows.
+        String oneAndAHalfMillion = "Customer: John. Notes: plan for one and a half million dollars.";
+        for (String body : List.of("Hi John, only half of one million dollars.",
+                "Hi John, only a quarter of two million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), oneAndAHalfMillion)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for half of one million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 500000 colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de la mitad de un millón de colones.")).isEmpty();
+        // After "and", a counted fraction multiplies only its own count and adds to the whole before it.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only one and three quarters million dollars.",
+                "en-US", List.of()), oneMillion)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        for (String body : List.of("Hi John, your plan is 1750000 dollars.",
+                "Hi John, your plan is one and three quarters million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()),
+                    "Customer: John. Notes: plan for 1.75 million dollars.")).as(body).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 150000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for one hundred and fifty thousand dollars.")).isEmpty();
+        // A counted fraction multiplies its count; only "and" makes it add to a whole.
+        String oneAndAThird = "Customer: John. Notes: plan for one and a third million dollars.";
+        for (String body : List.of("Hi John, only one third million dollars.", "Hi John, only one third of a million "
+                + "dollars.", "Hi John, only one half million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), oneAndAThird)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for one half million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is one and a third million dollars.",
+                "en-US", List.of()), oneAndAThird)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only five and a half dollars.", "en-US",
+                List.of()), "Customer: John. Notes: paid 5.5 dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for half a million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 1500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for 1.5 million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de medio millón de colones.",
+                "es-419", List.of()), "Cliente: Juan. Notas: plan de un millón de colones.")).hasValueSatisfying(
+                        violation -> assertThat(violation.code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1,5 millones de colones.",
+                "es-419", List.of()), "Cliente: Juan. Notas: plan de 1500000 colones.")).isEmpty();
+    }
+
+    /** Common English currency names are amounts too (issue 268). */
+    @Test
+    void readsCommonEnglishCurrencyNamesAsAmounts() {
+        String context = "Customer: John. Purchases: Roasted Coffee 500g.";
+        for (String body : List.of("Hi John, only ten yen today.", "Hi John, only 10 yen today.",
+                "Hi John, only 5 rupees today.", "Hi John, only 3 francs today.", "Hi John, only 1 yuan today.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your 10 yen voucher is noted.", "en-US",
+                List.of()), "Customer: John. Notes: has a 10 yen voucher.")).isEmpty();
+    }
+
+    /** An amount taken off is a discount, grounded only by the same discount, never by the amount alone. */
+    @Test
+    void treatsAnAmountOffAsADiscount() {
+        String purchase = "Customer: John. Purchases: Roasted Coffee for ten dollars.";
+        for (String body : List.of("Hi John, get ten dollars off your next order.",
+                "Hi John, get 10 dollars off your next order.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), purchase)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+        }
+        // Spelled differently from the context, the amount itself is already ungrounded.
+        for (String body : List.of("Hi John, get $10 off your next order.", "Hi John, get 10 bucks off your order.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), purchase)).as(body)
+                    .isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, take 10% off your next order.", "en-US",
+                List.of()), "Customer: John. Notes: bought with a 10% discount.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your ten dollars off is still there.", "en-US",
+                List.of()), "Customer: John. Notes: has ten dollars off the next order.")).isEmpty();
+        // "off" in another sense, after the grounded amount or elsewhere, is not a discount.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coffee for ten dollars was dropped off "
+                + "today.", "en-US", List.of()), purchase)).isEmpty();
+    }
+
+    /** A non-offer phrase in the context grounds no offer word, as in the draft (issue 268). */
+    @Test
+    void anOrdinaryPhraseInTheContextGroundsNoOffer() {
+        String context = "Customer: John. Purchases: Save the Date cards.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, save on your next order.", "en-US", List.of()),
+                context)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, how are the cards? Please save the date.",
+                "en-US", List.of()), context)).isEmpty();
+    }
+
+    @Test
+    void groundsAnEnglishOfferTermInTheOfferContext() {
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coupon is still valid.", "en-US", List.of()),
+                "Customer: John. Notes: has a coupon from the store.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, the deal is still on.", "en-US", List.of()),
+                "Customer: John. Notes: asked about the deal from the store.")).isEmpty();
+    }
 }

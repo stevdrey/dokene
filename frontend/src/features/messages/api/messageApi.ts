@@ -2,6 +2,7 @@
 // ABOUTME: Narrows every response at runtime and takes the version only from a strong numeric ETag that matches the body.
 import { httpClient } from '@/shared/api/httpClient';
 import { SEMANTIC_ACTIONS, SEMANTIC_TEMPLATE_INTENTS } from '@/features/followups/types';
+import { TEMPLATE_BUTTON_TYPES, type TemplateButton } from '@/features/integrations/types';
 import {
   FAILURE_CATEGORIES,
   MESSAGE_ACTOR_KINDS,
@@ -10,12 +11,13 @@ import {
   MESSAGE_ORIGINS,
   MESSAGE_STATUSES,
   SEND_ATTEMPT_OUTCOMES,
-  type ApprovalDecision,
+  type ApprovalRequest,
   type AttemptSummary,
   type MessageEventItem,
   type MessageListItem,
   type MessagePageResponse,
   type MessageResponse,
+  type MessageTemplatePreview,
   type SubmitMessageRequest
 } from '../types';
 
@@ -78,6 +80,29 @@ export function parseMessageVersion(etag: string | null, bodyVersion: unknown): 
   return version;
 }
 
+function isTemplateButton(value: unknown): value is TemplateButton {
+  return (
+    isRecord(value) && isOneOf(TEMPLATE_BUTTON_TYPES, value.type) && isString(value.text) && isNullableString(value.value)
+  );
+}
+
+function isTemplatePreview(value: unknown): value is MessageTemplatePreview {
+  return (
+    isRecord(value) &&
+    isString(value.revision) &&
+    isString(value.providerTemplateName) &&
+    isString(value.language) &&
+    isNullableString(value.headerText) &&
+    isString(value.bodyText) &&
+    isString(value.renderedBody) &&
+    isNullableString(value.footerText) &&
+    Array.isArray(value.buttons) &&
+    value.buttons.every(isTemplateButton) &&
+    Array.isArray(value.parameterNames) &&
+    value.parameterNames.every(isString)
+  );
+}
+
 function narrowDetail(body: unknown): MessageResponse {
   if (!isRecord(body)) throw new InvalidMessageResponseError();
   const valid =
@@ -95,6 +120,7 @@ function narrowDetail(body: unknown): MessageResponse {
     isString(body.locale) &&
     isOneOf(MESSAGE_ORIGINS, body.origin) &&
     isString(body.body) &&
+    (body.template === undefined || body.template === null || isTemplatePreview(body.template)) &&
     isCount(body.sourcePolicyVersion) &&
     Array.isArray(body.attempts) &&
     body.attempts.every(isAttempt) &&
@@ -105,7 +131,7 @@ function narrowDetail(body: unknown): MessageResponse {
     isString(body.updatedAt) &&
     isCount(body.version);
   if (!valid) throw new InvalidMessageResponseError();
-  return body as unknown as MessageResponse;
+  return { ...body, template: body.template ?? null } as unknown as MessageResponse;
 }
 
 function isEvent(value: unknown): value is MessageEventItem {
@@ -134,6 +160,7 @@ function isListItem(value: unknown): value is MessageListItem {
     typeof value.outcomeUnknown === 'boolean' &&
     isOneOf(SEMANTIC_ACTIONS, value.action) &&
     isOneOf(SEMANTIC_TEMPLATE_INTENTS, value.templateIntent) &&
+    (value.locale === undefined || isString(value.locale)) &&
     isOneOf(MESSAGE_ORIGINS, value.origin) &&
     isString(value.createdAt) &&
     isString(value.updatedAt) &&
@@ -218,17 +245,21 @@ export const messageApi = {
     return read;
   },
 
+  /** An approval names the template preview that was reviewed, when the detail showed one (issue 268). */
   async decide(
     messageId: string,
-    decision: ApprovalDecision,
-    note: string | undefined,
+    request: ApprovalRequest,
     version: number,
     idempotencyKey: string,
     signal?: AbortSignal
   ): Promise<VersionedMessage> {
+    const base =
+      request.decision === 'APPROVE'
+        ? { decision: request.decision, templateRevision: request.templateRevision }
+        : { decision: request.decision };
     const { data, etag } = await httpClient.request<unknown>(messagePath(messageId, '/approvals'), {
       method: 'POST',
-      body: withNote({ decision }, note),
+      body: withNote(base, request.note ?? undefined),
       ifMatch: version,
       idempotencyKey,
       signal
