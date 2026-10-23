@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.messaging.domain.MessagingLocales;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
@@ -32,13 +33,23 @@ public class OutboundMessageQueryService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final MessageTemplatePreviews previews;
+    private final EnglishOutboundProperties english;
 
     public OutboundMessageQueryService(OutboundMessageRepository messages, TenantAuthorizationService authorization,
-            TenantContextProvider contexts, MessageTemplatePreviews previews) {
+            TenantContextProvider contexts, MessageTemplatePreviews previews, EnglishOutboundProperties english) {
         this.messages = Objects.requireNonNull(messages);
         this.authorization = Objects.requireNonNull(authorization);
         this.contexts = Objects.requireNonNull(contexts);
         this.previews = Objects.requireNonNull(previews);
+        this.english = Objects.requireNonNull(english);
+    }
+
+    /**
+     * The locales a new message may be submitted in on this deployment (issue 268), the same list submit enforces.
+     * Deployment configuration, not tenant data; the caller's permission is checked by the route.
+     */
+    public List<String> acceptedLocales() {
+        return MessagingLocales.accepted(english.enabled());
     }
 
     public record MessagePage(List<ListedMessage> items, String nextCursor) {

@@ -129,6 +129,21 @@ public final class MessagingApiContract {
         }
     }
 
+    /**
+     * {@code GET /api/messages/locales}: the locales a new message may be submitted in on this deployment, default
+     * first (issue 268). {@code en-US} appears only once the deployment enables English writes; submit refuses any
+     * locale not listed.
+     */
+    public record MessageLocalesResponse(List<String> locales, String defaultLocale) {
+        public MessageLocalesResponse {
+            locales = List.copyOf(Objects.requireNonNull(locales, "locales is required"));
+            Objects.requireNonNull(defaultLocale, "defaultLocale is required");
+            if (!locales.contains(defaultLocale)) {
+                throw new IllegalArgumentException("defaultLocale must be one of locales");
+            }
+        }
+    }
+
     /** Membership UUID only, never an identity UUID or display name (ADR 0006); the note is never returned. */
     public record ApprovalSummary(ApprovalDecision decision, Instant decidedAt, UUID decidedByMembershipId) {
     }

@@ -231,6 +231,18 @@ class MessageApiIntegrationTest {
     }
 
     /** Issue 138: the send route exists, enforces its preconditions, and stays off while the kill switch is. */
+    /** Issue 268: compose offers exactly the locales submit accepts; English stays off until the deployment enables it. */
+    @Test
+    void theAcceptedLocalesAreTheDeploymentsAndNeedTheDraftPermission() throws Exception {
+        mvc.perform(get("/api/messages/locales").with(user(ownerA)).header("X-Tenant-Id", tenant(tenantA)))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.locales.length()").value(1))
+                .andExpect(jsonPath("$.locales[0]").value("es-419"))
+                .andExpect(jsonPath("$.defaultLocale").value("es-419"));
+        mvc.perform(get("/api/messages/locales").with(user(viewerA)).header("X-Tenant-Id", tenant(tenantA)))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     void theSendRouteIsDefaultOffAndRefusesBeforeAnyAttempt() throws Exception {
         String messageId = submittedMessageId();

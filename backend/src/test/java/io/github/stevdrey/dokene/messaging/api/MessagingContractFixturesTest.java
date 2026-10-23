@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.CancellationRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageEventsResponse;
+import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageLocalesResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagePageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
@@ -111,6 +112,8 @@ class MessagingContractFixturesTest {
                 tests.add(dynamicTest("pages." + name, () -> assertResponseRoundTrip(node, MessagePageResponse.class))));
         named(messages.get("events")).forEach((name, node) ->
                 tests.add(dynamicTest("events." + name, () -> assertResponseRoundTrip(node, MessageEventsResponse.class))));
+        named(messages.get("locales")).forEach((name, node) ->
+                tests.add(dynamicTest("locales." + name, () -> assertResponseRoundTrip(node, MessageLocalesResponse.class))));
         return tests.stream();
     }
 
@@ -231,6 +234,8 @@ class MessagingContractFixturesTest {
                 "headerText: java.lang.String", "bodyText: java.lang.String", "renderedBody: java.lang.String",
                 "footerText: java.lang.String", "buttons: java.util.List<" + contract + "MessageTemplateButton>",
                 "parameterNames: java.util.List<java.lang.String>"));
+        expected.put(MessageLocalesResponse.class, List.of("locales: java.util.List<java.lang.String>",
+                "defaultLocale: java.lang.String"));
         expected.put(MessagingApiContract.MessageTemplateButton.class, List.of(
                 "type: io.github.stevdrey.dokene.template.domain.TemplateButtonType", "text: java.lang.String",
                 "value: java.lang.String"));
