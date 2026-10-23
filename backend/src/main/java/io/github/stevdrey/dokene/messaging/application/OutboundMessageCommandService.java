@@ -208,7 +208,8 @@ public class OutboundMessageCommandService {
                     .orElseThrow(() -> refuse(MessagingErrorCode.INTEGRATION_DISABLED));
             ApprovalFingerprint.Binding bound = bindings.bind(message, customer, sender);
             // The reviewer approved the template preview it was shown; a template changed since then is stale.
-            if (command.templateRevision() != null && !command.templateRevision().equals(bound.template().digest())) {
+            if (command.templateRevision() != null && !command.templateRevision()
+                    .equals(ApprovalFingerprint.reviewRevision(bound.template(), bound.parameterValues()))) {
                 throw refuse(MessagingErrorCode.STALE_VERSION);
             }
             ApprovalFingerprint binding = ApprovalFingerprint.of(bound);

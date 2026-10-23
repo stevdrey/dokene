@@ -228,8 +228,8 @@ class MessagingContractFixturesTest {
                 "updatedAt: java.time.Instant", "version: long"));
         expected.put(MessagingApiContract.MessageTemplatePreview.class, List.of(
                 "revision: java.lang.String", "providerTemplateName: java.lang.String", "language: java.lang.String",
-                "headerText: java.lang.String", "bodyText: java.lang.String", "footerText: java.lang.String",
-                "buttons: java.util.List<" + contract + "MessageTemplateButton>",
+                "headerText: java.lang.String", "bodyText: java.lang.String", "renderedBody: java.lang.String",
+                "footerText: java.lang.String", "buttons: java.util.List<" + contract + "MessageTemplateButton>",
                 "parameterNames: java.util.List<java.lang.String>"));
         expected.put(MessagingApiContract.MessageTemplateButton.class, List.of(
                 "type: io.github.stevdrey.dokene.template.domain.TemplateButtonType", "text: java.lang.String",

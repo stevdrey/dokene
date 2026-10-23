@@ -153,6 +153,8 @@ export interface MessageTemplatePreview {
   language: string;
   headerText: string | null;
   bodyText: string;
+  /** The body as the recipient reads it, every parameter filled in; what review shows. */
+  renderedBody: string;
   footerText: string | null;
   buttons: TemplateButton[];
   parameterNames: string[];

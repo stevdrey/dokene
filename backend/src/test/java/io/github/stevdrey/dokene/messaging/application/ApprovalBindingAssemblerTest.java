@@ -187,6 +187,26 @@ class ApprovalBindingAssemblerTest {
                 .containsExactly("Ana {{1}} $1");
     }
 
+    /** Review renders every parameter; a placeholder the schema does not name is left as written, never guessed. */
+    @Test
+    void reviewRendersTheBodyAsTheRecipientReadsItAndNamesTheRevision() {
+        mapping("es", TemplateParameterFormat.POSITIONAL, List.of("customer_name", "message_body"),
+                new TemplateContent(null, "Hola {{1}}: {{2}}", null), 3);
+        ApprovalBindingAssembler.ReviewedTemplate reviewed = assembler.review(message(BODY), customer).orElseThrow();
+        assertThat(reviewed.renderedBody()).isEqualTo("Hola Ana Pérez: " + BODY);
+        assertThat(reviewed.values()).containsExactly("Ana Pérez", BODY);
+        assertThat(reviewed.revision()).isEqualTo(ApprovalFingerprint.reviewRevision(
+                assembler.bind(message(BODY), customer, sender).template(), List.of("Ana Pérez", BODY)));
+
+        mapping("es", TemplateParameterFormat.NAMED, List.of("customer_name", "message_body"),
+                new TemplateContent(null, "Hola {{1}} y {{customer_name}}", null), 3);
+        assertThat(assembler.review(message(BODY), customer).orElseThrow().renderedBody())
+                .isEqualTo("Hola {{1}} y Ana Pérez");
+
+        mapping("en_US", TemplateParameterFormat.POSITIONAL, List.of("customer_name", "message_body"), CONTENT, 3);
+        assertThat(assembler.review(message(BODY), customer)).isEmpty();
+    }
+
     @Test
     void refusesARenderedValueTheProviderWouldReject() {
         // Meta body parameters admit no line breaks and no run of more than four spaces.

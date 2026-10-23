@@ -57,6 +57,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubSafetyControl;
 import io.github.stevdrey.dokene.tenant.security.MappedGeneralFollowUpGateConfiguration.StubTemplateResolver;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -498,6 +499,31 @@ class MessageApiIntegrationTest {
         approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
                 "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewedRevision(ownerA, messageId) + "\"}")
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    /** Issue 268: renaming the customer after review re-renders customer_name, so the reviewed preview is stale. */
+    @Test
+    void anApprovalCannotBindAParameterValueChangedAfterReview() throws Exception {
+        String messageId = submittedMessageId();
+        String reviewed = reviewedRevision(ownerA, messageId);
+        // The preview shows the body as the customer reads it, with the customer's name and the message filled in.
+        JsonNode preview = json.readTree(mvc.perform(get("/api/messages/" + messageId).with(user(ownerA))
+                .header("X-Tenant-Id", tenant(tenantA))).andReturn().getResponse().getContentAsString(
+                        StandardCharsets.UTF_8)).path("template");
+        assertThat(preview.path("renderedBody").asString()).contains(BODY);
+
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        inContext(ownerA, () -> customers.update(customer.id(), current.version(), current.displayName() + " Mora",
+                current.notes(), current.phones().stream().map(phone -> new PhoneInput(phone.e164().substring(4), "CR",
+                        phone.primary())).toList()));
+        assertThat(reviewedRevision(ownerA, messageId)).isNotEqualTo(reviewed);
+
+        approve(ownerA, messageId, "n-" + UUID.randomUUID(), "\"1\"",
+                "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewed + "\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_VERSION"));
+        assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.PENDING_APPROVAL);
+        approve(ownerA, messageId, "n-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated());
     }
 
     @Test

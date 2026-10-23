@@ -517,6 +517,7 @@
         "language": "en_US",
         "headerText": "Hello World",
         "bodyText": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
+        "renderedBody": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
         "footerText": "WhatsApp Business Platform sample message",
         "buttons": [],
         "parameterNames": []

@@ -34,6 +34,22 @@ public record ApprovalFingerprint(String value) {
         return new ApprovalFingerprint(RequestFingerprint.digest(SCHEME, binding.canonicalFields()));
     }
 
+    /** Domain label of {@link #reviewRevision}; a different encoding needs a new label. */
+    public static final String REVIEW_SCHEME = "template-review/v1";
+
+    /**
+     * Identifies exactly what a reviewer was shown for a message: the template revision and content and the values
+     * its parameters render to (issue 268). An approval names it, so a template changed or a value re-rendered after
+     * review (a renamed customer) cannot be approved unseen. Not secret: it derives from what the reviewer sees.
+     */
+    public static String reviewRevision(TemplateRevision template, List<String> parameterValues) {
+        Objects.requireNonNull(template, "Template revision is required");
+        var fields = new ArrayList<>(template.canonicalFields());
+        fields.add(Integer.toString(parameterValues.size()));
+        fields.addAll(List.copyOf(parameterValues));
+        return RequestFingerprint.digest(REVIEW_SCHEME, fields);
+    }
+
     /** True when the stored approval still covers the binding the send is about to use. */
     public boolean covers(Binding current) {
         return equals(of(current));
@@ -125,8 +141,6 @@ public record ApprovalFingerprint(String value) {
          * because this package cannot depend on the template module.
          */
         private static final Pattern PROVIDER_TEMPLATE_NAME = Pattern.compile("^[a-z0-9_]{1,512}$");
-        /** Domain label of {@link #digest()}; a different encoding needs a new label. */
-        public static final String DIGEST_SCHEME = "template-revision/v1";
 
         public TemplateRevision {
             Objects.requireNonNull(providerTemplateName, "Provider template name is required");
@@ -169,14 +183,6 @@ public record ApprovalFingerprint(String value) {
                 fields.add(button.value());
             }
             return fields;
-        }
-
-        /**
-         * Identifies this exact template revision and content, so a reviewer's approval can name the preview it was
-         * given (issue 268). Not secret: it is derived from the template the reviewer already sees.
-         */
-        public String digest() {
-            return RequestFingerprint.digest(DIGEST_SCHEME, canonicalFields());
         }
     }
 

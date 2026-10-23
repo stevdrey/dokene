@@ -94,6 +94,7 @@ function isTemplatePreview(value: unknown): value is MessageTemplatePreview {
     isString(value.language) &&
     isNullableString(value.headerText) &&
     isString(value.bodyText) &&
+    isString(value.renderedBody) &&
     isNullableString(value.footerText) &&
     Array.isArray(value.buttons) &&
     value.buttons.every(isTemplateButton) &&

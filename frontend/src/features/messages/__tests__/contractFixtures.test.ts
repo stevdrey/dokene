@@ -115,6 +115,7 @@ const templatePreviewShape: Shape<MessageTemplatePreview> = {
   language: text,
   headerText: { kind: 'string', nullable: true },
   bodyText: text,
+  renderedBody: text,
   footerText: { kind: 'string', nullable: true },
   buttons: { kind: 'array', item: { kind: 'object', shape: templateButtonShape } },
   parameterNames: { kind: 'array', item: text }

@@ -15,7 +15,7 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageRespo
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplateButton;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplatePreview;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.SubmitMessageRequest;
-import io.github.stevdrey.dokene.messaging.application.ApprovalBindingAssembler;
+import io.github.stevdrey.dokene.messaging.application.ApprovalBindingAssembler.ReviewedTemplate;
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
 import io.github.stevdrey.dokene.messaging.application.CancellationCommand;
 import io.github.stevdrey.dokene.messaging.application.CommandResult;
@@ -253,10 +253,11 @@ public class MessageController {
                 m.version());
     }
 
-    private static MessageTemplatePreview toPreview(ResolvedTemplateMapping mapping) {
-        return new MessageTemplatePreview(ApprovalBindingAssembler.revision(mapping).digest(),
-                mapping.providerTemplateName(), mapping.language(),
-                mapping.content().header(), mapping.content().body(), mapping.content().footer(),
+    private static MessageTemplatePreview toPreview(ReviewedTemplate reviewed) {
+        ResolvedTemplateMapping mapping = reviewed.mapping();
+        return new MessageTemplatePreview(reviewed.revision(), mapping.providerTemplateName(), mapping.language(),
+                mapping.content().header(), mapping.content().body(), reviewed.renderedBody(),
+                mapping.content().footer(),
                 mapping.content().buttons().stream()
                         .map(button -> new MessageTemplateButton(button.type(), button.text(), button.value()))
                         .toList(),

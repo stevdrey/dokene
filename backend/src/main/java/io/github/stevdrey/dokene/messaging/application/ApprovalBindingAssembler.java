@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
@@ -49,6 +50,38 @@ public class ApprovalBindingAssembler {
 
     /** A sendable mapping and the exact values its parameters would receive. */
     private record Rendered(ResolvedTemplateMapping mapping, List<String> values) {
+    }
+
+    /**
+     * What review shows for a message: the template it would be sent with, the values its parameters render to, the
+     * body as the recipient reads it, and the revision an approval must name (issue 268).
+     */
+    public record ReviewedTemplate(ResolvedTemplateMapping mapping, List<String> values, String renderedBody,
+            String revision) {
+        public ReviewedTemplate {
+            Objects.requireNonNull(mapping, "Mapping is required");
+            values = List.copyOf(Objects.requireNonNull(values, "Values are required"));
+            Objects.requireNonNull(renderedBody, "Rendered body is required");
+            Objects.requireNonNull(revision, "Revision is required");
+        }
+    }
+
+    /**
+     * The template review would show for this message, rendered from the same current records approval binds; empty
+     * when the message could not be approved as it stands (no sendable mapping in its language, a value the provider
+     * would reject, a body that does not match a fixed template).
+     */
+    public Optional<ReviewedTemplate> review(OutboundMessage message, Customer customer) {
+        Objects.requireNonNull(message, "Message is required");
+        Objects.requireNonNull(customer, "Customer is required");
+        try {
+            Rendered rendered = render(message.templateIntent(), message.locale(), message.body(), customer);
+            return Optional.of(new ReviewedTemplate(rendered.mapping(), rendered.values(),
+                    renderedFixedBody(rendered.mapping(), rendered.values()),
+                    ApprovalFingerprint.reviewRevision(revision(rendered.mapping()), rendered.values())));
+        } catch (MessagingRefusedException refused) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -120,19 +153,26 @@ public class ApprovalBindingAssembler {
     /**
      * The fixed body with each placeholder replaced by its bound value, in one pass, so a value that itself looks like
      * a placeholder is never substituted again. Positional {@code {{i}}} takes the i-th value; named {@code {{name}}}
-     * takes that parameter's value. The verified schema guarantees every placeholder has a value.
+     * takes that parameter's value. The verified schema guarantees every placeholder has a value; a placeholder it
+     * does not name is left as written rather than guessed, so a review read never fails on it.
      */
     private static String renderedFixedBody(ResolvedTemplateMapping mapping, List<String> values) {
         Matcher placeholder = PLACEHOLDER.matcher(mapping.content().body());
         StringBuilder rendered = new StringBuilder();
         while (placeholder.find()) {
-            String token = placeholder.group(1);
-            int index = mapping.parameterFormat() == TemplateParameterFormat.POSITIONAL
-                    ? Integer.parseInt(token) - 1 : mapping.parameterNames().indexOf(token);
-            placeholder.appendReplacement(rendered, Matcher.quoteReplacement(values.get(index)));
+            int index = valueIndex(mapping, placeholder.group(1));
+            String replacement = index >= 0 && index < values.size() ? values.get(index) : placeholder.group();
+            placeholder.appendReplacement(rendered, Matcher.quoteReplacement(replacement));
         }
         placeholder.appendTail(rendered);
         return rendered.toString();
+    }
+
+    private static int valueIndex(ResolvedTemplateMapping mapping, String token) {
+        if (mapping.parameterFormat() == TemplateParameterFormat.NAMED) {
+            return mapping.parameterNames().indexOf(token);
+        }
+        return token.chars().allMatch(Character::isDigit) && token.length() <= 2 ? Integer.parseInt(token) - 1 : -1;
     }
 
     /**

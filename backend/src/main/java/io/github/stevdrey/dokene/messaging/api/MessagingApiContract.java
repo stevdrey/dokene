@@ -98,18 +98,20 @@ public final class MessagingApiContract {
     }
 
     /**
-     * The fixed text of the template as the provider approved it; placeholders are left as written. {@code revision}
-     * identifies this exact template and content, and an approval must name it (issue 268). When
-     * {@code parameterNames} lacks {@code message_body} the body is not sent and equals {@code bodyText}.
+     * The template as the provider approved it, with placeholders left as written in {@code bodyText}, and the body as
+     * the recipient reads it in {@code renderedBody}, every parameter filled in. {@code revision} identifies this exact
+     * template, content and rendered values, and an approval must name it (issue 268). When {@code parameterNames}
+     * lacks {@code message_body} the message body is not sent and equals {@code renderedBody}.
      */
     public record MessageTemplatePreview(String revision, String providerTemplateName, String language,
-            String headerText, String bodyText, String footerText, List<MessageTemplateButton> buttons,
-            List<String> parameterNames) {
+            String headerText, String bodyText, String renderedBody, String footerText,
+            List<MessageTemplateButton> buttons, List<String> parameterNames) {
         public MessageTemplatePreview {
             Objects.requireNonNull(revision, "revision is required");
             Objects.requireNonNull(providerTemplateName, "providerTemplateName is required");
             Objects.requireNonNull(language, "language is required");
             Objects.requireNonNull(bodyText, "bodyText is required");
+            Objects.requireNonNull(renderedBody, "renderedBody is required");
             buttons = List.copyOf(Objects.requireNonNull(buttons, "buttons is required"));
             parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "parameterNames is required"));
         }
