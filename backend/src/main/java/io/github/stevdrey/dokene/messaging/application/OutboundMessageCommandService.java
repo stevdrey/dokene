@@ -27,7 +27,9 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -182,9 +184,14 @@ public class OutboundMessageCommandService {
         support.require(TenantPermission.MESSAGE_APPROVE);
         TenantContext context = support.currentContext();
         UUID tenantId = context.tenantId().value();
-        String fingerprint = RequestFingerprint.of(MessageOperation.APPROVAL, Arrays.asList(
-                command.messageId().toString(), decision.name(), input.note(), Long.toString(input.ifMatch()),
-                command.templateRevision()));
+        List<String> fields = new ArrayList<>(Arrays.asList(command.messageId().toString(), decision.name(),
+                input.note(), Long.toString(input.ifMatch())));
+        // A request without a revision keeps the earlier four-field form, so a decision committed by the previous
+        // release still replays after the upgrade.
+        if (command.templateRevision() != null) {
+            fields.add(command.templateRevision());
+        }
+        String fingerprint = RequestFingerprint.of(MessageOperation.APPROVAL, fields);
         idempotency.acquireLock(tenantId, MessageOperation.APPROVAL, input.idempotencyKey());
         var replay = idempotency.find(tenantId, MessageOperation.APPROVAL, input.idempotencyKey());
         if (replay.isPresent()) {

@@ -974,12 +974,15 @@ class DraftSafetyValidatorTest {
     void refusesWrittenPercentagesAndAllowsOrdinaryPhrasesWithOfferWords() {
         String context = "Customer: John. Purchases: Roasted Coffee 500g.";
         for (String body : List.of("Get ten percent off your next order.", "Enjoy a twenty per cent discount.",
-                "Everything is half price this week.", "Get a free bag with your next order.")) {
+                "Everything is half price this week.", "Get a free bag with your next order.",
+                "Get a great deal with every order.", "Enjoy special deals with your card.")) {
             assertThat(DraftSafetyValidator.validate(draftWith("Hi John. " + body, "en-US", List.of()), context))
                     .as(body).isPresent();
         }
         for (String body : List.of("Feel free to contact us with any questions.", "Please save your receipt.",
-                "We will deal with your request today.", "You are free to reply whenever it suits you.")) {
+                "We will deal with your request today.", "You are free to reply whenever it suits you.",
+                "Your request was dealt with this morning.", "We are dealing with your order now.",
+                "Let us know how to deal with the delivery.")) {
             assertThat(DraftSafetyValidator.validate(draftWith("Hi John. " + body, "en-US", List.of()), context))
                     .as(body).isEmpty();
         }
@@ -1018,7 +1021,9 @@ class DraftSafetyValidatorTest {
         String fiveDollars = "Customer: John. Purchases: Roasted Coffee for five dollars.";
         for (String body : List.of("Hi John, only ten dollars today.", "Hi John, only 10 dollars today.",
                 "Hi John, only one dollar today.", "Hi John, only a hundred dollars today.",
-                "Hi John, only two hundred and fifty dollars today.", "Hi John, only five thousand dollars today.")) {
+                "Hi John, only two hundred and fifty dollars today.", "Hi John, only five thousand dollars today.",
+                "Hi John, only one million dollars today.", "Hi John, only two billion dollars today.",
+                "Hi John, only a dozen dollars today.", "Hi John, only five hundred thousand dollars today.")) {
             assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fiveDollars)).as(body)
                     .hasValueSatisfying(violation -> assertThat(violation.code())
                             .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
@@ -1035,6 +1040,21 @@ class DraftSafetyValidatorTest {
                         .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
         assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó 5000 colones.", "es-419",
                 List.of()), spanish)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó un millón de colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó 1.000.000 de colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, el plan es de 1000000 de colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de un millón de colones.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó dos millones colones.", "es-419",
+                List.of()), spanish)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, the plan is 1500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for one million five hundred thousand dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, el plan es de 1000000000 colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de mil millones colones.")).isEmpty();
         assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu café costó trescientos colones.", "es-419",
                 List.of()), "Cliente: Juan. Compras: Café por 300 colones.")).isEmpty();
     }

@@ -17,6 +17,7 @@ import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.messaging.domain.MessageOperation;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import io.github.stevdrey.dokene.messaging.domain.RequestFingerprint;
 import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
@@ -29,6 +30,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -94,6 +96,24 @@ class OutboundMessageCommandServiceValidationTest {
                 .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
                 .isEqualTo(MessagingErrorCode.IDEMPOTENCY_KEY_REUSED);
         verifyNoInteractions(customers);
+    }
+
+    /** A decision committed by the release before issue 268 named no revision; its exact retry still replays. */
+    @Test
+    void replaysADecisionStoredWithTheFourFieldFingerprint() {
+        when(contexts.requireCurrent()).thenReturn(MEMBER);
+        UUID messageId = UUID.randomUUID();
+        String legacy = RequestFingerprint.of(MessageOperation.APPROVAL,
+                Arrays.asList(messageId.toString(), "REJECT", null, "1"));
+        when(idempotency.find(any(), any(), any())).thenReturn(Optional.of(new MessageIdempotencyStore.IdempotencyRecord(
+                UUID.randomUUID(), MEMBER.tenantId().value(), MessageOperation.APPROVAL, "k1", legacy, messageId,
+                UUID.randomUUID(), Instant.parse("2026-10-08T11:00:00Z"))));
+        when(messages.findByIdForUpdate(any(), any())).thenReturn(Optional.empty());
+
+        // The fingerprint matches, so the replay goes on to read the message rather than refusing a reused key.
+        assertThatThrownBy(() -> service.reject(new ApprovalCommand(messageId, null, "1", "k1")))
+                .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
+                .isEqualTo(MessagingErrorCode.NOT_FOUND);
     }
 
     @Test

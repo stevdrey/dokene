@@ -52,9 +52,11 @@ public final class DraftSafetyValidator {
             "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     /**
      * Cardinals written out before a percentage marker or a currency name ("five percent", "ten dollars",
-     * "veinticinco por ciento", "two hundred and fifty euros"), in English and Spanish. They are rewritten to digits
-     * first, so the marker canonicalises to "%" and both are compared token-exact like "5%" or "10 dollars" (issue
-     * 268): grounding the generic word "percent" or "dollars" alone would let "ten" pass against a context with "five".
+     * "veinticinco por ciento", "two hundred and fifty euros", "one million dollars"), in English and Spanish, up to
+     * billions. They are rewritten to digits first, so the marker canonicalises to "%" and both are compared
+     * token-exact like "5%" or "10 dollars" (issue 268): grounding the generic word "percent" or "dollars" alone
+     * would let "ten" pass against a context with "five". A "de" or "of" before the currency ("un millón de
+     * colones") is dropped with the words.
      */
     private static final Map<String, Integer> NUMBER_WORDS = numberWords();
     private static final String NUMBER_WORD = NUMBER_WORDS.keySet().stream()
@@ -62,9 +64,12 @@ public final class DraftSafetyValidator {
             .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
     private static final String NUMBER_WORD_SEPARATOR = "(?:-|\\s+(?:and\\s+|y\\s+)?)";
     private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])((?:a\\s+)?" + NUMBER_WORD + "(?:" + NUMBER_WORD_SEPARATOR + NUMBER_WORD + ")*)(?=" + SP
-                    + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct|" + CURRENCY_CODES + "|" + CURRENCY_WORDS
-                    + ")(?![\\p{L}]))");
+            "(?<![\\p{L}\\p{N}])((?:a\\s+)?" + NUMBER_WORD + "(?:" + NUMBER_WORD_SEPARATOR + NUMBER_WORD + ")*)"
+                    + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct|"
+                    + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+    /** The "de" or "of" between a number and its currency ("1.000.000 de colones"), dropped so the amount is read. */
+    private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
+            "(?<=\\d)\\s+(?:de|of)(?=" + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
@@ -130,13 +135,16 @@ public final class DraftSafetyValidator {
                     + "|percent|per cent|percentage|half price)\\b");
     /**
      * Ordinary English phrases that use an offer word without making an offer ("feel free to ask", "save your
-     * receipt", "deal with"). They are blanked before the English vocabulary is matched, so a plain follow-up is not
-     * refused; the same word in any other construction still is.
+     * receipt", "we will deal with it"). They are blanked before the English vocabulary is matched, so a plain
+     * follow-up is not refused; the same word in any other construction still is, so "deal with" is only the verb
+     * after a subject, modal or "to" ("a great deal with every order" stays an offer).
      */
     private static final Pattern ENGLISH_NON_OFFER_PATTERN = Pattern.compile(
             "(?i)\\b(?:feel free|free to (?:contact|ask|reach|call|reply|write|let|text|message|visit|stop by)"
                     + "|save (?:your|the|this|our|my) (?:receipt|receipts|invoice|date|number|contact|details"
-                    + "|confirmation|order number|time|seat|spot)|deal(?:s|t)? with)\\b");
+                    + "|confirmation|order number|time|seat|spot)|dealt with|dealing with"
+                    + "|(?:to|will|would|can|could|shall|should|must|we|i|you|they|we'll|i'll|let us|let me|help you)"
+                    + "\\s+deal with)\\b");
     private static final Pattern ENGLISH_PRICE_TERM_NUMBER_PATTERN = Pattern.compile(
             "(?i)\\b(?:prices?|priced|costs?|total)\\b[^\\d\\n]{0,20}?(" + NUM + ")"
     );
@@ -535,12 +543,14 @@ public final class DraftSafetyValidator {
     private static String rewriteWrittenPercentages(String canonicalBase) {
         String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase)
                 .replaceAll(match -> Long.toString(writtenNumber(match.group(1))));
+        digits = NUMBER_OF_CURRENCY_PATTERN.matcher(digits).replaceAll("");
         return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
     }
 
     /**
-     * The value of a run of number words: units, teens and tens add; "hundred" multiplies what precedes it (one when
-     * nothing does), Spanish hundreds add; "thousand" and "mil" close a group. A run that is not a well-formed
+     * The value of a run of number words: units, teens and tens add; "hundred" and "dozen" multiply what precedes
+     * them (one when nothing does), Spanish hundreds add; a scale (thousand, million, billion) closes a group, or
+     * multiplies the total when it directly follows another scale ("mil millones"). A run that is not a well-formed
      * cardinal still yields one number, so a quantity is never left as a bare currency word.
      */
     private static long writtenNumber(String phrase) {
@@ -550,12 +560,12 @@ public final class DraftSafetyValidator {
             if (word.equals("a")) {
                 continue;
             }
-            int value = NUMBER_WORDS.get(word);
-            if (value == 1_000) {
-                total += Math.max(group, 1) * 1_000;
+            long value = NUMBER_WORDS.get(word);
+            if (value >= 1_000) {
+                total = group == 0 && total > 0 ? total * value : total + Math.max(group, 1) * value;
                 group = 0;
-            } else if (word.equals("hundred")) {
-                group = Math.max(group, 1) * 100;
+            } else if (word.startsWith("hundred") || word.equals("dozen")) {
+                group = Math.max(group, 1) * value;
             } else {
                 group += value;
             }
@@ -600,8 +610,17 @@ public final class DraftSafetyValidator {
             words.put(spanishHundreds[i] + "os", 200 + 100 * i);
             words.put(spanishHundreds[i] + "as", 200 + 100 * i);
         }
-        words.put("thousand", 1_000);
-        words.put("mil", 1_000);
+        for (String thousand : List.of("thousand", "thousands", "mil")) {
+            words.put(thousand, 1_000);
+        }
+        for (String million : List.of("million", "millions", "millón", "millon", "millones")) {
+            words.put(million, 1_000_000);
+        }
+        for (String billion : List.of("billion", "billions")) {
+            words.put(billion, 1_000_000_000);
+        }
+        words.put("hundreds", 100);
+        words.put("dozen", 12);
         return Map.copyOf(words);
     }
 
