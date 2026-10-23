@@ -2,6 +2,7 @@
 // ABOUTME: detail read inside the command's transaction. Used by the T1 to T5 commands and by manual dispatch.
 package io.github.stevdrey.dokene.messaging.application;
 
+import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
@@ -81,9 +82,10 @@ class MessageCommandSupport {
     MessageDetail detail(UUID tenantId, UUID messageId) {
         var listed = messages.findListedById(tenantId, messageId)
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
+        Optional<MessageApproval> approval = messages.findApprovalByMessage(tenantId, messageId);
         return new MessageDetail(listed.message(), listed.contactRemoved(),
-                messages.findApprovalByMessage(tenantId, messageId), messages.findAttempts(tenantId, messageId),
-                previews.of(listed.message()));
+                approval, messages.findAttempts(tenantId, messageId),
+                previews.of(listed.message(), approval));
     }
 
     CommandResult result(UUID tenantId, UUID messageId, Optional<Object> record, boolean created) {

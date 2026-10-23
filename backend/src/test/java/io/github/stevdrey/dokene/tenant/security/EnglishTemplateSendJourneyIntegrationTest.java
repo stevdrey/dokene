@@ -226,6 +226,8 @@ class EnglishTemplateSendJourneyIntegrationTest {
         consent(customer, "GRANTED");
         assertProblem(send(workspace.operator, message, "regranted-" + UUID.randomUUID()), 409,
                 "APPROVAL_INVALIDATED");
+        // The approval no longer covers the message, so its detail shows no template as awaiting dispatch.
+        assertThat(message.read(this).path("template").isNull()).isTrue();
         assertThat(GRAPH.sends(workspace)).isZero();
 
         // A template refreshed between review and approval cannot be approved under the preview that was reviewed.
@@ -242,6 +244,14 @@ class EnglishTemplateSendJourneyIntegrationTest {
         Customer other = dueCustomer("Linda White");
         Message approved = submit(other, "en-US", HELLO_BODY, "MANUAL");
         approve(workspace.operator, approved);
+        assertThat(approved.read(this).path("template").path("footerText").asString())
+                .isEqualTo("WhatsApp Business Platform updated sample");
+        // A footer edited after approval still renders, but nobody approved it: the detail shows no template.
+        GRAPH.helloFooter = "WhatsApp Business Platform edited after approval";
+        refreshTemplate("GENERAL_FOLLOW_UP", findIntent(body(perform(get("/api/templates"), workspace.owner)),
+                "GENERAL_FOLLOW_UP").path("version").asLong());
+        assertThat(approved.read(this).path("template").isNull()).isTrue();
+        assertProblem(send(workspace.operator, approved, "footer-" + UUID.randomUUID()), 409, "APPROVAL_INVALIDATED");
         GRAPH.helloBody = HELLO_BODY + " Edited.";
         JsonNode slot = findIntent(body(perform(get("/api/templates"), workspace.owner)), "GENERAL_FOLLOW_UP");
         refreshTemplate("GENERAL_FOLLOW_UP", slot.path("version").asLong());

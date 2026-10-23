@@ -8,20 +8,28 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
 import io.github.stevdrey.dokene.followup.application.DraftGroundingAssembler;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
+import io.github.stevdrey.dokene.messaging.domain.MessageOperation;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.Test;
@@ -30,6 +38,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class OutboundMessageCommandServiceValidationTest {
     private static final String BODY = "Hola, ¿cómo le ha ido con su compra?";
+    private static final TenantContext MEMBER = new TenantContext(TenantId.random(),
+            new IdentityId(UUID.randomUUID()), TenantMembershipId.random(), TenantRole.OWNER);
 
     private final OutboundMessageRepository messages = mock(OutboundMessageRepository.class);
     private final MessageIdempotencyStore idempotency = mock(MessageIdempotencyStore.class);
@@ -53,13 +63,37 @@ class OutboundMessageCommandServiceValidationTest {
                 new EnglishOutboundProperties(englishEnabled));
     }
 
-    /** Issue 268, expand first: en-US is refused until the deployment switch is on, before anything is touched. */
+    /**
+     * Issue 268, expand first: en-US is refused until the deployment switch is on, before any customer or message is
+     * touched, but only after the replay lookup, so a submission committed while the switch was on still replays.
+     */
     @Test
     void refusesEnglishUntilTheDeploymentEnablesIt() {
         OutboundMessageCommandService off = service(false);
-        assertRefused(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")),
-                MessagingErrorCode.INVALID_INPUT);
+        when(contexts.requireCurrent()).thenReturn(MEMBER);
+        when(idempotency.find(any(), any(), any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")))
+                .isInstanceOf(MessagingRefusedException.class)
+                .extracting(e -> ((MessagingRefusedException) e).code()).isEqualTo(MessagingErrorCode.INVALID_INPUT);
+        verifyNoInteractions(messages, customers, bindings, safety, audit);
         assertThat(new EnglishOutboundProperties(null).enabled()).isFalse();
+    }
+
+    @Test
+    void consultsTheReplayBeforeTheEnglishSwitch() {
+        OutboundMessageCommandService off = service(false);
+        when(contexts.requireCurrent()).thenReturn(MEMBER);
+        UUID tenantId = MEMBER.tenantId().value();
+        when(idempotency.find(any(), any(), any())).thenReturn(Optional.of(new MessageIdempotencyStore.IdempotencyRecord(
+                UUID.randomUUID(), tenantId, MessageOperation.SUBMIT, "k1", "another request", UUID.randomUUID(), null,
+                Instant.parse("2026-10-08T11:00:00Z"))));
+
+        // The stored record is reached: a different request under the key is refused as a reuse, not as input.
+        assertThatThrownBy(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")))
+                .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
+                .isEqualTo(MessagingErrorCode.IDEMPOTENCY_KEY_REUSED);
+        verifyNoInteractions(customers);
     }
 
     @Test

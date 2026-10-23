@@ -88,6 +88,11 @@ public class OutboundMessageCommandService {
         if (replay.isPresent()) {
             return replay(replay.get(), fingerprint, null);
         }
+        // Writing en-US waits for the deployment switch, so no row an earlier release cannot read exists before it is
+        // on. It is checked after the replay lookup, so a submission committed while it was on still replays.
+        if (MessagingLocales.ENGLISH_US.equals(input.locale()) && !english.enabled()) {
+            throw refuse(MessagingErrorCode.INVALID_INPUT);
+        }
 
         Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(command.customerId()))
                 .orElseThrow(() -> refuse(MessagingErrorCode.NOT_FOUND));
@@ -308,10 +313,6 @@ public class OutboundMessageCommandService {
         SemanticAction action = parse(SemanticAction.class, command.action());
         SemanticTemplateIntent intent = parse(SemanticTemplateIntent.class, command.templateIntent());
         MessageOrigin origin = parse(MessageOrigin.class, command.origin());
-        // Writing en-US waits for the deployment switch, so no row an earlier release cannot read exists before it is on.
-        if (MessagingLocales.ENGLISH_US.equals(command.locale()) && !english.enabled()) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
-        }
         // AI drafts are generated and safety-checked in the default locale only (ADR 0018); another locale is manual.
         if (origin == MessageOrigin.AI_DRAFT && !MessagingLocales.DEFAULT.equals(command.locale())) {
             throw refuse(MessagingErrorCode.INVALID_INPUT);
