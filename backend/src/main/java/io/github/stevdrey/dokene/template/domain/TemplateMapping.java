@@ -58,6 +58,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
         }
     }
 
+    /** The fixed-text rules version the evidence is recorded with (V32); see {@link DraftSafetyValidator}. */
+    public static final int FIXED_TEXT_RULES_VERSION = DraftSafetyValidator.FIXED_TEXT_RULES_VERSION;
+
     public TemplateMapping {
         Objects.requireNonNull(id, "Mapping id is required");
         Objects.requireNonNull(tenantId, "Tenant id is required");
@@ -204,16 +207,14 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * Sendable only when enabled, provider-approved for exactly this revision and business account, and the evidence is
      * fresh. Everything else fails closed. Both verified parameter formats are sendable; the format travels with the
      * resolved mapping into the approval fingerprint and the send command. Approval without a format was never
-     * schema-checked, and approval without content cannot be reviewed, so neither is sendable. The fixed text is
-     * checked again here with the current rules in the template's language, so evidence recorded under an earlier
-     * release's rules (an {@code en_US} template checked only with the Spanish vocabulary) is not sendable on its
-     * account alone (issue 268).
+     * schema-checked, and approval without content cannot be reviewed, so neither is sendable. The fixed text was
+     * safety-checked when the evidence was recorded; content checked under an earlier version of those rules is read
+     * back as no content (see {@code DraftSafetyValidator.FIXED_TEXT_RULES_VERSION}), so it is never sendable here.
      */
     public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
                 && approval.parameterFormat() != null
                 && approval.content() != null
-                && fixedTextIsSafe(approval.content())
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

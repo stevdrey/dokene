@@ -22,6 +22,12 @@ import java.util.stream.Stream;
  * Prohibits invented discounts, prices, external links, and provider template identifiers.
  */
 public final class DraftSafetyValidator {
+    /**
+     * Version of the rules {@link #validateFixedText} applies (vocabularies, currency names, quantity parsing). Approval
+     * evidence records it with the fixed text it checked, and text checked under another version is not trusted until
+     * a refresh checks it again, so bump it whenever a change here could refuse text an earlier version allowed.
+     */
+    public static final int FIXED_TEXT_RULES_VERSION = 1;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
