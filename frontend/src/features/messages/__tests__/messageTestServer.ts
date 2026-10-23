@@ -3,8 +3,16 @@
 import messagesJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/messages.json?raw';
 import problemsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/problems.json?raw';
 import requestsJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/requests.json?raw';
+import templatesJson from '../../../../../backend/src/test/resources/contracts/messaging/v1/templates.json?raw';
 import { vi } from 'vitest';
-import type { MessageEventItem, MessageEventsResponse, MessagePageResponse, MessageResponse } from '../types';
+import type { TemplateResponse } from '@/features/integrations/types';
+import type {
+  MessageEventItem,
+  MessageEventsResponse,
+  MessageLocalesResponse,
+  MessagePageResponse,
+  MessageResponse
+} from '../types';
 
 const messages = JSON.parse(messagesJson);
 const problems = JSON.parse(problemsJson);
@@ -13,6 +21,8 @@ export const requests = JSON.parse(requestsJson);
 export const details: Record<string, MessageResponse> = messages.details;
 export const eventsFixtures: Record<string, MessageEventsResponse> = messages.events;
 export const pages: Record<string, MessagePageResponse> = messages.pages;
+export const localesFixtures: Record<string, MessageLocalesResponse> = messages.locales;
+export const templateFixtures: Record<string, TemplateResponse> = JSON.parse(templatesJson).response.valid;
 
 export interface Reply {
   status: number;
@@ -84,11 +94,25 @@ export const approvalsPath = (id: string) => `POST /api/messages/${id}/approvals
 export const cancellationsPath = (id: string) => `POST /api/messages/${id}/cancellations`;
 export const sendsPath = (id: string) => `POST /api/messages/${id}/sends`;
 export const submitPath = (customerId: string) => `POST /api/customers/${customerId}/messages`;
+export const localesPath = 'GET /api/messages/locales';
+export const templatesPath = 'GET /api/templates';
+/** The template list compose reads, with the given slots (issue 268). */
+export const templateList = (...items: TemplateResponse[]): Reply => ok({ items });
 
 export class FakeServer {
   readonly calls: Captured[] = [];
   readonly unexpected: string[] = [];
   private readonly routes = new Map<string, Responder[]>();
+
+  /**
+   * Compose reads the accepted locales and the template list when it opens (issue 268). By default the deployment
+   * accepts the default locale only and the draft's intent is mapped to a sendable Spanish template; a test that needs
+   * another answer replaces these routes with {@link on}.
+   */
+  constructor() {
+    this.routes.set(localesPath, [ok(localesFixtures.defaultOnly)]);
+    this.routes.set(templatesPath, [templateList(templateFixtures.approvedAndSendable)]);
+  }
 
   /** Replies are used in order; the last one repeats. */
   on(key: string, ...replies: Responder[]): this {

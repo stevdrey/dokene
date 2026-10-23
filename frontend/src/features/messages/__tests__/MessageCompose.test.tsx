@@ -13,12 +13,18 @@ import {
   detailReply,
   eventsPath,
   eventsReply,
+  localesFixtures,
+  localesPath,
   networkFailure,
+  ok,
   pending,
   problem,
   requests,
   status,
-  submitPath
+  submitPath,
+  templateFixtures,
+  templateList,
+  templatesPath
 } from './messageTestServer';
 
 let server: FakeServer;
@@ -93,31 +99,83 @@ describe('compose mode', () => {
     expect(server.count(submitPath(customerId))).toBe(1);
   });
 
-  it('submits in the language chosen, and changing it closes the confirmation (issue 268)', async () => {
-    renderCompose(composeMode({ origin: 'MANUAL' }));
-    const language = screen.getByLabelText('Idioma del mensaje');
-    expect(language).toHaveValue('es-419');
-    fireEvent.click(submitButton());
-    fireEvent.change(language, { target: { value: 'en-US' } });
-    // Changing the language closes the confirmation, like an edit of the text.
-    expect(screen.queryByRole('group', { name: 'Confirmar envío a aprobación' })).toBeNull();
-    server.on(submitPath(customerId), created({ ...pendingApproval, locale: 'en-US', origin: 'MANUAL', body: draft.body }));
-    fireEvent.click(submitButton());
-    confirmSubmit();
-    await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
-    expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({ locale: 'en-US', origin: 'MANUAL' });
-  });
+  describe('language (issue 268)', () => {
+    const englishSlot = { ...templateFixtures.englishHelloWorldApproved, templateIntent: draft.templateIntent };
+    const helloWorld = englishSlot.content!.bodyText;
+    const language = () => screen.getByLabelText('Idioma del mensaje');
 
-  it('keeps an AI draft in the default language, since English drafts are not generated', () => {
-    renderCompose(composeMode({ origin: 'AI_DRAFT', initialLocale: 'en-US' }));
-    const language = screen.getByLabelText('Idioma del mensaje');
-    expect(language).toHaveValue('es-419');
-    expect(language).toBeDisabled();
-  });
+    it('offers the language the intent is mapped in and fills in a fixed template text', async () => {
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templateList(englishSlot));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      await waitFor(() => expect(language()).toHaveValue('en-US'));
+      // One mapping per intent, so the one offered language is not a choice.
+      expect(language()).toBeDisabled();
+      expect(textarea()).toHaveValue(helloWorld);
+      expect(screen.getByText(/Esta plantilla tiene un texto fijo/)).toBeInTheDocument();
+      server.on(submitPath(customerId), created({ ...pendingApproval, locale: 'en-US', origin: 'MANUAL', body: helloWorld }));
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+      expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({
+        locale: 'en-US',
+        origin: 'MANUAL',
+        body: helloWorld
+      });
+    });
 
-  it('starts from the language a correction carries', () => {
-    renderCompose(composeMode({ origin: 'MANUAL', initialLocale: 'en-US' }));
-    expect(screen.getByLabelText('Idioma del mensaje')).toHaveValue('en-US');
+    it('never offers English while the deployment has not enabled it', async () => {
+      server.on(templatesPath, templateList(englishSlot));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      expect(await screen.findByText(/No hay una plantilla aprobada para esta acción/)).toBeInTheDocument();
+      expect(language()).toHaveValue('es-419');
+      expect(within(language()).queryByRole('option', { name: 'Inglés (EE. UU.)' })).toBeNull();
+      expect(textarea()).toHaveValue(draft.body);
+    });
+
+    it('keeps an AI draft in the default language, since English drafts are not generated', async () => {
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templateList(englishSlot));
+      renderCompose(composeMode({ origin: 'AI_DRAFT', initialLocale: 'en-US' }));
+      expect(await screen.findByText(/No hay una plantilla aprobada para esta acción/)).toBeInTheDocument();
+      expect(language()).toHaveValue('es-419');
+      expect(language()).toBeDisabled();
+    });
+
+    it('moves a correction off a language that is no longer offered', async () => {
+      renderCompose(composeMode({ origin: 'MANUAL', initialLocale: 'en-US' }));
+      expect(language()).toHaveValue('en-US');
+      await waitFor(() => expect(language()).toHaveValue('es-419'));
+    });
+
+    it('keeps text the operator edited when the fixed template text arrives', async () => {
+      const templates = pending();
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templates);
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      type('Texto escrito por el operador.');
+      await act(async () => templates.resolve(templateList(englishSlot)));
+      await waitFor(() => expect(language()).toHaveValue('en-US'));
+      expect(textarea()).toHaveValue('Texto escrito por el operador.');
+    });
+
+    it('offers the deployment languages when the registry cannot be read, and a change closes the confirmation', async () => {
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, status(500));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      await waitFor(() => expect(language()).toBeEnabled());
+      fireEvent.click(submitButton());
+      fireEvent.change(language(), { target: { value: 'en-US' } });
+      expect(screen.queryByRole('group', { name: 'Confirmar envío a aprobación' })).toBeNull();
+      server.on(submitPath(customerId), created({ ...pendingApproval, locale: 'en-US', origin: 'MANUAL', body: draft.body }));
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+      expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({ locale: 'en-US' });
+    });
+
+    it('offers the default language only when the backend has no locales route', async () => {
+      server.on(localesPath, status(404)).on(templatesPath, status(500));
+      renderCompose(composeMode({ origin: 'MANUAL', initialLocale: 'en-US' }));
+      await waitFor(() => expect(language()).toHaveValue('es-419'));
+      expect(within(language()).getAllByRole('option')).toHaveLength(1);
+    });
   });
 
   it('shows the customer, the masked phone, the labels and the starting text with a counter', () => {

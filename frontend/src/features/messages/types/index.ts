@@ -144,6 +144,25 @@ export const MESSAGE_LOCALES = ['es-419', 'en-US'] as const;
 export type MessageLocale = (typeof MESSAGE_LOCALES)[number];
 export const DEFAULT_MESSAGE_LOCALE: MessageLocale = 'es-419';
 
+export function isMessageLocale(value: unknown): value is MessageLocale {
+  return typeof value === 'string' && (MESSAGE_LOCALES as readonly string[]).includes(value);
+}
+
+/**
+ * Whether a template in this Meta language may carry a message in this locale, as the backend's
+ * `MessagingLocales.acceptsTemplateLanguage`: `es-419` takes any Spanish template, `en-US` exactly `en_US`.
+ */
+export function acceptsTemplateLanguage(locale: MessageLocale, templateLanguage: string | null): boolean {
+  if (templateLanguage === null) return false;
+  return locale === 'es-419' ? templateLanguage.split('_')[0].toLowerCase() === 'es' : templateLanguage === 'en_US';
+}
+
+/** `GET /api/messages/locales`: the locales this deployment accepts a new message in, default first (issue 268). */
+export interface MessageLocalesResponse {
+  locales: MessageLocale[];
+  defaultLocale: MessageLocale;
+}
+
 /**
  * The provider template a message would be sent with, while it awaits approval or dispatch. Placeholders stay as
  * written; without `message_body` in `parameterNames` the body is not sent and equals `bodyText`.

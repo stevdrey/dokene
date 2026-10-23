@@ -24,6 +24,7 @@ import {
   MESSAGE_ACTOR_KINDS,
   MESSAGE_CHANNELS,
   MESSAGE_EVENT_TYPES,
+  MESSAGE_LOCALES,
   MESSAGE_NOTE_MAX_LENGTH,
   MESSAGE_ORIGINS,
   MESSAGE_STATUSES,
@@ -39,6 +40,7 @@ import {
   type MessageEventItem,
   type MessageEventsResponse,
   type MessageListItem,
+  type MessageLocalesResponse,
   type MessagePageResponse,
   type MessageResponse,
   type MessageTemplatePreview,
@@ -182,6 +184,10 @@ const eventsShape: Shape<MessageEventsResponse> = {
   messageId: uuid,
   events: { kind: 'array', item: { kind: 'object', shape: eventShape } }
 };
+const localesShape: Shape<MessageLocalesResponse> = {
+  locales: { kind: 'array', item: enumOf(MESSAGE_LOCALES) },
+  defaultLocale: enumOf(MESSAGE_LOCALES)
+};
 const problemShape: Shape<MessagingProblem> = {
   type: enumOf(['about:blank']),
   title: text,
@@ -302,7 +308,7 @@ function check(value: unknown, rule: Rule, path: string): string[] {
 
 type Named = Record<string, unknown>;
 const enums = JSON.parse(enumsJson) as Record<string, string[]>;
-const messages = JSON.parse(messagesJson) as { details: Named; pages: Named; events: Named };
+const messages = JSON.parse(messagesJson) as { details: Named; pages: Named; events: Named; locales: Named };
 /**
  * Every member an approval request body may carry. ApprovalRequest is a union (an approval requires the revision), so
  * the per-member Shape is checked against this flat view, and the union must stay assignable to it.
@@ -371,6 +377,12 @@ describe('messaging v1 contract fixtures', () => {
 
   it.each(Object.entries(messages.events))('event history %s matches MessageEventsResponse', (_name, fixture) => {
     expect(violations(fixture, eventsShape)).toEqual([]);
+  });
+
+  it.each(Object.entries(messages.locales))('locales %s matches MessageLocalesResponse', (_name, fixture) => {
+    expect(violations(fixture, localesShape)).toEqual([]);
+    const { locales, defaultLocale } = fixture as MessageLocalesResponse;
+    expect(locales[0]).toBe(defaultLocale);
   });
 
   describe.each(Object.keys(requestShapes) as (keyof typeof requestShapes)[])('%s request', (operation) => {

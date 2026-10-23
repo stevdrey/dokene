@@ -101,6 +101,7 @@ export function controlsFor(detail: MessageResponse, poll: PollState): Controls 
     case 'PENDING_APPROVAL':
       // Approving names the template preview it shows (issue 268), so without a preview there is nothing to approve.
       if (detail.contactRemoved) return { kind: 'intents', intents: ['reject', 'cancel'] };
+      // An absent preview (a backend from before issue 268) cannot be approved by name either: fail closed.
       return {
         kind: 'intents',
         intents: detail.template ? ['approve', 'reject', 'cancel', 'correct'] : ['reject', 'cancel', 'correct']
@@ -108,10 +109,11 @@ export function controlsFor(detail: MessageResponse, poll: PollState): Controls 
     case 'APPROVED':
       if (detail.contactRemoved) return { kind: 'intents', intents: ['cancel'] };
       // The backend shows an approved message's preview only while its approval still covers what would be sent;
-      // without one every send is refused (APPROVAL_INVALIDATED), so only correcting or cancelling is offered.
+      // null means every send is refused (APPROVAL_INVALIDATED), so only correcting or cancelling is offered. An absent
+      // preview is a backend from before issue 268, which never sends one: sending stays offered as before.
       return {
         kind: 'intents',
-        intents: detail.template ? ['send', 'cancel', 'correct'] : ['cancel', 'correct']
+        intents: detail.template === null ? ['cancel', 'correct'] : ['send', 'cancel', 'correct']
       };
     case 'QUEUED':
     case 'SENT':
@@ -176,8 +178,11 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   const frozen = message.status === 'SENDING' && message.outcomeUnknown;
   // A contact removed after the send is history; the stranded message warning only fits a message that can still be cancelled.
   const stranded = message.contactRemoved && (message.status === 'PENDING_APPROVAL' || message.status === 'APPROVED');
-  const unapprovable = message.status === 'PENDING_APPROVAL' && !message.contactRemoved && !message.template;
-  const invalidated = message.status === 'APPROVED' && !message.contactRemoved && !message.template;
+  const unapprovable = message.status === 'PENDING_APPROVAL' && !message.contactRemoved && message.template === null;
+  // Only a backend that sends previews (null, not absent) says an approval no longer covers the message.
+  const invalidated = message.status === 'APPROVED' && !message.contactRemoved && message.template === null;
+  // Only a role that can act is told what to do about it; the reason is shown to everyone.
+  const instruction = canActOnMessages(role) ? ` ${COPY.correctOrCancel}` : '';
 
   return (
     <section className="message-review" aria-labelledby={headingId}>
@@ -196,10 +201,16 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
         <p className="message-review__notice message-review__notice--warning">{COPY.contactRemoved}</p>
       )}
       {unapprovable && (
-        <p className="message-review__notice message-review__notice--warning">{COPY.templateUnavailable}</p>
+        <p className="message-review__notice message-review__notice--warning">
+          {COPY.templateUnavailable}
+          {instruction}
+        </p>
       )}
       {invalidated && (
-        <p className="message-review__notice message-review__notice--warning">{COPY.approvalInvalidated}</p>
+        <p className="message-review__notice message-review__notice--warning">
+          {COPY.approvalInvalidated}
+          {instruction}
+        </p>
       )}
 
       <dl className="message-review__facts">
@@ -279,10 +290,10 @@ function TemplatePreview({ template, locale }: { template: MessageTemplatePrevie
           <p className="message-review__muted message-review__verbatim">{template.footerText}</p>
         )}
         {template.buttons.length > 0 && (
-          <ul aria-label="Botones de la plantilla">
+          <ul lang="es" aria-label="Botones de la plantilla">
             {template.buttons.map((button, index) => (
               <li key={index}>
-                <span lang="es">{buttonTypeLabel(button.type)}:</span> {button.text}
+                {buttonTypeLabel(button.type)}: <span lang={locale}>{button.text}</span>
                 {button.value ? ` (${button.value})` : ''}
               </li>
             ))}

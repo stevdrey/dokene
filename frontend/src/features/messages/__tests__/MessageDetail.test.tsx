@@ -169,6 +169,9 @@ describe('MessageReview review mode', () => {
       expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
       // The customer-facing text is marked with the message language, so assistive technology reads it as English.
       expect(screen.getByText(english.template!.renderedBody).closest('[lang]')).toHaveAttribute('lang', 'en-US');
+      // The list label and the button kinds are Spanish; only each button text is the customer's language.
+      expect(within(preview).getByRole('list', { name: 'Botones de la plantilla' })).toHaveAttribute('lang', 'es');
+      expect(within(preview).getByText('Yes, thanks')).toHaveAttribute('lang', 'en-US');
     });
 
     it('keeps the footer line breaks and spacing the recipient reads', async () => {
@@ -184,13 +187,34 @@ describe('MessageReview review mode', () => {
       expect(footerNode).toHaveClass('message-review__verbatim');
     });
 
+    it('keeps Enviar and shows no stale approval warning without a preview from an older backend', async () => {
+      const { template: _omitted, ...older } = details.approved;
+      const detail = older as typeof details.approved;
+      serve(detail);
+      renderReview(detail.messageId, 'OPERATOR');
+      await loaded(detail);
+      expect(buttonNames()).toEqual(['Enviar', 'Cancelar', 'Corregir']);
+      expect(screen.queryByText(/La aprobación ya no cubre/)).toBeNull();
+    });
+
+    it('tells a read only role why, but not to correct or cancel', async () => {
+      const detail = variant(details.approved, { template: null });
+      serve(detail);
+      renderReview(detail.messageId, 'VIEWER');
+      await loaded(detail);
+      expect(screen.getByText(/La aprobación ya no cubre lo que se enviaría/)).toBeInTheDocument();
+      expect(screen.queryByText(/Corrige o cancela el mensaje/)).toBeNull();
+    });
+
     it('withholds Enviar when the approval no longer covers what would be sent and says why', async () => {
       const detail = variant(details.approved, { template: null });
       serve(detail);
       renderReview(detail.messageId, 'OPERATOR');
       await loaded(detail);
       expect(buttonNames()).toEqual(['Cancelar', 'Corregir']);
-      expect(screen.getByText(/La aprobación ya no cubre lo que se enviaría/)).toBeInTheDocument();
+      expect(screen.getByText(/La aprobación ya no cubre lo que se enviaría/)).toHaveTextContent(
+        'Corrige o cancela el mensaje.'
+      );
     });
 
     it('offers no approval without a template preview and says why', async () => {

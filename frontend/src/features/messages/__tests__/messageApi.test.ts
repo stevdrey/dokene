@@ -13,6 +13,8 @@ import {
   eventsFixtures,
   eventsPath,
   historyPath,
+  localesFixtures,
+  localesPath,
   ok,
   pages,
   pending,
@@ -64,11 +66,36 @@ describe('messageApi', () => {
     }
   });
 
-  it('reads a detail without template, as a backend from before issue 268 sends it, as null', async () => {
+  it('keeps a detail without template, as a backend from before issue 268 sends it, apart from null', async () => {
     const { template: _omitted, ...older } = details.pendingApproval;
     server.on(detailPath(older.messageId), detailReply(older as typeof details.pendingApproval));
     const read = await messageApi.getDetail(older.messageId);
-    expect(read.detail.template).toBeNull();
+    // Absent means "no preview from this backend", which is not "the approval no longer covers the message".
+    expect(read.detail.template).toBeUndefined();
+    server.on(detailPath(older.messageId), detailReply({ ...details.pendingApproval, template: null }));
+    expect((await messageApi.getDetail(older.messageId)).detail.template).toBeNull();
+  });
+
+  describe('getLocales (issue 268)', () => {
+    it.each(Object.entries(localesFixtures))('reads the %s fixture', async (_name, fixture) => {
+      server.on(localesPath, ok(fixture));
+      expect(await messageApi.getLocales()).toEqual(fixture);
+    });
+
+    it('drops a locale this client does not know, but not the default', async () => {
+      server.on(localesPath, ok({ locales: ['es-419', 'pt-BR'], defaultLocale: 'es-419' }));
+      expect(await messageApi.getLocales()).toEqual({ locales: ['es-419'], defaultLocale: 'es-419' });
+    });
+
+    it.each([
+      ['a default outside the list', { locales: ['en-US'], defaultLocale: 'es-419' }],
+      ['an unknown default', { locales: ['es-419', 'pt-BR'], defaultLocale: 'pt-BR' }],
+      ['a non string locale', { locales: ['es-419', 1], defaultLocale: 'es-419' }],
+      ['no list', { defaultLocale: 'es-419' }]
+    ])('rejects %s', async (_label, body) => {
+      server.on(localesPath, ok(body));
+      await expect(messageApi.getLocales()).rejects.toBeInstanceOf(InvalidMessageResponseError);
+    });
   });
 
   it('treats a detail without a strong ETag as invalid', async () => {
