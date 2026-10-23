@@ -191,7 +191,7 @@ Every stored `approval/v2` fingerprint stops covering its binding, so open appro
 - The three texts are encoded after the parameter names, followed by the button count and each button's kind, label and target in the provider's order, and then the parameter values. An absent header or footer is written as the null field, which no text can produce. Because the canonical encoding changes, the scheme label moves from `approval/v3` to `approval/v4`, as the label rule requires.
 - A text or button change at Meta followed by a refresh changes the binding, so a send under an earlier approval fails step 5b with `APPROVAL_INVALIDATED`. For a template without `message_body`, where the body must equal the fixed text, the re-render already refuses it with `BODY_REJECTED`.
 
-Every stored `approval/v3` fingerprint stops covering its binding, so open approvals taken before this change are invalidated at send time: the operator cancels the message and submits it again. No migration rewrites them, because a fingerprint cannot be recomputed without the approver. Migration V30 also returns every approved template mapping to `UNVERIFIED`, so nothing is sendable until the mapping is refreshed, whichever scheme an approval used.
+Every stored `approval/v3` fingerprint stops covering its binding, so open approvals taken before this change are invalidated at send time: the operator cancels the message and submits it again. No migration rewrites them, because a fingerprint cannot be recomputed without the approver. Migration V31 also returns every approved template mapping to `UNVERIFIED`, so nothing is sendable until the mapping is refreshed, whichever scheme an approval used.
 
 ## Addendum (issue 134): integration endpoint preconditions and filter-level rejections
 

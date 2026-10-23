@@ -166,7 +166,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         return current ? rs.getString("approval_parameter_format") : null;
     }
 
-    /** The verified format and fixed content of current evidence, written together by this release (V30). */
+    /** The verified format and fixed content of current evidence, written together by this release (V31). */
     private record CurrentApproval(String format, TemplateContent content) {
     }
 

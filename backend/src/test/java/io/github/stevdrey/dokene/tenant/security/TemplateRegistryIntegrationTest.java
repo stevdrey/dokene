@@ -439,7 +439,7 @@ class TemplateRegistryIntegrationTest {
         }
     }
 
-    /** Issue 268, V30: the fixed text is returned and trusted only when written with the current evidence. */
+    /** Issue 268, V31: the fixed text is returned and trusted only when written with the current evidence. */
     @Test
     void theTemplateTextIsTrustedOnlyWithTheEvidenceThatReadIt() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
