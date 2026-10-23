@@ -1031,6 +1031,48 @@ class DraftSafetyValidatorTest {
         }
     }
 
+    /** A qualified currency must match its qualifier, a sign must match, and a range is not a sum (issue 268). */
+    @Test
+    void comparesQualifiersSignsRangesAndExactThirds() {
+        String australian = "Customer: John. Notes: paid five Australian dollars.";
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, you paid five Canadian dollars.", "en-US",
+                List.of()), australian)).hasValueSatisfying(violation -> assertThat(violation.code())
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, you paid 5 Australian dollars.", "en-US",
+                List.of()), australian)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1000000 de colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de un millón de colones.")).isEmpty();
+
+        String five = "Customer: John. Notes: paid five dollars.";
+        for (String body : List.of("Hi John, your balance is negative five dollars.",
+                "Hi John, your balance is minus 5 dollars.", "Hi John, your balance is -5 dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), five)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your balance is -5 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: balance negative five dollars.")).isEmpty();
+
+        String fifteen = "Customer: John. Notes: paid 15 dollars.";
+        for (String body : List.of("Hi John, it costs between five and ten dollars.",
+                "Hi John, it costs five and ten dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), fifteen)).as(body)
+                    .isPresent();
+        }
+        for (String body : List.of("Hi John, you paid one hundred and five dollars.",
+                "Hola Juan, pagaste ciento cinco dólares.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, body.startsWith("Hola") ? "es-419" : "en-US",
+                    List.of()), "Customer: John. Notes: paid 105 dollars and 105 dólares.")).as(body).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, pagaste treinta y cinco dólares.", "es-419",
+                List.of()), "Cliente: Juan. Notas: pagó 35 dólares.")).isEmpty();
+
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only two thirds of three billion dollars.",
+                "en-US", List.of()), "Customer: John. Notes: plan for 1999998000 dollars.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 2000000000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for two thirds of three billion dollars.")).isEmpty();
+    }
+
     /** Percentage points are percentages, compared by value rather than grounded by the word "percentage". */
     @Test
     void comparesPercentagePointsByValue() {

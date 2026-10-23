@@ -77,16 +77,25 @@ public final class DraftSafetyValidator {
     private static final String QUANTITY_JOINER = "(?:\\s*-\\s*|\\s+(?:(?:and|y|of|de|an|a)\\s+)*)";
     private static final Pattern QUANTITY_JOINER_PATTERN = Pattern.compile(QUANTITY_JOINER);
     private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])(?<!\\p{N}[.,])((?:an?\\s+)?" + QUANTITY_TOKEN + "(?:" + QUANTITY_JOINER + QUANTITY_TOKEN + ")*)"
+            "(?<![\\p{L}\\p{N}])(?<!\\p{N}[.,])(?:(?<sign>negative|minus|menos)\\s+)?(?<run>(?:an?\\s+)?" + QUANTITY_TOKEN
+                    + "(?:" + QUANTITY_JOINER + QUANTITY_TOKEN + ")*)"
                     + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + CURRENCY_QUALIFIERS + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento"
                     + "|percentage\\s+points?|percentage|per\\s*cent|percent|pct|"
                     + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     /**
      * Up to two words between a number and its currency ("10 Australian dollars", "1.000.000 de colones", "5 more
-     * euros"), dropped so the amount is read; any words, not a list of qualifiers, so an unknown one cannot hide it.
+     * euros"); any words, not a list of qualifiers, so an unknown one cannot hide the amount. They move after the
+     * currency as a bracketed qualifier ("10 dollars ⟦australian⟧"), so the amount is read and compared as usual and
+     * the qualified amount must also match ("five Canadian dollars" is not "five Australian dollars"). A bare "de"
+     * or "of" is only grammar and is dropped.
      */
     private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
-            "(?<=\\d)(?:\\s+(?!per\\s)\\p{L}+){1,2}?(?=\\s+(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+            "(?<=\\d)((?:\\s+(?!per\\s)\\p{L}+){1,2}?)\\s+((?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+    private static final Pattern QUALIFIED_AMOUNT_PATTERN = Pattern.compile(
+            "(?i)\\b" + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
+    /** A minus sign directly before an amount or percentage ("-5 dollars", "negative five dollars" once rewritten). */
+    private static final Pattern SIGNED_QUANTITY_PATTERN = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}])[-−]" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
@@ -365,6 +374,17 @@ public final class DraftSafetyValidator {
                             "Draft contains hallucinated percentage or discount amount not grounded in context: '" + draftPctMatcher.group().trim() + "'"));
                 }
             }
+            for (Pattern exact : List.of(QUALIFIED_AMOUNT_PATTERN, SIGNED_QUANTITY_PATTERN)) {
+                Matcher draftExact = exact.matcher(view);
+                while (draftExact.find()) {
+                    String key = quantityKey(draftExact.group());
+                    if (contextViews.stream().noneMatch(context -> extractTokens(exact, context).contains(key))) {
+                        return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
+                                "Draft contains a qualified or signed amount not grounded in context: '"
+                                        + draftExact.group().trim() + "'"));
+                    }
+                }
+            }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
                 if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
@@ -567,9 +587,17 @@ public final class DraftSafetyValidator {
     }
 
     private static String rewriteWrittenPercentages(String canonicalBase) {
-        String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase)
-                .replaceAll(match -> Matcher.quoteReplacement(writtenQuantity(match.group(1), match.group())));
-        digits = NUMBER_OF_CURRENCY_PATTERN.matcher(digits).replaceAll("");
+        String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase).replaceAll(match -> {
+            String value = writtenQuantity(match.group("run"), match.group("run"));
+            // A sign word is kept as a minus sign, so "negative five dollars" is not grounded by "five dollars".
+            return Matcher.quoteReplacement(match.group("sign") == null ? value : "-" + value.trim());
+        });
+        digits = NUMBER_OF_CURRENCY_PATTERN.matcher(digits).replaceAll(match -> {
+            String qualifier = WHITESPACE_RUN_PATTERN.splitAsStream(match.group(1).trim())
+                    .filter(word -> !word.equals("de") && !word.equals("of"))
+                    .collect(java.util.stream.Collectors.joining(" "));
+            return Matcher.quoteReplacement(" " + match.group(2) + (qualifier.isEmpty() ? "" : " ⟦" + qualifier + "⟧"));
+        });
         return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
     }
 
@@ -597,6 +625,46 @@ public final class DraftSafetyValidator {
                 || token.equals("a") || token.equals("an"))) {
             return written;
         }
+        // A range or list ("between five and ten", "five and ten") is several quantities, each read on its own; "and"
+        // or "y" joins one quantity only after a hundred or a scale ("one hundred and five"), before a fraction ("one
+        // and a half", "one and three quarters") or between Spanish tens and units ("treinta y cinco").
+        List<String> quantities = new ArrayList<>();
+        int start = 0;
+        for (int index = 1; index < tokens.length; index++) {
+            if (isAnd(joinerBefore.get(index)) && !joinsOneQuantity(tokens, index)) {
+                quantities.add(segmentQuantity(tokens, joinerBefore, start, index));
+                start = index;
+            }
+        }
+        quantities.add(segmentQuantity(tokens, joinerBefore, start, tokens.length));
+        return String.join(" and ", quantities);
+    }
+
+    private static boolean isAnd(String joiner) {
+        return joiner.matches("(?s).*\\b(?:and|y)\\b.*");
+    }
+
+    /** Whether the "and" before {@code tokens[index]} joins one quantity; a counted fraction ("and three quarters") does. */
+    private static boolean joinsOneQuantity(String[] tokens, int index) {
+        String before = tokens[index - 1];
+        String after = tokens[index];
+        if (FRACTION_WORDS.containsKey(after)
+                || index + 1 < tokens.length && FRACTION_WORDS.containsKey(tokens[index + 1])) {
+            return true;
+        }
+        Integer previous = NUMBER_WORDS.get(before);
+        Integer next = NUMBER_WORDS.get(after);
+        if (previous == null) {
+            return false;
+        }
+        boolean hundredOrScale = previous >= 100 && previous % 100 == 0 || before.equals("dozen");
+        boolean tensThenUnit = previous >= 20 && previous <= 90 && previous % 10 == 0 && next != null && next >= 1
+                && next <= 9;
+        return hundredOrScale || tensThenUnit;
+    }
+
+    /** The value of tokens {@code [start, end)} of a run, as one quantity. */
+    private static String segmentQuantity(String[] tokens, List<String> joinerBefore, int start, int end) {
         BigDecimal total = BigDecimal.ZERO;
         // The whole before an "and" ("one" in "one and three quarters"), kept apart so a counted fraction after it
         // multiplies only its own count; a scale applies to both again.
@@ -604,12 +672,12 @@ public final class DraftSafetyValidator {
         BigDecimal group = BigDecimal.ZERO;
         BigDecimal lastScale = null;
         BigDecimal fractionOf = null;
-        for (int index = 0; index < tokens.length; index++) {
+        for (int index = start; index < end; index++) {
             String token = tokens[index];
             if (token.isEmpty() || token.equals("a") || token.equals("an")) {
                 continue;
             }
-            boolean afterAnd = index < joinerBefore.size() && joinerBefore.get(index).matches("(?s).*\\b(?:and|y)\\b.*");
+            boolean afterAnd = index > start && index < joinerBefore.size() && isAnd(joinerBefore.get(index));
             if (afterAnd && !FRACTION_WORDS.containsKey(token)) {
                 whole = whole.add(group);
                 group = BigDecimal.ZERO;
@@ -628,7 +696,7 @@ public final class DraftSafetyValidator {
                     group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(fraction);
                 }
                 lastScale = null;
-                if (index + 1 < joinerBefore.size() && joinerBefore.get(index + 1).matches("(?s).*\\b(?:of|de)\\b.*")) {
+                if (index + 1 < end && joinerBefore.get(index + 1).matches("(?s).*\\b(?:of|de)\\b.*")) {
                     BigDecimal part = total.add(whole).add(group);
                     fractionOf = fractionOf == null ? part : fractionOf.multiply(part);
                     total = BigDecimal.ZERO;
@@ -671,7 +739,8 @@ public final class DraftSafetyValidator {
     private static Map<String, BigDecimal> fractionWords() {
         BigDecimal half = new BigDecimal("0.5");
         BigDecimal quarter = new BigDecimal("0.25");
-        BigDecimal third = BigDecimal.ONE.divide(BigDecimal.valueOf(3), 6, RoundingMode.HALF_EVEN);
+        // Thirds keep 34 significant digits, so a scale applied after them rounds back to the exact amount.
+        BigDecimal third = BigDecimal.ONE.divide(BigDecimal.valueOf(3), java.math.MathContext.DECIMAL128);
         return Map.ofEntries(Map.entry("half", half), Map.entry("halves", half), Map.entry("quarter", quarter),
                 Map.entry("quarters", quarter), Map.entry("third", third), Map.entry("thirds", third),
                 Map.entry("medio", half), Map.entry("media", half), Map.entry("cuarto", quarter),
