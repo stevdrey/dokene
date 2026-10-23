@@ -167,6 +167,30 @@ describe('MessageReview review mode', () => {
       );
       expect(preview).toHaveTextContent('Enlace: View catalog (https://example.test/catalog)');
       expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
+      // The customer-facing text is marked with the message language, so assistive technology reads it as English.
+      expect(screen.getByText(english.template!.renderedBody).closest('[lang]')).toHaveAttribute('lang', 'en-US');
+    });
+
+    it('keeps the footer line breaks and spacing the recipient reads', async () => {
+      const footer = 'Línea uno\n  Línea dos';
+      const detail = variant(details.pendingApproval, {
+        template: { ...details.pendingApproval.template!, footerText: footer }
+      });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      const preview = screen.getByRole('region', { name: 'Lo que recibirá el cliente' });
+      const footerNode = within(preview).getByText((_, node) => node?.textContent === footer);
+      expect(footerNode).toHaveClass('message-review__verbatim');
+    });
+
+    it('withholds Enviar when the approval no longer covers what would be sent and says why', async () => {
+      const detail = variant(details.approved, { template: null });
+      serve(detail);
+      renderReview(detail.messageId, 'OPERATOR');
+      await loaded(detail);
+      expect(buttonNames()).toEqual(['Cancelar', 'Corregir']);
+      expect(screen.getByText(/La aprobación ya no cubre lo que se enviaría/)).toBeInTheDocument();
     });
 
     it('offers no approval without a template preview and says why', async () => {
@@ -278,7 +302,11 @@ describe('MessageReview review mode', () => {
     ];
 
     it.each(matrix)('offers %s exactly %j to an operator', async (name, expected) => {
-      const detail = details[name];
+      // An approval still covers what would be sent while the backend shows its preview; this fixture predates it.
+      const detail =
+        name === 'approvedAfterTransientFailure'
+          ? variant(details[name], { template: details.approved.template })
+          : details[name];
       serve(detail);
       renderReview(detail.messageId, 'OPERATOR');
       await loaded(detail);

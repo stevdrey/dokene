@@ -106,7 +106,13 @@ export function controlsFor(detail: MessageResponse, poll: PollState): Controls 
         intents: detail.template ? ['approve', 'reject', 'cancel', 'correct'] : ['reject', 'cancel', 'correct']
       };
     case 'APPROVED':
-      return { kind: 'intents', intents: detail.contactRemoved ? ['cancel'] : ['send', 'cancel', 'correct'] };
+      if (detail.contactRemoved) return { kind: 'intents', intents: ['cancel'] };
+      // The backend shows an approved message's preview only while its approval still covers what would be sent;
+      // without one every send is refused (APPROVAL_INVALIDATED), so only correcting or cancelling is offered.
+      return {
+        kind: 'intents',
+        intents: detail.template ? ['send', 'cancel', 'correct'] : ['cancel', 'correct']
+      };
     case 'QUEUED':
     case 'SENT':
       return poll === 'active' ? { kind: 'none' } : { kind: 'refresh' };
@@ -171,6 +177,7 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   // A contact removed after the send is history; the stranded message warning only fits a message that can still be cancelled.
   const stranded = message.contactRemoved && (message.status === 'PENDING_APPROVAL' || message.status === 'APPROVED');
   const unapprovable = message.status === 'PENDING_APPROVAL' && !message.contactRemoved && !message.template;
+  const invalidated = message.status === 'APPROVED' && !message.contactRemoved && !message.template;
 
   return (
     <section className="message-review" aria-labelledby={headingId}>
@@ -190,6 +197,9 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
       )}
       {unapprovable && (
         <p className="message-review__notice message-review__notice--warning">{COPY.templateUnavailable}</p>
+      )}
+      {invalidated && (
+        <p className="message-review__notice message-review__notice--warning">{COPY.approvalInvalidated}</p>
       )}
 
       <dl className="message-review__facts">
@@ -217,7 +227,7 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
 
       {/* With a preview, the message text is shown inside it as the customer reads it, so it is not repeated. */}
       {message.template ? (
-        <TemplatePreview template={message.template} />
+        <TemplatePreview template={message.template} locale={message.locale} />
       ) : (
         <section className="message-review__section" aria-label="Texto del mensaje">
           <h3 className="message-review__section-heading">Texto del mensaje</h3>
@@ -250,27 +260,35 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   );
 }
 
-/** The template exactly as the recipient will see it: fixed text with every parameter filled in, and its buttons. */
-function TemplatePreview({ template }: { template: MessageTemplatePreview }) {
+/**
+ * The template exactly as the recipient will see it: fixed text with every parameter filled in, and its buttons. The
+ * customer-facing text carries the message locale as its language, so assistive technology reads an English template
+ * with English rules; the labels around it stay in the page's Spanish.
+ */
+function TemplatePreview({ template, locale }: { template: MessageTemplatePreview; locale: string }) {
   return (
     <section className="message-review__section" aria-label={COPY.templateHeading}>
       <h3 className="message-review__section-heading">{COPY.templateHeading}</h3>
       <p className="message-review__muted">
         Plantilla {template.providerTemplateName} · {template.language}
       </p>
-      {template.headerText && <p className="message-review__body">{template.headerText}</p>}
-      <p className="message-review__body">{template.renderedBody}</p>
-      {template.footerText && <p className="message-review__muted">{template.footerText}</p>}
-      {template.buttons.length > 0 && (
-        <ul aria-label="Botones de la plantilla">
-          {template.buttons.map((button, index) => (
-            <li key={index}>
-              {buttonTypeLabel(button.type)}: {button.text}
-              {button.value ? ` (${button.value})` : ''}
-            </li>
-          ))}
-        </ul>
-      )}
+      <div lang={locale} className="message-review__preview">
+        {template.headerText && <p className="message-review__body">{template.headerText}</p>}
+        <p className="message-review__body">{template.renderedBody}</p>
+        {template.footerText && (
+          <p className="message-review__muted message-review__verbatim">{template.footerText}</p>
+        )}
+        {template.buttons.length > 0 && (
+          <ul aria-label="Botones de la plantilla">
+            {template.buttons.map((button, index) => (
+              <li key={index}>
+                <span lang="es">{buttonTypeLabel(button.type)}:</span> {button.text}
+                {button.value ? ` (${button.value})` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }

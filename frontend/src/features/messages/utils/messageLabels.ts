@@ -139,6 +139,8 @@ export const COPY = {
   policyUpdatedDraft: 'El seguimiento se actualizó. El borrador mostrado corresponde a la situación actual.',
   templateUnavailable:
     'No hay una plantilla aprobada para este idioma y acción. No se puede aprobar; corrige o cancela el mensaje.',
+  approvalInvalidated:
+    'La aprobación ya no cubre lo que se enviaría: cambió la plantilla, el cliente o la integración. No se puede enviar; corrige o cancela el mensaje.',
   templateHeading: 'Lo que recibirá el cliente',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
