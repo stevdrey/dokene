@@ -93,6 +93,33 @@ describe('compose mode', () => {
     expect(server.count(submitPath(customerId))).toBe(1);
   });
 
+  it('submits in the language chosen, and changing it closes the confirmation (issue 268)', async () => {
+    renderCompose(composeMode({ origin: 'MANUAL' }));
+    const language = screen.getByLabelText('Idioma del mensaje');
+    expect(language).toHaveValue('es-419');
+    fireEvent.click(submitButton());
+    fireEvent.change(language, { target: { value: 'en-US' } });
+    // Changing the language closes the confirmation, like an edit of the text.
+    expect(screen.queryByRole('group', { name: 'Confirmar envío a aprobación' })).toBeNull();
+    server.on(submitPath(customerId), created({ ...pendingApproval, locale: 'en-US', origin: 'MANUAL', body: draft.body }));
+    fireEvent.click(submitButton());
+    confirmSubmit();
+    await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+    expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({ locale: 'en-US', origin: 'MANUAL' });
+  });
+
+  it('keeps an AI draft in the default language, since English drafts are not generated', () => {
+    renderCompose(composeMode({ origin: 'AI_DRAFT', initialLocale: 'en-US' }));
+    const language = screen.getByLabelText('Idioma del mensaje');
+    expect(language).toHaveValue('es-419');
+    expect(language).toBeDisabled();
+  });
+
+  it('starts from the language a correction carries', () => {
+    renderCompose(composeMode({ origin: 'MANUAL', initialLocale: 'en-US' }));
+    expect(screen.getByLabelText('Idioma del mensaje')).toHaveValue('en-US');
+  });
+
   it('shows the customer, the masked phone, the labels and the starting text with a counter', () => {
     renderCompose();
     expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toBeInTheDocument();
@@ -408,7 +435,12 @@ describe('Corregir', () => {
     // The confirm button that had focus left the page, so the draft heading takes it (in a passive effect, so wait).
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
 
-    const next = { ...pendingApproval, messageId: '7a5c0000-0000-4000-8000-0000000000ff', body: 'Texto corregido.' };
+    const next = {
+      ...pendingApproval,
+      messageId: '7a5c0000-0000-4000-8000-0000000000ff',
+      body: 'Texto corregido.',
+      template: null
+    };
     server.on(submitPath(customerId), created(next)).on(eventsPath(next.messageId), eventsReply(next));
     type('Texto corregido.');
     fireEvent.click(submitButton());
@@ -416,7 +448,12 @@ describe('Corregir', () => {
     expect(await screen.findByText('Texto corregido.', { selector: 'p' })).toBeInTheDocument();
     const call = server.last(submitPath(customerId));
     expect(call.headers['If-Match']).toBe(`"${cancelledCopy.sourcePolicyVersion}"`);
-    expect(JSON.parse(call.body!)).toMatchObject({ contactId: cancelledCopy.contactId, body: 'Texto corregido.', origin: cancelledCopy.origin });
+    expect(JSON.parse(call.body!)).toMatchObject({
+      contactId: cancelledCopy.contactId,
+      body: 'Texto corregido.',
+      origin: cancelledCopy.origin,
+      locale: cancelledCopy.locale
+    });
   });
 
   it('shows the correction stale sentence when the copied policy version is stale', async () => {

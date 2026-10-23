@@ -7,10 +7,23 @@ import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
 import { countCodePoints } from '@/features/followups/utils/textLength';
 import { DRAFT_BODY_MAX_CODE_POINTS, type SemanticAction, type SemanticTemplateIntent } from '@/features/followups/types';
 import { messageApi, type VersionedMessage } from '../api/messageApi';
-import type { MessageOrigin, SubmitMessageRequest } from '../types';
+import {
+  DEFAULT_MESSAGE_LOCALE,
+  MESSAGE_LOCALES,
+  type MessageLocale,
+  type MessageOrigin,
+  type SubmitMessageRequest
+} from '../types';
 import { maskPhone } from '../utils/format';
 import { classifyFailure } from '../utils/messageErrors';
-import { COPY, RATE_LIMIT_SECONDS, errorCodeSentence, originLabel, rateLimitedSentence } from '../utils/messageLabels';
+import {
+  COPY,
+  RATE_LIMIT_SECONDS,
+  errorCodeSentence,
+  localeLabel,
+  originLabel,
+  rateLimitedSentence
+} from '../utils/messageLabels';
 import { canActOnMessages } from '../utils/permissions';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
 
@@ -24,6 +37,8 @@ export interface ComposeInput {
   origin: MessageOrigin;
   policyVersion: number;
   initialBody: string;
+  /** The language to start from; a correction keeps the cancelled message's. Defaults to `es-419`. */
+  initialLocale?: MessageLocale;
 }
 
 interface MessageComposeProps {
@@ -48,16 +63,20 @@ type Phase =
 interface Attempt {
   key: string;
   body: string;
+  locale: MessageLocale;
   policyVersion: number;
 }
-
-const LOCALE = 'es-419';
 
 export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPolicyStale, announce }: MessageComposeProps) {
   const headingId = useId();
   const textId = useId();
   const counterId = useId();
+  const localeId = useId();
   const [text, setText] = useState(input.initialBody);
+  // AI drafts are generated in the default language only (issue 268), so only a manual message may change it.
+  const [locale, setLocale] = useState<MessageLocale>(
+    input.origin === 'AI_DRAFT' ? DEFAULT_MESSAGE_LOCALE : (input.initialLocale ?? DEFAULT_MESSAGE_LOCALE)
+  );
   const [phase, setPhase] = useState<Phase>({ kind: 'editing' });
   const [stale, setStale] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
@@ -130,9 +149,9 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   const openConfirm = (opener: HTMLElement) => {
     if (!canSubmit) return;
     focus.remember(opener);
-    // The key follows the text and the policy version: unchanged after a refusal reuses it, any edit rotates it.
-    if (!attempt || attempt.body !== text || attempt.policyVersion !== input.policyVersion) {
-      setAttempt({ key: crypto.randomUUID(), body: text, policyVersion: input.policyVersion });
+    // The key follows the text, language and policy version: unchanged after a refusal reuses it, any edit rotates it.
+    if (!attempt || attempt.body !== text || attempt.locale !== locale || attempt.policyVersion !== input.policyVersion) {
+      setAttempt({ key: crypto.randomUUID(), body: text, locale, policyVersion: input.policyVersion });
     }
     setPhase({ kind: 'confirming' });
   };
@@ -152,7 +171,7 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
       action: input.action,
       templateIntent: input.templateIntent,
       body: current.body,
-      locale: LOCALE,
+      locale: current.locale,
       origin: input.origin
     };
     try {
@@ -229,6 +248,28 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
           <dd>{originLabel(input.origin)}</dd>
         </div>
       </dl>
+
+      <div className="message-field">
+        <label htmlFor={localeId} className="message-field__label">
+          Idioma del mensaje
+        </label>
+        <select
+          id={localeId}
+          className="message-field__input"
+          value={locale}
+          disabled={!canAct || busy || phase.kind === 'uncertain' || input.origin === 'AI_DRAFT'}
+          onChange={(event) => {
+            setLocale(event.target.value as MessageLocale);
+            if (phase.kind === 'confirming' || phase.kind === 'refused') setPhase({ kind: 'editing' });
+          }}
+        >
+          {MESSAGE_LOCALES.map((option) => (
+            <option key={option} value={option}>
+              {localeLabel(option)}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="message-field">
         <label htmlFor={textId} className="message-field__label">

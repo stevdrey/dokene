@@ -131,12 +131,53 @@ describe('MessageReview review mode', () => {
 
     it('renders markup in the body as literal text and adds no element', async () => {
       const markup = '<img src=x onerror=alert(1)>';
-      const detail = variant(details.pendingApproval, { body: markup });
+      const detail = variant(details.pendingApproval, {
+        body: markup,
+        template: { ...details.pendingApproval.template!, headerText: markup, renderedBody: markup }
+      });
       serve(detail);
       renderReview(detail.messageId);
       await loaded(detail);
-      expect(screen.getByText(markup)).toBeInTheDocument();
+      expect(screen.getAllByText(markup)).toHaveLength(2);
       expect(document.querySelector('img')).toBeNull();
+    });
+
+    it('shows the language and the template exactly as the customer will receive it (issue 268)', async () => {
+      const english = details.englishHelloWorldPendingApproval;
+      const detail = variant(english, {
+        template: {
+          ...english.template!,
+          buttons: [
+            { type: 'QUICK_REPLY', text: 'Yes, thanks', value: null },
+            { type: 'URL', text: 'View catalog', value: 'https://example.test/catalog' }
+          ]
+        }
+      });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      expect(screen.getByText('Inglés (EE. UU.)')).toBeInTheDocument();
+      const preview = screen.getByRole('region', { name: 'Lo que recibirá el cliente' });
+      expect(preview).toHaveTextContent('Plantilla hello_world · en_US');
+      expect(preview).toHaveTextContent(english.template!.headerText!);
+      expect(preview).toHaveTextContent(english.template!.renderedBody);
+      expect(preview).toHaveTextContent(english.template!.footerText!);
+      expect(within(preview).getByRole('list', { name: 'Botones de la plantilla' })).toHaveTextContent(
+        'Respuesta rápida: Yes, thanks'
+      );
+      expect(preview).toHaveTextContent('Enlace: View catalog (https://example.test/catalog)');
+      expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
+    });
+
+    it('offers no approval without a template preview and says why', async () => {
+      const detail = variant(details.pendingApproval, { template: null });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      expect(screen.queryByRole('button', { name: 'Aprobar' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeInTheDocument();
+      expect(screen.getByText(/No hay una plantilla aprobada para este idioma y acción/)).toBeInTheDocument();
+      expect(screen.getByText(detail.body)).toBeInTheDocument();
     });
 
     it('keeps the stranded contact warning off a message that already went out', async () => {

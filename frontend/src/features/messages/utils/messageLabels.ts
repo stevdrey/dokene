@@ -137,6 +137,9 @@ export const COPY = {
   unchanged: 'Sin cambios desde la última lectura.',
   policyUpdatedTextKept: 'El seguimiento se actualizó. Tu texto se conserva; revísalo antes de enviarlo a aprobación.',
   policyUpdatedDraft: 'El seguimiento se actualizó. El borrador mostrado corresponde a la situación actual.',
+  templateUnavailable:
+    'No hay una plantilla aprobada para este idioma y acción. No se puede aprobar; corrige o cancela el mensaje.',
+  templateHeading: 'Lo que recibirá el cliente',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;
@@ -163,6 +166,20 @@ export function eventTypeLabel(type: MessageEventType): string {
 
 export function actorKindLabel(actorKind: MessageActorKind): string {
   return ACTOR_KIND_LABELS[actorKind] ?? actorKind;
+}
+
+/** The outbound language, in the operator's words; an unknown value renders raw. */
+export function localeLabel(locale: string | undefined): string {
+  if (locale === 'es-419') return 'Español (Latinoamérica)';
+  if (locale === 'en-US') return 'Inglés (EE. UU.)';
+  return locale ?? 'Sin dato';
+}
+
+export function buttonTypeLabel(type: string): string {
+  if (type === 'QUICK_REPLY') return 'Respuesta rápida';
+  if (type === 'PHONE_NUMBER') return 'Llamar';
+  if (type === 'URL') return 'Enlace';
+  return type;
 }
 
 export function originLabel(origin: string): string {

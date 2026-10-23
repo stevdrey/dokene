@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react';
 import { httpClient } from '@/shared/api/httpClient';
 import type { VersionedMessage } from '../api/messageApi';
-import type { MessageResponse } from '../types';
+import { MESSAGE_LOCALES, type MessageLocale, type MessageResponse } from '../types';
 import { submittedSentence } from '../utils/messageLabels';
 import { MessageCompose, type ComposeInput } from './MessageCompose';
 import { MessageDetail } from './MessageDetail';
@@ -70,7 +70,10 @@ function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale 
         templateIntent: cancelled.templateIntent,
         origin: cancelled.origin,
         policyVersion: cancelled.sourcePolicyVersion,
-        initialBody: cancelled.body
+        initialBody: cancelled.body,
+        initialLocale: (MESSAGE_LOCALES as readonly string[]).includes(cancelled.locale)
+          ? (cancelled.locale as MessageLocale)
+          : undefined
       }
     });
   }, []);

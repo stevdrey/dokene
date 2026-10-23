@@ -9,13 +9,15 @@ import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
 import type { VersionedMessage } from '../api/messageApi';
 import { useMessageDetail, type PollState } from '../hooks/useMessageDetail';
 import { useReviewActions, type ConfirmState, type ReviewActions, type ReviewIntent } from '../hooks/useReviewActions';
-import type { MessageResponse } from '../types';
+import type { MessageResponse, MessageTemplatePreview } from '../types';
 import { formatDateTime, maskPhone } from '../utils/format';
 import {
   COPY,
   attemptOutcomeLabel,
+  buttonTypeLabel,
   changedSentence,
   failureCategoryLabel,
+  localeLabel,
   originLabel,
   revisionLabel,
   statusBadgeVariant,
@@ -97,9 +99,11 @@ type Controls = { kind: 'intents'; intents: ReviewIntent[] } | { kind: 'refresh'
 export function controlsFor(detail: MessageResponse, poll: PollState): Controls {
   switch (detail.status) {
     case 'PENDING_APPROVAL':
+      // Approving names the template preview it shows (issue 268), so without a preview there is nothing to approve.
+      if (detail.contactRemoved) return { kind: 'intents', intents: ['reject', 'cancel'] };
       return {
         kind: 'intents',
-        intents: detail.contactRemoved ? ['reject', 'cancel'] : ['approve', 'reject', 'cancel', 'correct']
+        intents: detail.template ? ['approve', 'reject', 'cancel', 'correct'] : ['reject', 'cancel', 'correct']
       };
     case 'APPROVED':
       return { kind: 'intents', intents: detail.contactRemoved ? ['cancel'] : ['send', 'cancel', 'correct'] };
@@ -166,6 +170,7 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   const frozen = message.status === 'SENDING' && message.outcomeUnknown;
   // A contact removed after the send is history; the stranded message warning only fits a message that can still be cancelled.
   const stranded = message.contactRemoved && (message.status === 'PENDING_APPROVAL' || message.status === 'APPROVED');
+  const unapprovable = message.status === 'PENDING_APPROVAL' && !message.contactRemoved && !message.template;
 
   return (
     <section className="message-review" aria-labelledby={headingId}>
@@ -182,6 +187,9 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
       {frozen && <p className="message-review__notice message-review__notice--warning">{COPY.frozen}</p>}
       {stranded && (
         <p className="message-review__notice message-review__notice--warning">{COPY.contactRemoved}</p>
+      )}
+      {unapprovable && (
+        <p className="message-review__notice message-review__notice--warning">{COPY.templateUnavailable}</p>
       )}
 
       <dl className="message-review__facts">
@@ -201,12 +209,21 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
           <dt>Origen</dt>
           <dd>{originLabel(message.origin)}</dd>
         </div>
+        <div>
+          <dt>Idioma</dt>
+          <dd>{localeLabel(message.locale)}</dd>
+        </div>
       </dl>
 
-      <section className="message-review__section" aria-label="Texto del mensaje">
-        <h3 className="message-review__section-heading">Texto del mensaje</h3>
-        <p className="message-review__body">{message.body}</p>
-      </section>
+      {/* With a preview, the message text is shown inside it as the customer reads it, so it is not repeated. */}
+      {message.template ? (
+        <TemplatePreview template={message.template} />
+      ) : (
+        <section className="message-review__section" aria-label="Texto del mensaje">
+          <h3 className="message-review__section-heading">Texto del mensaje</h3>
+          <p className="message-review__body">{message.body}</p>
+        </section>
+      )}
 
       {lastAttempt && (
         <section className="message-review__card" aria-label="Resultado del envío">
@@ -229,6 +246,31 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
       />
 
       <EventTimeline headingId={timelineHeadingId} events={detail.events} onRetry={detail.loadEvents} />
+    </section>
+  );
+}
+
+/** The template exactly as the recipient will see it: fixed text with every parameter filled in, and its buttons. */
+function TemplatePreview({ template }: { template: MessageTemplatePreview }) {
+  return (
+    <section className="message-review__section" aria-label={COPY.templateHeading}>
+      <h3 className="message-review__section-heading">{COPY.templateHeading}</h3>
+      <p className="message-review__muted">
+        Plantilla {template.providerTemplateName} · {template.language}
+      </p>
+      {template.headerText && <p className="message-review__body">{template.headerText}</p>}
+      <p className="message-review__body">{template.renderedBody}</p>
+      {template.footerText && <p className="message-review__muted">{template.footerText}</p>}
+      {template.buttons.length > 0 && (
+        <ul aria-label="Botones de la plantilla">
+          {template.buttons.map((button, index) => (
+            <li key={index}>
+              {buttonTypeLabel(button.type)}: {button.text}
+              {button.value ? ` (${button.value})` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

@@ -324,9 +324,8 @@ describe('review actions', () => {
     it('never sends an approval without a reviewed preview, since it would carry no revision', async () => {
       const unpreviewed = variant(pendingApproval, { template: null });
       await openMessage(unpreviewed);
-      click('Aprobar');
-      click('Confirmar aprobación', group('Confirmar aprobación'));
-      expect(await screen.findByText('No se pudo completar la acción.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Aprobar' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeInTheDocument();
       expect(server.count(approvalsPath(unpreviewed.messageId))).toBe(0);
     });
 
