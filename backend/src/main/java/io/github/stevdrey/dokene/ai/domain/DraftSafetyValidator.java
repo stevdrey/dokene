@@ -54,7 +54,7 @@ public final class DraftSafetyValidator {
      * {@code %} in every locale.
      */
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
-            "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
+            "(?<=\\d)" + SP + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento|percentage\\s+points?|percentage|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     /**
      * A written quantity before a percentage marker or a currency name: the whole run of number words, fractions and
      * digits ("five percent", "ten dollars", "veinticinco por ciento", "two hundred and fifty euros", "one and a half
@@ -76,7 +76,8 @@ public final class DraftSafetyValidator {
     private static final Pattern QUANTITY_JOINER_PATTERN = Pattern.compile(QUANTITY_JOINER);
     private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
             "(?<![\\p{L}\\p{N}])(?<!\\p{N}[.,])((?:an?\\s+)?" + QUANTITY_TOKEN + "(?:" + QUANTITY_JOINER + QUANTITY_TOKEN + ")*)"
-                    + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct|"
+                    + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento"
+                    + "|percentage\\s+points?|percentage|per\\s*cent|percent|pct|"
                     + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     /** The "de" or "of" between a number and its currency ("1.000.000 de colones"), dropped so the amount is read. */
     private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
@@ -591,6 +592,9 @@ public final class DraftSafetyValidator {
             return written;
         }
         BigDecimal total = BigDecimal.ZERO;
+        // The whole before an "and" ("one" in "one and three quarters"), kept apart so a counted fraction after it
+        // multiplies only its own count; a scale applies to both again.
+        BigDecimal whole = BigDecimal.ZERO;
         BigDecimal group = BigDecimal.ZERO;
         BigDecimal lastScale = null;
         for (int index = 0; index < tokens.length; index++) {
@@ -598,14 +602,19 @@ public final class DraftSafetyValidator {
             if (token.isEmpty() || token.equals("a") || token.equals("an")) {
                 continue;
             }
+            boolean afterAnd = index < additive.size() && additive.get(index);
+            if (afterAnd && !FRACTION_WORDS.containsKey(token)) {
+                whole = whole.add(group);
+                group = BigDecimal.ZERO;
+            }
             if (Character.isDigit(token.charAt(0))) {
                 group = group.add(digitQuantity(token));
                 lastScale = null;
             } else if (FRACTION_WORDS.containsKey(token)) {
                 BigDecimal fraction = FRACTION_WORDS.get(token);
-                if (lastScale != null && group.signum() == 0) {
+                if (lastScale != null && group.signum() == 0 && whole.signum() == 0) {
                     total = total.add(lastScale.multiply(fraction));
-                } else if (index < additive.size() && additive.get(index)) {
+                } else if (afterAnd) {
                     group = group.add(fraction);
                 } else {
                     // A counted fraction: "one third", "two thirds", "a half" multiply the count before them.
@@ -615,6 +624,8 @@ public final class DraftSafetyValidator {
             } else {
                 BigDecimal value = BigDecimal.valueOf(NUMBER_WORDS.get(token));
                 if (value.compareTo(BigDecimal.valueOf(1_000)) >= 0) {
+                    group = whole.add(group);
+                    whole = BigDecimal.ZERO;
                     total = group.signum() == 0 && total.signum() > 0 ? total.multiply(value)
                             : total.add((group.signum() == 0 ? BigDecimal.ONE : group).multiply(value));
                     group = BigDecimal.ZERO;
@@ -628,7 +639,7 @@ public final class DraftSafetyValidator {
                 }
             }
         }
-        return total.add(group).setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
+        return total.add(whole).add(group).setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
     }
 
     /** "1,5" and "1.5" are decimals; three-digit groups ("1,500", "1.000.000") are thousands. */
