@@ -223,6 +223,11 @@ public class OutboundMessageCommandService {
             ApprovalFingerprint.SenderRevision sender = safety.configuredSender(context.tenantId())
                     .orElseThrow(() -> refuse(MessagingErrorCode.INTEGRATION_DISABLED));
             ApprovalFingerprint.Binding bound = bindings.bind(message, customer, sender);
+            // A client older than issue 268 approves without a revision (expand first); it never showed a preview, so
+            // it may still approve a default-locale message as before, but nothing in another locale.
+            if (command.templateRevision() == null && !MessagingLocales.DEFAULT.equals(message.locale())) {
+                throw refuse(MessagingErrorCode.INVALID_INPUT);
+            }
             // The reviewer approved the template preview it was shown; a template changed since then is stale.
             if (command.templateRevision() != null && !command.templateRevision()
                     .equals(ApprovalFingerprint.reviewRevision(bound.template(), bound.parameterValues()))) {

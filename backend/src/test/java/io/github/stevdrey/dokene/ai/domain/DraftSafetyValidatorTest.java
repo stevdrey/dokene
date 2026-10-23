@@ -1072,6 +1072,25 @@ class DraftSafetyValidatorTest {
         }
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is one million dollars.", "en-US",
                 List.of()), oneMillion)).isEmpty();
+        // A whole number and a fraction are one quantity, before or after the scale.
+        String halfMillion = "Customer: John. Notes: plan for half a million dollars.";
+        for (String body : List.of("Hi John, only one and a half million dollars.",
+                "Hi John, only a million and a half dollars.", "Hi John, only two and a quarter million dollars.",
+                "Hi John,one and a half million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), halfMillion)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        for (String body : List.of("Hi John, your plan is 1500000 dollars.",
+                "Hi John, your plan is one and a half million dollars.",
+                "Hi John, your plan is a million and a half dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()),
+                    "Customer: John. Notes: plan for 1.5 million dollars.")).as(body).isEmpty();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1500000 colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de un millón y medio de colones.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only five and a half dollars.", "en-US",
+                List.of()), "Customer: John. Notes: paid 5.5 dollars.")).isEmpty();
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
                 List.of()), "Customer: John. Notes: plan for half a million dollars.")).isEmpty();
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 1500000 dollars.", "en-US",
@@ -1095,6 +1114,30 @@ class DraftSafetyValidatorTest {
         }
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your 10 yen voucher is noted.", "en-US",
                 List.of()), "Customer: John. Notes: has a 10 yen voucher.")).isEmpty();
+    }
+
+    /** An amount taken off is a discount, grounded only by the same discount, never by the amount alone. */
+    @Test
+    void treatsAnAmountOffAsADiscount() {
+        String purchase = "Customer: John. Purchases: Roasted Coffee for ten dollars.";
+        for (String body : List.of("Hi John, get ten dollars off your next order.",
+                "Hi John, get 10 dollars off your next order.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), purchase)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_OFFER_TERM));
+        }
+        // Spelled differently from the context, the amount itself is already ungrounded.
+        for (String body : List.of("Hi John, get $10 off your next order.", "Hi John, get 10 bucks off your order.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), purchase)).as(body)
+                    .isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, take 10% off your next order.", "en-US",
+                List.of()), "Customer: John. Notes: bought with a 10% discount.")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your ten dollars off is still there.", "en-US",
+                List.of()), "Customer: John. Notes: has ten dollars off the next order.")).isEmpty();
+        // "off" in another sense, after the grounded amount or elsewhere, is not a discount.
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your coffee for ten dollars was dropped off "
+                + "today.", "en-US", List.of()), purchase)).isEmpty();
     }
 
     /** A non-offer phrase in the context grounds no offer word, as in the draft (issue 268). */

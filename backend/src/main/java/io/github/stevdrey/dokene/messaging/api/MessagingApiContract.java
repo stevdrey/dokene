@@ -55,9 +55,9 @@ public final class MessagingApiContract {
         public ApprovalRequest {
             Objects.requireNonNull(decision, "decision is required");
             requireNoteWithinLimit(note);
-            if (decision == ApprovalDecision.APPROVE) {
-                Objects.requireNonNull(templateRevision, "templateRevision is required to approve");
-            } else if (templateRevision != null) {
+            // Expand first: an approval without a revision, from a client older than issue 268, stays valid here; the
+            // service accepts it only for the default locale, which that client could already approve.
+            if (decision == ApprovalDecision.REJECT && templateRevision != null) {
                 // A rejection binds no preview; accepting one would let a retry change it under the same key.
                 throw new IllegalArgumentException("templateRevision is only accepted to approve");
             }

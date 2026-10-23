@@ -56,32 +56,26 @@ public final class DraftSafetyValidator {
     private static final Pattern PERCENT_WORD_PATTERN = Pattern.compile(
             "(?<=\\d)" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct)(?:\\.(?!\\p{L}))?(?![\\p{L}\\p{N}])(?!\\.\\p{L})(?!\\s*[\\[({]\\s*(?:\\.|dot|[。｡])\\s*[\\])}])(?![。｡]\\p{L})");
     /**
-     * Cardinals written out before a percentage marker or a currency name ("five percent", "ten dollars",
-     * "veinticinco por ciento", "two hundred and fifty euros", "one million dollars"), in English and Spanish, up to
-     * billions. They are rewritten to digits first, so the marker canonicalises to "%" and both are compared
-     * token-exact like "5%" or "10 dollars" (issue 268): grounding the generic word "percent" or "dollars" alone
-     * would let "ten" pass against a context with "five". A "de" or "of" before the currency ("un millón de
-     * colones") is dropped with the words.
+     * A written quantity before a percentage marker or a currency name: the whole run of number words, fractions and
+     * digits ("five percent", "ten dollars", "veinticinco por ciento", "two hundred and fifty euros", "one and a half
+     * million dollars", "a million and a half", "1.5 million", "un millón y medio de colones"), in English and
+     * Spanish, up to billions. The run is rewritten to one number first, so the marker canonicalises to "%" and both
+     * are compared token-exact like "5%" or "10 dollars" (issue 268): grounding the generic word "percent" or
+     * "dollars" alone would let "ten" pass against a context with "five", and reading only part of the run would let
+     * "one and a half million" pass as "half million". A "de" or "of" before the marker is dropped with the run.
      */
     private static final Map<String, Integer> NUMBER_WORDS = numberWords();
-    private static final String NUMBER_WORD = NUMBER_WORDS.keySet().stream()
+    private static final Map<String, BigDecimal> FRACTION_WORDS = fractionWords();
+    private static final String QUANTITY_WORD = Stream.concat(NUMBER_WORDS.keySet().stream(),
+                    FRACTION_WORDS.keySet().stream())
             .sorted(java.util.Comparator.comparingInt(String::length).reversed())
             .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
-    private static final String NUMBER_WORD_SEPARATOR = "(?:-|\\s+(?:and\\s+|y\\s+)?)";
-    /**
-     * A fraction or a digit amount scaling the words that follow ("half a million", "a quarter of a million",
-     * "1.5 million", "medio millón"), read with them as one quantity so the scaled words are never compared alone.
-     */
-    private static final Map<String, BigDecimal> FRACTION_WORDS = Map.of("half", new BigDecimal("0.5"), "quarter",
-            new BigDecimal("0.25"), "three quarters", new BigDecimal("0.75"), "third", BigDecimal.ONE.divide(
-                    BigDecimal.valueOf(3), 6, RoundingMode.HALF_EVEN), "two thirds", BigDecimal.valueOf(2).divide(
-                    BigDecimal.valueOf(3), 6, RoundingMode.HALF_EVEN), "medio", new BigDecimal("0.5"), "media",
-            new BigDecimal("0.5"), "cuarto", new BigDecimal("0.25"));
-    private static final String MULTIPLIER = "(?:(\\d+(?:[.,]\\d+)?)|(?:(?:an?|un|una|one)\\s+)?(three\\s+quarters"
-            + "|two\\s+thirds|half|quarter|third|medio|media|cuarto))\\s+(?:(?:of|de)\\s+)?";
+    private static final String QUANTITY_TOKEN = "(?:\\d+(?:[.,]\\d+)*|" + QUANTITY_WORD + ")";
+    /** Joins the tokens of one quantity: hyphens, and "and", "y", "of", "de", "a" or "an" between them. */
+    private static final String QUANTITY_JOINER = "(?:\\s*-\\s*|\\s+(?:(?:and|y|of|de|an|a)\\s+)*)";
+    private static final Pattern QUANTITY_JOINER_PATTERN = Pattern.compile(QUANTITY_JOINER);
     private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])(?:" + MULTIPLIER + ")?((?:an?\\s+)?" + NUMBER_WORD + "(?:" + NUMBER_WORD_SEPARATOR
-                    + NUMBER_WORD + ")*)"
+            "(?<![\\p{L}\\p{N}])(?<!\\p{N}[.,])((?:an?\\s+)?" + QUANTITY_TOKEN + "(?:" + QUANTITY_JOINER + QUANTITY_TOKEN + ")*)"
                     + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + "(?:por\\s*ciento|porciento|per\\s*cent|percent|pct|"
                     + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     /** The "de" or "of" between a number and its currency ("1.000.000 de colones"), dropped so the amount is read. */
@@ -151,6 +145,14 @@ public final class DraftSafetyValidator {
                     + "|cyber monday|price|prices|pricing|deal|deals|bargain|bargains|save|saves|saving|savings"
                     + "|percent|per cent|percentage|half price)\\b");
     /**
+     * An amount or percentage taken off ("10 dollars off", "$10 off", "10% off", "ten bucks off" once written numbers
+     * are digits). The whole construction is the offer term, so it is grounded only by the same discount in the
+     * context, never by the amount alone (a purchase "for ten dollars") or by "off" in another sense.
+     */
+    private static final Pattern ENGLISH_AMOUNT_OFF_PATTERN = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}])(?:" + CURRENCY_SYMBOL_CLASS + SP + ")?" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES
+                    + "|" + CURRENCY_WORDS + ")(?!\\p{L}))?" + SP + "off(?!\\p{L})");
+    /**
      * Ordinary English phrases that use an offer word without making an offer ("feel free to ask", "save your
      * receipt", "we will deal with it"). They are blanked before the English vocabulary is matched, so a plain
      * follow-up is not refused; the same word in any other construction still is, so "deal with" is only the verb
@@ -174,7 +176,8 @@ public final class DraftSafetyValidator {
         static final Vocabulary SPANISH = new Vocabulary(OFFER_WORD_PATTERNS, List.of(PRICE_TERM_NUMBER_PATTERN),
                 Optional.empty());
         static final Vocabulary ENGLISH = new Vocabulary(
-                Stream.concat(OFFER_WORD_PATTERNS.stream(), Stream.of(ENGLISH_OFFER_WORD_PATTERN)).toList(),
+                Stream.concat(OFFER_WORD_PATTERNS.stream(), Stream.of(ENGLISH_OFFER_WORD_PATTERN,
+                        ENGLISH_AMOUNT_OFF_PATTERN)).toList(),
                 List.of(PRICE_TERM_NUMBER_PATTERN, ENGLISH_PRICE_TERM_NUMBER_PATTERN),
                 Optional.of(ENGLISH_NON_OFFER_PATTERN));
 
@@ -559,49 +562,81 @@ public final class DraftSafetyValidator {
 
     private static String rewriteWrittenPercentages(String canonicalBase) {
         String digits = WRITTEN_QUANTITY_NUMBER_PATTERN.matcher(canonicalBase)
-                .replaceAll(match -> writtenQuantity(match.group(1), match.group(2), match.group(3)));
+                .replaceAll(match -> Matcher.quoteReplacement(writtenQuantity(match.group(1), match.group())));
         digits = NUMBER_OF_CURRENCY_PATTERN.matcher(digits).replaceAll("");
         return PERCENT_WORD_PATTERN.matcher(digits).replaceAll("%");
     }
 
-    /** The words' value, scaled by a leading digit amount or fraction when there is one. */
-    private static String writtenQuantity(String digits, String fraction, String words) {
-        BigDecimal value = BigDecimal.valueOf(writtenNumber(words));
-        if (digits != null) {
-            // "1,5 millones" and "1.5 million" are decimals; a three-digit group ("1,500 million") is a thousands one.
-            String[] parts = digits.split("[.,]");
-            value = value.multiply(new BigDecimal(parts.length == 2 && parts[1].length() != 3
-                    ? parts[0] + "." + parts[1] : String.join("", parts)));
-        } else if (fraction != null) {
-            value = value.multiply(FRACTION_WORDS.get(fraction.replaceAll("\\s+", " ")));
-        }
-        return value.setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
-    }
-
     /**
-     * The value of a run of number words: units, teens and tens add; "hundred" and "dozen" multiply what precedes
-     * them (one when nothing does), Spanish hundreds add; a scale (thousand, million, billion) closes a group, or
-     * multiplies the total when it directly follows another scale ("mil millones"). A run that is not a well-formed
-     * cardinal still yields one number, so a quantity is never left as a bare currency word.
+     * The value of one quantity run, or the run as written when it has no word (plain digits keep their own
+     * formatting and grouping). Units, teens, tens and digits add; "hundred" and "dozen" multiply what precedes them;
+     * a scale (thousand, million, billion) closes a group, or multiplies the total when it directly follows another
+     * scale ("mil millones"). A singular fraction adds ("one and a half"), a plural one multiplies ("two thirds"), and
+     * a fraction right after a scale is a fraction of it ("a million and a half"). A run that is not a well-formed
+     * cardinal still yields one number, the same in the text and the context, so a quantity is never left as a bare
+     * currency word.
      */
-    private static long writtenNumber(String phrase) {
-        long total = 0;
-        long group = 0;
-        for (String word : phrase.trim().split(NUMBER_WORD_SEPARATOR)) {
-            if (word.equals("a") || word.equals("an")) {
+    private static String writtenQuantity(String run, String written) {
+        String[] tokens = QUANTITY_JOINER_PATTERN.split(run.trim());
+        if (java.util.Arrays.stream(tokens).allMatch(token -> token.isEmpty() || Character.isDigit(token.charAt(0))
+                || token.equals("a") || token.equals("an"))) {
+            return written;
+        }
+        BigDecimal total = BigDecimal.ZERO;
+        BigDecimal group = BigDecimal.ZERO;
+        BigDecimal lastScale = null;
+        for (String token : tokens) {
+            if (token.isEmpty() || token.equals("a") || token.equals("an")) {
                 continue;
             }
-            long value = NUMBER_WORDS.get(word);
-            if (value >= 1_000) {
-                total = group == 0 && total > 0 ? total * value : total + Math.max(group, 1) * value;
-                group = 0;
-            } else if (word.startsWith("hundred") || word.equals("dozen")) {
-                group = Math.max(group, 1) * value;
+            if (Character.isDigit(token.charAt(0))) {
+                group = group.add(digitQuantity(token));
+                lastScale = null;
+            } else if (FRACTION_WORDS.containsKey(token)) {
+                BigDecimal fraction = FRACTION_WORDS.get(token);
+                if (lastScale != null && group.signum() == 0) {
+                    total = total.add(lastScale.multiply(fraction));
+                } else if (token.endsWith("s")) {
+                    group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(fraction);
+                } else {
+                    group = group.add(fraction);
+                }
+                lastScale = null;
             } else {
-                group += value;
+                BigDecimal value = BigDecimal.valueOf(NUMBER_WORDS.get(token));
+                if (value.compareTo(BigDecimal.valueOf(1_000)) >= 0) {
+                    total = group.signum() == 0 && total.signum() > 0 ? total.multiply(value)
+                            : total.add((group.signum() == 0 ? BigDecimal.ONE : group).multiply(value));
+                    group = BigDecimal.ZERO;
+                    lastScale = value;
+                } else if (token.startsWith("hundred") || token.equals("dozen")) {
+                    group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(value);
+                    lastScale = null;
+                } else {
+                    group = group.add(value);
+                    lastScale = null;
+                }
             }
         }
-        return total + group;
+        return total.add(group).setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
+    }
+
+    /** "1,5" and "1.5" are decimals; three-digit groups ("1,500", "1.000.000") are thousands. */
+    private static BigDecimal digitQuantity(String digits) {
+        String[] parts = digits.split("[.,]");
+        boolean decimal = parts.length == 2 && parts[1].length() != 3;
+        return new BigDecimal(decimal ? parts[0] + "." + parts[1] : String.join("", parts));
+    }
+
+    /** Singular fractions add to the whole before them; plural ones multiply the count before them. */
+    private static Map<String, BigDecimal> fractionWords() {
+        BigDecimal half = new BigDecimal("0.5");
+        BigDecimal quarter = new BigDecimal("0.25");
+        BigDecimal third = BigDecimal.ONE.divide(BigDecimal.valueOf(3), 6, RoundingMode.HALF_EVEN);
+        return Map.ofEntries(Map.entry("half", half), Map.entry("halves", half), Map.entry("quarter", quarter),
+                Map.entry("quarters", quarter), Map.entry("third", third), Map.entry("thirds", third),
+                Map.entry("medio", half), Map.entry("media", half), Map.entry("cuarto", quarter),
+                Map.entry("cuartos", quarter), Map.entry("tercio", third), Map.entry("tercios", third));
     }
 
     private static Map<String, Integer> numberWords() {

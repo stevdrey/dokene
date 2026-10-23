@@ -147,6 +147,9 @@ class EnglishTemplateSendJourneyIntegrationTest {
         assertThat(preview.path("parameterNames")).isEmpty();
         assertThat(GRAPH.sends(workspace)).isZero();
 
+        // A client older than this release approves without a revision; it never showed an English preview.
+        assertProblem(approve(workspace.operator, message, null), 400, "INVALID_INPUT");
+        assertThat(message.read(this).path("status").asString()).isEqualTo("PENDING_APPROVAL");
         approve(workspace.operator, message);
         assertThat(GRAPH.sends(workspace)).isZero();
 
@@ -274,7 +277,9 @@ class EnglishTemplateSendJourneyIntegrationTest {
         JsonNode preview = message.read(this).path("template");
         assertThat(preview.path("language").asString()).isEqualTo("es");
         assertThat(preview.path("bodyText").asString()).isEqualTo("Hola {{1}}, {{2}}");
-        approve(workspace.operator, message);
+        // Expand first: a client older than this release still approves a Spanish message without a revision.
+        MockHttpServletResponse legacy = approve(workspace.operator, message, null);
+        assertThat(legacy.getStatus()).as(legacy.getContentAsString()).isEqualTo(201);
         assertThat(send(workspace.operator, message, "send-" + UUID.randomUUID()).getStatus()).isEqualTo(201);
 
         JsonNode payload = json.readTree(GRAPH.lastSend(workspace).body());
@@ -403,8 +408,9 @@ class EnglishTemplateSendJourneyIntegrationTest {
             throws Exception {
         return perform(post("/api/messages/" + message.id + "/approvals")
                 .header("Idempotency-Key", "approve-" + UUID.randomUUID()).header("If-Match", message.etag(this))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"APPROVE\",\"templateRevision\":\""
-                        + templateRevision + "\"}"), who);
+                .contentType(MediaType.APPLICATION_JSON).content(templateRevision == null
+                        ? "{\"decision\":\"APPROVE\"}"
+                        : "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + templateRevision + "\"}"), who);
     }
 
     private MockHttpServletResponse send(IdentityId who, Message message, String key) throws Exception {

@@ -71,6 +71,9 @@
       "rejectWithNote": {
         "decision": "REJECT",
         "note": "El tono no es adecuado."
+      },
+      "approveFromAnOlderClientWithoutTemplateRevision": {
+        "decision": "APPROVE"
       }
     },
     "invalid": {
@@ -83,9 +86,6 @@
       "noteTooLong": {
         "decision": "REJECT",
         "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      },
-      "approveWithoutTemplateRevision": {
-        "decision": "APPROVE"
       },
       "malformedTemplateRevision": {
         "decision": "APPROVE",

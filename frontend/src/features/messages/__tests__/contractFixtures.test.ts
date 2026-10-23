@@ -313,14 +313,13 @@ void approvalRequestFitsMembers;
 
 /** Rules that span members, which a per-member Shape cannot express. */
 const requestInvariants: Partial<Record<keyof typeof requestShapes, (fixture: unknown) => string[]>> = {
-  // An approval names the reviewed template preview (issue 268); a rejection carries none.
+  // A rejection carries no revision. The wire still accepts an approval without one from a client older than issue
+  // 268 (default locale only, expand first); this client's ApprovalRequest type always names it.
   approval: (fixture) => {
     const request = fixture as ApprovalRequestMembers;
-    const revision = request.templateRevision ?? null;
-    if (request.decision === 'APPROVE' && revision === null) {
-      return ['templateRevision is required to approve'];
-    }
-    return request.decision === 'REJECT' && revision !== null ? ['templateRevision is only accepted to approve'] : [];
+    return request.decision === 'REJECT' && (request.templateRevision ?? null) !== null
+      ? ['templateRevision is only accepted to approve']
+      : [];
   }
 };
 

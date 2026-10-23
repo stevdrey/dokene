@@ -482,7 +482,9 @@ class MessageApiIntegrationTest {
     @Test
     void anApprovalMustNameTheTemplatePreviewThatWasReviewed() throws Exception {
         String messageId = submittedMessageId();
-        approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\",\"templateRevision\":null}")
+        // A revision that is not a digest is refused; omitting it is the expand-first path of an older client.
+        approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
+                "{\"decision\":\"APPROVE\",\"templateRevision\":\"stale\"}")
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         String reviewed = reviewedRevision(ownerA, messageId);
         assertThat(reviewed).matches("^[0-9a-f]{64}$");
