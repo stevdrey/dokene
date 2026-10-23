@@ -71,17 +71,22 @@ public final class DraftSafetyValidator {
             .sorted(java.util.Comparator.comparingInt(String::length).reversed())
             .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
     private static final String QUANTITY_TOKEN = "(?:\\d+(?:[.,]\\d+)*|" + QUANTITY_WORD + ")";
+    /** Up to two words between a written quantity and its marker ("five Australian dollars"); "per cent" is not one. */
+    private static final String CURRENCY_QUALIFIERS = "(?:(?!per\\s)\\p{L}+\\s+){0,2}?";
     /** Joins the tokens of one quantity: hyphens, and "and", "y", "of", "de", "a" or "an" between them. */
     private static final String QUANTITY_JOINER = "(?:\\s*-\\s*|\\s+(?:(?:and|y|of|de|an|a)\\s+)*)";
     private static final Pattern QUANTITY_JOINER_PATTERN = Pattern.compile(QUANTITY_JOINER);
     private static final Pattern WRITTEN_QUANTITY_NUMBER_PATTERN = Pattern.compile(
             "(?<![\\p{L}\\p{N}])(?<!\\p{N}[.,])((?:an?\\s+)?" + QUANTITY_TOKEN + "(?:" + QUANTITY_JOINER + QUANTITY_TOKEN + ")*)"
-                    + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento"
+                    + "(?:\\s+(?:de|of)(?=\\s))?(?=" + SP + CURRENCY_QUALIFIERS + "(?:puntos?\\s+porcentuales?|por\\s*ciento|porciento"
                     + "|percentage\\s+points?|percentage|per\\s*cent|percent|pct|"
                     + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
-    /** The "de" or "of" between a number and its currency ("1.000.000 de colones"), dropped so the amount is read. */
+    /**
+     * Up to two words between a number and its currency ("10 Australian dollars", "1.000.000 de colones", "5 more
+     * euros"), dropped so the amount is read; any words, not a list of qualifiers, so an unknown one cannot hide it.
+     */
     private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
-            "(?<=\\d)\\s+(?:de|of)(?=" + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
+            "(?<=\\d)(?:\\s+(?!per\\s)\\p{L}+){1,2}?(?=\\s+(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
@@ -581,11 +586,12 @@ public final class DraftSafetyValidator {
     private static String writtenQuantity(String run, String written) {
         String trimmed = run.trim();
         String[] tokens = QUANTITY_JOINER_PATTERN.split(trimmed);
-        // The joiner before each token: "and" or "y" makes a fraction add to the whole before it.
-        List<Boolean> additive = new ArrayList<>(List.of(false));
+        // The joiner before each token: "and" or "y" makes a fraction add to the whole before it, while "of" or "de"
+        // after a fraction makes it a fraction of everything that follows ("half of one million").
+        List<String> joinerBefore = new ArrayList<>(List.of(""));
         Matcher joiners = QUANTITY_JOINER_PATTERN.matcher(trimmed);
         while (joiners.find()) {
-            additive.add(joiners.group().matches("(?s).*\\b(?:and|y)\\b.*"));
+            joinerBefore.add(joiners.group());
         }
         if (java.util.Arrays.stream(tokens).allMatch(token -> token.isEmpty() || Character.isDigit(token.charAt(0))
                 || token.equals("a") || token.equals("an"))) {
@@ -597,12 +603,13 @@ public final class DraftSafetyValidator {
         BigDecimal whole = BigDecimal.ZERO;
         BigDecimal group = BigDecimal.ZERO;
         BigDecimal lastScale = null;
+        BigDecimal fractionOf = null;
         for (int index = 0; index < tokens.length; index++) {
             String token = tokens[index];
             if (token.isEmpty() || token.equals("a") || token.equals("an")) {
                 continue;
             }
-            boolean afterAnd = index < additive.size() && additive.get(index);
+            boolean afterAnd = index < joinerBefore.size() && joinerBefore.get(index).matches("(?s).*\\b(?:and|y)\\b.*");
             if (afterAnd && !FRACTION_WORDS.containsKey(token)) {
                 whole = whole.add(group);
                 group = BigDecimal.ZERO;
@@ -621,6 +628,13 @@ public final class DraftSafetyValidator {
                     group = (group.signum() == 0 ? BigDecimal.ONE : group).multiply(fraction);
                 }
                 lastScale = null;
+                if (index + 1 < joinerBefore.size() && joinerBefore.get(index + 1).matches("(?s).*\\b(?:of|de)\\b.*")) {
+                    BigDecimal part = total.add(whole).add(group);
+                    fractionOf = fractionOf == null ? part : fractionOf.multiply(part);
+                    total = BigDecimal.ZERO;
+                    whole = BigDecimal.ZERO;
+                    group = BigDecimal.ZERO;
+                }
             } else {
                 BigDecimal value = BigDecimal.valueOf(NUMBER_WORDS.get(token));
                 if (value.compareTo(BigDecimal.valueOf(1_000)) >= 0) {
@@ -639,7 +653,11 @@ public final class DraftSafetyValidator {
                 }
             }
         }
-        return total.add(whole).add(group).setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
+        BigDecimal value = total.add(whole).add(group);
+        if (fractionOf != null) {
+            value = fractionOf.multiply(value.signum() == 0 ? BigDecimal.ONE : value);
+        }
+        return value.setScale(2, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
     }
 
     /** "1,5" and "1.5" are decimals; three-digit groups ("1,500", "1.000.000") are thousands. */
@@ -657,7 +675,8 @@ public final class DraftSafetyValidator {
         return Map.ofEntries(Map.entry("half", half), Map.entry("halves", half), Map.entry("quarter", quarter),
                 Map.entry("quarters", quarter), Map.entry("third", third), Map.entry("thirds", third),
                 Map.entry("medio", half), Map.entry("media", half), Map.entry("cuarto", quarter),
-                Map.entry("cuartos", quarter), Map.entry("tercio", third), Map.entry("tercios", third));
+                Map.entry("cuartos", quarter), Map.entry("tercio", third), Map.entry("tercios", third),
+                Map.entry("mitad", half));
     }
 
     private static Map<String, Integer> numberWords() {

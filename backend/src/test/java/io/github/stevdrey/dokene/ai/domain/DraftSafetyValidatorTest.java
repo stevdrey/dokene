@@ -1015,6 +1015,22 @@ class DraftSafetyValidatorTest {
                 List.of()), spanish)).isEmpty();
     }
 
+    /** A currency qualified by a word or two ("Australian dollars") is still an amount compared by value. */
+    @Test
+    void readsQualifiedCurrencyAmounts() {
+        String context = "Customer: John. Notes: paid five Australian dollars.";
+        for (String body : List.of("Hi John, only 10 Australian dollars.", "Hi John, only ten Australian dollars.",
+                "Hi John, only 10 New Zealand dollars.", "Hi John, only 10 more dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        for (String body : List.of("Hi John, you paid 5 Australian dollars.", "Hi John, you paid five Australian "
+                + "dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), context)).as(body).isEmpty();
+        }
+    }
+
     /** Percentage points are percentages, compared by value rather than grounded by the word "percentage". */
     @Test
     void comparesPercentagePointsByValue() {
@@ -1106,6 +1122,18 @@ class DraftSafetyValidatorTest {
         }
         assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 1500000 colones.", "es-419",
                 List.of()), "Cliente: Juan. Notas: plan de un millón y medio de colones.")).isEmpty();
+        // "Of" after a fraction makes it a fraction of everything that follows.
+        String oneAndAHalfMillion = "Customer: John. Notes: plan for one and a half million dollars.";
+        for (String body : List.of("Hi John, only half of one million dollars.",
+                "Hi John, only a quarter of two million dollars.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), oneAndAHalfMillion)).as(body)
+                    .hasValueSatisfying(violation -> assertThat(violation.code())
+                            .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE));
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("Hi John, your plan is 500000 dollars.", "en-US",
+                List.of()), "Customer: John. Notes: plan for half of one million dollars.")).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Hola Juan, tu plan es de 500000 colones.", "es-419",
+                List.of()), "Cliente: Juan. Notas: plan de la mitad de un millón de colones.")).isEmpty();
         // After "and", a counted fraction multiplies only its own count and adds to the whole before it.
         assertThat(DraftSafetyValidator.validate(draftWith("Hi John, only one and three quarters million dollars.",
                 "en-US", List.of()), oneMillion)).hasValueSatisfying(violation -> assertThat(violation.code())
