@@ -132,7 +132,8 @@ public final class MessagingApiContract {
     /**
      * {@code GET /api/messages/locales}: the locales a new message may be submitted in on this deployment, default
      * first (issue 268). {@code en-US} appears only once the deployment enables English writes; submit refuses any
-     * locale not listed.
+     * locale not listed. An older backend answers this path as the detail route ({@code 400 INVALID_INPUT}), so a
+     * client falls back to the default locale on any failed read.
      */
     public record MessageLocalesResponse(List<String> locales, String defaultLocale) {
         public MessageLocalesResponse {
