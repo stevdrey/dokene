@@ -217,7 +217,7 @@ export const messageApi = {
    * offers the default only).
    */
   async getLocales(signal?: AbortSignal): Promise<MessageLocalesResponse> {
-    const { data } = await httpClient.request<unknown>('/api/messages/locales', { signal });
+    const { data } = await httpClient.request<unknown>('/api/messaging/locales', { signal });
     if (!isRecord(data) || !Array.isArray(data.locales) || !data.locales.every(isString)) {
       throw new InvalidMessageResponseError();
     }

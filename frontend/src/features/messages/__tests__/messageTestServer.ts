@@ -94,7 +94,7 @@ export const approvalsPath = (id: string) => `POST /api/messages/${id}/approvals
 export const cancellationsPath = (id: string) => `POST /api/messages/${id}/cancellations`;
 export const sendsPath = (id: string) => `POST /api/messages/${id}/sends`;
 export const submitPath = (customerId: string) => `POST /api/customers/${customerId}/messages`;
-export const localesPath = 'GET /api/messages/locales';
+export const localesPath = 'GET /api/messaging/locales';
 export const templatesPath = 'GET /api/templates';
 /** The template list compose reads, with the given slots (issue 268). */
 export const templateList = (...items: TemplateResponse[]): Reply => ok({ items });

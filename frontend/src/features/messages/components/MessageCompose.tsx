@@ -62,7 +62,7 @@ type Phase =
   | { kind: 'sessionEnded' };
 
 /**
- * The languages compose may offer: those the deployment accepts (`GET /api/messages/locales`) in which the intent's
+ * The languages compose may offer: those the deployment accepts (`GET /api/messaging/locales`) in which the intent's
  * template mapping is sendable, and the fixed text of a template that takes no `message_body` (issue 268). Submit
  * stays the gate; this only keeps the operator from choosing what it would refuse.
  */

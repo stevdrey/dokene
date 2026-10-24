@@ -157,7 +157,7 @@ export function acceptsTemplateLanguage(locale: MessageLocale, templateLanguage:
   return locale === 'es-419' ? templateLanguage.split('_')[0].toLowerCase() === 'es' : templateLanguage === 'en_US';
 }
 
-/** `GET /api/messages/locales`: the locales this deployment accepts a new message in, default first (issue 268). */
+/** `GET /api/messaging/locales`: the locales this deployment accepts a new message in, default first (issue 268). */
 export interface MessageLocalesResponse {
   locales: MessageLocale[];
   defaultLocale: MessageLocale;
