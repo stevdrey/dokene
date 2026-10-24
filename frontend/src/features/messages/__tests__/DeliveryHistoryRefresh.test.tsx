@@ -403,11 +403,14 @@ describe('DeliveryHistory refresh', () => {
       await listed();
       fireEvent.click(toggleOf(sent.messageId));
       expect(await within(panelOf(sent.messageId)).findByText(sent.body)).toBeInTheDocument();
+      // The row's event read must be in flight before the refresh, or there is nothing to abort.
+      await waitFor(() => expect(suite.server.count(eventsPath(sent.messageId))).toBeGreaterThanOrEqual(1));
       fireEvent.click(listRefresh());
       expect(await screen.findByText('Tu sesión terminó. Vuelve a iniciar sesión.')).toBeInTheDocument();
       expect(screen.queryAllByRole('button')).toHaveLength(0);
       expect(screen.queryByText(sent.body)).toBeNull();
-      expect(suite.server.last(eventsPath(sent.messageId)).signal?.aborted).toBe(true);
+      // The abort runs when the row unmounts, which can land a tick after the session sentence renders.
+      await waitFor(() => expect(suite.server.last(eventsPath(sent.messageId)).signal?.aborted).toBe(true));
     });
 
     it('keeps every row and shows the sentence when the refresh fails', async () => {

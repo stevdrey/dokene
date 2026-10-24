@@ -76,8 +76,8 @@ class OutboundMessageCommandServiceValidationTest {
         when(idempotency.find(any(), any(), any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")))
-                .isInstanceOf(MessagingRefusedException.class)
-                .extracting(e -> ((MessagingRefusedException) e).code()).isEqualTo(MessagingErrorCode.INVALID_INPUT);
+                .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
+                .isEqualTo(MessagingErrorCode.LOCALE_NOT_ACCEPTED);
         verifyNoInteractions(messages, customers, bindings, safety, audit);
         assertThat(new EnglishOutboundProperties(null).enabled()).isFalse();
     }

@@ -10,6 +10,7 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.Cancellation
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageEventItem;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageEventsResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageListItem;
+import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageLocalesResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagePageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplateButton;
@@ -30,6 +31,7 @@ import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.messaging.domain.MessagingLocales;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
@@ -88,6 +90,14 @@ public class MessageController {
                 request.action().name(), request.templateIntent().name(), request.body(), request.locale(),
                 request.origin().name(), version, idempotencyKey));
         return respond(result, true);
+    }
+
+    /** The locales compose may offer: exactly those submit accepts on this deployment (issue 268). */
+    @RequiredPermission(TenantPermission.MESSAGE_DRAFT)
+    @GetMapping("/messaging/locales")
+    public ResponseEntity<MessageLocalesResponse> locales() {
+        return noStore(ResponseEntity.ok()).body(new MessageLocalesResponse(queries.acceptedLocales(),
+                MessagingLocales.DEFAULT));
     }
 
     @RequiredPermission(TenantPermission.MESSAGE_READ)
