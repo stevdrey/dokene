@@ -127,7 +127,7 @@ class EnglishTemplateSendJourneyIntegrationTest {
         Customer customer = dueCustomer("John Smith");
         mapHelloWorld();
         // With English enabled, compose is offered both locales, default first.
-        JsonNode locales = body(perform(get("/api/messages/locales"), workspace.operator));
+        JsonNode locales = body(perform(get("/api/messaging/locales"), workspace.operator));
         assertThat(locales.path("locales").toString()).isEqualTo("[\"es-419\",\"en-US\"]");
         assertThat(locales.path("defaultLocale").asString()).isEqualTo("es-419");
 

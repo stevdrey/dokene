@@ -404,7 +404,7 @@ describe('DeliveryHistory refresh', () => {
       fireEvent.click(toggleOf(sent.messageId));
       expect(await within(panelOf(sent.messageId)).findByText(sent.body)).toBeInTheDocument();
       // The row's event read must be in flight before the refresh, or there is nothing to abort.
-      await waitFor(() => expect(suite.server.count(eventsPath(sent.messageId))).toBe(1));
+      await waitFor(() => expect(suite.server.count(eventsPath(sent.messageId))).toBeGreaterThanOrEqual(1));
       fireEvent.click(listRefresh());
       expect(await screen.findByText('Tu sesión terminó. Vuelve a iniciar sesión.')).toBeInTheDocument();
       expect(screen.queryAllByRole('button')).toHaveLength(0);

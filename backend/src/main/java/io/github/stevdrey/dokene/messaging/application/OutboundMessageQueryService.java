@@ -20,11 +20,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@EnableConfigurationProperties(EnglishOutboundProperties.class)
 public class OutboundMessageQueryService {
     public static final int DEFAULT_LIMIT = 50;
     public static final int MAX_LIMIT = 100;

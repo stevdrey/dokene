@@ -94,7 +94,7 @@ public class MessageController {
 
     /** The locales compose may offer: exactly those submit accepts on this deployment (issue 268). */
     @RequiredPermission(TenantPermission.MESSAGE_DRAFT)
-    @GetMapping("/messages/locales")
+    @GetMapping("/messaging/locales")
     public ResponseEntity<MessageLocalesResponse> locales() {
         return noStore(ResponseEntity.ok()).body(new MessageLocalesResponse(queries.acceptedLocales(),
                 MessagingLocales.DEFAULT));

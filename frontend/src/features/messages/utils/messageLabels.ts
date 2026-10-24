@@ -96,7 +96,8 @@ const ERROR_CODE_SENTENCES: Readonly<Record<string, string>> = {
   MESSAGE_ALREADY_OPEN: 'Ya hay un mensaje abierto para este cliente.',
   IDEMPOTENCY_KEY_REUSED: 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.',
   APPROVAL_INVALIDATED: 'La aprobación ya no es válida. Revisa el mensaje de nuevo.',
-  RATE_LIMITED: 'Hay demasiadas solicitudes. Espera un momento e intenta de nuevo.'
+  RATE_LIMITED: 'Hay demasiadas solicitudes. Espera un momento e intenta de nuevo.',
+  LOCALE_NOT_ACCEPTED: 'Este idioma no está habilitado para enviar mensajes en este despliegue.'
 };
 
 export const COPY = {

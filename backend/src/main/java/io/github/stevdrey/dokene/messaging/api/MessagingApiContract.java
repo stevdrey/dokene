@@ -130,10 +130,10 @@ public final class MessagingApiContract {
     }
 
     /**
-     * {@code GET /api/messages/locales}: the locales a new message may be submitted in on this deployment, default
+     * {@code GET /api/messaging/locales}: the locales a new message may be submitted in on this deployment, default
      * first (issue 268). {@code en-US} appears only once the deployment enables English writes; submit refuses any
-     * locale not listed. An older backend answers this path as the detail route ({@code 400 INVALID_INPUT}), so a
-     * client falls back to the default locale on any failed read.
+     * locale not listed with {@code LOCALE_NOT_ACCEPTED}. The path is outside {@code /messages/{messageId}}, so an
+     * older backend answers {@code 404}; a client then offers the default locale only.
      */
     public record MessageLocalesResponse(List<String> locales, String defaultLocale) {
         public MessageLocalesResponse {
@@ -202,7 +202,7 @@ public final class MessagingApiContract {
 
         public static int statusOf(MessagingErrorCode code) {
             return switch (code) {
-                case INVALID_INPUT -> 400;
+                case INVALID_INPUT, LOCALE_NOT_ACCEPTED -> 400;
                 case FORBIDDEN -> 403;
                 case NOT_FOUND -> 404;
                 case RATE_LIMITED -> 429;
