@@ -47,6 +47,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
+import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -440,18 +441,12 @@ class WhatsAppWebhookIntegrationTest {
     }
 
     private static byte[] statuses(String phoneNumberId, String... statuses) {
-        return ("{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{"
-                + "\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{"
-                + "\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"" + phoneNumberId + "\"},"
-                + "\"statuses\":[" + String.join(",", statuses) + "]}}]}]}").getBytes(StandardCharsets.UTF_8);
+        return MetaCallbacks.statuses("200000000000001", phoneNumberId, statuses);
     }
 
     private String report(String providerMessageId, String state, int secondsLater, Integer errorCode) {
-        String errors = errorCode == null ? "" : ",\"errors\":[{\"code\":" + errorCode
-                + ",\"title\":\"CANARY-TOKEN\",\"message\":\"CANARY-PHONE\"}]";
-        return "{\"id\":\"" + providerMessageId + "\",\"status\":\"" + state + "\",\"timestamp\":\""
-                + (clock.instant().getEpochSecond() + secondsLater) + "\",\"recipient_id\":\"50600000001\"" + errors
-                + "}";
+        return MetaCallbacks.report(providerMessageId, state, clock.instant().getEpochSecond() + secondsLater,
+                errorCode);
     }
 
     private Party party(String name) throws Exception {

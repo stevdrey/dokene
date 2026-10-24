@@ -2,6 +2,7 @@
 // ABOUTME: AI draft, explicit approval, manual send through the real Graph adapter and a signed delivery callback.
 package io.github.stevdrey.dokene.tenant.security;
 
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -14,6 +15,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
+import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -29,13 +31,14 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -63,14 +66,16 @@ import tools.jackson.databind.json.JsonMapper;
  * Nothing on the messaging path is stubbed: the registry-backed template gate, the real outbound safety control and
  * kill switches, local secret resolution, the Graph adapter and the webhook verifier all run. Meta itself is a
  * loopback server that answers like the synthetic fixtures in {@code contracts/whatsapp} and counts every request, so
- * each refusal can prove it reached the provider zero times. Only the AI provider is the deterministic fake.
+ * each refusal can prove it reached the provider zero times. Only the AI provider is the deterministic fake. The inbox
+ * sweeper is off, so every callback must be applied by the inline step of the request that delivered it.
  */
 @SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.outbound.enabled=true",
-        "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s"})
+        "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s",
+        "dokene.integration.whatsapp.webhook.inbox.enabled=false"})
 class ApprovedSendJourneyIntegrationTest {
     /** The synthetic key of contracts/whatsapp/graph-webhook-events.json; never a real Meta app secret. */
     private static final char[] APP_SECRET = "SYNTHETIC-APP-SECRET-NOT-REAL-0001".toCharArray();
-    private static final String WABA_ID = "200000000000001";
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String TOKEN_REF = "wa-token";
     /** Tenant secrets are keyed by tenant id at startup, so every test draws a pre-registered tenant id. */
     private static final List<TenantId> TENANT_IDS = IntStream.range(0, 12).mapToObj(i -> TenantId.random()).toList();
@@ -106,7 +111,6 @@ class ApprovedSendJourneyIntegrationTest {
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
 
-    private final JsonMapper json = JsonMapper.builder().build();
     private MockMvc mvc;
     private Workspace workspace;
 
@@ -125,8 +129,9 @@ class ApprovedSendJourneyIntegrationTest {
         mapTemplate(draft.path("templateIntent").asString());
 
         Message message = submit(customer, draft);
-        assertThat(message.read(this).path("status").asString()).isEqualTo("PENDING_APPROVAL");
-        assertThat(message.read(this).path("origin").asString()).isEqualTo("AI_DRAFT");
+        JsonNode pending = message.read(this);
+        assertThat(pending.path("status").asString()).isEqualTo("PENDING_APPROVAL");
+        assertThat(pending.path("origin").asString()).isEqualTo("AI_DRAFT");
         // A generated draft is only a pending message: nothing reached Meta before a person approved it.
         assertThat(GRAPH.sends(workspace)).isZero();
         assertProblem(send(workspace.operator, message, "early-" + UUID.randomUUID()), 409, "INVALID_TRANSITION");
@@ -162,12 +167,14 @@ class ApprovedSendJourneyIntegrationTest {
         assertThat(GRAPH.sends(workspace)).isEqualTo(1);
 
         // Meta's signed callback moves the message to DELIVERED; the same bytes again change nothing.
-        byte[] delivered = statuses(workspace.phoneNumberId, report(wamid, "delivered", null));
+        byte[] delivered = callback(wamid, "delivered", null);
         assertThat(postSigned(delivered).getStatus()).isEqualTo(200);
         assertThat(postSigned(delivered).getStatus()).isEqualTo(200);
+        assertThat(inboxStates()).containsExactly("APPLIED");
         JsonNode detail = message.read(this);
         assertThat(detail.path("status").asString()).isEqualTo("DELIVERED");
-        assertThat(detail.path("deliveredAt").isNull()).isFalse();
+        assertThat(detail.path("deliveredAt").isString()).as(detail.toString()).isTrue();
+        assertThat(Instant.parse(detail.path("deliveredAt").asString())).isNotNull();
         assertThat(eventTypes(message)).containsExactly("SUBMITTED", "APPROVED", "SEND_REQUESTED",
                 "SEND_ATTEMPT_STARTED", "SENT", "DELIVERY_UPDATED");
         assertThat(GRAPH.sends(workspace)).isEqualTo(1);
@@ -181,14 +188,21 @@ class ApprovedSendJourneyIntegrationTest {
         String wamid = body(send(workspace.operator, message, "send-" + UUID.randomUUID()))
                 .path("providerMessageId").asString();
 
-        assertThat(postSigned(statuses(workspace.phoneNumberId, report(wamid, "failed", 131026))).getStatus())
-                .isEqualTo(200);
+        assertThat(postSigned(callback(wamid, "failed", 131026)).getStatus()).isEqualTo(200);
+        assertThat(inboxStates()).containsExactly("APPLIED");
 
         JsonNode detail = message.read(this);
         assertThat(detail.path("status").asString()).isEqualTo("FAILED");
         assertThat(detail.path("failureCategory").asString()).isEqualTo("INVALID_RECIPIENT");
-        // The provider's error text is never echoed to the business UI.
-        assertThat(detail.toString()).doesNotContain("CANARY-TOKEN", "CANARY-PHONE");
+        // The provider's error text is never echoed to the business UI: not in the detail, the timeline or the list.
+        String events = perform(get("/api/messages/" + message.id + "/events"), workspace.viewer).getContentAsString();
+        String list = perform(get("/api/messages").param("customerId", customer.id.toString()), workspace.viewer)
+                .getContentAsString();
+        assertThat(events).contains("DELIVERY_UPDATED");
+        assertThat(list).contains(message.id.toString());
+        for (String shown : List.of(detail.toString(), events, list)) {
+            assertThat(shown).doesNotContain("CANARY-TOKEN", "CANARY-PHONE");
+        }
     }
 
     @Test
@@ -229,8 +243,9 @@ class ApprovedSendJourneyIntegrationTest {
         assertProblem(send(workspace.operator, message, "regranted-" + UUID.randomUUID()), 409,
                 "APPROVAL_INVALIDATED");
 
-        assertThat(message.read(this).path("status").asString()).isEqualTo("APPROVED");
-        assertThat(message.read(this).path("attempts")).isEmpty();
+        JsonNode unchanged = message.read(this);
+        assertThat(unchanged.path("status").asString()).isEqualTo("APPROVED");
+        assertEmptyArray(unchanged, "attempts");
         assertThat(GRAPH.sends(workspace)).isZero();
     }
 
@@ -276,26 +291,31 @@ class ApprovedSendJourneyIntegrationTest {
         IdentityId operator = member(tenant, TenantRole.OPERATOR, now);
         IdentityId viewer = member(tenant, TenantRole.VIEWER, now);
         String phoneNumberId = "1" + String.format("%014d", ThreadLocalRandom.current().nextLong(100_000_000_000_000L));
-        Workspace created = new Workspace(tenant, owner, operator, viewer, phoneNumberId);
+        String wabaId = "2" + String.format("%014d", ThreadLocalRandom.current().nextLong(100_000_000_000_000L));
+        Workspace created = new Workspace(tenant, owner, operator, viewer, phoneNumberId, wabaId);
         workspace = created;
-        GRAPH.ownedPhoneNumbers.add(phoneNumberId);
+        GRAPH.owners.put(phoneNumberId, new GraphStub.Owner(wabaId, "Bearer " + token(tenant.id())));
 
         MockHttpServletResponse configured = perform(put("/api/integrations/whatsapp").header("If-None-Match", "*")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"phoneNumberId\":\"" + phoneNumberId
-                        + "\",\"businessAccountId\":\"" + WABA_ID + "\",\"displayPhoneNumber\":\"+50600000000\","
+                        + "\",\"businessAccountId\":\"" + wabaId + "\",\"displayPhoneNumber\":\"+50600000000\","
                         + "\"enabled\":true,\"secretRef\":\"" + TOKEN_REF + "\"}"), owner);
         assertThat(configured.getStatus()).as(configured.getContentAsString()).isEqualTo(200);
         MockHttpServletResponse proven = perform(post("/api/integrations/whatsapp/ownership-verifications")
                 .header("If-Match", configured.getHeader("ETag")), owner);
         assertThat(proven.getStatus()).as(proven.getContentAsString()).isEqualTo(200);
         assertThat(body(proven).path("webhookVerified").asBoolean()).isTrue();
+        // The proof read this tenant's business account with this tenant's own credential.
+        assertThat(GRAPH.reads(wabaId, "/phone_numbers")).isNotEmpty()
+                .allSatisfy(read -> assertThat(read.authorization()).isEqualTo("Bearer " + token(tenant.id())));
         // The tenant switch is off by default; flipping it on is a deliberate admin step.
         assertThat(body(proven).path("outboundEnabled").asBoolean()).isFalse();
         outbound(true);
 
         MockHttpServletResponse policy = perform(get("/api/follow-up-policy"), owner);
-        MockHttpServletResponse cadence = perform(put("/api/follow-up-policy").header("If-Match", policy.getHeader("ETag"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"cadenceDays\":30,\"timeZone\":\"UTC\"}"), owner);
+        MockHttpServletResponse cadence = perform(put("/api/follow-up-policy")
+                .header("If-Match", policy.getHeader("ETag")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"cadenceDays\":30,\"timeZone\":\"UTC\"}"), owner);
         assertThat(cadence.getStatus()).as(cadence.getContentAsString()).isEqualTo(200);
         return created;
     }
@@ -415,6 +435,9 @@ class ApprovedSendJourneyIntegrationTest {
                 .header("If-Match", "\"" + version + "\""), workspace.owner);
         assertThat(refreshed.getStatus()).as(refreshed.getContentAsString()).isEqualTo(200);
         assertThat(body(refreshed).path("sendable").asBoolean()).isTrue();
+        assertThat(GRAPH.reads(workspace.wabaId, "/message_templates")).isNotEmpty()
+                .allSatisfy(read -> assertThat(read.authorization())
+                        .isEqualTo("Bearer " + token(workspace.tenant.id())));
     }
 
     private MockHttpServletResponse postSigned(byte[] callback) throws Exception {
@@ -436,7 +459,7 @@ class ApprovedSendJourneyIntegrationTest {
     }
 
     private JsonNode body(MockHttpServletResponse response) throws Exception {
-        return json.readTree(response.getContentAsString(StandardCharsets.UTF_8));
+        return JSON.readTree(response.getContentAsString(StandardCharsets.UTF_8));
     }
 
     private void assertProblem(MockHttpServletResponse response, int status, String code) throws Exception {
@@ -462,22 +485,34 @@ class ApprovedSendJourneyIntegrationTest {
 
     private static String submitJson(Customer customer, String action, String intent, String text, String origin) {
         return "{\"contactId\":\"" + customer.contactId + "\",\"action\":\"" + action + "\",\"templateIntent\":\""
-                + intent + "\",\"body\":" + JsonMapper.builder().build().writeValueAsString(text)
+                + intent + "\",\"body\":" + JSON.writeValueAsString(text)
                 + ",\"locale\":\"es-419\",\"origin\":\"" + origin + "\"}";
     }
 
-    private static byte[] statuses(String phoneNumberId, String status) {
-        return ("{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"" + WABA_ID + "\",\"changes\":[{"
-                + "\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{"
-                + "\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"" + phoneNumberId + "\"},"
-                + "\"statuses\":[" + status + "]}}]}]}").getBytes(StandardCharsets.UTF_8);
+    private byte[] callback(String wamid, String state, Integer errorCode) {
+        return MetaCallbacks.statuses(workspace.wabaId, workspace.phoneNumberId,
+                MetaCallbacks.report(wamid, state, Instant.now().getEpochSecond(), errorCode));
     }
 
-    private static String report(String wamid, String state, Integer errorCode) {
-        String errors = errorCode == null ? "" : ",\"errors\":[{\"code\":" + errorCode
-                + ",\"title\":\"CANARY-TOKEN\",\"message\":\"CANARY-PHONE\"}]";
-        return "{\"id\":\"" + wamid + "\",\"status\":\"" + state + "\",\"timestamp\":\""
-                + Instant.now().getEpochSecond() + "\",\"recipient_id\":\"50600000001\"" + errors + "}";
+    /** The workspace's inbox rows in arrival order, read past RLS as the migration role. */
+    private List<String> inboxStates() throws Exception {
+        try (Connection migration = migrationConnection();
+                var statement = migration.prepareStatement("SELECT state FROM dokene.provider_webhook_events "
+                        + "WHERE tenant_id = ? ORDER BY received_at, id")) {
+            statement.setObject(1, workspace.tenant.id().value());
+            try (var result = statement.executeQuery()) {
+                List<String> states = new ArrayList<>();
+                while (result.next()) {
+                    states.add(result.getString(1));
+                }
+                return states;
+            }
+        }
+    }
+
+    private static void assertEmptyArray(JsonNode node, String field) {
+        assertThat(node.path(field).isArray()).as(field + " in " + node).isTrue();
+        assertThat(node.path(field)).as(field).isEmpty();
     }
 
     private static String token(TenantId tenant) {
@@ -498,7 +533,7 @@ class ApprovedSendJourneyIntegrationTest {
     }
 
     private record Workspace(Tenant tenant, IdentityId owner, IdentityId operator, IdentityId viewer,
-            String phoneNumberId) {
+            String phoneNumberId, String wabaId) {
     }
 
     private final class Customer {
@@ -542,8 +577,16 @@ class ApprovedSendJourneyIntegrationTest {
         record Request(String phoneNumberId, String authorization, String body) {
         }
 
+        /** The business account that owns a phone number id and the exact Authorization header it accepts. */
+        record Owner(String wabaId, String authorization) {
+        }
+
+        record Read(String path, String authorization) {
+        }
+
         final HttpServer server;
-        final Set<String> ownedPhoneNumbers = ConcurrentHashMap.newKeySet();
+        final Map<String, Owner> owners = new ConcurrentHashMap<>();
+        final List<Read> reads = new CopyOnWriteArrayList<>();
         final List<Request> sends = new CopyOnWriteArrayList<>();
         volatile Reply sendReply = Reply.ACCEPTED;
 
@@ -571,6 +614,10 @@ class ApprovedSendJourneyIntegrationTest {
             return (int) sends.stream().filter(send -> send.phoneNumberId().equals(workspace.phoneNumberId())).count();
         }
 
+        List<Read> reads(String wabaId, String suffix) {
+            return reads.stream().filter(read -> read.path().equals(wabaId + suffix)).toList();
+        }
+
         Request lastSend(Workspace workspace) {
             return sends.stream().filter(send -> send.phoneNumberId().equals(workspace.phoneNumberId()))
                     .reduce((first, second) -> second).orElseThrow();
@@ -579,21 +626,33 @@ class ApprovedSendJourneyIntegrationTest {
         private void handle(HttpExchange exchange) throws IOException {
             String path = exchange.getRequestURI().getPath().substring("/v23.0/".length());
             Map<String, String> query = query(exchange.getRequestURI().getRawQuery());
+            String authorization = exchange.getRequestHeaders().getFirst("Authorization");
             try (exchange) {
-                if (path.endsWith("/phone_numbers")) {
-                    StringBuilder data = new StringBuilder();
-                    for (String id : ownedPhoneNumbers) {
-                        data.append(data.isEmpty() ? "" : ",").append("{\"id\":\"").append(id).append("\"}");
+                if (path.endsWith("/phone_numbers") || path.endsWith("/message_templates")) {
+                    reads.add(new Read(path, authorization));
+                    // Only the business account in the path answers, and only to its own tenant's credential.
+                    String wabaId = path.substring(0, path.indexOf('/'));
+                    List<String> owned = owners.entrySet().stream()
+                            .filter(owner -> owner.getValue().wabaId().equals(wabaId)
+                                    && owner.getValue().authorization().equals(authorization))
+                            .map(Map.Entry::getKey).toList();
+                    if (owned.isEmpty()) {
+                        reply(exchange, 401, "{\"error\":{\"message\":\"Invalid OAuth access token\",\"type\":"
+                                + "\"OAuthException\",\"code\":190,\"fbtrace_id\":\"SYNTHETIC-TRACE\"}}");
+                    } else if (path.endsWith("/phone_numbers")) {
+                        StringBuilder data = new StringBuilder();
+                        for (String id : owned) {
+                            data.append(data.isEmpty() ? "" : ",").append("{\"id\":\"").append(id).append("\"}");
+                        }
+                        reply(exchange, 200, "{\"data\":[" + data + "]}");
+                    } else {
+                        reply(exchange, 200, "{\"data\":[{\"name\":\"" + query.get("name") + "\",\"language\":\""
+                                + query.get("language") + "\",\"status\":\"APPROVED\",\"components\":[{\"type\":"
+                                + "\"BODY\",\"text\":\"Hola {{1}}, {{2}}\"}]}]}");
                     }
-                    reply(exchange, 200, "{\"data\":[" + data + "]}");
-                } else if (path.endsWith("/message_templates")) {
-                    reply(exchange, 200, "{\"data\":[{\"name\":\"" + query.get("name") + "\",\"language\":\""
-                            + query.get("language") + "\",\"status\":\"APPROVED\",\"components\":[{\"type\":\"BODY\","
-                            + "\"text\":\"Hola {{1}}, {{2}}\"}]}]}");
                 } else if (path.endsWith("/messages") && "POST".equals(exchange.getRequestMethod())) {
                     String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-                    sends.add(new Request(path.substring(0, path.indexOf('/')),
-                            exchange.getRequestHeaders().getFirst("Authorization"), body));
+                    sends.add(new Request(path.substring(0, path.indexOf('/')), authorization, body));
                     if (sendReply == Reply.SERVER_ERROR) {
                         reply(exchange, 500, "{\"error\":{\"message\":\"An unknown error occurred\",\"type\":"
                                 + "\"OAuthException\",\"code\":1,\"fbtrace_id\":\"SYNTHETIC-TRACE\"}}");
