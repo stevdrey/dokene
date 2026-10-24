@@ -13,12 +13,18 @@ import {
   detailReply,
   eventsPath,
   eventsReply,
+  localesFixtures,
+  localesPath,
   networkFailure,
+  ok,
   pending,
   problem,
   requests,
   status,
-  submitPath
+  submitPath,
+  templateFixtures,
+  templateList,
+  templatesPath
 } from './messageTestServer';
 
 let server: FakeServer;
@@ -91,6 +97,85 @@ describe('compose mode', () => {
     expect(screen.queryByRole('button', { name: 'Reintentar' })).toBeNull();
     expect(screen.getByText('No se pudo confirmar la acción.')).toBeInTheDocument();
     expect(server.count(submitPath(customerId))).toBe(1);
+  });
+
+  describe('language (issue 268)', () => {
+    const englishSlot = { ...templateFixtures.englishHelloWorldApproved, templateIntent: draft.templateIntent };
+    const helloWorld = englishSlot.content!.bodyText;
+    const language = () => screen.getByLabelText('Idioma del mensaje');
+
+    it('offers the language the intent is mapped in and fills in a fixed template text', async () => {
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templateList(englishSlot));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      await waitFor(() => expect(language()).toHaveValue('en-US'));
+      // One mapping per intent, so the one offered language is not a choice.
+      expect(language()).toBeDisabled();
+      expect(textarea()).toHaveValue(helloWorld);
+      expect(screen.getByText(/Esta plantilla tiene un texto fijo/)).toBeInTheDocument();
+      server.on(submitPath(customerId), created({ ...pendingApproval, locale: 'en-US', origin: 'MANUAL', body: helloWorld }));
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+      expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({
+        locale: 'en-US',
+        origin: 'MANUAL',
+        body: helloWorld
+      });
+    });
+
+    it('never offers English while the deployment has not enabled it', async () => {
+      server.on(templatesPath, templateList(englishSlot));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      expect(await screen.findByText(/No hay una plantilla aprobada para esta acción/)).toBeInTheDocument();
+      expect(language()).toHaveValue('es-419');
+      expect(within(language()).queryByRole('option', { name: 'Inglés (EE. UU.)' })).toBeNull();
+      expect(textarea()).toHaveValue(draft.body);
+    });
+
+    it('keeps an AI draft in the default language, since English drafts are not generated', async () => {
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templateList(englishSlot));
+      renderCompose(composeMode({ origin: 'AI_DRAFT', initialLocale: 'en-US' }));
+      expect(await screen.findByText(/No hay una plantilla aprobada para esta acción/)).toBeInTheDocument();
+      expect(language()).toHaveValue('es-419');
+      expect(language()).toBeDisabled();
+    });
+
+    it('moves a correction off a language that is no longer offered', async () => {
+      renderCompose(composeMode({ origin: 'MANUAL', initialLocale: 'en-US' }));
+      expect(language()).toHaveValue('en-US');
+      await waitFor(() => expect(language()).toHaveValue('es-419'));
+    });
+
+    it('keeps text the operator edited when the fixed template text arrives', async () => {
+      const templates = pending();
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templates);
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      type('Texto escrito por el operador.');
+      await act(async () => templates.resolve(templateList(englishSlot)));
+      await waitFor(() => expect(language()).toHaveValue('en-US'));
+      expect(textarea()).toHaveValue('Texto escrito por el operador.');
+    });
+
+    it('offers the deployment languages when the registry cannot be read, and a change closes the confirmation', async () => {
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, status(500));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      await waitFor(() => expect(language()).toBeEnabled());
+      fireEvent.click(submitButton());
+      fireEvent.change(language(), { target: { value: 'en-US' } });
+      expect(screen.queryByRole('group', { name: 'Confirmar envío a aprobación' })).toBeNull();
+      server.on(submitPath(customerId), created({ ...pendingApproval, locale: 'en-US', origin: 'MANUAL', body: draft.body }));
+      fireEvent.click(submitButton());
+      confirmSubmit();
+      await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+      expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({ locale: 'en-US' });
+    });
+
+    it('offers the default language only when the backend has no locales route', async () => {
+      server.on(localesPath, status(404)).on(templatesPath, status(500));
+      renderCompose(composeMode({ origin: 'MANUAL', initialLocale: 'en-US' }));
+      await waitFor(() => expect(language()).toHaveValue('es-419'));
+      expect(within(language()).getAllByRole('option')).toHaveLength(1);
+    });
   });
 
   it('shows the customer, the masked phone, the labels and the starting text with a counter', () => {
@@ -199,6 +284,7 @@ describe('compose mode', () => {
       ['BODY_REJECTED', 'El texto del mensaje no pasó la validación.'],
       ['IDEMPOTENCY_KEY_REUSED', 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.'],
       ['INVALID_INPUT', 'Revisa los datos e intenta de nuevo.'],
+      ['LOCALE_NOT_ACCEPTED', 'Este idioma no está habilitado para enviar mensajes en este despliegue.'],
       ['NOT_FOUND', 'Este mensaje ya no está disponible.'],
       ['FORBIDDEN', 'No tienes permiso para esta acción.']
     ];
@@ -407,7 +493,12 @@ describe('Corregir', () => {
     // The confirm button that had focus left the page, so the draft heading takes it (in a passive effect, so wait).
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
 
-    const next = { ...pendingApproval, messageId: '7a5c0000-0000-4000-8000-0000000000ff', body: 'Texto corregido.' };
+    const next = {
+      ...pendingApproval,
+      messageId: '7a5c0000-0000-4000-8000-0000000000ff',
+      body: 'Texto corregido.',
+      template: null
+    };
     server.on(submitPath(customerId), created(next)).on(eventsPath(next.messageId), eventsReply(next));
     type('Texto corregido.');
     fireEvent.click(submitButton());
@@ -415,7 +506,12 @@ describe('Corregir', () => {
     expect(await screen.findByText('Texto corregido.', { selector: 'p' })).toBeInTheDocument();
     const call = server.last(submitPath(customerId));
     expect(call.headers['If-Match']).toBe(`"${cancelledCopy.sourcePolicyVersion}"`);
-    expect(JSON.parse(call.body!)).toMatchObject({ contactId: cancelledCopy.contactId, body: 'Texto corregido.', origin: cancelledCopy.origin });
+    expect(JSON.parse(call.body!)).toMatchObject({
+      contactId: cancelledCopy.contactId,
+      body: 'Texto corregido.',
+      origin: cancelledCopy.origin,
+      locale: cancelledCopy.locale
+    });
   });
 
   it('shows the correction stale sentence when the copied policy version is stale', async () => {

@@ -131,6 +131,12 @@
       "title": "Conflict",
       "status": 409,
       "code": "APPROVAL_INVALIDATED"
+    },
+    "LOCALE_NOT_ACCEPTED": {
+      "type": "about:blank",
+      "title": "Bad Request",
+      "status": 400,
+      "code": "LOCALE_NOT_ACCEPTED"
     }
   },
   "invalid": {

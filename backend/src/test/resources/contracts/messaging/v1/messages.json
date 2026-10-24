@@ -839,5 +839,15 @@
         }
       ]
     }
+  },
+  "locales": {
+    "defaultOnly": {
+      "locales": ["es-419"],
+      "defaultLocale": "es-419"
+    },
+    "englishEnabled": {
+      "locales": ["es-419", "en-US"],
+      "defaultLocale": "es-419"
+    }
   }
 }

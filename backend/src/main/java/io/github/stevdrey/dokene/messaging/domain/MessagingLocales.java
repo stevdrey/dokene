@@ -2,6 +2,7 @@
 // ABOUTME: Latin American Spanish is the default; US English is the one explicit addition (issue #268).
 package io.github.stevdrey.dokene.messaging.domain;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -20,6 +21,15 @@ public final class MessagingLocales {
 
     public static boolean supported(String locale) {
         return locale != null && SUPPORTED.contains(locale);
+    }
+
+    /**
+     * The locales this deployment accepts a new message in, default first: {@link #ENGLISH_US} only once the English
+     * deployment switch is on (issue 268, expand first). Submit refuses any other locale, and the client offers exactly
+     * these, so the two cannot disagree.
+     */
+    public static List<String> accepted(boolean englishEnabled) {
+        return englishEnabled ? List.of(DEFAULT, ENGLISH_US) : List.of(DEFAULT);
     }
 
     /**

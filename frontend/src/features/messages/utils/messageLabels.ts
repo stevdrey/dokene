@@ -1,11 +1,14 @@
 // ABOUTME: The single label and sentence table for the message review component, in Latin American Spanish.
 // ABOUTME: Every enum lookup falls back to the raw name so an unknown backend value still renders as text.
-import type {
-  FailureCategory,
-  MessageActorKind,
-  MessageEventType,
-  MessageStatus,
-  SendAttemptOutcome
+import {
+  isMessageLocale,
+  type FailureCategory,
+  type MessageActorKind,
+  type MessageEventType,
+  type MessageLocale,
+  type MessageStatus,
+  type MessagingErrorCode,
+  type SendAttemptOutcome
 } from '../types';
 
 /** Main's httpClient does not expose Retry-After, so the spec fixes the wait. */
@@ -76,7 +79,9 @@ const ACTOR_KIND_LABELS: Readonly<Record<string, string>> = {
   PROVIDER: 'Proveedor'
 };
 
-const ERROR_CODE_SENTENCES: Readonly<Record<string, string>> = {
+// Keyed by the contract's codes, so a misspelled or removed code is a type error; a code without a sentence falls
+// back to the generic one in errorCodeSentence.
+const ERROR_CODE_SENTENCES = {
   FORBIDDEN: 'No tienes permiso para esta acción.',
   NOT_FOUND: 'Este mensaje ya no está disponible.',
   INVALID_INPUT: 'Revisa los datos e intenta de nuevo.',
@@ -96,8 +101,9 @@ const ERROR_CODE_SENTENCES: Readonly<Record<string, string>> = {
   MESSAGE_ALREADY_OPEN: 'Ya hay un mensaje abierto para este cliente.',
   IDEMPOTENCY_KEY_REUSED: 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.',
   APPROVAL_INVALIDATED: 'La aprobación ya no es válida. Revisa el mensaje de nuevo.',
-  RATE_LIMITED: 'Hay demasiadas solicitudes. Espera un momento e intenta de nuevo.'
-};
+  RATE_LIMITED: 'Hay demasiadas solicitudes. Espera un momento e intenta de nuevo.',
+  LOCALE_NOT_ACCEPTED: 'Este idioma no está habilitado para enviar mensajes en este despliegue.'
+} as const satisfies Partial<Record<MessagingErrorCode, string>>;
 
 export const COPY = {
   forbidden: ERROR_CODE_SENTENCES.FORBIDDEN,
@@ -133,6 +139,15 @@ export const COPY = {
   unchanged: 'Sin cambios desde la última lectura.',
   policyUpdatedTextKept: 'El seguimiento se actualizó. Tu texto se conserva; revísalo antes de enviarlo a aprobación.',
   policyUpdatedDraft: 'El seguimiento se actualizó. El borrador mostrado corresponde a la situación actual.',
+  templateUnavailable: 'No hay una plantilla aprobada para este idioma y acción, así que no se puede aprobar.',
+  approvalInvalidated:
+    'La aprobación ya no cubre lo que se enviaría: cambió la plantilla, el cliente o la integración. No se puede enviar.',
+  correctOrCancel: 'Corrige o cancela el mensaje.',
+  composeNoTemplate:
+    'No hay una plantilla aprobada para esta acción en ningún idioma disponible; el mensaje no se podrá enviar a aprobación.',
+  composeFixedTemplate:
+    'Esta plantilla tiene un texto fijo y solo envía ese texto (con los datos del cliente): el mensaje debe coincidir exactamente con él.',
+  templateHeading: 'Lo que recibirá el cliente',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;
@@ -159,6 +174,24 @@ export function eventTypeLabel(type: MessageEventType): string {
 
 export function actorKindLabel(actorKind: MessageActorKind): string {
   return ACTOR_KIND_LABELS[actorKind] ?? actorKind;
+}
+
+const LOCALE_LABELS: Record<MessageLocale, string> = {
+  'es-419': 'Español (Latinoamérica)',
+  'en-US': 'Inglés (EE. UU.)'
+};
+
+/** The outbound language, in the operator's words; an unknown value renders raw. */
+export function localeLabel(locale: string | undefined): string {
+  if (locale === undefined) return 'Sin dato';
+  return isMessageLocale(locale) ? LOCALE_LABELS[locale] : locale;
+}
+
+export function buttonTypeLabel(type: string): string {
+  if (type === 'QUICK_REPLY') return 'Respuesta rápida';
+  if (type === 'PHONE_NUMBER') return 'Llamar';
+  if (type === 'URL') return 'Enlace';
+  return type;
 }
 
 export function originLabel(origin: string): string {
@@ -201,5 +234,6 @@ export function rateLimitedSentence(seconds: number): string {
 
 /** The problem code appears only as a parenthesised fallback for a code this table does not name. */
 export function errorCodeSentence(code: string): string {
-  return ERROR_CODE_SENTENCES[code] ?? `No se pudo completar la acción (${code}).`;
+  const sentences: Readonly<Record<string, string>> = ERROR_CODE_SENTENCES;
+  return sentences[code] ?? `No se pudo completar la acción (${code}).`;
 }

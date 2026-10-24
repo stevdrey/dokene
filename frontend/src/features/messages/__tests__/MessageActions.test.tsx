@@ -44,7 +44,12 @@ const approved = details.approved;
 const queuedFromApproved = variant(details.queued, { messageId: approved.messageId, version: 3 });
 const sentFromApproved = variant(details.sent, { messageId: approved.messageId });
 const deliveredFromApproved = variant(details.delivered, { messageId: approved.messageId });
-const backToApproved = variant(details.approvedAfterTransientFailure, { messageId: approved.messageId, version: 3 });
+// Back in APPROVED, the approval still covers what would be sent, so the backend shows its preview again.
+const backToApproved = variant(details.approvedAfterTransientFailure, {
+  messageId: approved.messageId,
+  version: 3,
+  template: approved.template
+});
 // Replies must describe the message that was asked about; a fixture of another message is re-identified first.
 const approvedHere = variant(approved, { messageId: pendingApproval.messageId });
 const rejectedHere = variant(details.rejected, { messageId: pendingApproval.messageId });
@@ -324,9 +329,8 @@ describe('review actions', () => {
     it('never sends an approval without a reviewed preview, since it would carry no revision', async () => {
       const unpreviewed = variant(pendingApproval, { template: null });
       await openMessage(unpreviewed);
-      click('Aprobar');
-      click('Confirmar aprobación', group('Confirmar aprobación'));
-      expect(await screen.findByText('No se pudo completar la acción.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Aprobar' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeInTheDocument();
       expect(server.count(approvalsPath(unpreviewed.messageId))).toBe(0);
     });
 

@@ -126,6 +126,10 @@ class EnglishTemplateSendJourneyIntegrationTest {
     void helloWorldInEnglishIsReviewedWithItsFixedTextApprovedSentOnceAndTrackedToDelivery() throws Exception {
         Customer customer = dueCustomer("John Smith");
         mapHelloWorld();
+        // With English enabled, compose is offered both locales, default first.
+        JsonNode locales = body(perform(get("/api/messaging/locales"), workspace.operator));
+        assertThat(locales.path("locales").toString()).isEqualTo("[\"es-419\",\"en-US\"]");
+        assertThat(locales.path("defaultLocale").asString()).isEqualTo("es-419");
 
         // The registry shows the fixed text read from Meta with the approval evidence.
         JsonNode slot = findIntent(body(perform(get("/api/templates"), workspace.owner)), "GENERAL_FOLLOW_UP");

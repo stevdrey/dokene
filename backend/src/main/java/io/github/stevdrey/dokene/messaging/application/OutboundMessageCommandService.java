@@ -92,8 +92,8 @@ public class OutboundMessageCommandService {
         }
         // Writing en-US waits for the deployment switch, so no row an earlier release cannot read exists before it is
         // on. It is checked after the replay lookup, so a submission committed while it was on still replays.
-        if (MessagingLocales.ENGLISH_US.equals(input.locale()) && !english.enabled()) {
-            throw refuse(MessagingErrorCode.INVALID_INPUT);
+        if (!MessagingLocales.accepted(english.enabled()).contains(input.locale())) {
+            throw refuse(MessagingErrorCode.LOCALE_NOT_ACCEPTED);
         }
 
         Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(command.customerId()))
