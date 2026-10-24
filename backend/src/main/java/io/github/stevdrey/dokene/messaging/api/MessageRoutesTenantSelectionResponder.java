@@ -12,7 +12,7 @@ class MessageRoutesTenantSelectionResponder extends MessagingProblemTenantSelect
     MessageRoutesTenantSelectionResponder() {
         super(new OrRequestMatcher(
                 PathPatternRequestMatcher.pathPattern("/api/messages/**"),
-                PathPatternRequestMatcher.pathPattern("/api/messaging/locales"),
+                PathPatternRequestMatcher.pathPattern("/api/messaging/**"),
                 PathPatternRequestMatcher.pathPattern("/api/customers/*/messages")));
     }
 }

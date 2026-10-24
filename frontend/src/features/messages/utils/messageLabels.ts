@@ -5,6 +5,7 @@ import type {
   MessageActorKind,
   MessageEventType,
   MessageStatus,
+  MessagingErrorCode,
   SendAttemptOutcome
 } from '../types';
 
@@ -76,7 +77,9 @@ const ACTOR_KIND_LABELS: Readonly<Record<string, string>> = {
   PROVIDER: 'Proveedor'
 };
 
-const ERROR_CODE_SENTENCES: Readonly<Record<string, string>> = {
+// Keyed by the contract's codes, so a misspelled or removed code is a type error; a code without a sentence falls
+// back to the generic one in errorCodeSentence.
+const ERROR_CODE_SENTENCES = {
   FORBIDDEN: 'No tienes permiso para esta acción.',
   NOT_FOUND: 'Este mensaje ya no está disponible.',
   INVALID_INPUT: 'Revisa los datos e intenta de nuevo.',
@@ -98,7 +101,7 @@ const ERROR_CODE_SENTENCES: Readonly<Record<string, string>> = {
   APPROVAL_INVALIDATED: 'La aprobación ya no es válida. Revisa el mensaje de nuevo.',
   RATE_LIMITED: 'Hay demasiadas solicitudes. Espera un momento e intenta de nuevo.',
   LOCALE_NOT_ACCEPTED: 'Este idioma no está habilitado para enviar mensajes en este despliegue.'
-};
+} as const satisfies Partial<Record<MessagingErrorCode, string>>;
 
 export const COPY = {
   forbidden: ERROR_CODE_SENTENCES.FORBIDDEN,
@@ -202,5 +205,6 @@ export function rateLimitedSentence(seconds: number): string {
 
 /** The problem code appears only as a parenthesised fallback for a code this table does not name. */
 export function errorCodeSentence(code: string): string {
-  return ERROR_CODE_SENTENCES[code] ?? `No se pudo completar la acción (${code}).`;
+  const sentences: Readonly<Record<string, string>> = ERROR_CODE_SENTENCES;
+  return sentences[code] ?? `No se pudo completar la acción (${code}).`;
 }

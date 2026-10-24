@@ -199,6 +199,7 @@ describe('compose mode', () => {
       ['BODY_REJECTED', 'El texto del mensaje no pasó la validación.'],
       ['IDEMPOTENCY_KEY_REUSED', 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.'],
       ['INVALID_INPUT', 'Revisa los datos e intenta de nuevo.'],
+      ['LOCALE_NOT_ACCEPTED', 'Este idioma no está habilitado para enviar mensajes en este despliegue.'],
       ['NOT_FOUND', 'Este mensaje ya no está disponible.'],
       ['FORBIDDEN', 'No tienes permiso para esta acción.']
     ];
