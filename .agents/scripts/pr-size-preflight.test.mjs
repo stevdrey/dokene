@@ -248,6 +248,72 @@ test('a stacked base must exist and cannot be the published branch itself', t =>
   assert.equal(hook(cwd, 'git push origin HEAD').status, 2);
 });
 
+test('gh pr create follows gh: --base, else gh-merge-base, else main, never prPreflightBase', t => {
+  const cwd = stackedRepository(t);
+  // prPreflightBase is this repository's setting for pushes; gh ignores it and opens the PR against main.
+  git(cwd, 'config', 'branch.feature/preflight.prPreflightBase', 'origin/staging');
+  const ignored = hook(cwd, 'gh pr create --fill');
+  assert.equal(ignored.status, 2);
+  assert.match(ignored.stderr, /42\/40 changed files relative to origin\/main/);
+  const envIgnored = spawnSync(process.execPath, [SCRIPT, '--hook'], {
+    cwd, encoding: 'utf8', input: JSON.stringify({ cwd, tool_input: { command: 'gh pr create --fill' } }),
+    env: { ...process.env, PR_PREFLIGHT_BASE: 'origin/staging' },
+  });
+  assert.equal(envIgnored.status, 2, 'PR_PREFLIGHT_BASE does not change the branch gh targets');
+
+  git(cwd, 'config', 'branch.feature/preflight.gh-merge-base', 'staging');
+  assert.equal(hook(cwd, 'gh pr create --fill').status, 0);
+});
+
+test('a push prefers PR_PREFLIGHT_BASE, then prPreflightBase, then gh-merge-base', t => {
+  const cwd = stackedRepository(t);
+  git(cwd, 'config', 'branch.feature/preflight.gh-merge-base', 'nowhere');
+  git(cwd, 'config', 'branch.feature/preflight.prPreflightBase', 'origin/staging');
+  assert.equal(hook(cwd, 'git push origin HEAD').status, 0, 'prPreflightBase wins over gh-merge-base');
+
+  git(cwd, 'config', '--unset', 'branch.feature/preflight.prPreflightBase');
+  const ghDefault = hook(cwd, 'git push origin HEAD');
+  assert.equal(ghDefault.status, 2);
+  assert.match(ghDefault.stderr, /origin\/nowhere does not exist; fetch it with 'git fetch origin nowhere'/);
+
+  const fromEnv = spawnSync(process.execPath, [SCRIPT, '--hook'], {
+    cwd, encoding: 'utf8', input: JSON.stringify({ cwd, tool_input: { command: 'git push origin HEAD' } }),
+    env: { ...process.env, PR_PREFLIGHT_BASE: 'origin/staging' },
+  });
+  assert.equal(fromEnv.status, 0, fromEnv.stderr);
+});
+
+test('an argument array keeps its words, and a shell array is split like a command line', t => {
+  const cwd = stackedRepository(t);
+  for (const cmd of [
+    ['gh', 'pr', 'create', '--base', 'staging', '--title', 'use --base main'],
+    ['gh', 'pr', 'create', '--title', 'fix --base typo', '-B', 'staging'],
+    ['bash', '-lc', 'gh pr create --title "use --base main" --base staging'],
+  ]) {
+    const result = hook(cwd, '', { tool_input: { cmd } });
+    assert.equal(result.status, 0, `${JSON.stringify(cmd)}: ${result.stderr}`);
+  }
+  const titled = hook(cwd, '', { tool_input: { cmd: ['gh', 'pr', 'create', '--title', 'see --base staging'] } });
+  assert.equal(titled.status, 2, 'a title is never the base');
+});
+
+test('the branch\'s own published state is refused in any spelling, a real base at the same commit is not', t => {
+  const cwd = stackedRepository(t);
+  git(cwd, 'update-ref', 'refs/remotes/origin/feature/preflight', 'HEAD');
+  const head = git(cwd, 'rev-parse', 'HEAD');
+  for (const base of ['HEAD', '@', '@{u}', 'HEAD~0', 'remotes/origin/feature/preflight',
+    'refs/remotes/origin/feature/preflight', 'origin/feature/preflight~0', head]) {
+    const result = check(cwd, ['--base', base]);
+    assert.equal(result.status, 2, base);
+    assert.match(result.stderr, /is the branch being published, not the base it stacks on; name the branch it targets/, base);
+    assert.doesNotMatch(result.stderr, /git fetch origin main/, base);
+  }
+  // origin/staging is the branch this one stacks on and happens to point at the same commit.
+  const real = check(cwd, ['--base', 'origin/staging']);
+  assert.equal(real.status, 0, real.stderr);
+  assert.match(real.stdout, /1\/40/);
+});
+
 test('malformed hook payload fails closed', t => {
   const cwd = repository(t);
   const result = command(process.execPath, [SCRIPT, '--hook'], cwd, '{malformed json');

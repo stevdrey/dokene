@@ -55,21 +55,23 @@ The preflight counts unique committed, staged, unstaged, and non-ignored untrack
 `origin/main`. This is an estimate of the eventual PR diff, not a substitute for the GitHub check. If the baseline is
 missing, the preflight fails closed.
 
-A deliberately stacked PR is measured against the branch it targets, after fetching that branch:
+A deliberately stacked PR is measured against the branch it targets, after fetching that branch. The base is chosen
+the way each publish path chooses it:
 
-- `gh pr create --base target-branch` (also `-B`, `-Btarget-branch` or `--base=`) is measured against
-  `origin/target-branch`. As for `gh`, the value is a branch name: `--base=origin/x` means a branch named `origin/x`.
-  Text inside other options' values, such as a title containing `--base`, is never read as the base.
-- Without `--base`, `gh pr create` targets the branch's `branch.<branch>.gh-merge-base` setting when one is set, and
-  the preflight measures against it too.
-- `git push` uses the base the current branch declares with
-  `git config branch.<branch>.prPreflightBase origin/target-branch`.
-- The manual command accepts `--base origin/target-branch`, and `PR_PREFLIGHT_BASE=origin/target-branch` applies to
-  any run.
+- `gh pr create` follows `gh` exactly: its `--base target-branch` (also `-B`, `-Btarget-branch` or `--base=`), else
+  the branch's `branch.<branch>.gh-merge-base` setting, else `origin/main`. As for `gh`, the value is a branch name:
+  `--base=origin/x` means a branch named `origin/x`. Text inside other options' values, such as a title containing
+  `--base`, is never read as the base, and an argument array keeps its words. `gh` reads neither
+  `PR_PREFLIGHT_BASE` nor `prPreflightBase`, so neither changes the base of a `gh pr create`.
+- `git push` and the manual command use, in order: the manual `--base origin/target-branch`,
+  `PR_PREFLIGHT_BASE=origin/target-branch`, the branch's `git config branch.<branch>.prPreflightBase
+  origin/target-branch`, its `gh-merge-base`, else `origin/main`.
 
-Every base, however it is given, must resolve to an existing commit other than the branch being published (its own
-`origin/` ref); otherwise the preflight fails closed. The `PR file count` check in CI runs for pull requests into any
-branch, so a stacked PR is also counted against the branch it actually targets.
+Every base must resolve to an existing commit and must not be the branch's own published state, in any spelling (its
+own `origin/` ref, `HEAD`, `@{u}`, or a commit id or expression that resolves to its upstream or `HEAD`); an exact
+other `origin/` branch is accepted even at the same commit. Otherwise the preflight fails closed with a hint for that
+failure. The `PR file count` check in CI runs for pull requests into any branch, so a stacked PR is also counted
+against the branch it actually targets.
 
 ### Claude Code
 
