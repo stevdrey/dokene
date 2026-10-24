@@ -235,6 +235,15 @@ class ApprovedSendJourneyIntegrationTest {
         assertProblem(send(workspace.operator, message, "off-" + UUID.randomUUID()), 409,
                 "OUTBOUND_DISABLED_FOR_TENANT");
         outbound(true);
+        // Emergency disable of the integration itself, through its route: the same configuration, enabled false.
+        assertThat(body(integration(false)).path("enabled").asBoolean()).isFalse();
+        assertProblem(send(workspace.operator, message, "disabled-" + UUID.randomUUID()), 409,
+                "INTEGRATION_DISABLED");
+        // Re-enabled but not proven again: still not a sender until the ownership proof is repeated.
+        assertThat(body(integration(true)).path("webhookVerified").asBoolean()).isFalse();
+        assertProblem(send(workspace.operator, message, "unproven-" + UUID.randomUUID()), 409,
+                "INTEGRATION_DISABLED");
+        proveOwnership();
         // Opt-out: consent revoked after approval.
         consent(customer, "REVOKED");
         assertProblem(send(workspace.operator, message, "revoked-" + UUID.randomUUID()), 409, "NO_CONTACT_CONSENT");
@@ -297,19 +306,14 @@ class ApprovedSendJourneyIntegrationTest {
         GRAPH.owners.put(phoneNumberId, new GraphStub.Owner(wabaId, "Bearer " + token(tenant.id())));
 
         MockHttpServletResponse configured = perform(put("/api/integrations/whatsapp").header("If-None-Match", "*")
-                .contentType(MediaType.APPLICATION_JSON).content("{\"phoneNumberId\":\"" + phoneNumberId
-                        + "\",\"businessAccountId\":\"" + wabaId + "\",\"displayPhoneNumber\":\"+50600000000\","
-                        + "\"enabled\":true,\"secretRef\":\"" + TOKEN_REF + "\"}"), owner);
+                .contentType(MediaType.APPLICATION_JSON).content(integrationJson(created, true)), owner);
         assertThat(configured.getStatus()).as(configured.getContentAsString()).isEqualTo(200);
-        MockHttpServletResponse proven = perform(post("/api/integrations/whatsapp/ownership-verifications")
-                .header("If-Match", configured.getHeader("ETag")), owner);
-        assertThat(proven.getStatus()).as(proven.getContentAsString()).isEqualTo(200);
-        assertThat(body(proven).path("webhookVerified").asBoolean()).isTrue();
+        JsonNode proven = proveOwnership();
         // The proof read this tenant's business account with this tenant's own credential.
         assertThat(GRAPH.reads(wabaId, "/phone_numbers")).isNotEmpty()
                 .allSatisfy(read -> assertThat(read.authorization()).isEqualTo("Bearer " + token(tenant.id())));
         // The tenant switch is off by default; flipping it on is a deliberate admin step.
-        assertThat(body(proven).path("outboundEnabled").asBoolean()).isFalse();
+        assertThat(proven.path("outboundEnabled").asBoolean()).isFalse();
         outbound(true);
 
         MockHttpServletResponse policy = perform(get("/api/follow-up-policy"), owner);
@@ -413,6 +417,27 @@ class ApprovedSendJourneyIntegrationTest {
                 .header("If-Match", ifMatch), who);
     }
 
+    /** Rewrites the workspace's integration through its route with the same configuration and {@code enabled}. */
+    private MockHttpServletResponse integration(boolean enabled) throws Exception {
+        MockHttpServletResponse current = perform(get("/api/integrations/whatsapp"), workspace.owner);
+        MockHttpServletResponse written = perform(put("/api/integrations/whatsapp")
+                .header("If-Match", current.getHeader("ETag")).contentType(MediaType.APPLICATION_JSON)
+                .content(integrationJson(workspace, enabled)), workspace.owner);
+        assertThat(written.getStatus()).as(written.getContentAsString()).isEqualTo(200);
+        return written;
+    }
+
+    /** Proves the workspace's phone number against the loopback Graph; answers the proven integration. */
+    private JsonNode proveOwnership() throws Exception {
+        MockHttpServletResponse current = perform(get("/api/integrations/whatsapp"), workspace.owner);
+        MockHttpServletResponse proven = perform(post("/api/integrations/whatsapp/ownership-verifications")
+                .header("If-Match", current.getHeader("ETag")), workspace.owner);
+        assertThat(proven.getStatus()).as(proven.getContentAsString()).isEqualTo(200);
+        JsonNode integration = body(proven);
+        assertThat(integration.path("webhookVerified").asBoolean()).isTrue();
+        return integration;
+    }
+
     private void outbound(boolean enabled) throws Exception {
         MockHttpServletResponse current = perform(get("/api/integrations/whatsapp"), workspace.owner);
         MockHttpServletResponse flipped = perform(put("/api/integrations/whatsapp/outbound")
@@ -476,6 +501,12 @@ class ApprovedSendJourneyIntegrationTest {
         IdentityId identity = new IdentityId(UUID.randomUUID());
         seedMembership(memberships, contexts, tenant.id(), identity, role, now);
         return identity;
+    }
+
+    private static String integrationJson(Workspace workspace, boolean enabled) {
+        return "{\"phoneNumberId\":\"" + workspace.phoneNumberId + "\",\"businessAccountId\":\"" + workspace.wabaId
+                + "\",\"displayPhoneNumber\":\"+50600000000\",\"enabled\":" + enabled + ",\"secretRef\":\""
+                + TOKEN_REF + "\"}";
     }
 
     private static String templateJson(String providerName) {
