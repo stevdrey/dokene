@@ -27,20 +27,25 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@EnableConfigurationProperties(EnglishOutboundProperties.class)
 public class OutboundMessageCommandService {
     private static final Logger log = LoggerFactory.getLogger(OutboundMessageCommandService.class);
     private static final int MAX_NOTE_LENGTH = 500;
 
+    private final EnglishOutboundProperties english;
     private final OutboundMessageRepository messages;
     private final MessageIdempotencyStore idempotency;
     private final CustomerRepository customers;
@@ -55,7 +60,8 @@ public class OutboundMessageCommandService {
     public OutboundMessageCommandService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, MessageSendGuards guards, ApprovalBindingAssembler bindings,
             OutboundSafetyControl safety, MessageCommandSupport support, CurrentMembershipAuthorizer members,
-            MessageAuditPort audit, Clock clock) {
+            MessageAuditPort audit, Clock clock, EnglishOutboundProperties english) {
+        this.english = Objects.requireNonNull(english);
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -83,6 +89,11 @@ public class OutboundMessageCommandService {
         var replay = idempotency.find(tenantId, MessageOperation.SUBMIT, input.idempotencyKey());
         if (replay.isPresent()) {
             return replay(replay.get(), fingerprint, null);
+        }
+        // Writing en-US waits for the deployment switch, so no row an earlier release cannot read exists before it is
+        // on. It is checked after the replay lookup, so a submission committed while it was on still replays.
+        if (!MessagingLocales.accepted(english.enabled()).contains(input.locale())) {
+            throw refuse(MessagingErrorCode.LOCALE_NOT_ACCEPTED);
         }
 
         Customer customer = customers.findByIdForUpdate(context.tenantId(), new CustomerId(command.customerId()))
@@ -173,8 +184,14 @@ public class OutboundMessageCommandService {
         support.require(TenantPermission.MESSAGE_APPROVE);
         TenantContext context = support.currentContext();
         UUID tenantId = context.tenantId().value();
-        String fingerprint = RequestFingerprint.of(MessageOperation.APPROVAL, Arrays.asList(
-                command.messageId().toString(), decision.name(), input.note(), Long.toString(input.ifMatch())));
+        List<String> fields = new ArrayList<>(Arrays.asList(command.messageId().toString(), decision.name(),
+                input.note(), Long.toString(input.ifMatch())));
+        // A request without a revision keeps the earlier four-field form, so a decision committed by the previous
+        // release still replays after the upgrade.
+        if (command.templateRevision() != null) {
+            fields.add(command.templateRevision());
+        }
+        String fingerprint = RequestFingerprint.of(MessageOperation.APPROVAL, fields);
         idempotency.acquireLock(tenantId, MessageOperation.APPROVAL, input.idempotencyKey());
         var replay = idempotency.find(tenantId, MessageOperation.APPROVAL, input.idempotencyKey());
         if (replay.isPresent()) {
@@ -205,7 +222,18 @@ public class OutboundMessageCommandService {
             // kill switches are not checked here, so approving while sending is off is allowed.
             ApprovalFingerprint.SenderRevision sender = safety.configuredSender(context.tenantId())
                     .orElseThrow(() -> refuse(MessagingErrorCode.INTEGRATION_DISABLED));
-            ApprovalFingerprint binding = ApprovalFingerprint.of(bindings.bind(message, customer, sender));
+            ApprovalFingerprint.Binding bound = bindings.bind(message, customer, sender);
+            // A client older than issue 268 approves without a revision (expand first); it never showed a preview, so
+            // it may still approve a default-locale message as before, but nothing in another locale.
+            if (command.templateRevision() == null && !MessagingLocales.DEFAULT.equals(message.locale())) {
+                throw refuse(MessagingErrorCode.INVALID_INPUT);
+            }
+            // The reviewer approved the template preview it was shown; a template changed since then is stale.
+            if (command.templateRevision() != null && !command.templateRevision()
+                    .equals(ApprovalFingerprint.reviewRevision(bound.template(), bound.parameterValues()))) {
+                throw refuse(MessagingErrorCode.STALE_VERSION);
+            }
+            ApprovalFingerprint binding = ApprovalFingerprint.of(bound);
             transition = message.approve(context.membershipId().value(), now);
             approval = MessageApproval.approve(UUID.randomUUID(), tenantId, message.id(), input.note(), binding,
                     now, context.membershipId().value(), context.identityId().value());
@@ -297,6 +325,10 @@ public class OutboundMessageCommandService {
         SemanticAction action = parse(SemanticAction.class, command.action());
         SemanticTemplateIntent intent = parse(SemanticTemplateIntent.class, command.templateIntent());
         MessageOrigin origin = parse(MessageOrigin.class, command.origin());
+        // AI drafts are generated and safety-checked in the default locale only (ADR 0018); another locale is manual.
+        if (origin == MessageOrigin.AI_DRAFT && !MessagingLocales.DEFAULT.equals(command.locale())) {
+            throw refuse(MessagingErrorCode.INVALID_INPUT);
+        }
         return new SubmitInput(action, intent, command.body(), command.locale(), origin,
                 support.ifMatch(command.ifMatch()), support.idempotencyKey(command.idempotencyKey()));
     }

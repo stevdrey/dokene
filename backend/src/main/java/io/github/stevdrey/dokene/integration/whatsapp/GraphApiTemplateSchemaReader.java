@@ -1,12 +1,16 @@
 // ABOUTME: Interprets the components and parameter_format of an approved Graph API message template (issue 218).
-// ABOUTME: Keeps only body placeholder tokens; any other component needing a value, or unknown metadata, fails closed.
+// ABOUTME: Keeps body placeholders and the fixed header, body, footer and buttons; any needed value fails closed.
 package io.github.stevdrey.dokene.integration.whatsapp;
 
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.BodyParameters;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unreadable;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unsupported;
+import io.github.stevdrey.dokene.template.domain.TemplateButton;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import tools.jackson.databind.JsonNode;
@@ -19,7 +23,6 @@ import tools.jackson.databind.JsonNode;
 final class GraphApiTemplateSchemaReader {
     /** Bounds on untrusted metadata; looser than Meta's own limits so they never reject a valid template. */
     private static final int MAX_COMPONENTS = 10;
-    private static final int MAX_BUTTONS = 10;
     private static final int MAX_TEXT_LENGTH = 4096;
 
     private GraphApiTemplateSchemaReader() {
@@ -33,6 +36,13 @@ final class GraphApiTemplateSchemaReader {
             return new Unreadable();
         }
         List<String> body = null;
+        String bodyText = null;
+        String headerText = null;
+        String footerText = null;
+        boolean seenHeader = false;
+        boolean seenFooter = false;
+        boolean seenButtons = false;
+        List<TemplateButton> buttons = new ArrayList<>();
         boolean unsupported = false;
         for (JsonNode component : components) {
             if (!component.isObject() || !component.path("type").isString()) {
@@ -46,11 +56,34 @@ final class GraphApiTemplateSchemaReader {
                         return new Unreadable();
                     }
                     body = tokens.get();
+                    bodyText = component.path("text").asString();
                     check = ComponentCheck.ALLOWED;
                 }
-                case "HEADER" -> check = header(component);
-                case "FOOTER" -> check = withoutPlaceholders(component.path("text"));
-                case "BUTTONS" -> check = buttons(component.path("buttons"));
+                case "HEADER" -> {
+                    // A template has at most one header, footer and button group; a second one would be missing from
+                    // the reviewed and approved content, so nothing can be concluded from such metadata.
+                    if (seenHeader) {
+                        return new Unreadable();
+                    }
+                    seenHeader = true;
+                    check = header(component);
+                    headerText = check == ComponentCheck.ALLOWED ? component.path("text").asString() : null;
+                }
+                case "FOOTER" -> {
+                    if (seenFooter) {
+                        return new Unreadable();
+                    }
+                    seenFooter = true;
+                    check = withoutPlaceholders(component.path("text"));
+                    footerText = check == ComponentCheck.ALLOWED ? component.path("text").asString() : null;
+                }
+                case "BUTTONS" -> {
+                    if (seenButtons) {
+                        return new Unreadable();
+                    }
+                    seenButtons = true;
+                    check = buttons(component.path("buttons"), buttons);
+                }
                 default -> check = ComponentCheck.UNSUPPORTED;
             }
             if (check == ComponentCheck.UNREADABLE) {
@@ -61,7 +94,16 @@ final class GraphApiTemplateSchemaReader {
         if (body == null) {
             return new Unreadable();
         }
-        return unsupported ? new Unsupported() : new BodyParameters(format.get(), body);
+        if (unsupported) {
+            return new Unsupported();
+        }
+        try {
+            return new BodyParameters(format.get(), body,
+                    new TemplateContent(headerText, bodyText, footerText, buttons));
+        } catch (IllegalArgumentException invalidText) {
+            // Blank or NUL-bearing text cannot be shown to a reviewer, so nothing can be concluded from it.
+            return new Unreadable();
+        }
     }
 
     private enum ComponentCheck {
@@ -93,9 +135,12 @@ final class GraphApiTemplateSchemaReader {
                 : ComponentCheck.UNSUPPORTED;
     }
 
-    /** Quick replies and phone numbers need no value; a URL needs one only when it has a placeholder. */
-    private static ComponentCheck buttons(JsonNode buttons) {
-        if (!buttons.isArray() || buttons.isEmpty() || buttons.size() > MAX_BUTTONS) {
+    /**
+     * Quick replies and phone numbers need no value; a URL needs one only when it has a placeholder. Each accepted
+     * button is added to {@code accepted} with its label and target, because the recipient sees and can use them.
+     */
+    private static ComponentCheck buttons(JsonNode buttons, List<TemplateButton> accepted) {
+        if (!buttons.isArray() || buttons.isEmpty() || buttons.size() > TemplateContent.MAX_BUTTONS) {
             return ComponentCheck.UNREADABLE;
         }
         ComponentCheck result = ComponentCheck.ALLOWED;
@@ -104,8 +149,15 @@ final class GraphApiTemplateSchemaReader {
                 return ComponentCheck.UNREADABLE;
             }
             ComponentCheck check = switch (button.path("type").asString()) {
-                case "QUICK_REPLY", "PHONE_NUMBER" -> ComponentCheck.ALLOWED;
-                case "URL" -> withoutPlaceholders(button.path("url"));
+                case "QUICK_REPLY" -> accept(accepted, TemplateButtonType.QUICK_REPLY, button.path("text"), null);
+                case "PHONE_NUMBER" -> accept(accepted, TemplateButtonType.PHONE_NUMBER, button.path("text"),
+                        button.path("phone_number"));
+                case "URL" -> {
+                    ComponentCheck url = withoutPlaceholders(button.path("url"));
+                    yield url == ComponentCheck.ALLOWED
+                            ? accept(accepted, TemplateButtonType.URL, button.path("text"), button.path("url"))
+                            : url;
+                }
                 default -> ComponentCheck.UNSUPPORTED;
             };
             if (check == ComponentCheck.UNREADABLE) {
@@ -116,6 +168,20 @@ final class GraphApiTemplateSchemaReader {
             }
         }
         return result;
+    }
+
+    /** A label or target that is missing, not text, blank, too long or NUL-bearing cannot be reviewed. */
+    private static ComponentCheck accept(List<TemplateButton> accepted, TemplateButtonType type, JsonNode text,
+            JsonNode target) {
+        if (!text.isString() || (target != null && !target.isString())) {
+            return ComponentCheck.UNREADABLE;
+        }
+        try {
+            accepted.add(new TemplateButton(type, text.asString(), target == null ? null : target.asString()));
+            return ComponentCheck.ALLOWED;
+        } catch (IllegalArgumentException invalid) {
+            return ComponentCheck.UNREADABLE;
+        }
     }
 
     private static ComponentCheck withoutPlaceholders(JsonNode text) {

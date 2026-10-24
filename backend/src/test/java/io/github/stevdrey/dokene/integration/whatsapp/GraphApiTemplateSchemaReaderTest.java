@@ -8,6 +8,9 @@ import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.BodyParameters;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unreadable;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema.Unsupported;
+import io.github.stevdrey.dokene.template.domain.TemplateButton;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 class GraphApiTemplateSchemaReaderTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String BODY = "{\"type\":\"BODY\",\"text\":\"Hola {{1}}, tu pedido {{2}}\"}";
+    private static final TemplateContent BODY_CONTENT = new TemplateContent(null, "Hola {{1}}, tu pedido {{2}}", null);
 
     private static ProviderTemplateSchema read(String template) {
         return GraphApiTemplateSchemaReader.read(JSON.readTree(template));
@@ -30,18 +34,39 @@ class GraphApiTemplateSchemaReaderTest {
     @Test
     void readsPositionalBodyPlaceholdersByDefault() {
         assertThat(withComponents(BODY))
-                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")));
+                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"), BODY_CONTENT));
         assertThat(read("{\"parameter_format\":null,\"components\":[" + BODY + "]}"))
-                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")));
+                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"), BODY_CONTENT));
         assertThat(read("{\"parameter_format\":\"POSITIONAL\",\"components\":[{\"type\":\"BODY\",\"text\":\"Hola\"}]}"))
-                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of()));
+                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(),
+                        new TemplateContent(null, "Hola", null)));
+    }
+
+    /** Meta's sample template as the Graph API lists it: static header, body and footer, no placeholders (issue 268). */
+    @Test
+    void readsTheFixedTextOfAZeroParameterTemplate() {
+        assertThat(read("{\"name\":\"hello_world\",\"language\":\"en_US\",\"status\":\"APPROVED\","
+                + "\"components\":[{\"type\":\"HEADER\",\"format\":\"TEXT\",\"text\":\"Hello World\"},"
+                + "{\"type\":\"BODY\",\"text\":\"Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.\"},"
+                + "{\"type\":\"FOOTER\",\"text\":\"WhatsApp Business Platform sample message\"}]}"))
+                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(),
+                        new TemplateContent("Hello World", "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
+                                "WhatsApp Business Platform sample message")));
+    }
+
+    @Test
+    void textThatCannotBeShownToAReviewerIsUnreadable() {
+        assertThat(withComponents("{\"type\":\"BODY\",\"text\":\"   \"}")).isEqualTo(new Unreadable());
+        assertThat(withComponents(BODY, "{\"type\":\"FOOTER\",\"text\":\"a\\u0000b\"}"))
+                .isEqualTo(new Unreadable());
     }
 
     @Test
     void readsNamedBodyPlaceholders() {
         assertThat(read("{\"parameter_format\":\"NAMED\",\"components\":[{\"type\":\"BODY\","
                 + "\"text\":\"Hola {{customer_name}}: {{message_body}}\"}]}"))
-                .isEqualTo(new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name", "message_body")));
+                .isEqualTo(new BodyParameters(TemplateParameterFormat.NAMED, List.of("customer_name", "message_body"),
+                        new TemplateContent(null, "Hola {{customer_name}}: {{message_body}}", null)));
     }
 
     @Test
@@ -51,7 +76,11 @@ class GraphApiTemplateSchemaReaderTest {
                 "{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"Si\"},"
                         + "{\"type\":\"PHONE_NUMBER\",\"text\":\"Llamar\",\"phone_number\":\"+50600000000\"},"
                         + "{\"type\":\"URL\",\"text\":\"Ver\",\"url\":\"https://example.test/catalogo\"}]}"))
-                .isInstanceOf(BodyParameters.class);
+                .isEqualTo(new BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"),
+                        new TemplateContent("Aviso", "Hola {{1}}, tu pedido {{2}}", "Gracias", List.of(
+                                new TemplateButton(TemplateButtonType.QUICK_REPLY, "Si", null),
+                                new TemplateButton(TemplateButtonType.PHONE_NUMBER, "Llamar", "+50600000000"),
+                                new TemplateButton(TemplateButtonType.URL, "Ver", "https://example.test/catalogo")))));
     }
 
     @ParameterizedTest
@@ -86,6 +115,20 @@ class GraphApiTemplateSchemaReaderTest {
             "{\"parameter_format\":\"MIXED\",\"components\":[" + BODY + "]}",
             "{\"components\":[{\"type\":\"FOOTER\",\"text\":\"Sin cuerpo\"}]}",
             "{\"components\":[" + BODY + "," + BODY + "]}",
+            "{\"components\":[{\"type\":\"HEADER\",\"format\":\"TEXT\",\"text\":\"Uno\"},"
+                    + "{\"type\":\"HEADER\",\"format\":\"TEXT\",\"text\":\"Dos\"}," + BODY + "]}",
+            "{\"components\":[{\"type\":\"HEADER\",\"format\":\"IMAGE\"},"
+                    + "{\"type\":\"HEADER\",\"format\":\"IMAGE\"}," + BODY + "]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"FOOTER\",\"text\":\"Uno\"},"
+                    + "{\"type\":\"FOOTER\",\"text\":\"Dos\"}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"a\"}]},"
+                    + "{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\"b\"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"QUICK_REPLY\",\"text\":\" \"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"PHONE_NUMBER\","
+                    + "\"text\":\"Llamar\"}]}]}",
+            "{\"components\":[" + BODY + ",{\"type\":\"BUTTONS\",\"buttons\":[{\"type\":\"URL\",\"url\":"
+                    + "\"https://example.test\"}]}]}",
             "{\"components\":[{\"type\":\"BODY\"}]}",
             "{\"components\":[{\"type\":\"BODY\",\"text\":5}]}",
             "{\"components\":[{\"type\":\"BODY\",\"text\":\"Hola {{1\"}]}",
@@ -113,9 +156,10 @@ class GraphApiTemplateSchemaReaderTest {
 
     @Test
     void untrustedMetadataIsBounded() {
-        String footer = ",{\"type\":\"FOOTER\",\"text\":\"x\"}";
-        assertThat(read("{\"components\":[" + BODY + footer.repeat(9) + "]}")).isInstanceOf(BodyParameters.class);
-        assertThat(read("{\"components\":[" + BODY + footer.repeat(10) + "]}")).isEqualTo(new Unreadable());
+        // Header, footer and buttons are singletons, so the component bound is reached with unknown components.
+        String unknown = ",{\"type\":\"SOMETHING_NEW\"}";
+        assertThat(read("{\"components\":[" + BODY + unknown.repeat(9) + "]}")).isEqualTo(new Unsupported());
+        assertThat(read("{\"components\":[" + BODY + unknown.repeat(10) + "]}")).isEqualTo(new Unreadable());
         String quickReply = ",{\"type\":\"QUICK_REPLY\",\"text\":\"x\"}";
         assertThat(withComponents(BODY, "{\"type\":\"BUTTONS\",\"buttons\":[" + quickReply.substring(1)
                 + quickReply.repeat(10) + "]}")).isEqualTo(new Unreadable());

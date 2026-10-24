@@ -87,6 +87,20 @@
   overflow-wrap: anywhere;
 }
 
+/* Template text other than the body (the footer) keeps its line breaks and spacing too: it is what the recipient reads. */
+.message-review__verbatim {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The customer-facing part of the preview, spaced like the section around it. */
+.message-review__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
 /* The body is shown verbatim: line breaks kept, long tokens wrapped, never interpreted. */
 .message-review__body {
   padding: var(--space-16);

@@ -2,6 +2,7 @@
 // ABOUTME: Operator and system commands throw INVALID_TRANSITION when refused; delivery reports never throw.
 package io.github.stevdrey.dokene.messaging.domain;
 
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import java.time.Instant;
@@ -16,7 +17,8 @@ public record OutboundMessage(UUID id, UUID tenantId, UUID customerId, UUID cont
         FailureCategory failureCategory, Instant sentAt, Instant deliveredAt, Instant readAt,
         UUID createdByMembershipId, UUID createdByActorId, Instant createdAt, Instant updatedAt, long version) {
 
-    public static final int MAX_BODY_LENGTH = 1000;
+    /** One limit for every message body, AI drafted or not, and for a template's fixed body (TemplateMapping). */
+    public static final int MAX_BODY_LENGTH = MessageDraft.MAX_BODY_LENGTH;
     /** The recipient format every send uses: E.164 with a leading plus. The provider adapter re-checks with it. */
     public static final Pattern E164 = Pattern.compile("^\\+[1-9][0-9]{7,14}$");
 

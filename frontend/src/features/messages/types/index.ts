@@ -2,6 +2,7 @@
 // backend messaging.api.MessagingApiContract; both sides are pinned by the shared fixtures in
 // backend/src/test/resources/contracts/messaging/v1. Do not edit without updating those fixtures.
 import type { SemanticAction, SemanticTemplateIntent } from '../../followups/types';
+import type { TemplateButton } from '../../integrations/types';
 
 export const MESSAGE_STATUSES = [
   'PENDING_APPROVAL',
@@ -90,7 +91,8 @@ export const MESSAGING_ERROR_STATUS = {
   SEND_ATTEMPTS_EXHAUSTED: 409,
   RATE_LIMITED: 429,
   PROVIDER_UNAVAILABLE: 503,
-  APPROVAL_INVALIDATED: 409
+  APPROVAL_INVALIDATED: 409,
+  LOCALE_NOT_ACCEPTED: 400
 } as const;
 export type MessagingErrorCode = keyof typeof MESSAGING_ERROR_STATUS;
 export const MESSAGING_ERROR_CODES = Object.keys(MESSAGING_ERROR_STATUS) as MessagingErrorCode[];
@@ -106,10 +108,13 @@ export interface SubmitMessageRequest {
   origin: MessageOrigin;
 }
 
-export interface ApprovalRequest {
-  decision: ApprovalDecision;
-  note?: string | null;
-}
+/**
+ * Approving names the reviewed `MessageTemplatePreview.revision`, which the backend requires (issue 268); rejecting
+ * names none. The union makes an approval without a revision a compile error instead of a 400.
+ */
+export type ApprovalRequest =
+  | { decision: 'APPROVE'; note?: string | null; templateRevision: string }
+  | { decision: 'REJECT'; note?: string | null; templateRevision?: null };
 
 export interface CancellationRequest {
   note?: string | null;
@@ -134,6 +139,48 @@ export interface AttemptSummary {
   failureCategory: FailureCategory | null;
 }
 
+/** The outbound locales a message may be submitted in; `es-419` is the default (issue 268). */
+export const MESSAGE_LOCALES = ['es-419', 'en-US'] as const;
+export type MessageLocale = (typeof MESSAGE_LOCALES)[number];
+export const DEFAULT_MESSAGE_LOCALE: MessageLocale = 'es-419';
+
+export function isMessageLocale(value: unknown): value is MessageLocale {
+  return typeof value === 'string' && (MESSAGE_LOCALES as readonly string[]).includes(value);
+}
+
+/**
+ * Whether a template in this Meta language may carry a message in this locale, as the backend's
+ * `MessagingLocales.acceptsTemplateLanguage`: `es-419` takes any Spanish template, `en-US` exactly `en_US`.
+ */
+export function acceptsTemplateLanguage(locale: MessageLocale, templateLanguage: string | null): boolean {
+  if (templateLanguage === null) return false;
+  return locale === 'es-419' ? templateLanguage.split('_')[0].toLowerCase() === 'es' : templateLanguage === 'en_US';
+}
+
+/** `GET /api/messaging/locales`: the locales this deployment accepts a new message in, default first (issue 268). */
+export interface MessageLocalesResponse {
+  locales: MessageLocale[];
+  defaultLocale: MessageLocale;
+}
+
+/**
+ * The provider template a message would be sent with, while it awaits approval or dispatch. Placeholders stay as
+ * written; without `message_body` in `parameterNames` the body is not sent and equals `bodyText`.
+ */
+export interface MessageTemplatePreview {
+  /** Identifies this exact template and content; an approval names it, so a changed template is refused. */
+  revision: string;
+  providerTemplateName: string;
+  language: string;
+  headerText: string | null;
+  bodyText: string;
+  /** The body as the recipient reads it, every parameter filled in; what review shows. */
+  renderedBody: string;
+  footerText: string | null;
+  buttons: TemplateButton[];
+  parameterNames: string[];
+}
+
 export interface MessageResponse {
   messageId: string;
   customerId: string;
@@ -150,6 +197,11 @@ export interface MessageResponse {
   locale: string;
   origin: MessageOrigin;
   body: string;
+  /**
+   * Null once dispatched, or while no sendable mapping in the message's language exists. Optional in v1 (ADR 0024):
+   * a backend from before issue 268 omits it, and the client reads that as null.
+   */
+  template?: MessageTemplatePreview | null;
   sourcePolicyVersion: number;
   approval: ApprovalSummary | null;
   attempts: AttemptSummary[];
@@ -172,6 +224,8 @@ export interface MessageListItem {
   outcomeUnknown: boolean;
   action: SemanticAction;
   templateIntent: SemanticTemplateIntent;
+  /** Optional in v1 (ADR 0024): a backend from before issue 268 omits it. */
+  locale?: string;
   origin: MessageOrigin;
   createdAt: string;
   updatedAt: string;

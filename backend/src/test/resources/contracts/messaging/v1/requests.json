@@ -16,6 +16,14 @@
         "body": "Hola Ana, ¿cómo te ha ido con tu compra?",
         "locale": "es-419",
         "origin": "MANUAL"
+      },
+      "manualEnglish": {
+        "contactId": "7a5c0000-0000-4000-8000-0000000c1001",
+        "action": "GENERAL_CHECK_IN",
+        "templateIntent": "GENERAL_FOLLOW_UP",
+        "body": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us.",
+        "locale": "en-US",
+        "origin": "MANUAL"
       }
     },
     "invalid": {
@@ -57,11 +65,15 @@
   "approval": {
     "valid": {
       "approve": {
-        "decision": "APPROVE"
+        "decision": "APPROVE",
+        "templateRevision": "5f0e3b4a1c2d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f"
       },
       "rejectWithNote": {
         "decision": "REJECT",
         "note": "El tono no es adecuado."
+      },
+      "approveFromAnOlderClientWithoutTemplateRevision": {
+        "decision": "APPROVE"
       }
     },
     "invalid": {
@@ -74,6 +86,14 @@
       "noteTooLong": {
         "decision": "REJECT",
         "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "malformedTemplateRevision": {
+        "decision": "APPROVE",
+        "templateRevision": "NOT-A-DIGEST"
+      },
+      "rejectWithTemplateRevision": {
+        "decision": "REJECT",
+        "templateRevision": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     }
   },

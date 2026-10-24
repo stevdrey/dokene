@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepository;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -45,6 +46,7 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(properties = "dokene.ai.provider=fake")
 @Import(ScriptedTemplateProviderGateway.Configuration.class)
 class RegistryBackedTemplateGateIntegrationTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     private static final AtomicLong NEXT_ID = new AtomicLong(
             500_000_000_000_000L + (System.nanoTime() % 1_000_000_000L) * 100);
     private static final String WABA_ID = "600000000000001";
@@ -111,8 +113,8 @@ class RegistryBackedTemplateGateIntegrationTest {
     void aProviderApprovalWhoseParametersDoNotMatchIsNeverMapped() {
         put(adminA, new Create(), "repeat_purchase_v1");
         for (ProviderTemplateSchema schema : List.of(
-                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2")),
-                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of()),
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"), CONTENT),
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(), CONTENT),
                 new ProviderTemplateSchema.Unsupported(), new ProviderTemplateSchema.Unreadable())) {
             provider.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID, schema);
             call(adminA, () -> registry.refreshApproval(INTENT, 0));
@@ -153,7 +155,7 @@ class RegistryBackedTemplateGateIntegrationTest {
 
     private void approve(TenantContext context, long version) {
         provider.next = new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA_ID,
-                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1")));
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"), CONTENT));
         call(context, () -> registry.refreshApproval(INTENT, version));
     }
 

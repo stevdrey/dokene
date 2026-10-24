@@ -54,9 +54,8 @@ describe('DeliveryHistory refresh', () => {
       refreshButton(uncertain.messageId).focus();
       fireEvent.click(refreshButton(uncertain.messageId));
       expect(suite.server.last(detailPath(uncertain.messageId)).key).toBe(`GET /api/messages/${uncertain.messageId}`);
-      await act(async () => {});
+      await waitFor(() => expect(toggleOf(uncertain.messageId)).toHaveTextContent('Fallido'));
       const toggle = toggleOf(uncertain.messageId);
-      expect(toggle).toHaveTextContent('Fallido');
       // Actualizar left with the resolved outcome, so the row toggle takes the focus it held.
       await waitFor(() => expect(toggle).toHaveFocus());
       expect(toggle).toHaveTextContent('No se entregó al cliente.');
@@ -138,8 +137,11 @@ describe('DeliveryHistory refresh', () => {
       const heading = screen.getByRole('heading', { name: 'Historial de mensajes' });
       heading.focus();
       fireEvent.click(refreshButton(uncertain.messageId));
+      await waitFor(() =>
+        expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull()
+      );
+      // Effects of the commit that removed Actualizar run before this check, so a focus steal by the row would show.
       await act(async () => {});
-      expect(within(rowOf(uncertain.messageId)).queryByRole('button', { name: 'Actualizar' })).toBeNull();
       expect(heading).toHaveFocus();
       fireEvent.click(toggleOf(sent.messageId));
       await rowLoaded(sent);
@@ -401,11 +403,14 @@ describe('DeliveryHistory refresh', () => {
       await listed();
       fireEvent.click(toggleOf(sent.messageId));
       expect(await within(panelOf(sent.messageId)).findByText(sent.body)).toBeInTheDocument();
+      // The row's event read must be in flight before the refresh, or there is nothing to abort.
+      await waitFor(() => expect(suite.server.count(eventsPath(sent.messageId))).toBeGreaterThanOrEqual(1));
       fireEvent.click(listRefresh());
       expect(await screen.findByText('Tu sesión terminó. Vuelve a iniciar sesión.')).toBeInTheDocument();
       expect(screen.queryAllByRole('button')).toHaveLength(0);
       expect(screen.queryByText(sent.body)).toBeNull();
-      expect(suite.server.last(eventsPath(sent.messageId)).signal?.aborted).toBe(true);
+      // The abort runs when the row unmounts, which can land a tick after the session sentence renders.
+      await waitFor(() => expect(suite.server.last(eventsPath(sent.messageId)).signal?.aborted).toBe(true));
     });
 
     it('keeps every row and shows the sentence when the refresh fails', async () => {

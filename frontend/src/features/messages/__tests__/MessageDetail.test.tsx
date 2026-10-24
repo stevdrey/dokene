@@ -131,12 +131,101 @@ describe('MessageReview review mode', () => {
 
     it('renders markup in the body as literal text and adds no element', async () => {
       const markup = '<img src=x onerror=alert(1)>';
-      const detail = variant(details.pendingApproval, { body: markup });
+      const detail = variant(details.pendingApproval, {
+        body: markup,
+        template: { ...details.pendingApproval.template!, headerText: markup, renderedBody: markup }
+      });
       serve(detail);
       renderReview(detail.messageId);
       await loaded(detail);
-      expect(screen.getByText(markup)).toBeInTheDocument();
+      expect(screen.getAllByText(markup)).toHaveLength(2);
       expect(document.querySelector('img')).toBeNull();
+    });
+
+    it('shows the language and the template exactly as the customer will receive it (issue 268)', async () => {
+      const english = details.englishHelloWorldPendingApproval;
+      const detail = variant(english, {
+        template: {
+          ...english.template!,
+          buttons: [
+            { type: 'QUICK_REPLY', text: 'Yes, thanks', value: null },
+            { type: 'URL', text: 'View catalog', value: 'https://example.test/catalog' }
+          ]
+        }
+      });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      expect(screen.getByText('Inglés (EE. UU.)')).toBeInTheDocument();
+      const preview = screen.getByRole('region', { name: 'Lo que recibirá el cliente' });
+      expect(preview).toHaveTextContent('Plantilla hello_world · en_US');
+      expect(preview).toHaveTextContent(english.template!.headerText!);
+      expect(preview).toHaveTextContent(english.template!.renderedBody);
+      expect(preview).toHaveTextContent(english.template!.footerText!);
+      expect(within(preview).getByRole('list', { name: 'Botones de la plantilla' })).toHaveTextContent(
+        'Respuesta rápida: Yes, thanks'
+      );
+      expect(preview).toHaveTextContent('Enlace: View catalog (https://example.test/catalog)');
+      expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
+      // The customer-facing text is marked with the message language, so assistive technology reads it as English.
+      expect(screen.getByText(english.template!.renderedBody).closest('[lang]')).toHaveAttribute('lang', 'en-US');
+      // The list label and the button kinds are Spanish; only each button text is the customer's language.
+      expect(within(preview).getByRole('list', { name: 'Botones de la plantilla' })).toHaveAttribute('lang', 'es');
+      expect(within(preview).getByText('Yes, thanks')).toHaveAttribute('lang', 'en-US');
+    });
+
+    it('keeps the footer line breaks and spacing the recipient reads', async () => {
+      const footer = 'Línea uno\n  Línea dos';
+      const detail = variant(details.pendingApproval, {
+        template: { ...details.pendingApproval.template!, footerText: footer }
+      });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      const preview = screen.getByRole('region', { name: 'Lo que recibirá el cliente' });
+      const footerNode = within(preview).getByText((_, node) => node?.textContent === footer);
+      expect(footerNode).toHaveClass('message-review__verbatim');
+    });
+
+    it('keeps Enviar and shows no stale approval warning without a preview from an older backend', async () => {
+      const { template: _omitted, ...older } = details.approved;
+      const detail = older as typeof details.approved;
+      serve(detail);
+      renderReview(detail.messageId, 'OPERATOR');
+      await loaded(detail);
+      expect(buttonNames()).toEqual(['Enviar', 'Cancelar', 'Corregir']);
+      expect(screen.queryByText(/La aprobación ya no cubre/)).toBeNull();
+    });
+
+    it('tells a read only role why, but not to correct or cancel', async () => {
+      const detail = variant(details.approved, { template: null });
+      serve(detail);
+      renderReview(detail.messageId, 'VIEWER');
+      await loaded(detail);
+      expect(screen.getByText(/La aprobación ya no cubre lo que se enviaría/)).toBeInTheDocument();
+      expect(screen.queryByText(/Corrige o cancela el mensaje/)).toBeNull();
+    });
+
+    it('withholds Enviar when the approval no longer covers what would be sent and says why', async () => {
+      const detail = variant(details.approved, { template: null });
+      serve(detail);
+      renderReview(detail.messageId, 'OPERATOR');
+      await loaded(detail);
+      expect(buttonNames()).toEqual(['Cancelar', 'Corregir']);
+      expect(screen.getByText(/La aprobación ya no cubre lo que se enviaría/)).toHaveTextContent(
+        'Corrige o cancela el mensaje.'
+      );
+    });
+
+    it('offers no approval without a template preview and says why', async () => {
+      const detail = variant(details.pendingApproval, { template: null });
+      serve(detail);
+      renderReview(detail.messageId);
+      await loaded(detail);
+      expect(screen.queryByRole('button', { name: 'Aprobar' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Rechazar' })).toBeInTheDocument();
+      expect(screen.getByText(/No hay una plantilla aprobada para este idioma y acción/)).toBeInTheDocument();
+      expect(screen.getByText(detail.body)).toBeInTheDocument();
     });
 
     it('keeps the stranded contact warning off a message that already went out', async () => {
@@ -237,7 +326,11 @@ describe('MessageReview review mode', () => {
     ];
 
     it.each(matrix)('offers %s exactly %j to an operator', async (name, expected) => {
-      const detail = details[name];
+      // An approval still covers what would be sent while the backend shows its preview; this fixture predates it.
+      const detail =
+        name === 'approvedAfterTransientFailure'
+          ? variant(details[name], { template: details.approved.template })
+          : details[name];
       serve(detail);
       renderReview(detail.messageId, 'OPERATOR');
       await loaded(detail);

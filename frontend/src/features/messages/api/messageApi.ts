@@ -2,6 +2,7 @@
 // ABOUTME: Narrows every response at runtime and takes the version only from a strong numeric ETag that matches the body.
 import { httpClient } from '@/shared/api/httpClient';
 import { SEMANTIC_ACTIONS, SEMANTIC_TEMPLATE_INTENTS } from '@/features/followups/types';
+import { TEMPLATE_BUTTON_TYPES, type TemplateButton } from '@/features/integrations/types';
 import {
   FAILURE_CATEGORIES,
   MESSAGE_ACTOR_KINDS,
@@ -10,13 +11,16 @@ import {
   MESSAGE_ORIGINS,
   MESSAGE_STATUSES,
   SEND_ATTEMPT_OUTCOMES,
-  type ApprovalDecision,
+  type ApprovalRequest,
   type AttemptSummary,
   type MessageEventItem,
   type MessageListItem,
   type MessagePageResponse,
   type MessageResponse,
-  type SubmitMessageRequest
+  type MessageLocalesResponse,
+  type MessageTemplatePreview,
+  type SubmitMessageRequest,
+  isMessageLocale
 } from '../types';
 
 export const HISTORY_PAGE_SIZE = 20;
@@ -78,6 +82,29 @@ export function parseMessageVersion(etag: string | null, bodyVersion: unknown): 
   return version;
 }
 
+function isTemplateButton(value: unknown): value is TemplateButton {
+  return (
+    isRecord(value) && isOneOf(TEMPLATE_BUTTON_TYPES, value.type) && isString(value.text) && isNullableString(value.value)
+  );
+}
+
+function isTemplatePreview(value: unknown): value is MessageTemplatePreview {
+  return (
+    isRecord(value) &&
+    isString(value.revision) &&
+    isString(value.providerTemplateName) &&
+    isString(value.language) &&
+    isNullableString(value.headerText) &&
+    isString(value.bodyText) &&
+    isString(value.renderedBody) &&
+    isNullableString(value.footerText) &&
+    Array.isArray(value.buttons) &&
+    value.buttons.every(isTemplateButton) &&
+    Array.isArray(value.parameterNames) &&
+    value.parameterNames.every(isString)
+  );
+}
+
 function narrowDetail(body: unknown): MessageResponse {
   if (!isRecord(body)) throw new InvalidMessageResponseError();
   const valid =
@@ -95,6 +122,7 @@ function narrowDetail(body: unknown): MessageResponse {
     isString(body.locale) &&
     isOneOf(MESSAGE_ORIGINS, body.origin) &&
     isString(body.body) &&
+    (body.template === undefined || body.template === null || isTemplatePreview(body.template)) &&
     isCount(body.sourcePolicyVersion) &&
     Array.isArray(body.attempts) &&
     body.attempts.every(isAttempt) &&
@@ -105,6 +133,7 @@ function narrowDetail(body: unknown): MessageResponse {
     isString(body.updatedAt) &&
     isCount(body.version);
   if (!valid) throw new InvalidMessageResponseError();
+  // An absent template (a backend from before issue 268) stays undefined, apart from null (no covered preview).
   return body as unknown as MessageResponse;
 }
 
@@ -134,6 +163,7 @@ function isListItem(value: unknown): value is MessageListItem {
     typeof value.outcomeUnknown === 'boolean' &&
     isOneOf(SEMANTIC_ACTIONS, value.action) &&
     isOneOf(SEMANTIC_TEMPLATE_INTENTS, value.templateIntent) &&
+    (value.locale === undefined || isString(value.locale)) &&
     isOneOf(MESSAGE_ORIGINS, value.origin) &&
     isString(value.createdAt) &&
     isString(value.updatedAt) &&
@@ -181,6 +211,23 @@ export const messageApi = {
     return versioned(data, etag, messageId);
   },
 
+  /**
+   * The locales this deployment accepts a new message in (issue 268). A locale this client does not know is dropped;
+   * the default must be one it knows and one of the list. A backend without the route answers 404 (the caller then
+   * offers the default only).
+   */
+  async getLocales(signal?: AbortSignal): Promise<MessageLocalesResponse> {
+    const { data } = await httpClient.request<unknown>('/api/messaging/locales', { signal });
+    if (!isRecord(data) || !Array.isArray(data.locales) || !data.locales.every(isString)) {
+      throw new InvalidMessageResponseError();
+    }
+    const locales = data.locales.filter(isMessageLocale);
+    if (!isMessageLocale(data.defaultLocale) || !locales.includes(data.defaultLocale)) {
+      throw new InvalidMessageResponseError();
+    }
+    return { locales, defaultLocale: data.defaultLocale };
+  },
+
   async getEvents(messageId: string, signal?: AbortSignal): Promise<MessageEventItem[]> {
     const { data } = await httpClient.request<unknown>(messagePath(messageId, '/events'), { signal });
     // A history of another message must never be shown under this one.
@@ -218,17 +265,21 @@ export const messageApi = {
     return read;
   },
 
+  /** An approval names the template preview that was reviewed, when the detail showed one (issue 268). */
   async decide(
     messageId: string,
-    decision: ApprovalDecision,
-    note: string | undefined,
+    request: ApprovalRequest,
     version: number,
     idempotencyKey: string,
     signal?: AbortSignal
   ): Promise<VersionedMessage> {
+    const base =
+      request.decision === 'APPROVE'
+        ? { decision: request.decision, templateRevision: request.templateRevision }
+        : { decision: request.decision };
     const { data, etag } = await httpClient.request<unknown>(messagePath(messageId, '/approvals'), {
       method: 'POST',
-      body: withNote({ decision }, note),
+      body: withNote(base, request.note ?? undefined),
       ifMatch: version,
       idempotencyKey,
       signal

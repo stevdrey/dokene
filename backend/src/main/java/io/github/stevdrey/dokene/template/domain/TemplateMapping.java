@@ -2,14 +2,19 @@
 // ABOUTME: Operator-editable fields and provider-derived evidence are separate; edits drop the evidence.
 package io.github.stevdrey.dokene.template.domain;
 
+import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
+import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TimestampPrecision;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -22,6 +27,39 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     public static final Pattern LANGUAGE = Pattern.compile("^[a-z]{2,3}(_[A-Z]{2})?$");
     public static final Pattern PARAMETER_NAME = Pattern.compile("^[a-z][a-z0-9_]{0,31}$");
     public static final int MAX_PARAMETERS = 10;
+    /**
+     * The closed vocabulary a parameter name may use to be rendered when sending; a mapping naming anything else is
+     * never sendable. A mapping without {@link #MESSAGE_BODY} sends only the template's fixed text, which must then
+     * be a submittable message body.
+     */
+    public enum Parameter {
+        /** The customer's current display name. Renaming the customer voids open approvals. */
+        CUSTOMER_NAME("customer_name"),
+        /** The approved message body, exactly as submitted. */
+        MESSAGE_BODY("message_body");
+
+        private final String parameterName;
+
+        Parameter(String parameterName) {
+            this.parameterName = parameterName;
+        }
+
+        public String parameterName() {
+            return parameterName;
+        }
+
+        public static Optional<Parameter> named(String name) {
+            for (Parameter parameter : values()) {
+                if (parameter.parameterName.equals(name)) {
+                    return Optional.of(parameter);
+                }
+            }
+            return Optional.empty();
+        }
+    }
+
+    /** The fixed-text rules version the evidence is recorded with (V32); see {@link DraftSafetyValidator}. */
+    public static final int FIXED_TEXT_RULES_VERSION = DraftSafetyValidator.FIXED_TEXT_RULES_VERSION;
 
     public TemplateMapping {
         Objects.requireNonNull(id, "Mapping id is required");
@@ -51,12 +89,24 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     /**
      * What the provider last reported, and for which mapping revision and business account. {@code UNVERIFIED} carries
      * no evidence at all; only {@code APPROVED} carries the parameter format its schema was verified against, and an
-     * approval without one was never schema-checked.
+     * approval without one was never schema-checked. {@code content} is the fixed template text read in that same
+     * schema check; approval without it was recorded before issue 268 and cannot be reviewed, so it is not sendable.
+     * {@code contentRulesVersion} is the version of the fixed-text safety rules that checked {@code content}
+     * ({@link #FIXED_TEXT_RULES_VERSION} when recorded now); null with content means text recorded by an earlier release
+     * under unknown rules. Content checked under any other version is kept as read but is never sendable (V32).
      */
     public record ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
-            Long checkedVersion, TemplateParameterFormat parameterFormat) {
+            Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content,
+            Integer contentRulesVersion) {
         public static final ApprovalEvidence UNVERIFIED = new ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED,
-                null, null, null, null);
+                null, null, null, null, null, null);
+
+        /** Evidence recorded now: content, if any, was checked under the current fixed-text rules. */
+        public ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
+                Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content) {
+            this(status, checkedAt, checkedBusinessAccountId, checkedVersion, parameterFormat, content,
+                    content == null ? null : FIXED_TEXT_RULES_VERSION);
+        }
 
         public ApprovalEvidence {
             Objects.requireNonNull(status, "Status is required");
@@ -69,6 +119,12 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
             // instance of an earlier release); it is kept as read but is never sendable.
             if (parameterFormat != null && status != TemplateApprovalStatus.APPROVED) {
                 throw new IllegalArgumentException("Only approved evidence carries a parameter format");
+            }
+            if (content != null && parameterFormat == null) {
+                throw new IllegalArgumentException("Only schema-checked approval carries template content");
+            }
+            if (contentRulesVersion != null && (content == null || contentRulesVersion < 1)) {
+                throw new IllegalArgumentException("A rules version only accompanies the content it checked");
             }
             if (checkedAt != null) {
                 checkedAt = TimestampPrecision.normalize(checkedAt);
@@ -98,18 +154,51 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
         if (status == TemplateApprovalStatus.APPROVED || status.derivedFromSchema()) {
             throw new IllegalArgumentException("Approval evidence requires a verified schema");
         }
-        return withEvidence(new ApprovalEvidence(status, now, businessAccountId, version, null), now);
+        return withEvidence(new ApprovalEvidence(status, now, businessAccountId, version, null, null), now);
     }
 
     /**
      * The provider approved the template: the evidence is {@code APPROVED} only when its parameter schema matches the
-     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable.
+     * stored parameter names, and otherwise the closed {@code SCHEMA_*} outcome, which is never sendable. Approval
+     * keeps the template's fixed text and buttons, so review shows what will be sent. A template that does not carry
+     * the message body sends its fixed body as the message, so a fixed body longer than a message body may be is
+     * unsupported: no message could ever be submitted against it. Fixed text reaches every recipient unchanged and
+     * cannot be grounded per customer, so any header, body, footer or button label the safety checks refuse makes the
+     * template unsupported too; button targets are structured and shown in review instead.
      */
     public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
         ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")
                 .check(parameterNames);
-        return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format()),
-                now);
+        TemplateContent content = verdict.status() == TemplateApprovalStatus.APPROVED
+                && schema instanceof ProviderTemplateSchema.BodyParameters body ? body.content() : null;
+        if (content != null && (!fixedTextIsSafe(content) || fixedBodyTooLong(content))) {
+            verdict = new ProviderTemplateSchema.Verdict(TemplateApprovalStatus.SCHEMA_UNSUPPORTED, null);
+            content = null;
+        }
+        return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format(),
+                content), now);
+    }
+
+    /** Without the message body as a parameter, the fixed body is the message, so it must fit a message body. */
+    private boolean fixedBodyTooLong(TemplateContent content) {
+        return !parameterNames.contains(Parameter.MESSAGE_BODY.parameterName())
+                && content.body().codePointCount(0, content.body().length()) > MessageDraft.MAX_BODY_LENGTH;
+    }
+
+    /** Checked in the template's own language, whose Meta code ({@code en_US}) maps to a BCP 47 tag ({@code en-US}). */
+    private boolean fixedTextIsSafe(TemplateContent content) {
+        Map<String, String> texts = new LinkedHashMap<>();
+        texts.put("body", content.body());
+        if (content.header() != null) {
+            texts.put("header", content.header());
+        }
+        if (content.footer() != null) {
+            texts.put("footer", content.footer());
+        }
+        for (int i = 0; i < content.buttons().size(); i++) {
+            texts.put("button " + (i + 1), content.buttons().get(i).text());
+        }
+        return DraftSafetyValidator.validateFixedText(texts, language.replace('_', '-')).isEmpty();
     }
 
     private TemplateMapping withEvidence(ApprovalEvidence evidence, Instant now) {
@@ -132,11 +221,15 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * Sendable only when enabled, provider-approved for exactly this revision and business account, and the evidence is
      * fresh. Everything else fails closed. Both verified parameter formats are sendable; the format travels with the
      * resolved mapping into the approval fingerprint and the send command. Approval without a format was never
-     * schema-checked, so it is not sendable.
+     * schema-checked, and approval without content cannot be reviewed, so neither is sendable. The fixed text was
+     * safety-checked when the evidence was recorded, so only content checked under the current rules version is
+     * trusted here, without running the checks again (see {@code DraftSafetyValidator.FIXED_TEXT_RULES_VERSION}).
      */
     public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
                 && approval.parameterFormat() != null
+                && approval.content() != null
+                && Objects.equals(approval.contentRulesVersion(), FIXED_TEXT_RULES_VERSION)
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

@@ -14,10 +14,12 @@ import io.github.stevdrey.dokene.messaging.domain.MessageOrigin;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
+import io.github.stevdrey.dokene.template.domain.TemplateButtonType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * Transport shapes, used by {@code MessageController}. Requests reject missing required members and out-of-contract
@@ -43,11 +45,26 @@ public final class MessagingApiContract {
         }
     }
 
-    /** {@code POST /api/messages/{messageId}/approvals}, executes T2 or T3. */
-    public record ApprovalRequest(ApprovalDecision decision, String note) {
+    /**
+     * {@code POST /api/messages/{messageId}/approvals}, executes T2 or T3. This client's approval names the template
+     * preview it was given ({@code MessageTemplatePreview.revision}, issue 268); an older client's approval without one
+     * is accepted for a default-locale message only (expand first), and a rejection carrying one is refused.
+     */
+    public record ApprovalRequest(ApprovalDecision decision, String note, String templateRevision) {
+        private static final Pattern TEMPLATE_REVISION = Pattern.compile("^[0-9a-f]{64}$");
+
         public ApprovalRequest {
             Objects.requireNonNull(decision, "decision is required");
             requireNoteWithinLimit(note);
+            // Expand first: an approval without a revision, from a client older than issue 268, stays valid here; the
+            // service accepts it only for the default locale, which that client could already approve.
+            if (decision == ApprovalDecision.REJECT && templateRevision != null) {
+                // A rejection binds no preview; accepting one would let a retry change it under the same key.
+                throw new IllegalArgumentException("templateRevision is only accepted to approve");
+            }
+            if (templateRevision != null && !TEMPLATE_REVISION.matcher(templateRevision).matches()) {
+                throw new IllegalArgumentException("templateRevision must be 64 lowercase hex characters");
+            }
         }
     }
 
@@ -68,15 +85,63 @@ public final class MessagingApiContract {
 
     public enum ResolutionOutcome { FAILED }
 
-    /** Detail representation returned by reads and by every command (201 first, 200 on replay). */
+    /**
+     * Detail representation returned by reads and by every command (201 first, 200 on replay). {@code template} is the
+     * provider template the message would be sent with, present only while it awaits approval or dispatch and a
+     * sendable mapping in its language exists; otherwise null (issue 268).
+     */
     public record MessageResponse(UUID messageId, UUID customerId, UUID contactId, boolean contactRemoved,
             String recipientPhone, MessageChannel channel, MessageStatus status, boolean outcomeUnknown,
             FailureCategory failureCategory, SemanticAction action, SemanticTemplateIntent templateIntent, String locale, MessageOrigin origin,
-            String body, long sourcePolicyVersion, ApprovalSummary approval, List<AttemptSummary> attempts,
+            String body, MessageTemplatePreview template, long sourcePolicyVersion, ApprovalSummary approval, List<AttemptSummary> attempts,
             String providerMessageId, Instant sentAt, Instant deliveredAt, Instant readAt,
             UUID createdByMembershipId, Instant createdAt, Instant updatedAt, long version) {
         public MessageResponse {
             attempts = List.copyOf(Objects.requireNonNull(attempts, "attempts is required"));
+        }
+    }
+
+    /**
+     * The template as the provider approved it, with placeholders left as written in {@code bodyText}, and the body as
+     * the recipient reads it in {@code renderedBody}, every parameter filled in. {@code revision} identifies this exact
+     * template, content and rendered values; a current client approves by naming it (issue 268, ApprovalRequest). When {@code parameterNames}
+     * lacks {@code message_body} the message body is not sent and equals {@code renderedBody}.
+     */
+    public record MessageTemplatePreview(String revision, String providerTemplateName, String language,
+            String headerText, String bodyText, String renderedBody, String footerText,
+            List<MessageTemplateButton> buttons, List<String> parameterNames) {
+        public MessageTemplatePreview {
+            Objects.requireNonNull(revision, "revision is required");
+            Objects.requireNonNull(providerTemplateName, "providerTemplateName is required");
+            Objects.requireNonNull(language, "language is required");
+            Objects.requireNonNull(bodyText, "bodyText is required");
+            Objects.requireNonNull(renderedBody, "renderedBody is required");
+            buttons = List.copyOf(Objects.requireNonNull(buttons, "buttons is required"));
+            parameterNames = List.copyOf(Objects.requireNonNull(parameterNames, "parameterNames is required"));
+        }
+    }
+
+    /** One fixed button of the template, in order; {@code value} is the phone number or URL, null for a quick reply. */
+    public record MessageTemplateButton(TemplateButtonType type, String text, String value) {
+        public MessageTemplateButton {
+            Objects.requireNonNull(type, "type is required");
+            Objects.requireNonNull(text, "text is required");
+        }
+    }
+
+    /**
+     * {@code GET /api/messaging/locales}: the locales a new message may be submitted in on this deployment, default
+     * first (issue 268). {@code en-US} appears only once the deployment enables English writes; submit refuses any
+     * locale not listed with {@code LOCALE_NOT_ACCEPTED}. The path is outside {@code /messages/{messageId}}, so an
+     * older backend answers {@code 404}; a client then offers the default locale only.
+     */
+    public record MessageLocalesResponse(List<String> locales, String defaultLocale) {
+        public MessageLocalesResponse {
+            locales = List.copyOf(Objects.requireNonNull(locales, "locales is required"));
+            Objects.requireNonNull(defaultLocale, "defaultLocale is required");
+            if (!locales.contains(defaultLocale)) {
+                throw new IllegalArgumentException("defaultLocale must be one of locales");
+            }
         }
     }
 
@@ -97,7 +162,7 @@ public final class MessagingApiContract {
     }
 
     public record MessageListItem(UUID messageId, UUID customerId, boolean contactRemoved, MessageStatus status,
-            boolean outcomeUnknown, SemanticAction action, SemanticTemplateIntent templateIntent,
+            boolean outcomeUnknown, SemanticAction action, SemanticTemplateIntent templateIntent, String locale,
             MessageOrigin origin, Instant createdAt, Instant updatedAt, long version) {
     }
 
@@ -137,7 +202,7 @@ public final class MessagingApiContract {
 
         public static int statusOf(MessagingErrorCode code) {
             return switch (code) {
-                case INVALID_INPUT -> 400;
+                case INVALID_INPUT, LOCALE_NOT_ACCEPTED -> 400;
                 case FORBIDDEN -> 403;
                 case NOT_FOUND -> 404;
                 case RATE_LIMITED -> 429;

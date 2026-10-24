@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +16,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class TemplateMappingResolverTest {
+    private static final TemplateContent CONTENT = new TemplateContent(null, "Synthetic body", null);
     @Test
     void acceptsAWellFormedMappingAndCopiesItsParameters() {
         var names = new ArrayList<>(List.of("customer_name"));
@@ -52,10 +54,10 @@ class TemplateMappingResolverTest {
     @Test
     void requiresTheVerifiedParameterFormat() {
         assertThat(new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE, "repeat_purchase_v1", "es",
-                TemplateParameterFormat.NAMED, List.of("customer_name"), 3).parameterFormat())
+                TemplateParameterFormat.NAMED, List.of("customer_name"), CONTENT, 3).parameterFormat())
                 .isEqualTo(TemplateParameterFormat.NAMED);
         assertThatThrownBy(() -> new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE,
-                "repeat_purchase_v1", "es", null, List.of(), 3))
+                "repeat_purchase_v1", "es", null, List.of(), CONTENT, 3))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("Parameter format is required");
     }
@@ -63,6 +65,6 @@ class TemplateMappingResolverTest {
     private static ResolvedTemplateMapping mapping(String name, String language, List<String> parameters,
             long version) {
         return new ResolvedTemplateMapping(SemanticTemplateIntent.REPEAT_PURCHASE, name, language,
-                TemplateParameterFormat.POSITIONAL, parameters, version);
+                TemplateParameterFormat.POSITIONAL, parameters, CONTENT, version);
     }
 }

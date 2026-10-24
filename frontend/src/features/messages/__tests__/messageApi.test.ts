@@ -13,6 +13,8 @@ import {
   eventsFixtures,
   eventsPath,
   historyPath,
+  localesFixtures,
+  localesPath,
   ok,
   pages,
   pending,
@@ -62,6 +64,38 @@ describe('messageApi', () => {
       expect(read.version).toBe(detail.version);
       expect(read.detail.status).toBe(detail.status);
     }
+  });
+
+  it('keeps a detail without template, as a backend from before issue 268 sends it, apart from null', async () => {
+    const { template: _omitted, ...older } = details.pendingApproval;
+    server.on(detailPath(older.messageId), detailReply(older as typeof details.pendingApproval));
+    const read = await messageApi.getDetail(older.messageId);
+    // Absent means "no preview from this backend", which is not "the approval no longer covers the message".
+    expect(read.detail.template).toBeUndefined();
+    server.on(detailPath(older.messageId), detailReply({ ...details.pendingApproval, template: null }));
+    expect((await messageApi.getDetail(older.messageId)).detail.template).toBeNull();
+  });
+
+  describe('getLocales (issue 268)', () => {
+    it.each(Object.entries(localesFixtures))('reads the %s fixture', async (_name, fixture) => {
+      server.on(localesPath, ok(fixture));
+      expect(await messageApi.getLocales()).toEqual(fixture);
+    });
+
+    it('drops a locale this client does not know, but not the default', async () => {
+      server.on(localesPath, ok({ locales: ['es-419', 'pt-BR'], defaultLocale: 'es-419' }));
+      expect(await messageApi.getLocales()).toEqual({ locales: ['es-419'], defaultLocale: 'es-419' });
+    });
+
+    it.each([
+      ['a default outside the list', { locales: ['en-US'], defaultLocale: 'es-419' }],
+      ['an unknown default', { locales: ['es-419', 'pt-BR'], defaultLocale: 'pt-BR' }],
+      ['a non string locale', { locales: ['es-419', 1], defaultLocale: 'es-419' }],
+      ['no list', { defaultLocale: 'es-419' }]
+    ])('rejects %s', async (_label, body) => {
+      server.on(localesPath, ok(body));
+      await expect(messageApi.getLocales()).rejects.toBeInstanceOf(InvalidMessageResponseError);
+    });
   });
 
   it('treats a detail without a strong ETag as invalid', async () => {
@@ -177,9 +211,14 @@ describe('messageApi', () => {
 
   it('sends approval and rejection bodies that match the fixtures', async () => {
     server.on(approvalsPath(id), { status: 201, body: { ...details.approved, messageId: id }, etag: '"2"' });
-    await messageApi.decide(id, 'APPROVE', undefined, 1, 'key-a');
+    await messageApi.decide(
+      id,
+      { decision: 'APPROVE', templateRevision: requests.approval.valid.approve.templateRevision },
+      1,
+      'key-a'
+    );
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.approve));
-    await messageApi.decide(id, 'REJECT', requests.approval.valid.rejectWithNote.note, 1, 'key-r');
+    await messageApi.decide(id, { decision: 'REJECT', note: requests.approval.valid.rejectWithNote.note }, 1, 'key-r');
     expect(server.last(approvalsPath(id)).body).toBe(JSON.stringify(requests.approval.valid.rejectWithNote));
   });
 
@@ -233,6 +272,14 @@ describe('listCustomerHistory', () => {
     server.on(historyPath(customerId), ok({ items: [stranger, firstItem], nextCursor: null }));
     const page = await messageApi.listCustomerHistory(customerId, null);
     expect(page.items.map((item) => item.messageId)).toEqual([firstItem.messageId]);
+  });
+
+  it('accepts an item without locale, as a backend from before issue 268 sends it', async () => {
+    const { locale: _omitted, ...older } = firstItem;
+    server.on(historyPath(customerId), ok({ items: [older], nextCursor: null }));
+    const page = await messageApi.listCustomerHistory(customerId, null);
+    expect(page.items.map((item) => item.messageId)).toEqual([firstItem.messageId]);
+    expect(page.items[0].locale).toBeUndefined();
   });
 
   it('accepts a status the contract does not know', async () => {

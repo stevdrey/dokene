@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ApprovalRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.CancellationRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageEventsResponse;
+import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageLocalesResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagePageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
@@ -57,6 +58,8 @@ class MessagingContractFixturesTest {
             Map.entry("approval.missingDecision", NullPointerException.class),
             Map.entry("approval.unknownDecision", InvalidFormatException.class),
             Map.entry("approval.noteTooLong", IllegalArgumentException.class),
+            Map.entry("approval.malformedTemplateRevision", IllegalArgumentException.class),
+            Map.entry("approval.rejectWithTemplateRevision", IllegalArgumentException.class),
             Map.entry("cancellation.noteTooLong", IllegalArgumentException.class),
             Map.entry("cancellation.unknownMember", UnrecognizedPropertyException.class),
             Map.entry("resolution.markedSent", InvalidFormatException.class),
@@ -109,6 +112,8 @@ class MessagingContractFixturesTest {
                 tests.add(dynamicTest("pages." + name, () -> assertResponseRoundTrip(node, MessagePageResponse.class))));
         named(messages.get("events")).forEach((name, node) ->
                 tests.add(dynamicTest("events." + name, () -> assertResponseRoundTrip(node, MessageEventsResponse.class))));
+        named(messages.get("locales")).forEach((name, node) ->
+                tests.add(dynamicTest("locales." + name, () -> assertResponseRoundTrip(node, MessageLocalesResponse.class))));
         return tests.stream();
     }
 
@@ -209,7 +214,7 @@ class MessagingContractFixturesTest {
                 "action: " + ai + "SemanticAction", "templateIntent: " + ai + "SemanticTemplateIntent",
                 "body: java.lang.String", "locale: java.lang.String", "origin: " + domain + "MessageOrigin"));
         expected.put(ApprovalRequest.class, List.of("decision: " + domain + "ApprovalDecision",
-                "note: java.lang.String"));
+                "note: java.lang.String", "templateRevision: java.lang.String"));
         expected.put(CancellationRequest.class, List.of("note: java.lang.String"));
         expected.put(ResolutionRequest.class, List.of("outcome: " + contract + "ResolutionOutcome",
                 "note: java.lang.String"));
@@ -219,11 +224,21 @@ class MessagingContractFixturesTest {
                 "outcomeUnknown: boolean", "failureCategory: " + domain + "FailureCategory",
                 "action: " + ai + "SemanticAction", "templateIntent: " + ai + "SemanticTemplateIntent",
                 "locale: java.lang.String", "origin: " + domain + "MessageOrigin", "body: java.lang.String",
-                "sourcePolicyVersion: long", "approval: " + contract + "ApprovalSummary",
+                "template: " + contract + "MessageTemplatePreview", "sourcePolicyVersion: long", "approval: " + contract + "ApprovalSummary",
                 "attempts: java.util.List<" + contract + "AttemptSummary>", "providerMessageId: java.lang.String",
                 "sentAt: java.time.Instant", "deliveredAt: java.time.Instant", "readAt: java.time.Instant",
                 "createdByMembershipId: java.util.UUID", "createdAt: java.time.Instant",
                 "updatedAt: java.time.Instant", "version: long"));
+        expected.put(MessagingApiContract.MessageTemplatePreview.class, List.of(
+                "revision: java.lang.String", "providerTemplateName: java.lang.String", "language: java.lang.String",
+                "headerText: java.lang.String", "bodyText: java.lang.String", "renderedBody: java.lang.String",
+                "footerText: java.lang.String", "buttons: java.util.List<" + contract + "MessageTemplateButton>",
+                "parameterNames: java.util.List<java.lang.String>"));
+        expected.put(MessageLocalesResponse.class, List.of("locales: java.util.List<java.lang.String>",
+                "defaultLocale: java.lang.String"));
+        expected.put(MessagingApiContract.MessageTemplateButton.class, List.of(
+                "type: io.github.stevdrey.dokene.template.domain.TemplateButtonType", "text: java.lang.String",
+                "value: java.lang.String"));
         expected.put(MessagingApiContract.ApprovalSummary.class, List.of(
                 "decision: " + domain + "ApprovalDecision", "decidedAt: java.time.Instant",
                 "decidedByMembershipId: java.util.UUID"));
@@ -235,8 +250,9 @@ class MessagingContractFixturesTest {
         expected.put(MessagingApiContract.MessageListItem.class, List.of("messageId: java.util.UUID",
                 "customerId: java.util.UUID", "contactRemoved: boolean", "status: " + domain + "MessageStatus",
                 "outcomeUnknown: boolean", "action: " + ai + "SemanticAction",
-                "templateIntent: " + ai + "SemanticTemplateIntent", "origin: " + domain + "MessageOrigin",
-                "createdAt: java.time.Instant", "updatedAt: java.time.Instant", "version: long"));
+                "templateIntent: " + ai + "SemanticTemplateIntent", "locale: java.lang.String",
+                "origin: " + domain + "MessageOrigin", "createdAt: java.time.Instant", "updatedAt: java.time.Instant",
+                "version: long"));
         expected.put(MessageEventsResponse.class, List.of("messageId: java.util.UUID",
                 "events: java.util.List<" + contract + "MessageEventItem>"));
         expected.put(MessagingApiContract.MessageEventItem.class, List.of("sequenceNumber: long",

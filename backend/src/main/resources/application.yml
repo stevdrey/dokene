@@ -96,6 +96,10 @@ dokene:
     min-contact-interval: ${DOKENE_MESSAGING_MIN_CONTACT_INTERVAL:24h}
     send-rate-per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
     send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
+    english:
+      # Writing en-US messages (issue 268), off unless the deployment sets it. Turn it on only once every instance runs
+      # this release: an earlier release cannot read an en-US row, so rolling back past this release is unsafe after.
+      enabled: ${DOKENE_MESSAGING_ENGLISH_ENABLED:false}
     outbound:
       # Global kill switch (spec 0008): off unless the deployment sets it; read once at startup, so changing it needs
       # a restart. No API, tenant setting or header can turn it on.

@@ -52,6 +52,24 @@ export interface TemplateRequest {
   enabled: boolean;
 }
 
+export const TEMPLATE_BUTTON_TYPES = ['QUICK_REPLY', 'PHONE_NUMBER', 'URL'] as const;
+export type TemplateButtonType = (typeof TEMPLATE_BUTTON_TYPES)[number];
+
+/** One fixed button in order; `value` is the phone number or URL, null for a quick reply. */
+export interface TemplateButton {
+  type: TemplateButtonType;
+  text: string;
+  value: string | null;
+}
+
+/** Placeholders stay as written; header and footer are optional; buttons may be empty. */
+export interface TemplateContent {
+  headerText: string | null;
+  bodyText: string;
+  footerText: string | null;
+  buttons: TemplateButton[];
+}
+
 export interface TemplateResponse {
   templateIntent: SemanticTemplateIntent;
   mapped: boolean;
@@ -61,6 +79,11 @@ export interface TemplateResponse {
   parameterNames: string[];
   approvalStatus: TemplateApprovalStatus;
   approvalCheckedAt: string | null;
+  /**
+   * The fixed template text read with APPROVED evidence; null otherwise (issue 268). Optional in v1 (ADR 0024):
+   * a backend from before issue 268 omits it, and the client reads that as null.
+   */
+  content?: TemplateContent | null;
   sendable: boolean;
   version: number | null;
 }

@@ -2,25 +2,36 @@
 // ABOUTME: Covers the INVALID_INPUT and FORBIDDEN clauses of AC-4 of spec 0001 with no repository interaction.
 package io.github.stevdrey.dokene.messaging.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
 import io.github.stevdrey.dokene.followup.application.DraftGroundingAssembler;
 import io.github.stevdrey.dokene.followup.application.FollowUpService;
+import io.github.stevdrey.dokene.messaging.domain.MessageOperation;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import io.github.stevdrey.dokene.messaging.domain.RequestFingerprint;
 import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.Test;
@@ -29,6 +40,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class OutboundMessageCommandServiceValidationTest {
     private static final String BODY = "Hola, ¿cómo le ha ido con su compra?";
+    private static final TenantContext MEMBER = new TenantContext(TenantId.random(),
+            new IdentityId(UUID.randomUUID()), TenantMembershipId.random(), TenantRole.OWNER);
 
     private final OutboundMessageRepository messages = mock(OutboundMessageRepository.class);
     private final MessageIdempotencyStore idempotency = mock(MessageIdempotencyStore.class);
@@ -41,10 +54,67 @@ class OutboundMessageCommandServiceValidationTest {
     private final TenantAuthorizationService authorization = mock(TenantAuthorizationService.class);
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final MessageAuditPort audit = mock(MessageAuditPort.class);
-    private final OutboundMessageCommandService service = new OutboundMessageCommandService(messages, idempotency,
-            customers, new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
-            new MessageCommandSupport(messages, authorization, contexts), mock(CurrentMembershipAuthorizer.class),
-            audit, Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC));
+    private final OutboundMessageCommandService service = service(true);
+
+    private OutboundMessageCommandService service(boolean englishEnabled) {
+        return new OutboundMessageCommandService(messages, idempotency, customers,
+                new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
+                new MessageCommandSupport(messages, authorization, contexts, mock(MessageTemplatePreviews.class)),
+                mock(CurrentMembershipAuthorizer.class), audit,
+                Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC),
+                new EnglishOutboundProperties(englishEnabled));
+    }
+
+    /**
+     * Issue 268, expand first: en-US is refused until the deployment switch is on, before any customer or message is
+     * touched, but only after the replay lookup, so a submission committed while the switch was on still replays.
+     */
+    @Test
+    void refusesEnglishUntilTheDeploymentEnablesIt() {
+        OutboundMessageCommandService off = service(false);
+        when(contexts.requireCurrent()).thenReturn(MEMBER);
+        when(idempotency.find(any(), any(), any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")))
+                .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
+                .isEqualTo(MessagingErrorCode.LOCALE_NOT_ACCEPTED);
+        verifyNoInteractions(messages, customers, bindings, safety, audit);
+        assertThat(new EnglishOutboundProperties(null).enabled()).isFalse();
+    }
+
+    @Test
+    void consultsTheReplayBeforeTheEnglishSwitch() {
+        OutboundMessageCommandService off = service(false);
+        when(contexts.requireCurrent()).thenReturn(MEMBER);
+        UUID tenantId = MEMBER.tenantId().value();
+        when(idempotency.find(any(), any(), any())).thenReturn(Optional.of(new MessageIdempotencyStore.IdempotencyRecord(
+                UUID.randomUUID(), tenantId, MessageOperation.SUBMIT, "k1", "another request", UUID.randomUUID(), null,
+                Instant.parse("2026-10-08T11:00:00Z"))));
+
+        // The stored record is reached: a different request under the key is refused as a reuse, not as input.
+        assertThatThrownBy(() -> off.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")))
+                .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
+                .isEqualTo(MessagingErrorCode.IDEMPOTENCY_KEY_REUSED);
+        verifyNoInteractions(customers);
+    }
+
+    /** A decision committed by the release before issue 268 named no revision; its exact retry still replays. */
+    @Test
+    void replaysADecisionStoredWithTheFourFieldFingerprint() {
+        when(contexts.requireCurrent()).thenReturn(MEMBER);
+        UUID messageId = UUID.randomUUID();
+        String legacy = RequestFingerprint.of(MessageOperation.APPROVAL,
+                Arrays.asList(messageId.toString(), "REJECT", null, "1"));
+        when(idempotency.find(any(), any(), any())).thenReturn(Optional.of(new MessageIdempotencyStore.IdempotencyRecord(
+                UUID.randomUUID(), MEMBER.tenantId().value(), MessageOperation.APPROVAL, "k1", legacy, messageId,
+                UUID.randomUUID(), Instant.parse("2026-10-08T11:00:00Z"))));
+        when(messages.findByIdForUpdate(any(), any())).thenReturn(Optional.empty());
+
+        // The fingerprint matches, so the replay goes on to read the message rather than refusing a reused key.
+        assertThatThrownBy(() -> service.reject(new ApprovalCommand(messageId, null, "1", "k1")))
+                .isInstanceOf(MessagingRefusedException.class).extracting(e -> ((MessagingRefusedException) e).code())
+                .isEqualTo(MessagingErrorCode.NOT_FOUND);
+    }
 
     @Test
     void refusesMissingOrOversizedBodyBeforeTouchingAnything() {
@@ -58,8 +128,10 @@ class OutboundMessageCommandServiceValidationTest {
 
     @Test
     void refusesUnsupportedLocaleUnknownEnumsAndMissingIds() {
-        assertRefused(() -> service.submit(submit(BODY, "en-US", "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")),
-                MessagingErrorCode.INVALID_INPUT);
+        for (String locale : new String[] {"fr-FR", "en-GB", "en_US", "en", "es", "EN-US", ""}) {
+            assertRefused(() -> service.submit(submit(BODY, locale, "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "1", "k1")),
+                    MessagingErrorCode.INVALID_INPUT);
+        }
         assertRefused(() -> service.submit(submit(BODY, "es-419", "SELL_HARD", "GENERAL_FOLLOW_UP", "1", "k1")),
                 MessagingErrorCode.INVALID_INPUT);
         assertRefused(() -> service.submit(submit(BODY, "es-419", "GENERAL_CHECK_IN", "NOT_AN_INTENT", "1", "k1")),
@@ -69,6 +141,14 @@ class OutboundMessageCommandServiceValidationTest {
         assertRefused(() -> service.submit(new SubmitMessageCommand(UUID.randomUUID(), UUID.randomUUID(),
                 "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", BODY, "es-419", "ROBOT", "1", "k1")),
                 MessagingErrorCode.INVALID_INPUT);
+    }
+
+    /** AI drafts are generated and safety-checked in Spanish only; an English one cannot claim AI origin (issue 268). */
+    @Test
+    void refusesAnAiDraftInAnythingButTheDefaultLocale() {
+        assertRefused(() -> service.submit(new SubmitMessageCommand(UUID.randomUUID(), UUID.randomUUID(),
+                "GENERAL_CHECK_IN", "GENERAL_FOLLOW_UP", "Hello, how was your purchase?", "en-US", "AI_DRAFT", "1",
+                "k1")), MessagingErrorCode.INVALID_INPUT);
     }
 
     @ParameterizedTest

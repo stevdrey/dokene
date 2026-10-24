@@ -25,6 +25,8 @@ export type GroupStep =
 export interface ConfirmState {
   intent: ReviewIntent;
   openedOnVersion: number;
+  /** The template preview shown when the group opened; an approval names it (issue 268). */
+  openedOnTemplate: string | null;
   key: string;
   note: string;
   step: GroupStep;
@@ -35,12 +37,20 @@ function call(
   group: ConfirmState,
   signal: AbortSignal
 ): Promise<VersionedMessage> {
-  const { intent, note, openedOnVersion: version, key } = group;
+  const { intent, note, openedOnVersion: version, openedOnTemplate, key } = group;
   switch (intent) {
     case 'approve':
-      return messageApi.decide(messageId, 'APPROVE', undefined, version, key, signal);
+      // Without a reviewed preview there is nothing to approve, so no request is made (the server would refuse it).
+      if (openedOnTemplate === null) return Promise.reject(new Error('No template preview to approve'));
+      return messageApi.decide(
+        messageId,
+        { decision: 'APPROVE', templateRevision: openedOnTemplate },
+        version,
+        key,
+        signal
+      );
     case 'reject':
-      return messageApi.decide(messageId, 'REJECT', note, version, key, signal);
+      return messageApi.decide(messageId, { decision: 'REJECT', note }, version, key, signal);
     case 'cancel':
       return messageApi.cancel(messageId, note, version, key, signal);
     case 'correct':
@@ -154,9 +164,17 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
         return;
       }
       setAlert(null);
-      setGroup({ intent, openedOnVersion: version, key: crypto.randomUUID(), note: '', step: { kind: 'open' } });
+      const template = detail.state.kind === 'loaded' ? (detail.state.detail.template?.revision ?? null) : null;
+      setGroup({
+        intent,
+        openedOnVersion: version,
+        openedOnTemplate: template,
+        key: crypto.randomUUID(),
+        note: '',
+        step: { kind: 'open' }
+      });
     },
-    [heldUnsure, version]
+    [detail.state, heldUnsure, version]
   );
 
   const close = useCallback(() => {
@@ -223,6 +241,18 @@ export function useReviewActions({ messageId, detail, canAct, announce, onCorrec
           return detail.markNotFound();
         }
         stillUnsure();
+        return;
+      }
+      // An approval that landed always moves the version. The same version with another template preview means the
+      // server refused the reviewed preview as stale (a renamed customer, a refreshed mapping), so nothing is unsure:
+      // the operator reviews the new preview, with a new key, instead of retrying the stale one forever.
+      const previewMoved = (read.value.detail.template?.revision ?? null) !== attempt.openedOnTemplate;
+      if (attempt.intent === 'approve' && read.value.version === attempt.openedOnVersion && previewMoved) {
+        setGroup(null);
+        setHeldUnsure(null);
+        detail.apply(read.value);
+        detail.loadEvents();
+        setAlert(COPY.versionMoved);
         return;
       }
       if (read.value.version === attempt.openedOnVersion) {

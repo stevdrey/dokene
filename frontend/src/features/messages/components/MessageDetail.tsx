@@ -1,19 +1,23 @@
 // ABOUTME: Review mode of the message component: shows a submitted message, its outcome and history, and its allowed actions.
 // ABOUTME: Offers controls only where the status and role allow; approving never sends, and only a confirmed Enviar calls /sends.
-import { useCallback, useEffect, useId, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
+import { useSettleIntent } from '@/shared/hooks/useSettleIntent';
+import { isFocusLost } from '@/shared/utils/focus';
 import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
 import type { VersionedMessage } from '../api/messageApi';
 import { useMessageDetail, type PollState } from '../hooks/useMessageDetail';
 import { useReviewActions, type ConfirmState, type ReviewActions, type ReviewIntent } from '../hooks/useReviewActions';
-import type { MessageResponse } from '../types';
+import type { MessageResponse, MessageTemplatePreview } from '../types';
 import { formatDateTime, maskPhone } from '../utils/format';
 import {
   COPY,
   attemptOutcomeLabel,
+  buttonTypeLabel,
   changedSentence,
   failureCategoryLabel,
+  localeLabel,
   originLabel,
   revisionLabel,
   statusBadgeVariant,
@@ -95,12 +99,22 @@ type Controls = { kind: 'intents'; intents: ReviewIntent[] } | { kind: 'refresh'
 export function controlsFor(detail: MessageResponse, poll: PollState): Controls {
   switch (detail.status) {
     case 'PENDING_APPROVAL':
+      // Approving names the template preview it shows (issue 268), so without a preview there is nothing to approve.
+      if (detail.contactRemoved) return { kind: 'intents', intents: ['reject', 'cancel'] };
+      // An absent preview (a backend from before issue 268) cannot be approved by name either: fail closed.
       return {
         kind: 'intents',
-        intents: detail.contactRemoved ? ['reject', 'cancel'] : ['approve', 'reject', 'cancel', 'correct']
+        intents: detail.template ? ['approve', 'reject', 'cancel', 'correct'] : ['reject', 'cancel', 'correct']
       };
     case 'APPROVED':
-      return { kind: 'intents', intents: detail.contactRemoved ? ['cancel'] : ['send', 'cancel', 'correct'] };
+      if (detail.contactRemoved) return { kind: 'intents', intents: ['cancel'] };
+      // The backend shows an approved message's preview only while its approval still covers what would be sent;
+      // null means every send is refused (APPROVAL_INVALIDATED), so only correcting or cancelling is offered. An absent
+      // preview is a backend from before issue 268, which never sends one: sending stays offered as before.
+      return {
+        kind: 'intents',
+        intents: detail.template === null ? ['cancel', 'correct'] : ['send', 'cancel', 'correct']
+      };
     case 'QUEUED':
     case 'SENT':
       return poll === 'active' ? { kind: 'none' } : { kind: 'refresh' };
@@ -164,6 +178,11 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
   const frozen = message.status === 'SENDING' && message.outcomeUnknown;
   // A contact removed after the send is history; the stranded message warning only fits a message that can still be cancelled.
   const stranded = message.contactRemoved && (message.status === 'PENDING_APPROVAL' || message.status === 'APPROVED');
+  const unapprovable = message.status === 'PENDING_APPROVAL' && !message.contactRemoved && message.template === null;
+  // Only a backend that sends previews (null, not absent) says an approval no longer covers the message.
+  const invalidated = message.status === 'APPROVED' && !message.contactRemoved && message.template === null;
+  // Only a role that can act is told what to do about it; the reason is shown to everyone.
+  const instruction = canActOnMessages(role) ? ` ${COPY.correctOrCancel}` : '';
 
   return (
     <section className="message-review" aria-labelledby={headingId}>
@@ -180,6 +199,18 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
       {frozen && <p className="message-review__notice message-review__notice--warning">{COPY.frozen}</p>}
       {stranded && (
         <p className="message-review__notice message-review__notice--warning">{COPY.contactRemoved}</p>
+      )}
+      {unapprovable && (
+        <p className="message-review__notice message-review__notice--warning">
+          {COPY.templateUnavailable}
+          {instruction}
+        </p>
+      )}
+      {invalidated && (
+        <p className="message-review__notice message-review__notice--warning">
+          {COPY.approvalInvalidated}
+          {instruction}
+        </p>
       )}
 
       <dl className="message-review__facts">
@@ -199,12 +230,21 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
           <dt>Origen</dt>
           <dd>{originLabel(message.origin)}</dd>
         </div>
+        <div>
+          <dt>Idioma</dt>
+          <dd>{localeLabel(message.locale)}</dd>
+        </div>
       </dl>
 
-      <section className="message-review__section" aria-label="Texto del mensaje">
-        <h3 className="message-review__section-heading">Texto del mensaje</h3>
-        <p className="message-review__body">{message.body}</p>
-      </section>
+      {/* With a preview, the message text is shown inside it as the customer reads it, so it is not repeated. */}
+      {message.template ? (
+        <TemplatePreview template={message.template} locale={message.locale} />
+      ) : (
+        <section className="message-review__section" aria-label="Texto del mensaje">
+          <h3 className="message-review__section-heading">Texto del mensaje</h3>
+          <p className="message-review__body">{message.body}</p>
+        </section>
+      )}
 
       {lastAttempt && (
         <section className="message-review__card" aria-label="Resultado del envío">
@@ -227,6 +267,39 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
       />
 
       <EventTimeline headingId={timelineHeadingId} events={detail.events} onRetry={detail.loadEvents} />
+    </section>
+  );
+}
+
+/**
+ * The template exactly as the recipient will see it: fixed text with every parameter filled in, and its buttons. The
+ * customer-facing text carries the message locale as its language, so assistive technology reads an English template
+ * with English rules; the labels around it stay in the page's Spanish.
+ */
+function TemplatePreview({ template, locale }: { template: MessageTemplatePreview; locale: string }) {
+  return (
+    <section className="message-review__section" aria-label={COPY.templateHeading}>
+      <h3 className="message-review__section-heading">{COPY.templateHeading}</h3>
+      <p className="message-review__muted">
+        Plantilla {template.providerTemplateName} · {template.language}
+      </p>
+      <div lang={locale} className="message-review__preview">
+        {template.headerText && <p className="message-review__body">{template.headerText}</p>}
+        <p className="message-review__body">{template.renderedBody}</p>
+        {template.footerText && (
+          <p className="message-review__muted message-review__verbatim">{template.footerText}</p>
+        )}
+        {template.buttons.length > 0 && (
+          <ul lang="es" aria-label="Botones de la plantilla">
+            {template.buttons.map((button, index) => (
+              <li key={index}>
+                {buttonTypeLabel(button.type)}: <span lang={locale}>{button.text}</span>
+                {button.value ? ` (${button.value})` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
@@ -265,13 +338,11 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
   const { group } = actions;
   const focus = useReturnFocus(group !== null, focusAfterResult);
   // Actualizar can remove itself with its own result (DELIVERED to READ); focus then goes to the heading, not the body.
-  const refreshFocused = useRef(false);
-  useEffect(() => {
-    if (!refreshFocused.current) return;
-    refreshFocused.current = false;
-    const active = document.activeElement;
-    if (!active || active === document.body || !active.isConnected) focusAfterResult.current?.focus();
-  }, [message, focusAfterResult]);
+  // The refresh has no busy state of its own, so the reads in flight are counted here to know when one settled.
+  const [refreshes, setRefreshes] = useState(0);
+  const armRefreshFocused = useSettleIntent<true>(refreshes > 0, () => {
+    if (isFocusLost()) focusAfterResult.current?.focus();
+  });
 
   // A role that loses the right to act unmounts every trigger at once; a focused one hands focus to the heading.
   // Only the loss moves focus: a read only role that opens a message keeps focus where it was.
@@ -280,9 +351,7 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
   useEffect(() => {
     const lost = couldAct.current && !canAct;
     couldAct.current = canAct;
-    if (!lost) return;
-    const active = document.activeElement;
-    if (!active || active === document.body) focusAfterResult.current?.focus();
+    if (lost && isFocusLost()) focusAfterResult.current?.focus();
   }, [canAct, focusAfterResult]);
 
   if (!canAct) {
@@ -306,8 +375,9 @@ function ActionArea({ message, role, poll, actions, customerDisplayName, focusAf
               variant="secondary"
               size="sm"
               onClick={(event) => {
-                refreshFocused.current = document.activeElement === event.currentTarget;
-                void actions.refresh();
+                armRefreshFocused(document.activeElement === event.currentTarget ? true : null);
+                setRefreshes((count) => count + 1);
+                void actions.refresh().finally(() => setRefreshes((count) => count - 1));
               }}
             >
               Actualizar
