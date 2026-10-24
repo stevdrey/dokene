@@ -52,9 +52,26 @@ node --test .agents/scripts/pr-size-preflight.test.mjs
 ```
 
 The preflight counts unique committed, staged, unstaged, and non-ignored untracked paths relative to the merge base of
-`origin/main`. This is an estimate of the eventual PR diff, not a substitute for the GitHub check. For a deliberately
-stacked PR targeting another branch, use `PR_PREFLIGHT_BASE=origin/target-branch` after fetching that branch, or
-pass `--base origin/target-branch` to the manual command. If the baseline is missing, the preflight fails closed.
+`origin/main`. This is an estimate of the eventual PR diff, not a substitute for the GitHub check. If the baseline is
+missing, the preflight fails closed.
+
+A deliberately stacked PR is measured against the branch it targets, after fetching that branch. The base is chosen
+the way each publish path chooses it:
+
+- `gh pr create` follows `gh` exactly: its `--base target-branch` (also `-B`, `-Btarget-branch` or `--base=`), else
+  the branch's `branch.<branch>.gh-merge-base` setting, else `origin/main`. As for `gh`, the value is a branch name:
+  `--base=origin/x` means a branch named `origin/x`. Text inside other options' values, such as a title containing
+  `--base`, is never read as the base, and an argument array keeps its words. `gh` reads neither
+  `PR_PREFLIGHT_BASE` nor `prPreflightBase`, so neither changes the base of a `gh pr create`.
+- `git push` and the manual command use, in order: the manual `--base origin/target-branch`,
+  `PR_PREFLIGHT_BASE=origin/target-branch`, the branch's `git config branch.<branch>.prPreflightBase
+  origin/target-branch`, its `gh-merge-base`, else `origin/main`.
+
+Every base must resolve to an existing commit and must not be the branch's own published state, in any spelling (its
+own `origin/` ref, `HEAD`, `@{u}`, or a commit id or expression that resolves to its upstream or `HEAD`); an exact
+other `origin/` branch is accepted even at the same commit. Otherwise the preflight fails closed with a hint for that
+failure. The `PR file count` check in CI runs for pull requests into any branch, so a stacked PR is also counted
+against the branch it actually targets.
 
 ### Claude Code
 
