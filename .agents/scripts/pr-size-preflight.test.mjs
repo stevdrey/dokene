@@ -170,8 +170,13 @@ test('a pull request created on top of another branch is measured against that b
   for (const shellCommand of [
     'gh pr create --base staging --fill',
     'gh pr create --fill -B staging',
-    'gh pr create --base=origin/staging --fill',
+    'gh pr create --base=staging --fill',
+    'gh pr create -Bstaging --fill',
     'gh pr create --base "staging" --title x --body-file body.md',
+    // Option-looking text inside another option's value is never read as the base.
+    'gh pr create --title "fix --base typo" --base staging --fill',
+    'gh pr create --title --base --base staging --fill',
+    'npm test && gh pr create --body "see -B main" -B staging',
   ]) {
     const result = hook(cwd, shellCommand);
     assert.equal(result.status, 0, `${shellCommand}: ${result.stderr}`);
@@ -181,6 +186,41 @@ test('a pull request created on top of another branch is measured against that b
     assert.equal(result.status, 2, shellCommand);
     assert.match(result.stderr, /BLOCKED.*42\/40.*origin\/main/);
   }
+});
+
+test('a gh base is a literal branch name, never an already qualified ref', t => {
+  const cwd = stackedRepository(t);
+  // gh targets a branch named "origin/staging", which does not exist here, not the branch "staging".
+  const result = hook(cwd, 'gh pr create --base=origin/staging --fill');
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /origin\/origin\/staging does not exist/);
+});
+
+test('gh pr create without --base uses the gh-merge-base its branch configures', t => {
+  const cwd = stackedRepository(t);
+  assert.equal(hook(cwd, 'gh pr create --fill').status, 2);
+  git(cwd, 'config', 'branch.feature/preflight.gh-merge-base', 'staging');
+  const result = hook(cwd, 'gh pr create --fill');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(check(cwd).stdout, /1\/40 changed files relative to origin\/staging/);
+});
+
+test('the manual and environment overrides are checked like any other base', t => {
+  const cwd = stackedRepository(t);
+  git(cwd, 'update-ref', 'refs/remotes/origin/feature/preflight', 'HEAD');
+  const manual = check(cwd, ['--base', 'origin/feature/preflight']);
+  assert.equal(manual.status, 2);
+  assert.match(manual.stderr, /is the branch being published/);
+
+  const fromEnv = spawnSync(process.execPath, [SCRIPT], {
+    cwd, encoding: 'utf8', env: { ...process.env, PR_PREFLIGHT_BASE: 'origin/feature/preflight' },
+  });
+  assert.equal(fromEnv.status, 2);
+  assert.match(fromEnv.stderr, /is the branch being published/);
+
+  const missing = check(cwd, ['--base', 'origin/nowhere']);
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /origin\/nowhere does not exist/);
 });
 
 test('a push is measured against the base its branch declares', t => {

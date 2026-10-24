@@ -8,10 +8,15 @@ const DEFAULT_BASE_REF = 'origin/main';
 
 // This hook is a local convenience, not an authorization boundary: CI is authoritative.
 const PUBLISH_COMMAND = /(?:^|[\s;&|()])(?:gh\s+pr\s+create|git\s+(?:(?:-C|-c|--git-dir|--work-tree)\s+(?:"[^"]*"|'[^']*'|\S+)\s+)*push)(?=$|[\s;&|()])/;
-// The base branch a `gh pr create` names with --base, -B or --base=, quoted or not.
-const PR_CREATE_BASE = /(?:^|[\s;&|()])gh\s+pr\s+create\b[^;&|]*?\s(?:--base|-B)(?:=|\s+)("[^"]*"|'[^']*'|[^\s;&|()]+)/;
+// `gh pr create` options that take a value, so a value that looks like an option (a title "--base") is never read as one.
+const GH_VALUE_OPTIONS = new Set([
+  '--title', '-t', '--body', '-b', '--body-file', '-F', '--head', '-H', '--label', '-l', '--assignee', '-a',
+  '--reviewer', '-r', '--milestone', '-m', '--project', '-p', '--repo', '-R', '--template', '-T', '--base', '-B',
+]);
 // Per-branch declaration of a stacked PR's base, for publish commands that do not name one (`git push`).
 const BRANCH_BASE_KEY = 'prPreflightBase';
+// The base `gh pr create` itself uses when --base is omitted (`gh pr create --help`), before the repository default.
+const GH_MERGE_BASE_KEY = 'gh-merge-base';
 
 function git(cwd, ...args) {
   const result = spawnSync('git', args, {
@@ -59,30 +64,106 @@ async function hookInput() {
   return value;
 }
 
-function unquote(value) {
-  return /^(["']).*\1$/.test(value) ? value.slice(1, -1) : value;
+/**
+ * Splits a shell command into words the way a POSIX shell would for these purposes: quotes group and are removed, a
+ * backslash escapes the next character, and unquoted ;, &, |, ( and ) end a command. Each command is a list of words.
+ */
+function shellCommands(text) {
+  const commands = [[]];
+  let word = null;
+  let quote = null;
+  const end = () => {
+    if (word !== null) commands[commands.length - 1].push(word);
+    word = null;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else if (c === '\\' && quote === '"' && i + 1 < text.length) word += text[++i];
+      else word += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      word ??= '';
+    } else if (c === '\\' && i + 1 < text.length) {
+      word = (word ?? '') + text[++i];
+    } else if (/\s/.test(c)) {
+      end();
+    } else if (';&|()'.includes(c)) {
+      end();
+      if (commands[commands.length - 1].length > 0) commands.push([]);
+    } else {
+      word = (word ?? '') + c;
+    }
+  }
+  end();
+  return commands.filter(words => words.length > 0);
 }
 
 /**
- * A stacked PR is measured against the branch it targets, never against itself. The base must be an existing
- * remote-tracking branch other than the current branch's own, so a branch cannot hide its changes by naming its
- * already pushed state as the base. CI still counts the real PR, so this only keeps the local estimate honest.
+ * The base branch a `gh pr create` in the command names (--base X, --base=X, -B X, -BX), undefined when a create
+ * names none, or null when the command creates no PR. Values of other options are skipped, never read as options.
  */
-function stackedBase(cwd, name) {
-  const ref = name.startsWith('origin/') ? name : `origin/${name}`;
+function ghCreateBase(command) {
+  for (const words of shellCommands(command)) {
+    const at = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'pr' && words[i + 2] === 'create');
+    if (at === -1) continue;
+    let base;
+    for (let i = at + 3; i < words.length; i++) {
+      const word = words[i];
+      if (word === '--base' || word === '-B') {
+        if (i + 1 >= words.length) throw new Error('gh pr create names --base without a branch');
+        base = words[++i];
+      } else if (word.startsWith('--base=')) {
+        base = word.slice('--base='.length);
+      } else if (word.startsWith('-B') && word.length > 2) {
+        base = word.slice(2);
+      } else if (GH_VALUE_OPTIONS.has(word)) {
+        i++;
+      }
+    }
+    return base;
+  }
+  return null;
+}
+
+/**
+ * A PR is measured against the branch it targets, never against itself. Every base, however it was given, must
+ * resolve to an existing commit and must not be the current branch's own remote-tracking ref, so a branch cannot hide
+ * its changes by naming its already pushed state as the base. CI still counts the real PR (for every target branch),
+ * so this only keeps the local estimate honest.
+ */
+function checkedBase(cwd, ref) {
   const branch = gitOptional(cwd, 'symbolic-ref', '--short', '-q', 'HEAD');
-  if (branch && ref === `origin/${branch}`) {
+  if (branch && (ref === `origin/${branch}` || ref === `refs/remotes/origin/${branch}`)) {
     throw new Error(`${ref} is the branch being published, not the base it stacks on`);
   }
   if (!gitOptional(cwd, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`)) {
-    throw new Error(`Base ${ref} does not exist; fetch it with 'git fetch origin ${ref.slice('origin/'.length)}'`);
+    const name = ref.startsWith('origin/') ? ref.slice('origin/'.length) : ref;
+    throw new Error(`Base ${ref} does not exist; fetch it with 'git fetch origin ${name}'`);
   }
   return ref;
 }
 
+/** A branch name as `gh` uses it, always literal: `origin/staging` is a branch of that name, not `staging`. */
+function ghBranchBase(cwd, name) {
+  return name === 'main' ? DEFAULT_BASE_REF : checkedBase(cwd, `origin/${name}`);
+}
+
+/** A base this repository's own settings declare: a branch name, or already an `origin/` ref. */
+function declaredBase(cwd, name) {
+  return checkedBase(cwd, name.startsWith('origin/') ? name : `origin/${name}`);
+}
+
+function branchConfig(cwd, key) {
+  const branch = gitOptional(cwd, 'symbolic-ref', '--short', '-q', 'HEAD');
+  return branch ? gitOptional(cwd, 'config', '--get', `branch.${branch}.${key}`) : null;
+}
+
 /**
  * In order: the manual --base argument, the base a `gh pr create` names, PR_PREFLIGHT_BASE, the current branch's
- * `branch.<name>.prPreflightBase` setting, and otherwise origin/main.
+ * `branch.<name>.prPreflightBase` setting, its `branch.<name>.gh-merge-base` setting (which `gh pr create` itself uses
+ * when no --base is given), and otherwise origin/main.
  */
 function baseReference(args, cwd, command) {
   const index = args.indexOf('--base');
@@ -90,17 +171,15 @@ function baseReference(args, cwd, command) {
     if (index + 1 >= args.length || !args[index + 1] || args[index + 1].startsWith('--')) {
       throw new Error('Provide a Git reference after --base');
     }
-    return args[index + 1];
+    return checkedBase(cwd, args[index + 1]);
   }
-  const named = command ? PR_CREATE_BASE.exec(command) : null;
-  if (named) {
-    const base = unquote(named[1]);
-    return base === 'main' || base === DEFAULT_BASE_REF ? DEFAULT_BASE_REF : stackedBase(cwd, base);
-  }
-  if (process.env.PR_PREFLIGHT_BASE) return process.env.PR_PREFLIGHT_BASE;
-  const branch = gitOptional(cwd, 'symbolic-ref', '--short', '-q', 'HEAD');
-  const declared = branch ? gitOptional(cwd, 'config', '--get', `branch.${branch}.${BRANCH_BASE_KEY}`) : null;
-  return declared ? stackedBase(cwd, declared) : DEFAULT_BASE_REF;
+  const named = command ? ghCreateBase(command) : null;
+  if (named) return ghBranchBase(cwd, named);
+  if (process.env.PR_PREFLIGHT_BASE) return checkedBase(cwd, process.env.PR_PREFLIGHT_BASE);
+  const declared = branchConfig(cwd, BRANCH_BASE_KEY);
+  if (declared) return declaredBase(cwd, declared);
+  const ghDefault = branchConfig(cwd, GH_MERGE_BASE_KEY);
+  return ghDefault ? ghBranchBase(cwd, ghDefault) : DEFAULT_BASE_REF;
 }
 
 async function main() {

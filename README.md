@@ -57,14 +57,19 @@ missing, the preflight fails closed.
 
 A deliberately stacked PR is measured against the branch it targets, after fetching that branch:
 
-- `gh pr create --base target-branch` (also `-B` or `--base=`) is measured against `origin/target-branch`.
+- `gh pr create --base target-branch` (also `-B`, `-Btarget-branch` or `--base=`) is measured against
+  `origin/target-branch`. As for `gh`, the value is a branch name: `--base=origin/x` means a branch named `origin/x`.
+  Text inside other options' values, such as a title containing `--base`, is never read as the base.
+- Without `--base`, `gh pr create` targets the branch's `branch.<branch>.gh-merge-base` setting when one is set, and
+  the preflight measures against it too.
 - `git push` uses the base the current branch declares with
   `git config branch.<branch>.prPreflightBase origin/target-branch`.
 - The manual command accepts `--base origin/target-branch`, and `PR_PREFLIGHT_BASE=origin/target-branch` applies to
   any run.
 
-A stacked base must be an existing `origin/` branch other than the branch being published; otherwise the preflight
-fails closed.
+Every base, however it is given, must resolve to an existing commit other than the branch being published (its own
+`origin/` ref); otherwise the preflight fails closed. The `PR file count` check in CI runs for pull requests into any
+branch, so a stacked PR is also counted against the branch it actually targets.
 
 ### Claude Code
 

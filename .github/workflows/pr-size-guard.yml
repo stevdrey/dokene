@@ -1,8 +1,8 @@
 name: Pull Request Size Guard
 
 on:
+  # Every target branch, so a stacked PR is counted against the branch it actually targets (pull.changed_files).
   pull_request:
-    branches: [main]
     types: [opened, reopened, synchronize, ready_for_review, edited]
 
 permissions:
