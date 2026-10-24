@@ -50,7 +50,7 @@ The global switch off (P3-KILL-01/03) needs its own Spring context and stays cov
 
 The first targeted run had one failure, and the bug was in the test: the duplicate-click replay sent the new ETag. A real double click repeats the original `If-Match`, so the test now does too, and the server answers that with a `200` replay.
 
-A code review then tightened the test: strict business-account and token checks in the Graph stand-in, the sweeper turned off with an `APPLIED` inbox assertion, field-presence checks for `deliveredAt` and `attempts`, the leak check extended to the timeline and the list, and the shared callback builder. A follow-up P2 review added the integration disable and re-enable steps through the real route, so "disable yields zero provider requests" is proven at this level too.
+A code review then tightened the test: strict business-account and token checks in the Graph stand-in, the sweeper turned off with an `APPLIED` inbox assertion, field-presence checks for `deliveredAt` and `attempts`, the leak check extended to the timeline and the list, and the shared callback builder. A follow-up P2 review added the integration disable and re-enable steps through the real route, so "disable yields zero provider requests" is proven at this level too. A re-review then moved every approval onto the preview-bound contract of issue 268: the helper reads `template.revision` from the pending message, asserts it is 64 lowercase hex characters, and sends it as `templateRevision`, so no approval in the suite uses the legacy `es-419` path without a revision.
 
 ## Not covered here
 

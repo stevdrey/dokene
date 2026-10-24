@@ -399,10 +399,15 @@ class ApprovedSendJourneyIntegrationTest {
         return message;
     }
 
+    /** Approves the template preview the reviewer is shown: the detail's revision is sent back (issue 268). */
     private void approve(IdentityId who, Message message) throws Exception {
+        MockHttpServletResponse pending = perform(get("/api/messages/" + message.id), who);
+        String revision = body(pending).path("template").path("revision").asString(null);
+        assertThat(revision).as("template.revision").isNotNull().matches("[0-9a-f]{64}");
         MockHttpServletResponse response = perform(post("/api/messages/" + message.id + "/approvals")
-                .header("Idempotency-Key", "approve-" + UUID.randomUUID()).header("If-Match", message.etag(this))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"APPROVE\"}"), who);
+                .header("Idempotency-Key", "approve-" + UUID.randomUUID()).header("If-Match", pending.getHeader("ETag"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"APPROVE\",\"templateRevision\":\"" + revision + "\"}"), who);
         assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(201);
         assertThat(body(response).path("status").asString()).isEqualTo("APPROVED");
     }
