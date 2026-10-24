@@ -1,5 +1,5 @@
-// ABOUTME: Proves the template schema evidence migration (issue 218) drops approvals that never checked placeholders.
-// ABOUTME: Drives Flyway by hand in its own database: stop before it, seed mappings as the migration role, then upgrade.
+// ABOUTME: Proves the template evidence migrations drop approvals checked under weaker rules: placeholders (issue 218)
+// ABOUTME: and the fixed-text rules version (issue 268, V32). Drives Flyway by hand: seed before each, then upgrade.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 class TemplateSchemaEvidenceUpgradeIntegrationTest {
     private static final String SCHEMA_EVIDENCE_MIGRATION = "verify template parameter schema";
+    private static final String RULES_VERSION_MIGRATION = "template content rules version";
 
     /** covers: issue #218 (no mapping stays sendable on status, name and language alone after the upgrade). */
     @Test
@@ -25,7 +26,7 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
         UUID tenantId = UUID.randomUUID();
         UUID integrationId = UUID.randomUUID();
 
-        assertThat(flyway(url, versionBeforeSchemaEvidence(url)).migrate().success).isTrue();
+        assertThat(flyway(url, versionBefore(url, SCHEMA_EVIDENCE_MIGRATION)).migrate().success).isTrue();
         try (Connection migration = migrationConnection(url)) {
             seedMappings(migration, tenantId, integrationId);
         }
@@ -59,10 +60,52 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
         }
     }
 
+    /**
+     * covers: issue #268 (V32). Content safety-checked before the rules version existed was checked under earlier
+     * rules, so the approval returns to UNVERIFIED and its content is cleared: it reads as needing a refresh rather
+     * than as APPROVED and unusable.
+     */
+    @Test
+    void approvalsRecordedBeforeTheRulesVersionReturnToUnverified() throws Exception {
+        String url = TenantSecurityIntegrationFixture.createEmptyDatabase(
+                "rules_" + UUID.randomUUID().toString().replace("-", ""));
+        UUID tenantId = UUID.randomUUID();
+        UUID integrationId = UUID.randomUUID();
+
+        assertThat(flyway(url, versionBefore(url, RULES_VERSION_MIGRATION)).migrate().success).isTrue();
+        try (Connection migration = migrationConnection(url)) {
+            seedMappings(migration, tenantId, integrationId);
+            // The previous release's approved refresh, with its fixed content (V31).
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates
+                    SET approval_content_parameter_format = 'POSITIONAL', approval_body_text = 'Hola {{1}}',
+                        approval_button_types = '{}', approval_button_texts = '{}', approval_button_values = '{}',
+                        approval_content_checked_at = approval_checked_at
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """, tenantId)).isEqualTo(1);
+        }
+
+        assertThat(flyway(url, "latest").migrate().success).isTrue();
+
+        try (Connection migration = migrationConnection(url)) {
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE' AND approval_status = 'UNVERIFIED'
+                        AND approval_checked_at IS NULL AND approval_body_text IS NULL
+                        AND approval_content_checked_at IS NULL AND approval_content_rules_version IS NULL
+                    """, tenantId)).isEqualTo(1);
+            // Evidence that was never approved keeps its state.
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_status = 'REJECTED'
+                    """, tenantId)).isEqualTo(1);
+        }
+    }
+
     /** Found by description, so the starting point follows the migration if it is ever renumbered. */
-    private static String versionBeforeSchemaEvidence(String url) {
+    private static String versionBefore(String url, String description) {
         List<MigrationInfo> all = Arrays.asList(flyway(url, "latest").info().all());
-        int index = all.stream().map(MigrationInfo::getDescription).toList().indexOf(SCHEMA_EVIDENCE_MIGRATION);
+        int index = all.stream().map(MigrationInfo::getDescription).toList().indexOf(description);
         assertThat(index).isPositive();
         return all.get(index - 1).getVersion().getVersion();
     }

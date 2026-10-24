@@ -517,8 +517,8 @@ class TemplateRegistryIntegrationTest {
         assertThatThrownBy(() -> execute("UPDATE dokene.tenant_provider_templates SET approval_content_rules_version "
                 + "= 0 WHERE tenant_id = ?", tenantA.id().value())).isInstanceOf(SQLException.class);
 
-        // Content checked under other rules, or recorded without a version (an instance released before V32), is read
-        // back as no content: the mapping is not sendable and the registry shows no text.
+        // Content checked under other rules, or recorded without a version (an instance released before V32), is kept
+        // and shown, but the mapping is not sendable until a refresh checks it again.
         for (String version : List.of(Integer.toString(TemplateMapping.FIXED_TEXT_RULES_VERSION + 1), "NULL")) {
             execute("UPDATE dokene.tenant_provider_templates SET approval_content_rules_version = " + version
                     + ", approval_content_rules_checked_at = " + ("NULL".equals(version) ? "NULL"
@@ -526,7 +526,8 @@ class TemplateRegistryIntegrationTest {
             assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                     .isInstanceOf(TemplateMappingResolver.Disabled.class);
             list(adminA, tenantA).andExpect(jsonPath(
-                    "$.items[?(@.templateIntent == 'REPEAT_PURCHASE' && @.content == null)]").isNotEmpty());
+                    "$.items[?(@.templateIntent == 'REPEAT_PURCHASE' && @.content != null && @.sendable == false)]")
+                    .isNotEmpty());
         }
 
         // A refresh checks the text again under the current rules and records their version.
