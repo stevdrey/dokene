@@ -173,6 +173,8 @@ The template registry ([ADR 0025](../adr/0025-whatsapp-template-registry-and-dis
 
 **Sending Meta's `hello_world` in English.** Writing `en-US` messages is off until the deployment sets `DOKENE_MESSAGING_ENGLISH_ENABLED=true` (expand first: enable it only once every instance runs a release that can read `en-US`; see ADR 0025). While it is off, submit refuses `en-US` with `LOCALE_NOT_ACCEPTED`; once it is on, `GET /api/messaging/locales` lists `en-US` and compose offers it. Then map an intent, for example `GENERAL_FOLLOW_UP`, with `PUT /api/templates/GENERAL_FOLLOW_UP` and `{"providerTemplateName":"hello_world","language":"en_US","parameterNames":[],"enabled":true}`, then call `approval-refresh`. Submit an `en-US`, `MANUAL` message whose body is the `content.bodyText` the refresh returned, approve it and send it. The registry keeps one mapping per intent, so while the intent points at `hello_world` Spanish messages for that intent are `TEMPLATE_NOT_MAPPED` until it is mapped back.
 
+**Refreshing after a safety-rules change.** The fixed text of an approved template is safety-checked when it is refreshed, and the evidence records the version of those rules (`DraftSafetyValidator.FIXED_TEXT_RULES_VERSION`). When a release changes that version (including the first release with it, V32), its migration returns every approved mapping to `UNVERIFIED`, so refresh each intent with `approval-refresh` after deploying; until then nothing in it is sendable.
+
 The AI must not invent provider template IDs.
 
 ## Webhooks

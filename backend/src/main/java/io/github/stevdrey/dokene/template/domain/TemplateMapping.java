@@ -58,6 +58,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
         }
     }
 
+    /** The fixed-text rules version the evidence is recorded with (V32); see {@link DraftSafetyValidator}. */
+    public static final int FIXED_TEXT_RULES_VERSION = DraftSafetyValidator.FIXED_TEXT_RULES_VERSION;
+
     public TemplateMapping {
         Objects.requireNonNull(id, "Mapping id is required");
         Objects.requireNonNull(tenantId, "Tenant id is required");
@@ -88,11 +91,22 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * no evidence at all; only {@code APPROVED} carries the parameter format its schema was verified against, and an
      * approval without one was never schema-checked. {@code content} is the fixed template text read in that same
      * schema check; approval without it was recorded before issue 268 and cannot be reviewed, so it is not sendable.
+     * {@code contentRulesVersion} is the version of the fixed-text safety rules that checked {@code content}
+     * ({@link #FIXED_TEXT_RULES_VERSION} when recorded now); null with content means text recorded by an earlier release
+     * under unknown rules. Content checked under any other version is kept as read but is never sendable (V32).
      */
     public record ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
-            Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content) {
+            Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content,
+            Integer contentRulesVersion) {
         public static final ApprovalEvidence UNVERIFIED = new ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED,
-                null, null, null, null, null);
+                null, null, null, null, null, null);
+
+        /** Evidence recorded now: content, if any, was checked under the current fixed-text rules. */
+        public ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
+                Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content) {
+            this(status, checkedAt, checkedBusinessAccountId, checkedVersion, parameterFormat, content,
+                    content == null ? null : FIXED_TEXT_RULES_VERSION);
+        }
 
         public ApprovalEvidence {
             Objects.requireNonNull(status, "Status is required");
@@ -108,6 +122,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
             }
             if (content != null && parameterFormat == null) {
                 throw new IllegalArgumentException("Only schema-checked approval carries template content");
+            }
+            if (contentRulesVersion != null && (content == null || contentRulesVersion < 1)) {
+                throw new IllegalArgumentException("A rules version only accompanies the content it checked");
             }
             if (checkedAt != null) {
                 checkedAt = TimestampPrecision.normalize(checkedAt);
@@ -204,16 +221,15 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * Sendable only when enabled, provider-approved for exactly this revision and business account, and the evidence is
      * fresh. Everything else fails closed. Both verified parameter formats are sendable; the format travels with the
      * resolved mapping into the approval fingerprint and the send command. Approval without a format was never
-     * schema-checked, and approval without content cannot be reviewed, so neither is sendable. The fixed text is
-     * checked again here with the current rules in the template's language, so evidence recorded under an earlier
-     * release's rules (an {@code en_US} template checked only with the Spanish vocabulary) is not sendable on its
-     * account alone (issue 268).
+     * schema-checked, and approval without content cannot be reviewed, so neither is sendable. The fixed text was
+     * safety-checked when the evidence was recorded, so only content checked under the current rules version is
+     * trusted here, without running the checks again (see {@code DraftSafetyValidator.FIXED_TEXT_RULES_VERSION}).
      */
     public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
                 && approval.parameterFormat() != null
                 && approval.content() != null
-                && fixedTextIsSafe(approval.content())
+                && Objects.equals(approval.contentRulesVersion(), FIXED_TEXT_RULES_VERSION)
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

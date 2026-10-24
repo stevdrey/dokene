@@ -109,25 +109,35 @@ class TemplateMappingTest {
     }
 
     /**
-     * Issue 268: evidence stored by an earlier release checked an en_US template only with the Spanish vocabulary; its
-     * fixed text is checked again with the current English rules before it can be sent.
+     * Issue 268: the fixed text is safety-checked when the evidence is recorded, under a version of the rules; content
+     * checked under another version, or by an earlier release with unknown rules, is kept but never sendable (V32).
      */
     @Test
-    void evidenceFromEarlierRulesIsNotSendableWhenTheFixedTextNowFails() {
+    void onlyContentCheckedUnderTheCurrentRulesIsSendable() {
         TemplateMapping base = mapping("t", "en_US", List.of("message_body"));
-        TemplateMapping stored = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
-                base.providerTemplateName(), base.language(), base.parameterNames(), true,
-                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
-                        TemplateParameterFormat.POSITIONAL, new TemplateContent(null, "Get a great deal: {{1}}", null)),
+        TemplateContent content = new TemplateContent(null, "Hello: {{1}}", null);
+        java.util.function.Function<Integer, TemplateMapping> withRules = rules -> new TemplateMapping(base.id(),
+                base.tenantId(), base.integrationId(), base.intent(), base.providerTemplateName(), base.language(),
+                base.parameterNames(), true, new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW,
+                        WABA, 0L, TemplateParameterFormat.POSITIONAL, content, rules),
                 base.createdAt(), base.updatedAt(), 0);
-        assertThat(stored.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(withRules.apply(TemplateMapping.FIXED_TEXT_RULES_VERSION).sendable(INTEGRATION, WABA, NOW, MAX_AGE))
+                .isTrue();
+        assertThat(withRules.apply(TemplateMapping.FIXED_TEXT_RULES_VERSION + 1)
+                .sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        TemplateMapping unknown = withRules.apply(null);
+        assertThat(unknown.approval().content()).isEqualTo(content);
+        assertThat(unknown.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
 
-        TemplateMapping plain = new TemplateMapping(base.id(), base.tenantId(), base.integrationId(), base.intent(),
-                base.providerTemplateName(), base.language(), base.parameterNames(), true,
-                new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
-                        TemplateParameterFormat.POSITIONAL, new TemplateContent(null, "Hello: {{1}}", null)),
-                base.createdAt(), base.updatedAt(), 0);
-        assertThat(plain.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
+        // Evidence recorded now carries the current rules version with its content, and none without content.
+        assertThat(approved().approval().contentRulesVersion()).isEqualTo(TemplateMapping.FIXED_TEXT_RULES_VERSION);
+        assertThat(approved().verified(TemplateApprovalStatus.PAUSED, WABA, NOW).approval().contentRulesVersion())
+                .isNull();
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                TemplateParameterFormat.POSITIONAL, null, TemplateMapping.FIXED_TEXT_RULES_VERSION))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                TemplateParameterFormat.POSITIONAL, content, 0)).isInstanceOf(IllegalArgumentException.class);
     }
 
     /** Issue 268: approval keeps the template's fixed text, and approval without it cannot be reviewed or sent. */

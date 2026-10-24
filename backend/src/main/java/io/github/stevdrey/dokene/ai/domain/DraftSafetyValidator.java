@@ -22,6 +22,14 @@ import java.util.stream.Stream;
  * Prohibits invented discounts, prices, external links, and provider template identifiers.
  */
 public final class DraftSafetyValidator {
+    /**
+     * Version of the rules {@link #validateFixedText} applies (vocabularies, currency names, quantity parsing). Approval
+     * evidence records it with the fixed text it checked, and text checked under another version is not trusted until
+     * a refresh checks it again. {@code FixedTextRulesVersionTest} pins a digest of every rule here, so a change fails
+     * until this is bumped, with a migration that returns APPROVED template evidence to UNVERIFIED (as V32 does) and the
+     * new digest pinned.
+     */
+    public static final int FIXED_TEXT_RULES_VERSION = 1;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
@@ -77,7 +85,9 @@ public final class DraftSafetyValidator {
     private static final Map<String, BigDecimal> FRACTION_WORDS = fractionWords();
     private static final String QUANTITY_WORD = Stream.concat(NUMBER_WORDS.keySet().stream(),
                     FRACTION_WORDS.keySet().stream())
-            .sorted(java.util.Comparator.comparingInt(String::length).reversed())
+            // Longest first so a word wins over its prefix; ties alphabetical, so the pattern is the same on every run.
+            .sorted(java.util.Comparator.comparingInt(String::length).reversed()
+                    .thenComparing(java.util.Comparator.naturalOrder()))
             .collect(java.util.stream.Collectors.joining("|", "(?:", ")(?![\\p{L}])"));
     private static final String QUANTITY_TOKEN = "(?:\\d+(?:[.,]\\d+)*|" + QUANTITY_WORD + ")";
     /**
