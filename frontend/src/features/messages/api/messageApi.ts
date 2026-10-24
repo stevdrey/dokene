@@ -17,8 +17,10 @@ import {
   type MessageListItem,
   type MessagePageResponse,
   type MessageResponse,
+  type MessageLocalesResponse,
   type MessageTemplatePreview,
-  type SubmitMessageRequest
+  type SubmitMessageRequest,
+  isMessageLocale
 } from '../types';
 
 export const HISTORY_PAGE_SIZE = 20;
@@ -131,7 +133,8 @@ function narrowDetail(body: unknown): MessageResponse {
     isString(body.updatedAt) &&
     isCount(body.version);
   if (!valid) throw new InvalidMessageResponseError();
-  return { ...body, template: body.template ?? null } as unknown as MessageResponse;
+  // An absent template (a backend from before issue 268) stays undefined, apart from null (no covered preview).
+  return body as unknown as MessageResponse;
 }
 
 function isEvent(value: unknown): value is MessageEventItem {
@@ -206,6 +209,23 @@ export const messageApi = {
   async getDetail(messageId: string, signal?: AbortSignal): Promise<VersionedMessage> {
     const { data, etag } = await httpClient.request<unknown>(messagePath(messageId), { signal });
     return versioned(data, etag, messageId);
+  },
+
+  /**
+   * The locales this deployment accepts a new message in (issue 268). A locale this client does not know is dropped;
+   * the default must be one it knows and one of the list. A backend without the route answers 404 (the caller then
+   * offers the default only).
+   */
+  async getLocales(signal?: AbortSignal): Promise<MessageLocalesResponse> {
+    const { data } = await httpClient.request<unknown>('/api/messaging/locales', { signal });
+    if (!isRecord(data) || !Array.isArray(data.locales) || !data.locales.every(isString)) {
+      throw new InvalidMessageResponseError();
+    }
+    const locales = data.locales.filter(isMessageLocale);
+    if (!isMessageLocale(data.defaultLocale) || !locales.includes(data.defaultLocale)) {
+      throw new InvalidMessageResponseError();
+    }
+    return { locales, defaultLocale: data.defaultLocale };
   },
 
   async getEvents(messageId: string, signal?: AbortSignal): Promise<MessageEventItem[]> {

@@ -6,11 +6,26 @@ import { Button } from '@/shared/components/Button';
 import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
 import { countCodePoints } from '@/features/followups/utils/textLength';
 import { DRAFT_BODY_MAX_CODE_POINTS, type SemanticAction, type SemanticTemplateIntent } from '@/features/followups/types';
+import { integrationApi } from '@/features/integrations/api/integrationApi';
+import type { TemplateListResponse } from '@/features/integrations/types';
 import { messageApi, type VersionedMessage } from '../api/messageApi';
-import type { MessageOrigin, SubmitMessageRequest } from '../types';
+import {
+  DEFAULT_MESSAGE_LOCALE,
+  acceptsTemplateLanguage,
+  type MessageLocale,
+  type MessageOrigin,
+  type SubmitMessageRequest
+} from '../types';
 import { maskPhone } from '../utils/format';
 import { classifyFailure } from '../utils/messageErrors';
-import { COPY, RATE_LIMIT_SECONDS, errorCodeSentence, originLabel, rateLimitedSentence } from '../utils/messageLabels';
+import {
+  COPY,
+  RATE_LIMIT_SECONDS,
+  errorCodeSentence,
+  localeLabel,
+  originLabel,
+  rateLimitedSentence
+} from '../utils/messageLabels';
 import { canActOnMessages } from '../utils/permissions';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
 
@@ -24,6 +39,8 @@ export interface ComposeInput {
   origin: MessageOrigin;
   policyVersion: number;
   initialBody: string;
+  /** The language to start from; a correction keeps the cancelled message's. Defaults to `es-419`. */
+  initialLocale?: MessageLocale;
 }
 
 interface MessageComposeProps {
@@ -44,20 +61,67 @@ type Phase =
   | { kind: 'uncertain' }
   | { kind: 'sessionEnded' };
 
+/**
+ * The languages compose may offer: those the deployment accepts (`GET /api/messaging/locales`) in which the intent's
+ * template mapping is sendable, and the fixed text of a template that takes no `message_body` (issue 268). Submit
+ * stays the gate; this only keeps the operator from choosing what it would refuse.
+ */
+interface Offer {
+  locales: MessageLocale[];
+  /** The exact body of a template without parameters, which is all it sends; it can be filled in for the operator. */
+  fixedText: Partial<Record<MessageLocale, string>>;
+  /** The intent's template takes no `message_body`: it sends only its own text, whatever the body says. */
+  fixedTemplate: boolean;
+  noTemplate: boolean;
+}
+
+const MESSAGE_BODY = 'message_body';
+
+/**
+ * A missing or failed locales read (an older backend answers 404) offers the default only. A failed template read
+ * keeps the deployment's locales, unfiltered, as before the registry was consulted.
+ */
+function offerFor(
+  deployment: MessageLocale[],
+  templates: TemplateListResponse | null,
+  intent: SemanticTemplateIntent,
+  origin: MessageOrigin
+): Offer {
+  // AI drafts are generated and safety-checked in the default language only (issue 268).
+  const allowed = origin === 'AI_DRAFT' ? [DEFAULT_MESSAGE_LOCALE] : deployment;
+  if (templates === null) return { locales: allowed, fixedText: {}, fixedTemplate: false, noTemplate: false };
+  const slot = templates.items.find((item) => item.templateIntent === intent);
+  const locales = slot?.sendable ? allowed.filter((locale) => acceptsTemplateLanguage(locale, slot.language)) : [];
+  if (locales.length === 0) {
+    return { locales: [DEFAULT_MESSAGE_LOCALE], fixedText: {}, fixedTemplate: false, noTemplate: true };
+  }
+  const fixedTemplate = slot !== undefined && !slot.parameterNames.includes(MESSAGE_BODY);
+  // With other parameters the sent text depends on the customer's values, so only a template without any is filled in.
+  const fixedText: Partial<Record<MessageLocale, string>> = {};
+  if (fixedTemplate && slot.parameterNames.length === 0 && slot.content) {
+    for (const locale of locales) fixedText[locale] = slot.content.bodyText;
+  }
+  return { locales, fixedText, fixedTemplate, noTemplate: false };
+}
+
 /** One submit intent: the exact request a retry must resend. */
 interface Attempt {
   key: string;
   body: string;
+  locale: MessageLocale;
   policyVersion: number;
 }
-
-const LOCALE = 'es-419';
 
 export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPolicyStale, announce }: MessageComposeProps) {
   const headingId = useId();
   const textId = useId();
   const counterId = useId();
+  const localeId = useId();
   const [text, setText] = useState(input.initialBody);
+  // AI drafts are generated in the default language only (issue 268), so only a manual message may change it.
+  const [locale, setLocale] = useState<MessageLocale>(
+    input.origin === 'AI_DRAFT' ? DEFAULT_MESSAGE_LOCALE : (input.initialLocale ?? DEFAULT_MESSAGE_LOCALE)
+  );
   const [phase, setPhase] = useState<Phase>({ kind: 'editing' });
   const [stale, setStale] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
@@ -99,6 +163,23 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
     return () => mount.abort();
   }, []);
 
+  // Which languages to offer, read once per intent; null while loading, when only the current language is shown.
+  const [offer, setOffer] = useState<Offer | null>(null);
+  const [appliedOffer, setAppliedOffer] = useState<Offer | null>(null);
+  useEffect(() => {
+    const read = new AbortController();
+    void Promise.all([
+      messageApi.getLocales(read.signal).then(
+        (response) => response.locales,
+        () => [DEFAULT_MESSAGE_LOCALE]
+      ),
+      integrationApi.getTemplates(read.signal).catch(() => null)
+    ]).then(([deployment, templates]) => {
+      if (!read.signal.aborted) setOffer(offerFor(deployment, templates, input.templateIntent, input.origin));
+    });
+    return () => read.abort();
+  }, [input.templateIntent, input.origin]);
+
   // Corregir replaces the review view, and with it the focused confirm button, so the draft heading takes focus.
   useEffect(() => {
     if (fromCorrection) headingRef.current?.focus();
@@ -127,12 +208,34 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
     if (phase.kind === 'confirming' || phase.kind === 'refused') setPhase({ kind: 'editing' });
   };
 
+  // Text the operator has not edited follows the language: a fixed template's own text, or the initial draft. Edited
+  // text is never replaced.
+  const choose = (next: MessageLocale, current: Offer | null) => {
+    const fixed = current?.fixedText ?? {};
+    const unedited = text === input.initialBody || Object.values(fixed).includes(text);
+    const nextText = unedited ? (fixed[next] ?? input.initialBody) : text;
+    // Nothing changes: an open confirmation stays open.
+    if (next === locale && nextText === text) return;
+    setText(nextText);
+    setLocale(next);
+    if (phase.kind === 'confirming' || phase.kind === 'refused') setPhase({ kind: 'editing' });
+  };
+
+  // A new offer is applied once: a language it leaves out (English while it is off, or not mapped) falls back to the
+  // first offered one, and an unedited text takes the chosen language's fixed template text.
+  if (offer !== null && offer !== appliedOffer && phase.kind !== 'uncertain' && !busy) {
+    setAppliedOffer(offer);
+    choose(offer.locales.includes(locale) ? locale : offer.locales[0], offer);
+  }
+  const offeredLocales = offer?.locales ?? [locale];
+  const fixedTemplate = offer?.fixedTemplate === true;
+
   const openConfirm = (opener: HTMLElement) => {
     if (!canSubmit) return;
     focus.remember(opener);
-    // The key follows the text and the policy version: unchanged after a refusal reuses it, any edit rotates it.
-    if (!attempt || attempt.body !== text || attempt.policyVersion !== input.policyVersion) {
-      setAttempt({ key: crypto.randomUUID(), body: text, policyVersion: input.policyVersion });
+    // The key follows the text, language and policy version: unchanged after a refusal reuses it, any edit rotates it.
+    if (!attempt || attempt.body !== text || attempt.locale !== locale || attempt.policyVersion !== input.policyVersion) {
+      setAttempt({ key: crypto.randomUUID(), body: text, locale, policyVersion: input.policyVersion });
     }
     setPhase({ kind: 'confirming' });
   };
@@ -152,7 +255,7 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
       action: input.action,
       templateIntent: input.templateIntent,
       body: current.body,
-      locale: LOCALE,
+      locale: current.locale,
       origin: input.origin
     };
     try {
@@ -229,6 +332,31 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
           <dd>{originLabel(input.origin)}</dd>
         </div>
       </dl>
+
+      <div className="message-field">
+        <label htmlFor={localeId} className="message-field__label">
+          Idioma del mensaje
+        </label>
+        <select
+          id={localeId}
+          className="message-field__input"
+          value={locale}
+          disabled={
+            !canAct || busy || phase.kind === 'uncertain' || offer === null || offeredLocales.length < 2
+          }
+          onChange={(event) => choose(event.target.value as MessageLocale, offer)}
+        >
+          {offeredLocales.map((option) => (
+            <option key={option} value={option}>
+              {localeLabel(option)}
+            </option>
+          ))}
+        </select>
+        {offer?.noTemplate && (
+          <p className="message-review__notice message-review__notice--warning">{COPY.composeNoTemplate}</p>
+        )}
+        {fixedTemplate && <p className="message-review__muted">{COPY.composeFixedTemplate}</p>}
+      </div>
 
       <div className="message-field">
         <label htmlFor={textId} className="message-field__label">
