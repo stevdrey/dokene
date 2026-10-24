@@ -521,7 +521,8 @@ class TemplateRegistryIntegrationTest {
         // back as no content: the mapping is not sendable and the registry shows no text.
         for (String version : List.of(Integer.toString(TemplateMapping.FIXED_TEXT_RULES_VERSION + 1), "NULL")) {
             execute("UPDATE dokene.tenant_provider_templates SET approval_content_rules_version = " + version
-                    + " WHERE tenant_id = ?", tenantA.id().value());
+                    + ", approval_content_rules_checked_at = " + ("NULL".equals(version) ? "NULL"
+                    : "approval_content_checked_at") + " WHERE tenant_id = ?", tenantA.id().value());
             assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                     .isInstanceOf(TemplateMappingResolver.Disabled.class);
             list(adminA, tenantA).andExpect(jsonPath(
@@ -533,6 +534,33 @@ class TemplateRegistryIntegrationTest {
                 new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1", "2"),
                         CONTENT));
         refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Resolved.class);
+
+        // A writer of the previous release refreshes after a current one: it rewrites the content and both check times
+        // but not the rules columns, so the new content must not inherit the version recorded for the old one.
+        execute("UPDATE dokene.tenant_provider_templates SET approval_checked_at = approval_checked_at + interval "
+                + "'1 second', approval_content_checked_at = approval_checked_at + interval '1 second', "
+                + "approval_body_text = 'Get a great deal: {{1}} {{2}}' WHERE tenant_id = ?", tenantA.id().value());
+        assertThat(queryString("SELECT concat_ws('/', approval_status, approval_content_rules_version, "
+                + "approval_content_rules_checked_at) FROM dokene.tenant_provider_templates WHERE tenant_id = ?",
+                tenantA)).isEqualTo("APPROVED");
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+
+        // The same writer edits the mapping: it clears the evidence and the content but not the rules columns, which
+        // go with them instead of breaking the constraint.
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk());
+        execute("UPDATE dokene.tenant_provider_templates SET approval_status = 'UNVERIFIED', approval_checked_at = "
+                + "NULL, approval_checked_business_account_id = NULL, approval_checked_version = NULL, "
+                + "approval_header_text = NULL, approval_body_text = NULL, approval_footer_text = NULL, "
+                + "approval_button_types = NULL, approval_button_texts = NULL, approval_button_values = NULL, "
+                + "approval_content_parameter_format = NULL, approval_content_checked_at = NULL, version = version + 1 "
+                + "WHERE tenant_id = ?", tenantA.id().value());
+        assertThat(queryString("SELECT concat_ws('/', approval_status, approval_content_rules_version, "
+                + "approval_content_rules_checked_at) FROM dokene.tenant_provider_templates WHERE tenant_id = ?",
+                tenantA)).isEqualTo("UNVERIFIED");
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"1\"").andExpect(status().isOk());
         assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
                 .isInstanceOf(TemplateMappingResolver.Resolved.class);
 

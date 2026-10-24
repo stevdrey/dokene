@@ -93,7 +93,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                             approval_header_text = NULL, approval_body_text = NULL, approval_footer_text = NULL,
                             approval_button_types = NULL, approval_button_texts = NULL,
                             approval_button_values = NULL, approval_content_parameter_format = NULL,
-                            approval_content_checked_at = NULL, approval_content_rules_version = NULL, updated_at = ?,
+                            approval_content_checked_at = NULL, approval_content_rules_version = NULL,
+                            approval_content_rules_checked_at = NULL, updated_at = ?,
                             version = version + 1
                         WHERE tenant_id = ? AND id = ? AND version = ?
                         RETURNING version
@@ -125,7 +126,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                     approval_parameter_checked_at = NULL, approval_content_parameter_format = ?,
                     approval_header_text = ?, approval_body_text = ?, approval_footer_text = ?,
                     approval_button_types = ?, approval_button_texts = ?, approval_button_values = ?,
-                    approval_content_checked_at = ?, approval_content_rules_version = ?, updated_at = ?
+                    approval_content_checked_at = ?, approval_content_rules_version = ?,
+                    approval_content_rules_checked_at = ?, updated_at = ?
                 WHERE tenant_id = ? AND id = ? AND version = ?
                     AND approval_status = ? AND approval_checked_at IS NOT DISTINCT FROM ?
                     AND approval_checked_business_account_id IS NOT DISTINCT FROM ?
@@ -139,6 +141,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                 content == null ? null : buttonColumn(content, TemplateButton::value),
                 content == null ? null : timestamp(evidence),
                 content == null ? null : TemplateMapping.FIXED_TEXT_RULES_VERSION,
+                content == null ? null : timestamp(evidence),
                 Timestamp.from(mapping.updatedAt()),
                 mapping.tenantId().value(), mapping.id(), expectedVersion, expected.status().name(),
                 timestamp(expected), expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
@@ -184,7 +187,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         if (!TemplateApprovalStatus.APPROVED.name().equals(rs.getString("approval_status")) || checkedAt == null
                 || format == null || body == null || !checkedAt.equals(rs.getTimestamp("approval_content_checked_at"))
                 || rs.getObject("approval_content_rules_version", Integer.class) == null
-                || rs.getInt("approval_content_rules_version") != TemplateMapping.FIXED_TEXT_RULES_VERSION) {
+                || rs.getInt("approval_content_rules_version") != TemplateMapping.FIXED_TEXT_RULES_VERSION
+                || !checkedAt.equals(rs.getTimestamp("approval_content_rules_checked_at"))) {
             return null;
         }
         return new CurrentApproval(format, new TemplateContent(rs.getString("approval_header_text"), body,
