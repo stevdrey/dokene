@@ -7,4 +7,4 @@ Dependency-free Node (>= 22) harnesses: `cdp.mjs` drives a fresh headless Chrome
 - `fx-*.sh` create the synthetic fixtures (they source the suite #121 environment helper).
 - The `ux07`, `ux06b` scripts need the fault-injection stub of suite #121 (`../issue-121-evidence/scripts/Stub.java`) and `DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1`; their results are fault-injection results, not live-model results. `ux08` and `ux10_11` inject a client-side fetch failure (labelled in their output).
 - `ux07.mjs` was amended after the run: the 401 case asserted a regular expression that did not include "no pudo generar"; the observed message is correct and the one FAIL line in `ux07-errors-chrome.txt` is that expectation.
-- `docs/verification/**` is excluded from CodeQL (`.github/codeql/codeql-config.yml`): these are local-only evidence harnesses, not product code.
+- This directory is excluded from CodeQL (`.github/codeql/codeql-config.yml`): these are local-only evidence harnesses, not product code. Their findings (`js/http-to-file-access`, `js/bad-code-sanitization`) were reviewed as false positives.

@@ -2,5 +2,8 @@ name: dokene CodeQL config
 
 # Archived manual QA evidence harnesses: local-only scripts that drive a
 # browser launched by themselves; they are not product code and never run in CI.
+# List each reviewed directory explicitly so new QA scripts are still analyzed.
 paths-ignore:
-  - docs/verification/**
+  - docs/verification/issue-122-evidence/scripts/**
+  - docs/verification/issue-123-evidence/scripts/**
+  - docs/verification/issue-149-evidence/scripts/**
