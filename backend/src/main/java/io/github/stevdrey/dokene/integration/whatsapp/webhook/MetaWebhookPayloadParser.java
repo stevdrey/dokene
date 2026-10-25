@@ -31,8 +31,9 @@ import tools.jackson.databind.json.JsonMapper;
  * not Meta. Change fields other than {@code messages}, inbound {@code messages}/{@code contacts}/{@code errors} and
  * status values other than the four delivery states are recognised but not processed, and only counted.
  *
- * <p>Error titles, messages and details, recipient phones, conversation and pricing members are never read into the
- * result: only the first error code is, and it becomes a closed {@link FailureCategory}.
+ * <p>Error titles, messages and details, recipient phones and identifiers, conversation, pricing and internal provider
+ * metadata are never read into the result: only the first error code is, and it becomes a closed
+ * {@link FailureCategory}.
  */
 @Component
 public class MetaWebhookPayloadParser {
@@ -46,8 +47,10 @@ public class MetaWebhookPayloadParser {
     private static final Set<String> VALUE = Set.of("messaging_product", "metadata", "statuses", "messages",
             "contacts", "errors");
     private static final Set<String> METADATA = Set.of("display_phone_number", "phone_number_id");
+    // The recipient_* identifiers and internal_1p_only_data arrive on live callbacks (issue 289); never read.
     private static final Set<String> STATUS = Set.of("id", "status", "timestamp", "recipient_id", "recipient_type",
-            "conversation", "pricing", "errors", "biz_opaque_callback_data");
+            "recipient_logical_id", "recipient_user_id", "conversation", "pricing", "errors",
+            "biz_opaque_callback_data", "internal_1p_only_data");
     private static final Map<String, DeliveryStatus> DELIVERY_STATES = Map.of("sent", DeliveryStatus.SENT,
             "delivered", DeliveryStatus.DELIVERED, "read", DeliveryStatus.READ, "failed", DeliveryStatus.FAILED);
 

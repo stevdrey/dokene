@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
+import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.RecordingSecretResolver;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.ParsedWebhook.StatusUpdate;
@@ -81,12 +82,59 @@ class MetaWebhookPayloadParserTest {
                 envelope("{\"id\":\"1\",\"changes\":[{\"field\":\"messages\",\"tenantId\":\"x\",\"value\":{}}]}"),
                 body("\"tenantId\":\"x\",", status),
                 body("", "{\"id\":\"wamid.X\",\"status\":\"sent\",\"timestamp\":\"1760000000\","
-                        + "\"tenantId\":\"x\"}"));
+                        + "\"tenantId\":\"x\"}"),
+                body("", withTenantId(MetaCallbacks.liveReport("wamid.X", "delivered", 1760000000L, null))));
 
         for (String json : hostile) {
             assertThatThrownBy(() -> parser.parse(verified(json))).as(json)
                     .isInstanceOfSatisfying(WebhookPayloadException.class,
                             refusal -> assertThat(refusal.reason()).isEqualTo(Reason.UNEXPECTED_MEMBER));
+        }
+    }
+
+    /**
+     * Issue 289: the live status shape (recipient logical and user ids, pricing, conversation, internal provider
+     * metadata, plus value-level contacts) parses for every delivery state; none of the extras is read.
+     */
+    @Test
+    void theLiveStatusShapeParsesForEveryDeliveryStateAndNoExtraMemberSurvives() {
+        String contacts = "\"contacts\":[{\"profile\":{\"name\":\"CANARY-BODY\"},\"wa_id\":\"50600000001\"}],";
+        String json = body(contacts, String.join(",",
+                MetaCallbacks.liveReport("wamid.LIVE-1", "sent", 1760000000L, null),
+                MetaCallbacks.liveReport("wamid.LIVE-1", "delivered", 1760000005L, null),
+                MetaCallbacks.liveReport("wamid.LIVE-1", "read", 1760000010L, null),
+                MetaCallbacks.liveReport("wamid.LIVE-2", "failed", 1760000020L, 131026)));
+
+        ParsedWebhook parsed = parser.parse(verified(json));
+
+        assertThat(parsed.unsupportedCount()).isEqualTo(1);
+        assertThat(parsed.updates()).extracting(StatusUpdate::status).containsExactly(DeliveryStatus.SENT,
+                DeliveryStatus.DELIVERED, DeliveryStatus.READ, DeliveryStatus.FAILED);
+        assertThat(parsed.updates()).extracting(StatusUpdate::occurredAt).containsExactly(
+                Instant.ofEpochSecond(1760000000L), Instant.ofEpochSecond(1760000005L),
+                Instant.ofEpochSecond(1760000010L), Instant.ofEpochSecond(1760000020L));
+        assertThat(parsed.updates()).extracting(StatusUpdate::failure).containsExactly(Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.of(FailureCategory.INVALID_RECIPIENT));
+        String rendered = parsed + " " + parsed.updates();
+        assertThat(rendered).doesNotContain("SYNTHETIC").doesNotContain("CANARY").doesNotContain("50600000001")
+                .doesNotContain("PMP").doesNotContain("utility");
+    }
+
+    /** The extra members never relax the required delivery facts. */
+    @Test
+    void aLiveShapedStatusWithoutItsRequiredFactsIsStillRefused() {
+        String live = MetaCallbacks.liveReport("wamid.X", "delivered", 1760000000L, null);
+        List<String> invalid = List.of(
+                live.replace("\"id\":\"wamid.X\",", ""),
+                live.replace("\"timestamp\":\"1760000000\",", ""),
+                live.replace("\"timestamp\":\"1760000000\"", "\"timestamp\":\"soon\""),
+                live.replace("\"status\":\"delivered\",", ""));
+
+        for (String status : invalid) {
+            assertThat(status).isNotEqualTo(live);
+            assertThatThrownBy(() -> parser.parse(verified(body("", status)))).as(status)
+                    .isInstanceOfSatisfying(WebhookPayloadException.class,
+                            refusal -> assertThat(refusal.reason()).isEqualTo(Reason.SCHEMA));
         }
     }
 
@@ -186,6 +234,10 @@ class MetaWebhookPayloadParserTest {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         return verifier.verify(bytes, List.of(WebhookSigning.sign(bytes,
                 FIXTURES.get("signingKey").stringValue().toCharArray())));
+    }
+
+    private static String withTenantId(String status) {
+        return status.substring(0, status.length() - 1) + ",\"tenantId\":\"x\"}";
     }
 
     private static String envelope(String entry) {

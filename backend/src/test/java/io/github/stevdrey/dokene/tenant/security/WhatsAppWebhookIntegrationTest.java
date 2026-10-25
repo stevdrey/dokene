@@ -193,6 +193,33 @@ class WhatsAppWebhookIntegrationTest {
                 .doesNotContain("recipient");
     }
 
+    /**
+     * Issue 289: signed callbacks in the live Meta status shape (recipient logical and user ids, pricing, internal
+     * metadata) are acknowledged and applied in order to the mapped tenant only; a replay changes nothing.
+     */
+    @Test
+    void liveShapedDeliveryAndReadCallbacksAreAppliedToTheMappedTenantOnly() throws Exception {
+        UUID messageA = sent(a, "wamid.A-" + UUID.randomUUID());
+        UUID messageB = sent(b, "wamid.B-" + UUID.randomUUID());
+        byte[] delivered = statuses(a.phoneNumberId, liveReport(wamid(a, messageA), "delivered", 0, null));
+        byte[] read = statuses(a.phoneNumberId, liveReport(wamid(a, messageA), "read", 5, null));
+        double duplicatesBefore = dropped("DUPLICATE");
+
+        postSigned(delivered).andExpect(status().isOk()).andExpect(content().bytes(new byte[0]));
+        postSigned(read).andExpect(status().isOk()).andExpect(content().bytes(new byte[0]));
+        postSigned(read).andExpect(status().isOk());
+
+        OutboundMessage applied = message(a, messageA);
+        assertThat(applied.status()).isEqualTo(MessageStatus.READ);
+        assertThat(applied.deliveredAt()).isNotNull();
+        assertThat(applied.readAt()).isNotNull();
+        assertThat(inboxStates(a)).containsExactly("APPLIED", "APPLIED");
+        assertThat(deliveryAudits(messageA)).isEqualTo(2);
+        assertThat(dropped("DUPLICATE")).isEqualTo(duplicatesBefore + 1);
+        assertThat(message(b, messageB).status()).isEqualTo(MessageStatus.SENT);
+        assertThat(inboxStates(b)).isEmpty();
+    }
+
     /** P3-HOOK-05: tenant A's number naming tenant B's message is parked in A, then dropped; B never changes. */
     @Test
     void anotherTenantsProviderMessageIdIsParkedThenDroppedWithoutTouchingIt() throws Exception {
@@ -442,6 +469,11 @@ class WhatsAppWebhookIntegrationTest {
 
     private static byte[] statuses(String phoneNumberId, String... statuses) {
         return MetaCallbacks.statuses("200000000000001", phoneNumberId, statuses);
+    }
+
+    private String liveReport(String providerMessageId, String state, int secondsLater, Integer errorCode) {
+        return MetaCallbacks.liveReport(providerMessageId, state, clock.instant().getEpochSecond() + secondsLater,
+                errorCode);
     }
 
     private String report(String providerMessageId, String state, int secondsLater, Integer errorCode) {

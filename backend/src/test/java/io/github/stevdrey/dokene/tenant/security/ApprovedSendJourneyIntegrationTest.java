@@ -205,6 +205,31 @@ class ApprovedSendJourneyIntegrationTest {
         }
     }
 
+    /** Issue 289: live-shaped Meta callbacks advance an already sent message to READ without a second send. */
+    @Test
+    void liveShapedDeliveryAndReadCallbacksAdvanceTheSentMessageWithoutResending() throws Exception {
+        Customer customer = dueCustomer("Sofía Rojas");
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(customer);
+        String wamid = body(send(workspace.operator, message, "send-" + UUID.randomUUID()))
+                .path("providerMessageId").asString();
+        long now = Instant.now().getEpochSecond();
+
+        assertThat(postSigned(liveCallback(wamid, "delivered", now)).getStatus()).isEqualTo(200);
+        assertThat(postSigned(liveCallback(wamid, "read", now)).getStatus()).isEqualTo(200);
+
+        assertThat(inboxStates()).containsExactly("APPLIED", "APPLIED");
+        JsonNode detail = message.read(this);
+        assertThat(detail.path("status").asString()).isEqualTo("READ");
+        assertThat(detail.path("deliveredAt").isString()).as(detail.toString()).isTrue();
+        assertThat(detail.path("readAt").isString()).as(detail.toString()).isTrue();
+        assertThat(eventTypes(message)).containsExactly("SUBMITTED", "APPROVED", "SEND_REQUESTED",
+                "SEND_ATTEMPT_STARTED", "SENT", "DELIVERY_UPDATED", "DELIVERY_UPDATED");
+        assertThat(detail.toString()).doesNotContain("SYNTHETIC-LOGICAL", "SYNTHETIC-USER", "SYNTHETIC-INTERNAL",
+                "PMP");
+        assertThat(GRAPH.sends(workspace)).isEqualTo(1);
+    }
+
     @Test
     void anUncertainProviderAnswerIsKeptUncertainAndNeverResent() throws Exception {
         Customer customer = dueCustomer("Luis Mora");
@@ -528,6 +553,11 @@ class ApprovedSendJourneyIntegrationTest {
     private byte[] callback(String wamid, String state, Integer errorCode) {
         return MetaCallbacks.statuses(workspace.wabaId, workspace.phoneNumberId,
                 MetaCallbacks.report(wamid, state, Instant.now().getEpochSecond(), errorCode));
+    }
+
+    private byte[] liveCallback(String wamid, String state, long epochSeconds) {
+        return MetaCallbacks.statuses(workspace.wabaId, workspace.phoneNumberId,
+                MetaCallbacks.liveReport(wamid, state, epochSeconds, null));
     }
 
     /** The workspace's inbox rows in arrival order, read past RLS as the migration role. */

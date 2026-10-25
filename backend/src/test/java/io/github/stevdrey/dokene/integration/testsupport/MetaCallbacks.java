@@ -23,4 +23,18 @@ public final class MetaCallbacks {
         return "{\"id\":\"" + providerMessageId + "\",\"status\":\"" + state + "\",\"timestamp\":\"" + epochSeconds
                 + "\",\"recipient_id\":\"50600000001\"" + errors + "}";
     }
+
+    /**
+     * One status report in the shape live Meta callbacks carry (issue 289): the extra recipient identifiers, pricing,
+     * conversation and internal provider metadata a parser must accept and never read. Every value is synthetic.
+     */
+    public static String liveReport(String providerMessageId, String state, long epochSeconds, Integer errorCode) {
+        String report = report(providerMessageId, state, epochSeconds, errorCode);
+        return report.substring(0, report.length() - 1)
+                + ",\"recipient_logical_id\":\"SYNTHETIC-LOGICAL-ID-0001\""
+                + ",\"recipient_user_id\":\"SYNTHETIC-USER-ID-0001\""
+                + ",\"conversation\":{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}}"
+                + ",\"pricing\":{\"billable\":true,\"pricing_model\":\"PMP\",\"category\":\"utility\"}"
+                + ",\"internal_1p_only_data\":{\"note\":\"SYNTHETIC-INTERNAL-0001\"}}";
+    }
 }
