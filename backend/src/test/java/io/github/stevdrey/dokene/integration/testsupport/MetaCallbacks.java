@@ -16,25 +16,32 @@ public final class MetaCallbacks {
                 + "\"statuses\":[" + String.join(",", reports) + "]}}]}]}").getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * The members live Meta status callbacks add (issue 289): recipient logical and user ids, conversation, pricing and
+     * internal provider metadata a parser must accept and never read. Every value is synthetic.
+     */
+    public static final String LIVE_MEMBERS = ",\"recipient_logical_id\":\"SYNTHETIC-LOGICAL-ID-0001\""
+            + ",\"recipient_user_id\":\"SYNTHETIC-USER-ID-0001\""
+            + ",\"conversation\":{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}}"
+            + ",\"pricing\":{\"billable\":true,\"pricing_model\":\"PMP\",\"category\":\"utility\"}"
+            + ",\"internal_1p_only_data\":{\"note\":\"SYNTHETIC-INTERNAL-0001\"}";
+
     /** One status report; a non-null {@code errorCode} adds an error whose title and message are the canaries. */
     public static String report(String providerMessageId, String state, long epochSeconds, Integer errorCode) {
+        return report(providerMessageId, state, epochSeconds, errorCode, "");
+    }
+
+    /** One status report followed by {@code extraMembers}, each written as {@code ,"name":value}. */
+    public static String report(String providerMessageId, String state, long epochSeconds, Integer errorCode,
+            String extraMembers) {
         String errors = errorCode == null ? "" : ",\"errors\":[{\"code\":" + errorCode
                 + ",\"title\":\"CANARY-TOKEN\",\"message\":\"CANARY-PHONE\"}]";
         return "{\"id\":\"" + providerMessageId + "\",\"status\":\"" + state + "\",\"timestamp\":\"" + epochSeconds
-                + "\",\"recipient_id\":\"50600000001\"" + errors + "}";
+                + "\",\"recipient_id\":\"50600000001\"" + errors + extraMembers + "}";
     }
 
-    /**
-     * One status report in the shape live Meta callbacks carry (issue 289): the extra recipient identifiers, pricing,
-     * conversation and internal provider metadata a parser must accept and never read. Every value is synthetic.
-     */
+    /** One status report in the shape live Meta callbacks carry (issue 289). */
     public static String liveReport(String providerMessageId, String state, long epochSeconds, Integer errorCode) {
-        String report = report(providerMessageId, state, epochSeconds, errorCode);
-        return report.substring(0, report.length() - 1)
-                + ",\"recipient_logical_id\":\"SYNTHETIC-LOGICAL-ID-0001\""
-                + ",\"recipient_user_id\":\"SYNTHETIC-USER-ID-0001\""
-                + ",\"conversation\":{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}}"
-                + ",\"pricing\":{\"billable\":true,\"pricing_model\":\"PMP\",\"category\":\"utility\"}"
-                + ",\"internal_1p_only_data\":{\"note\":\"SYNTHETIC-INTERNAL-0001\"}}";
+        return report(providerMessageId, state, epochSeconds, errorCode, LIVE_MEMBERS);
     }
 }

@@ -63,8 +63,10 @@ The application must:
 
 **Recognised but not processed.** The following are counted as `dokene.webhook.dropped{reason=UNSUPPORTED_EVENT}`:
 - change fields other than `messages`;
-- inbound `messages`, `contacts` and value-level `errors`;
+- inbound `messages` and value-level `errors`;
 - status values other than the four delivery states.
+
+`contacts` must be an array but is neither read nor counted: it only accompanies inbound messages or statuses (issue 289 addendum).
 
 **Bounds:**
 - More than 1000 statuses in one body is `400`. Every status element counts, tracked or not, across all changes, before any is parsed.
@@ -177,6 +179,10 @@ Live Meta status callbacks (`sent`, `delivered`, `read`) were refused with `400 
 - Every other unknown member at every level is still `400 UNEXPECTED_MEMBER`. That includes a `tenantId` beside the new members in a status (P3-HOOK-04), so a future Meta addition still needs a deliberate allowlist change.
 
 **Alternative rejected.** Ignoring unknown members at the status level only would survive the next Meta addition without a release. But a smuggled member there would become silently accepted, and P3-HOOK-04 would weaken at one level. The explicit list keeps every accepted name reviewed.
+
+**Refusal detail.** An `UNEXPECTED_MEMBER` refusal now carries the level it was found at (`ENVELOPE`, `ENTRY`, `CHANGE`, `VALUE`, `METADATA` or `STATUS`, a closed enum). It also carries the member name, but only when the name matches `^[a-z0-9_]{1,64}$`. Any other name, `tenantId` included, is written as `<other>`. The controller logs `reason`, `level` and `member` and never a value, so the next Meta schema addition shows up in one log line instead of a payload comparison in Meta's panel. The name comes from a signature-verified body, and the pattern keeps control characters, casing tricks and long input out of the log.
+
+**Unsupported count.** Live status callbacks carry a value-level `contacts` array. Counting it as `UNSUPPORTED_EVENT` would have turned that counter, meant to surface new Meta fields, into constant noise once these callbacks were accepted. `contacts` is still type-checked as an array but is no longer counted (§2).
 
 **Consequence.** The §Consequences note about retries is bounded by Meta's retry window: a refused report is lost once Meta stops retrying. A refusal spike of `UNEXPECTED_MEMBER` after signature verification is therefore an operational signal to review the allowlist promptly.
 

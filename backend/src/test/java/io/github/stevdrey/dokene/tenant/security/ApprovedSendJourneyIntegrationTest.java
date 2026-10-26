@@ -215,14 +215,21 @@ class ApprovedSendJourneyIntegrationTest {
                 .path("providerMessageId").asString();
         long now = Instant.now().getEpochSecond();
 
+        // A past delivery is bounded to the message's creation and a future read to the time it is applied, so the
+        // two timestamps differ and each can only have come from its own callback.
         assertThat(postSigned(liveCallback(wamid, "delivered", now)).getStatus()).isEqualTo(200);
-        assertThat(postSigned(liveCallback(wamid, "read", now)).getStatus()).isEqualTo(200);
+        assertThat(postSigned(liveCallback(wamid, "read", now + 60)).getStatus()).isEqualTo(200);
+        Instant afterCallbacks = Instant.now();
 
         assertThat(inboxStates()).containsExactly("APPLIED", "APPLIED");
         JsonNode detail = message.read(this);
         assertThat(detail.path("status").asString()).isEqualTo("READ");
         assertThat(detail.path("deliveredAt").isString()).as(detail.toString()).isTrue();
         assertThat(detail.path("readAt").isString()).as(detail.toString()).isTrue();
+        Instant deliveredAt = Instant.parse(detail.path("deliveredAt").asString());
+        Instant readAt = Instant.parse(detail.path("readAt").asString());
+        assertThat(deliveredAt).isAfterOrEqualTo(Instant.parse(detail.path("createdAt").asString()));
+        assertThat(readAt).isAfter(deliveredAt).isBeforeOrEqualTo(afterCallbacks);
         assertThat(eventTypes(message)).containsExactly("SUBMITTED", "APPROVED", "SEND_REQUESTED",
                 "SEND_ATTEMPT_STARTED", "SENT", "DELIVERY_UPDATED", "DELIVERY_UPDATED");
         assertThat(detail.toString()).doesNotContain("SYNTHETIC-LOGICAL", "SYNTHETIC-USER", "SYNTHETIC-INTERNAL",

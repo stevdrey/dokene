@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.RecordingSecretResolver;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.ParsedWebhook.StatusUpdate;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Level;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Reason;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWebhookBody;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier;
@@ -40,7 +41,7 @@ class MetaWebhookPayloadParserTest {
     @Test
     void everySignedFixtureParsesToItsExpectedTypedStatus() {
         for (String name : List.of("delivered", "duplicateOfDelivered", "failed", "readBeforeDelivered",
-                "deliveredAfterRead")) {
+                "deliveredAfterRead", "liveDelivered")) {
             JsonNode entry = FIXTURES.get("entries").get(name);
             byte[] body = entry.get("body").stringValue().getBytes(StandardCharsets.UTF_8);
             VerifiedWebhookBody verified = verifier.verify(body, List.of(entry.get("signature").stringValue()));
@@ -83,12 +84,50 @@ class MetaWebhookPayloadParserTest {
                 body("\"tenantId\":\"x\",", status),
                 body("", "{\"id\":\"wamid.X\",\"status\":\"sent\",\"timestamp\":\"1760000000\","
                         + "\"tenantId\":\"x\"}"),
-                body("", withTenantId(MetaCallbacks.liveReport("wamid.X", "delivered", 1760000000L, null))));
+                body("", MetaCallbacks.report("wamid.X", "delivered", 1760000000L, null,
+                        MetaCallbacks.LIVE_MEMBERS + ",\"tenantId\":\"x\"")),
+                envelope("{\"id\":\"1\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":"
+                        + "\"whatsapp\",\"metadata\":{\"phone_number_id\":\"" + PHONE + "\",\"tenantId\":\"x\"},"
+                        + "\"statuses\":[" + status + "]}}]}"));
+        List<Level> levels = List.of(Level.ENVELOPE, Level.ENTRY, Level.CHANGE, Level.VALUE, Level.STATUS,
+                Level.STATUS, Level.METADATA);
 
-        for (String json : hostile) {
+        for (int i = 0; i < hostile.size(); i++) {
+            Level level = levels.get(i);
+            String json = hostile.get(i);
             assertThatThrownBy(() -> parser.parse(verified(json))).as(json)
-                    .isInstanceOfSatisfying(WebhookPayloadException.class,
-                            refusal -> assertThat(refusal.reason()).isEqualTo(Reason.UNEXPECTED_MEMBER));
+                    .isInstanceOfSatisfying(WebhookPayloadException.class, refusal -> {
+                        assertThat(refusal.reason()).isEqualTo(Reason.UNEXPECTED_MEMBER);
+                        assertThat(refusal.level()).contains(level);
+                        // "tenantId" is not a Meta-style key name, so it is never echoed into a log line.
+                        assertThat(refusal.member()).contains(WebhookPayloadException.OTHER_MEMBER);
+                    });
+        }
+    }
+
+    /**
+     * Issue 289: a refusal names its level and a Meta-style member name so the allowlist fix is one log line away; any
+     * other name (case, control characters, length) is replaced, and no value is ever carried.
+     */
+    @Test
+    void anUnexpectedMemberRefusalNamesItsLevelAndOnlyAMetaStyleKeyName() {
+        String longName = "a".repeat(65);
+        List<String> names = List.of("new_member", "x\\nforged", longName, "Has-Dash");
+        List<String> logged = List.of("new_member", WebhookPayloadException.OTHER_MEMBER,
+                WebhookPayloadException.OTHER_MEMBER, WebhookPayloadException.OTHER_MEMBER);
+
+        for (int i = 0; i < names.size(); i++) {
+            String expected = logged.get(i);
+            String json = body("", MetaCallbacks.report("wamid.X", "delivered", 1760000000L, null,
+                    ",\"" + names.get(i) + "\":\"CANARY-BODY\""));
+            assertThatThrownBy(() -> parser.parse(verified(json))).as(names.get(i))
+                    .isInstanceOfSatisfying(WebhookPayloadException.class, refusal -> {
+                        assertThat(refusal.level()).contains(Level.STATUS);
+                        assertThat(refusal.member()).contains(expected);
+                        assertThat(refusal.getMessage()).endsWith("level=STATUS member=" + expected)
+                                .doesNotContain("CANARY");
+                    })
+                    .hasNoCause();
         }
     }
 
@@ -107,7 +146,7 @@ class MetaWebhookPayloadParserTest {
 
         ParsedWebhook parsed = parser.parse(verified(json));
 
-        assertThat(parsed.unsupportedCount()).isEqualTo(1);
+        assertThat(parsed.unsupportedCount()).isZero();
         assertThat(parsed.updates()).extracting(StatusUpdate::status).containsExactly(DeliveryStatus.SENT,
                 DeliveryStatus.DELIVERED, DeliveryStatus.READ, DeliveryStatus.FAILED);
         assertThat(parsed.updates()).extracting(StatusUpdate::occurredAt).containsExactly(
@@ -175,7 +214,8 @@ class MetaWebhookPayloadParserTest {
 
         ParsedWebhook parsed = parser.parse(verified(json));
 
-        assertThat(parsed.unsupportedCount()).isEqualTo(4);
+        // account_update, the inbound message and "played"; contacts only accompany other items and are not counted.
+        assertThat(parsed.unsupportedCount()).isEqualTo(3);
         assertThat(parsed.updates()).extracting(StatusUpdate::status).containsExactly(DeliveryStatus.READ);
     }
 
@@ -234,10 +274,6 @@ class MetaWebhookPayloadParserTest {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         return verifier.verify(bytes, List.of(WebhookSigning.sign(bytes,
                 FIXTURES.get("signingKey").stringValue().toCharArray())));
-    }
-
-    private static String withTenantId(String status) {
-        return status.substring(0, status.length() - 1) + ",\"tenantId\":\"x\"}";
     }
 
     private static String envelope(String entry) {

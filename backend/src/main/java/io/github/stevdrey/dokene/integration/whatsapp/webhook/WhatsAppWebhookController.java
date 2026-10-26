@@ -80,7 +80,9 @@ class WhatsAppWebhookController {
         try {
             parsed = parser.parse(body);
         } catch (WebhookPayloadException invalid) {
-            log.warn("Webhook payload rejected; reason={}", invalid.reason());
+            // Level and member are a closed enum and a sanitized key name, never a payload value.
+            log.warn("Webhook payload rejected; reason={} level={} member={}", invalid.reason(),
+                    invalid.level().map(Enum::name).orElse("-"), invalid.member().orElse("-"));
             return ResponseEntity.badRequest().build();
         }
         ingestion.ingest(parsed);

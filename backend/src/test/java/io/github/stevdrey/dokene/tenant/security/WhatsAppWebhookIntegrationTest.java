@@ -43,6 +43,7 @@ import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandSer
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageTestDriver;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
+import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
@@ -218,6 +219,35 @@ class WhatsAppWebhookIntegrationTest {
         assertThat(dropped("DUPLICATE")).isEqualTo(duplicatesBefore + 1);
         assertThat(message(b, messageB).status()).isEqualTo(MessageStatus.SENT);
         assertThat(inboxStates(b)).isEmpty();
+    }
+
+    /**
+     * Issue 289: a live-shaped {@code sent} for an already SENT message is acknowledged and recorded as not applied,
+     * and a live-shaped {@code failed} ends its message in FAILED with the safe category and no provider text.
+     */
+    @Test
+    void liveShapedSentAndFailedCallbacksAreRecordedWithoutLeakingProviderText() throws Exception {
+        UUID stillSent = sent(a, "wamid.A-" + UUID.randomUUID());
+        UUID failing = sent(a, "wamid.A-" + UUID.randomUUID());
+
+        postSigned(statuses(a.phoneNumberId, liveReport(wamid(a, stillSent), "sent", 0, null)))
+                .andExpect(status().isOk()).andExpect(content().bytes(new byte[0]));
+        postSigned(statuses(a.phoneNumberId, liveReport(wamid(a, failing), "failed", 0, 131026)))
+                .andExpect(status().isOk()).andExpect(content().bytes(new byte[0]));
+
+        assertThat(message(a, stillSent).status()).isEqualTo(MessageStatus.SENT);
+        OutboundMessage failed = message(a, failing);
+        assertThat(failed.status()).isEqualTo(MessageStatus.FAILED);
+        assertThat(failed.failureCategory()).isEqualTo(FailureCategory.INVALID_RECIPIENT);
+        assertThat(inboxStates(a)).containsExactly("IGNORED", "APPLIED");
+        assertThat(deliveryAudits(failing)).isEqualTo(1);
+
+        String history = mvc.perform(get("/api/messages/" + failing + "/events").with(user(a))
+                        .header("X-Tenant-Id", a.tenant.id().value().toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(history).contains("DELIVERY_UPDATED").doesNotContain("CANARY").doesNotContain("SYNTHETIC-")
+                .doesNotContain("PMP");
     }
 
     /** P3-HOOK-05: tenant A's number naming tenant B's message is parked in A, then dropped; B never changes. */
