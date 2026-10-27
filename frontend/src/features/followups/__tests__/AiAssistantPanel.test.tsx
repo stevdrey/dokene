@@ -78,7 +78,7 @@ interface PanelOverrides {
   policyVersion?: number;
   canUseAi?: boolean;
   onRequestRefresh?: (reason?: 'stale' | 'ineligible') => Promise<boolean>;
-  onReviewDraft?: (draft: { action: string; templateIntent: string; body: string }) => void;
+  onReviewDraft?: (draft: { action: string; templateIntent: string; body: string; policyVersion: number }) => void;
 }
 
 function renderPanel(overrides: PanelOverrides = {}) {
@@ -352,7 +352,8 @@ describe('AiAssistantPanel', () => {
     expect(onReviewDraft).toHaveBeenCalledWith({
       action: baseDraft.draft!.action,
       templateIntent: baseDraft.draft!.templateIntent,
-      body: 'Hola, ¿necesitas más café?'
+      body: 'Hola, ¿necesitas más café?',
+      policyVersion: 3
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

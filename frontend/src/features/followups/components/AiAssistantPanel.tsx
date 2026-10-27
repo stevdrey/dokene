@@ -42,11 +42,16 @@ interface AiAssistantPanelProps {
   onReviewDraft?: (draft: ReviewableDraft) => void;
 }
 
-/** What message review needs from an AI draft: its semantic action and template intent and the edited text. */
+/**
+ * What message review needs from an AI draft: its semantic action and template intent, the edited text, and the
+ * policy version the draft was written for. The submit stays bound to that version, so a draft never rides on a
+ * newer evaluation it was not written for.
+ */
 export interface ReviewableDraft {
   action: SemanticAction;
   templateIntent: SemanticTemplateIntent;
   body: string;
+  policyVersion: number;
 }
 
 const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espacio de trabajo.';
@@ -647,11 +652,16 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
               <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
                 Copiar borrador
               </Button>
-              {onReviewDraft && shownDraft && (
+              {onReviewDraft && shownDraft && draft.kind === 'result' && (
                 <Button
                   variant="secondary"
                   onClick={() =>
-                    onReviewDraft({ action: shownDraft.action, templateIntent: shownDraft.templateIntent, body: draftText })
+                    onReviewDraft({
+                      action: shownDraft.action,
+                      templateIntent: shownDraft.templateIntent,
+                      body: draftText,
+                      policyVersion: draft.version
+                    })
                   }
                   disabled={draftText.trim() === '' || countCodePoints(draftText) > DRAFT_BODY_MAX_CODE_POINTS}
                 >

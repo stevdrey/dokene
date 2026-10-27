@@ -235,16 +235,38 @@ describe('FollowUpWorkbench Phase 3 messaging', () => {
     expect(screen.queryByRole('button', { name: 'Enviar a aprobación' })).toBeNull();
   });
 
-  it('asks the workbench to refresh the queue when the policy moved before the submit', async () => {
+  it('refreshes the queue on a moved policy and keeps the handed-off draft stale until a new one is written', async () => {
     server.on(submitPath(customerId), problem('STALE_VERSION'));
     await generateDraft();
     await handOff();
     const queueReads = vi.mocked(followUpApi.getFollowUpQueue).mock.calls.length;
+    // The refreshed queue carries a newer policy version for the same customer.
+    vi.mocked(followUpApi.getFollowUpQueue).mockResolvedValue({ items: [{ ...item, policyVersion: 8 }], nextCursor: null });
 
     submit();
 
     await waitFor(() => expect(vi.mocked(followUpApi.getFollowUpQueue).mock.calls.length).toBeGreaterThan(queueReads));
+    // The draft was written for version 7: it is never rebound to version 8 and cannot be submitted again.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enviar a aprobación' })).toBeDisabled());
     expect(server.count(submitPath(customerId))).toBe(1);
+  });
+
+  it('reads the primary phone again for every hand-off', async () => {
+    const changedPhone = { id: 'contact-new', e164: '+50600000002', primary: true };
+    vi.mocked(customerApi.getCustomer)
+      .mockResolvedValueOnce(customer([primaryPhone]))
+      .mockResolvedValueOnce(customer([{ ...primaryPhone, primary: false }, changedPhone]));
+    server.on(submitPath(customerId), problem('NO_CONTACT_CONSENT'));
+    await generateDraft();
+    await handOff();
+
+    click('Revisar y enviar');
+    await waitFor(() => expect(customerApi.getCustomer).toHaveBeenCalledTimes(2));
+    await screen.findByRole('button', { name: 'Enviar a aprobación' });
+    submit();
+
+    await waitFor(() => expect(server.count(submitPath(customerId))).toBe(1));
+    expect(JSON.parse(server.last(submitPath(customerId)).body!)).toMatchObject({ contactId: 'contact-new' });
   });
 
   it('stops at an opt-out refusal without any further message request', async () => {

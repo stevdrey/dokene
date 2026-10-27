@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { QueueItemResponse } from '@/features/followups/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { PurchaseResponse } from '@/features/customers/types';
@@ -53,12 +53,12 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   const { activeWorkspace } = useTenant();
   const role = activeWorkspace?.role ?? null;
   const [messagePanel, setMessagePanel] = useState<MessagePanel>({ kind: 'none' });
-  const reviewDraft = (draft: ReviewableDraft) =>
-    setMessagePanel((current) => ({
-      kind: 'compose',
-      draft,
-      nonce: current.kind === 'compose' ? current.nonce + 1 : 0
-    }));
+  // Every hand-off gets its own number, never reused, so its compose and its contact lookup are always fresh.
+  const handOffCount = useRef(0);
+  const reviewDraft = (draft: ReviewableDraft) => {
+    handOffCount.current += 1;
+    setMessagePanel({ kind: 'compose', draft, nonce: handOffCount.current });
+  };
 
   useEffect(() => {
     let active = true;

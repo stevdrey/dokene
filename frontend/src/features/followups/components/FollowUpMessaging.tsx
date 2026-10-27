@@ -30,6 +30,9 @@ type PrimaryContact =
   | { state: 'missing' }
   | { state: 'failed' };
 
+/** A lookup result tagged with the hand-off and attempt it answers, so an older answer is never reused. */
+type LoadedContact = { contact: PrimaryContact; handOff: number; attempt: number };
+
 const CONTACT_MISSING = 'Este cliente no tiene un teléfono principal; agrégalo en su perfil para enviar el mensaje.';
 const CONTACT_FAILED = 'No pudimos cargar el teléfono del cliente. Inténtalo de nuevo.';
 
@@ -43,29 +46,32 @@ const noteStyle: React.CSSProperties = {
 
 /**
  * The message is addressed to the customer's primary phone, whose id is the contact id the submit binds. It is read
- * when a draft is handed off, not from the queue item, so a phone changed since the queue loaded is not used.
+ * again for every hand-off, not taken from the queue item or an earlier hand-off, so a primary phone changed since
+ * then is never used. Until the lookup for the current hand-off answers, the result is loading.
  */
-function usePrimaryContact(customerId: string, enabled: boolean, attempt: number): PrimaryContact {
-  const [contact, setContact] = useState<PrimaryContact>({ state: 'loading' });
+function usePrimaryContact(customerId: string, handOff: number | null, attempt: number): PrimaryContact {
+  const [loaded, setLoaded] = useState<LoadedContact | null>(null);
   useEffect(() => {
-    if (!enabled) return;
+    if (handOff === null) return;
     let active = true;
-    setContact({ state: 'loading' });
+    const settle = (contact: PrimaryContact) => {
+      if (active) setLoaded({ contact, handOff, attempt });
+    };
     customerApi
       .getCustomer(customerId)
       .then(({ customer }) => {
-        if (!active) return;
         const primary = customer.phones.find((phone) => phone.primary);
-        setContact(primary ? { state: 'ready', contactId: primary.id, recipientPhone: primary.e164 } : { state: 'missing' });
+        settle(primary ? { state: 'ready', contactId: primary.id, recipientPhone: primary.e164 } : { state: 'missing' });
       })
-      .catch(() => {
-        if (active) setContact({ state: 'failed' });
-      });
+      .catch(() => settle({ state: 'failed' }));
     return () => {
       active = false;
     };
-  }, [customerId, enabled, attempt]);
-  return contact;
+  }, [customerId, handOff, attempt]);
+  if (loaded === null || loaded.handOff !== handOff || loaded.attempt !== attempt) {
+    return { state: 'loading' };
+  }
+  return loaded.contact;
 }
 
 export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
@@ -79,7 +85,7 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
   const [contactAttempt, setContactAttempt] = useState(0);
   // Remounts the history after a submit so the new message is listed without a manual refresh.
   const [historyGeneration, setHistoryGeneration] = useState(0);
-  const contact = usePrimaryContact(item.customerId, panel.kind === 'compose', contactAttempt);
+  const contact = usePrimaryContact(item.customerId, panel.kind === 'compose' ? panel.nonce : null, contactAttempt);
 
   let review: React.ReactNode = null;
   if (panel.kind === 'compose') {
@@ -101,7 +107,8 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
     } else {
       review = (
         <MessageReview
-          // A new hand-off (nonce) starts a fresh compose; a new policy version alone is adopted in place.
+          // A new hand-off (nonce) starts a fresh compose. The version is the draft's own, never the queue item's: a
+          // policy that moved on leaves this compose stale until a new draft is written and handed off.
           key={`compose|${panel.nonce}`}
           tenantId={tenantId}
           role={role}
@@ -114,7 +121,7 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
             action: panel.draft.action,
             templateIntent: panel.draft.templateIntent,
             origin: 'AI_DRAFT',
-            policyVersion: item.policyVersion,
+            policyVersion: panel.draft.policyVersion,
             initialBody: panel.draft.body
           }}
           onSubmitted={() => setHistoryGeneration((value) => value + 1)}
