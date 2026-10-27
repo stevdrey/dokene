@@ -393,6 +393,20 @@ The Meta adapter reports four result classes (ADR 0027 §4):
 
 The dispatcher maps these results through the message state machine. An exception that escapes the port counts as `OutcomeUnknown`. A transient failure returns the message to `APPROVED`, where only a new operator send, which passes the whole policy again, can try once more, up to the attempt cap. An unknown outcome keeps the message `SENDING` until a human resolves it (T12). A claim whose outcome was never recorded is turned into an unknown outcome by the recovery processor (ADR 0028 §5), never resent.
 
+## Verification status
+
+The Phase 3 messaging core and the manually approved send are certified on `main` `f4cb0ec` by [`phase-3-release-certification.md`](../verification/phase-3-release-certification.md) (issue 140).
+- **Covered:**
+  - the deterministic journey through the real Graph adapter;
+  - the browser journey on the real stack;
+  - the [#149 security run](../verification/issue-149-phase-3-security-verification.md);
+  - two authorized live template sends, Spanish and English, accepted by Meta and received.
+- **Open:**
+  - real `delivered`/`read` callbacks from Meta are BLOCKED until the Meta app is published (a development-mode app delivers only dashboard test webhooks);
+  - [#293](https://github.com/stevdrey/dokene/issues/293) (Low) is still to be fixed and retested.
+
+Live runs follow the opt-in [live Meta procedure](../verification/phase-3-live-meta-procedure.md). Nothing in the build or CI calls Meta.
+
 ## Future channels
 
 Potential future channels include:

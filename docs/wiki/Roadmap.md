@@ -80,6 +80,17 @@ Key outcomes:
 
 Exit condition: an approved follow-up can be sent exactly once and tracked safely through delivery/failure state.
 
+Exit evidence: [`docs/verification/phase-3-release-certification.md`](../verification/phase-3-release-certification.md) (issue 140) certifies `main` `f4cb0ec`:
+- **Deterministic journey:** `ApprovedSendJourneyIntegrationTest` covers draft → explicit revision-bound approval → one send through the real Graph adapter → signed delivery/failure callbacks, and every refusal leaves zero provider requests.
+- **Real-stack runs:** the Phase 3 browser journey, the Phase 1/2 regression and the [#149 security run](../verification/issue-149-phase-3-security-verification.md).
+- **Live sends:** two authorized live template sends (Spanish and English), both accepted by Meta and received by the consenting test recipient.
+
+Still open:
+- the real status-callback leg is BLOCKED until the Meta app is published;
+- [#293](https://github.com/stevdrey/dokene/issues/293) (Low) must be fixed and retested before the security track is clean.
+
+Live sending stays off by default. The opt-in procedure is [`phase-3-live-meta-procedure.md`](../verification/phase-3-live-meta-procedure.md). Phase 3 ships no scheduler, campaigns or auto-send.
+
 ## Phase 4 — Scheduling and operational resilience
 
 Goal: automate routine candidate generation without automating judgment prematurely.
