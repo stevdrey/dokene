@@ -53,6 +53,22 @@ class DurableMessageAuditAdapterTest {
                         AuditFailureCategory.TEMPLATE_REJECTED, 2));
     }
 
+    /** Issue 140: a member's T12 resolution is audited as its own type, apart from a provider failure. */
+    @Test
+    void aMemberResolutionIsAuditedAsResolvedAndASystemFailureIsNot() {
+        adapter.resolvedFailed(member(MessageEventType.SEND_FAILED, MessageStatus.SENDING, MessageStatus.FAILED,
+                FailureCategory.UNKNOWN, 1));
+
+        verify(recorder).messageTransition(messageId, AuditEventType.MESSAGE_SEND_RESOLVED,
+                new AuditMetadata.MessageTransition(AuditMessageStatus.SENDING, AuditMessageStatus.FAILED,
+                        AuditFailureCategory.UNKNOWN, 1));
+        MessageEvent providerFailure = system(MessageEventType.SEND_FAILED, MessageStatus.SENDING,
+                MessageStatus.FAILED, FailureCategory.UNKNOWN, 1);
+        assertThatThrownBy(() -> adapter.resolvedFailed(providerFailure)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> adapter.resolvedFailed(member(MessageEventType.CANCELLED, MessageStatus.APPROVED,
+                MessageStatus.CANCELLED, null, null))).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void everyMemberAndSystemEventMapsToItsOwnAuditType() {
         adapter.approved(member(MessageEventType.APPROVED, MessageStatus.PENDING_APPROVAL, MessageStatus.APPROVED, null, null));

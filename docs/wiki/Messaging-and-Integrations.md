@@ -63,7 +63,7 @@ Transitions are validated in the aggregate; arbitrary status mutation is refused
 
 ### Review and approval API
 
-The review routes ([#136](https://github.com/stevdrey/dokene/issues/136)) wrap the T1 to T5 services with the frozen v1 records (`MessageController`, `MessagingExceptionHandler`):
+The review routes ([#136](https://github.com/stevdrey/dokene/issues/136)) wrap the T1 to T5 services, and the T12 resolution (#140), with the frozen v1 records (`MessageController`, `MessagingExceptionHandler`):
 
 | Route | Permission | Notes |
 | --- | --- | --- |
@@ -72,6 +72,7 @@ The review routes ([#136](https://github.com/stevdrey/dokene/issues/136)) wrap t
 | `GET /api/messages/{messageId}` and `/events` | `MESSAGE_READ` | Detail with strong `ETag`; append-only history without membership ids. |
 | `POST /api/messages/{messageId}/approvals` | `MESSAGE_APPROVE` | `{ decision: APPROVE \| REJECT, note? }` (T2, T3). Approval calls no provider. |
 | `POST /api/messages/{messageId}/cancellations` | `MESSAGE_DRAFT` or `MESSAGE_APPROVE` | `{ note? }` (T4, T5). Either permission passes the route; the service then requires `MESSAGE_DRAFT` for a pending message and `MESSAGE_APPROVE` for an approved one. |
+| `POST /api/messages/{messageId}/resolutions` | `INTEGRATION_MANAGE` | `{ outcome: FAILED, note? }` (T12, [#140](https://github.com/stevdrey/dokene/issues/140)). Only for a `SENDING` message whose outcome is unknown, otherwise `409 INVALID_TRANSITION`. A human may only declare `FAILED`; it calls no provider. The note is kept on the resolution row, and the audit row is `MESSAGE_SEND_RESOLVED`, apart from a provider failure. API only for now: there is no resolution screen yet. |
 
 Rules that hold for every route:
 

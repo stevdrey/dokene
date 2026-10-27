@@ -49,6 +49,8 @@ Findings 1 and 2 are filed as #265 and #266. None of these were fixed during the
    under `/webhooks`. Repro: `sec149-csrf.sh`, the `/webhooks/other` checks.
 3. **No `resolutions` route on this commit (expected gap, owed by #138, T12).** P3-PERM-07, P3-DUP-08, P3-APPR-12 and
    the resolution half of P3-IDOR-05 are `BLOCKED`. Not a defect, listed so the candidate run does not forget it.
+   The route is served from #140 onwards (`issue-140-t12-resolution-verification.md`); these cases stay `BLOCKED`
+   for this commit.
 4. **No integration or messaging settings screen is mounted (expected gap, owed by #144/#146).** The `Configuración`
    tab is a placeholder; `IntegrationStatusPanel` exists but nothing renders it. The screen halves of P3-SEC-08 and
    P3-KILL-03 are `BLOCKED`.

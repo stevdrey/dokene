@@ -227,6 +227,8 @@ class TenantIsolationSecurityIntegrationTest {
                 "outbound_messages", Set.of("SELECT", "INSERT", "UPDATE"),
                 "outbound_message_approvals", Set.of("SELECT", "INSERT"),
                 "outbound_message_cancellations", Set.of("SELECT", "INSERT"),
+                // Issue 140: T12 resolutions, written once like cancellations.
+                "outbound_message_resolutions", Set.of("SELECT", "INSERT"),
                 "outbound_send_attempts", Set.of("SELECT", "INSERT", "UPDATE"),
                 "outbound_message_events", Set.of("SELECT", "INSERT"),
                 "outbound_message_idempotency_keys", Set.of("SELECT", "INSERT"),
