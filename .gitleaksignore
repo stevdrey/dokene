@@ -5,3 +5,6 @@
 81a95d6957a376aa553e9af0aec01df7f9506cc9:docs/verification/issue-121-evidence/scripts/sec121-a.sh:curl-auth-header:25
 # Synthetic QA harness from an earlier commit of PR #267 (a secret reference name, not a secret; line later reworded).
 68e9c3894a06ea4aab45b4ef12371d49b2e46937:docs/verification/issue-149-evidence/scripts/stack149.sh:generic-api-key:55
+# Issue 140 live-send helpers: KEY is the fixed idempotency-key prefix of the guarded send (dokene-live-140-...), not a secret.
+fb905f197b954cd3ec82e17556f3925ac25b2682:docs/verification/phase-3-evidence/scripts/send140.py:generic-api-key:14
+fb905f197b954cd3ec82e17556f3925ac25b2682:docs/verification/phase-3-evidence/scripts/send140en.py:generic-api-key:14
