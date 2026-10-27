@@ -7,7 +7,9 @@ import { SnoozeModal } from './SnoozeModal';
 import { DismissModal } from './DismissModal';
 import { Button } from '@/shared/components/Button';
 import { computeDaysOverdueInTimeZone } from '../utils/dateUtils';
-import { AiAssistantPanel } from './AiAssistantPanel';
+import { AiAssistantPanel, type ReviewableDraft } from './AiAssistantPanel';
+import { FollowUpMessaging, type MessagePanel } from './FollowUpMessaging';
+import { canActOnMessages, useTenant } from '@/features/tenants/TenantContext';
 import './FollowUpLayout.css';
 import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 
@@ -47,6 +49,16 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSnoozeModalOpen, setIsSnoozeModalOpen] = useState(false);
   const [isDismissModalOpen, setIsDismissModalOpen] = useState(false);
+
+  const { activeWorkspace } = useTenant();
+  const role = activeWorkspace?.role ?? null;
+  const [messagePanel, setMessagePanel] = useState<MessagePanel>({ kind: 'none' });
+  const reviewDraft = (draft: ReviewableDraft) =>
+    setMessagePanel((current) => ({
+      kind: 'compose',
+      draft,
+      nonce: current.kind === 'compose' ? current.nonce + 1 : 0
+    }));
 
   useEffect(() => {
     let active = true;
@@ -429,7 +441,19 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
         policyVersion={item.policyVersion}
         canUseAi={canUseAi}
         onRequestRefresh={onRequestRefresh}
+        onReviewDraft={canActOnMessages(role) ? reviewDraft : undefined}
       />
+
+      {activeWorkspace && (
+        <FollowUpMessaging
+          item={item}
+          tenantId={activeWorkspace.tenantId}
+          role={role}
+          panel={messagePanel}
+          onPanelChange={setMessagePanel}
+          onRequestRefresh={onRequestRefresh}
+        />
+      )}
 
       {/* Recent Purchases Section */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>

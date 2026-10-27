@@ -12,7 +12,7 @@ import { useDeliveryHistory, type HistoryRow, type ReadFailure } from '../hooks/
 import { deliveryOutcome, HISTORY_COPY } from '../utils/deliveryOutcome';
 import { formatDateTime } from '../utils/format';
 import { COPY, originLabel } from '../utils/messageLabels';
-import { canReadMessages } from '../utils/permissions';
+import { canReadMessages } from '@/features/tenants/TenantContext';
 import { OpenDeliveryRow, type OpenDeliveryRowHandle } from './OpenDeliveryRow';
 import './MessageReview.css';
 import './DeliveryHistory.css';

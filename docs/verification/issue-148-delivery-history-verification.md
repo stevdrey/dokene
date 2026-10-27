@@ -103,7 +103,7 @@ At both widths `scrollWidth` equalled `clientWidth` (no horizontal scroll) and t
 ## Caller contract
 
 - `DeliveryHistory` reads `tenantId`, `customerId`, `role` and `onOpenMessage` through props and remounts on a change of tenant or customer. It renders nothing when `httpClient.getTenantId()` is `null` or differs from `tenantId`, or when the role is missing. The host passes `tenantId` from the active workspace, so a workspace switch re-renders it.
-- `canReadMessages` is feature local in `utils/permissions.ts` beside `canActOnMessages`; the composition work moves both into `TenantContext`.
+- `canReadMessages` and `canActOnMessages` now live in `features/tenants/TenantContext.tsx` beside `canWriteCustomer` (moved by #140).
 
 ## Not covered here
 

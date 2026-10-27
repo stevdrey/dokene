@@ -8,9 +8,13 @@ import { customerApi } from '@/features/customers/api/customerApi';
 import { ApiError } from '@/shared/api/httpClient';
 import type { QueueItemResponse, RecommendationResponse, DraftResponse } from '../types';
 
-vi.mock('@/features/tenants/TenantContext', () => ({
-  useTenant: vi.fn()
-}));
+vi.mock('@/features/tenants/TenantContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/tenants/TenantContext')>();
+  return {
+    ...actual,
+    useTenant: vi.fn()
+  };
+});
 
 const baseItem: QueueItemResponse = {
   customerId: 'cust-1',

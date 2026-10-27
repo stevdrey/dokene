@@ -11,7 +11,7 @@ import {
   contactChangedSentence
 } from '../utils/deliveryOutcome';
 import { listItemFromDetail, mergeItem } from '../utils/mergeItem';
-import { canReadMessages } from '../utils/permissions';
+import { canReadMessages } from '@/features/tenants/TenantContext';
 import { details } from './messageTestServer';
 
 // covers: AC-3

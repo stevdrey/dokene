@@ -18,7 +18,12 @@ import {
   unavailableMessage
 } from '@/features/followups/utils/aiLabels';
 import { DRAFT_BODY_MAX_CODE_POINTS } from '@/features/followups/types';
-import type { DraftResponse, RecommendationResponse } from '@/features/followups/types';
+import type {
+  DraftResponse,
+  RecommendationResponse,
+  SemanticAction,
+  SemanticTemplateIntent
+} from '@/features/followups/types';
 import { countCodePoints } from '@/features/followups/utils/textLength';
 import { formatEvidenceEntry, formatWarningText } from '@/features/followups/utils/draftEvidence';
 
@@ -30,6 +35,18 @@ interface AiAssistantPanelProps {
   canUseAi: boolean;
   /** Asks the workbench to reload the queue after the follow-up changed under the assistant. */
   onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
+  /**
+   * Hands the current draft, with the operator's edits, to message review. Passed only for a role that may submit
+   * messages; it never submits anything itself, so sending still needs the explicit review, approval and send.
+   */
+  onReviewDraft?: (draft: ReviewableDraft) => void;
+}
+
+/** What message review needs from an AI draft: its semantic action and template intent and the edited text. */
+export interface ReviewableDraft {
+  action: SemanticAction;
+  templateIntent: SemanticTemplateIntent;
+  body: string;
 }
 
 const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espacio de trabajo.';
@@ -117,7 +134,8 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   customerId,
   policyVersion,
   canUseAi,
-  onRequestRefresh
+  onRequestRefresh,
+  onReviewDraft
 }) => {
   const headingId = useId();
   const recHeadingId = useId();
@@ -629,6 +647,17 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
               <Button variant="primary" onClick={() => void assistant.copyDraft()} disabled={draftText.trim() === ''}>
                 Copiar borrador
               </Button>
+              {onReviewDraft && shownDraft && (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    onReviewDraft({ action: shownDraft.action, templateIntent: shownDraft.templateIntent, body: draftText })
+                  }
+                  disabled={draftText.trim() === '' || countCodePoints(draftText) > DRAFT_BODY_MAX_CODE_POINTS}
+                >
+                  Revisar y enviar
+                </Button>
+              )}
               <Button ref={regenerateButtonRef} variant="secondary" onClick={askRegenerate} disabled={busy || !canUseAi}>
                 Regenerar borrador
               </Button>

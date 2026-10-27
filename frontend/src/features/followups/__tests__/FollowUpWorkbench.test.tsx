@@ -9,9 +9,13 @@ import { followUpApi } from '../api/followUpApi';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { ApiError } from '@/shared/api/httpClient';
 
-vi.mock('@/features/tenants/TenantContext', () => ({
-  useTenant: vi.fn()
-}));
+vi.mock('@/features/tenants/TenantContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/tenants/TenantContext')>();
+  return {
+    ...actual,
+    useTenant: vi.fn()
+  };
+});
 
 const mockItems = [
   {

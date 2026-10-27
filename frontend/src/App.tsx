@@ -7,6 +7,7 @@ import { AppShell, ActiveTab } from './components/shell/AppShell';
 import { CustomerList } from './features/customers/components/CustomerList';
 import { CustomerProfile } from './features/customers/components/CustomerProfile';
 import { FollowUpWorkbench } from './features/followups/components/FollowUpWorkbench';
+import { IntegrationStatusPanel } from './features/integrations/components/IntegrationStatusPanel';
 
 const MainAppContent: React.FC = () => {
   const { status: sessionStatus, error: sessionError, checkSession } = useSession();
@@ -215,23 +216,10 @@ const MainAppContent: React.FC = () => {
         />
       )}
 
-      {activeTab === 'configuracion' && (
-        <section
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-32)',
-            border: '1px solid var(--color-outline-subtle)',
-            textAlign: 'center',
-          }}
-        >
-          <h2 style={{ fontSize: 'var(--font-size-page-heading)', fontWeight: 600, color: 'var(--color-text-main)' }}>
-            Configuración del Espacio de Trabajo
-          </h2>
-          <p style={{ fontSize: 'var(--font-size-dense)', color: 'var(--color-text-supporting)', marginTop: 'var(--space-8)' }}>
-            Ajustes generales del negocio y cadencias de contacto.
-          </p>
-        </section>
+      {activeTab === 'configuracion' && activeWorkspace && (
+        <IntegrationStatusPanel
+          workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
+        />
       )}
     </AppShell>
   );

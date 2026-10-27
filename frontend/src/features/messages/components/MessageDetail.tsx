@@ -24,7 +24,7 @@ import {
   statusLabel,
   waitSentence
 } from '../utils/messageLabels';
-import { canActOnMessages } from '../utils/permissions';
+import { canActOnMessages } from '@/features/tenants/TenantContext';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
 import { EventTimeline } from './EventTimeline';
 
