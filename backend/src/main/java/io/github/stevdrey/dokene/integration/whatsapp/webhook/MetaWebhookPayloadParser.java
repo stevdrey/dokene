@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp.webhook;
 
 import io.github.stevdrey.dokene.integration.whatsapp.GraphApiSendErrors;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.ParsedWebhook.StatusUpdate;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Level;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Reason;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWebhookBody;
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatus;
@@ -28,11 +29,13 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Reads only bytes the signature verifier released. A member outside the allowlist at the envelope, entry, change,
  * value or status level (a supplied {@code tenantId}, for one) refuses the whole body: Meta never sends it, so it is
- * not Meta. Change fields other than {@code messages}, inbound {@code messages}/{@code contacts}/{@code errors} and
- * status values other than the four delivery states are recognised but not processed, and only counted.
+ * not Meta. Change fields other than {@code messages}, inbound {@code messages}, value-level {@code errors} and status
+ * values other than the four delivery states are recognised but not processed, and only counted; {@code contacts} is
+ * accepted and neither read nor counted.
  *
- * <p>Error titles, messages and details, recipient phones, conversation and pricing members are never read into the
- * result: only the first error code is, and it becomes a closed {@link FailureCategory}.
+ * <p>Error titles, messages and details, recipient phones and identifiers, conversation, pricing and internal provider
+ * metadata are never read into the result: only the first error code is, and it becomes a closed
+ * {@link FailureCategory}.
  */
 @Component
 public class MetaWebhookPayloadParser {
@@ -46,8 +49,10 @@ public class MetaWebhookPayloadParser {
     private static final Set<String> VALUE = Set.of("messaging_product", "metadata", "statuses", "messages",
             "contacts", "errors");
     private static final Set<String> METADATA = Set.of("display_phone_number", "phone_number_id");
+    // The recipient_* identifiers and internal_1p_only_data arrive on live callbacks (issue 289); never read.
     private static final Set<String> STATUS = Set.of("id", "status", "timestamp", "recipient_id", "recipient_type",
-            "conversation", "pricing", "errors", "biz_opaque_callback_data");
+            "recipient_logical_id", "recipient_user_id", "conversation", "pricing", "errors",
+            "biz_opaque_callback_data", "internal_1p_only_data");
     private static final Map<String, DeliveryStatus> DELIVERY_STATES = Map.of("sent", DeliveryStatus.SENT,
             "delivered", DeliveryStatus.DELIVERED, "read", DeliveryStatus.READ, "failed", DeliveryStatus.FAILED);
 
@@ -65,17 +70,17 @@ public class MetaWebhookPayloadParser {
         if (root == null || !root.isObject()) {
             throw new WebhookPayloadException(Reason.SCHEMA);
         }
-        allowOnly(root, ENVELOPE);
+        allowOnly(root, ENVELOPE, Level.ENVELOPE);
         if (!"whatsapp_business_account".equals(text(root, "object"))) {
             throw new WebhookPayloadException(Reason.SCHEMA);
         }
         Batch batch = new Batch();
         for (JsonNode entry : array(root, "entry", true)) {
             requireObject(entry);
-            allowOnly(entry, ENTRY);
+            allowOnly(entry, ENTRY, Level.ENTRY);
             for (JsonNode change : array(entry, "changes", true)) {
                 requireObject(change);
-                allowOnly(change, CHANGE);
+                allowOnly(change, CHANGE, Level.CHANGE);
                 String field = text(change, "field");
                 if (field == null || !change.has("value")) {
                     throw new WebhookPayloadException(Reason.SCHEMA);
@@ -93,12 +98,14 @@ public class MetaWebhookPayloadParser {
     /** Adds the value's delivery statuses to the batch and counts every other item it carried. */
     private void value(JsonNode value, Batch batch) {
         requireObject(value);
-        allowOnly(value, VALUE);
-        for (String inbound : List.of("messages", "contacts", "errors")) {
+        allowOnly(value, VALUE, Level.VALUE);
+        for (String inbound : List.of("messages", "errors")) {
             if (value.has(inbound)) {
                 batch.unsupported += array(value, inbound, false).size();
             }
         }
+        // Contacts only accompany inbound messages or statuses, so they are type-checked but not counted (issue 289).
+        array(value, "contacts", false);
         if (!value.has("statuses")) {
             return;
         }
@@ -107,7 +114,7 @@ public class MetaWebhookPayloadParser {
         }
         JsonNode metadata = value.get("metadata");
         requireObject(metadata);
-        allowOnly(metadata, METADATA);
+        allowOnly(metadata, METADATA, Level.METADATA);
         String phoneNumberId = text(metadata, "phone_number_id");
         if (phoneNumberId == null || !PHONE_NUMBER_ID.matcher(phoneNumberId).matches()) {
             throw new WebhookPayloadException(Reason.SCHEMA);
@@ -130,7 +137,7 @@ public class MetaWebhookPayloadParser {
 
     private Optional<StatusUpdate> status(String phoneNumberId, JsonNode status) {
         requireObject(status);
-        allowOnly(status, STATUS);
+        allowOnly(status, STATUS, Level.STATUS);
         String id = text(status, "id");
         String state = text(status, "status");
         String timestamp = text(status, "timestamp");
@@ -184,10 +191,10 @@ public class MetaWebhookPayloadParser {
         private int statuses;
     }
 
-    private static void allowOnly(JsonNode node, Set<String> allowed) {
+    private static void allowOnly(JsonNode node, Set<String> allowed, Level level) {
         for (String name : node.propertyNames()) {
             if (!allowed.contains(name)) {
-                throw new WebhookPayloadException(Reason.UNEXPECTED_MEMBER);
+                throw WebhookPayloadException.unexpectedMember(level, name);
             }
         }
     }

@@ -7,9 +7,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretPurpose;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
+import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.RecordingSecretResolver;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.ParsedWebhook.StatusUpdate;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Level;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Reason;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWebhookBody;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier;
@@ -39,7 +41,7 @@ class MetaWebhookPayloadParserTest {
     @Test
     void everySignedFixtureParsesToItsExpectedTypedStatus() {
         for (String name : List.of("delivered", "duplicateOfDelivered", "failed", "readBeforeDelivered",
-                "deliveredAfterRead")) {
+                "deliveredAfterRead", "liveDelivered")) {
             JsonNode entry = FIXTURES.get("entries").get(name);
             byte[] body = entry.get("body").stringValue().getBytes(StandardCharsets.UTF_8);
             VerifiedWebhookBody verified = verifier.verify(body, List.of(entry.get("signature").stringValue()));
@@ -81,12 +83,97 @@ class MetaWebhookPayloadParserTest {
                 envelope("{\"id\":\"1\",\"changes\":[{\"field\":\"messages\",\"tenantId\":\"x\",\"value\":{}}]}"),
                 body("\"tenantId\":\"x\",", status),
                 body("", "{\"id\":\"wamid.X\",\"status\":\"sent\",\"timestamp\":\"1760000000\","
-                        + "\"tenantId\":\"x\"}"));
+                        + "\"tenantId\":\"x\"}"),
+                body("", MetaCallbacks.report("wamid.X", "delivered", 1760000000L, null,
+                        MetaCallbacks.LIVE_MEMBERS + ",\"tenantId\":\"x\"")),
+                envelope("{\"id\":\"1\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":"
+                        + "\"whatsapp\",\"metadata\":{\"phone_number_id\":\"" + PHONE + "\",\"tenantId\":\"x\"},"
+                        + "\"statuses\":[" + status + "]}}]}"));
+        List<Level> levels = List.of(Level.ENVELOPE, Level.ENTRY, Level.CHANGE, Level.VALUE, Level.STATUS,
+                Level.STATUS, Level.METADATA);
 
-        for (String json : hostile) {
+        for (int i = 0; i < hostile.size(); i++) {
+            Level level = levels.get(i);
+            String json = hostile.get(i);
             assertThatThrownBy(() -> parser.parse(verified(json))).as(json)
+                    .isInstanceOfSatisfying(WebhookPayloadException.class, refusal -> {
+                        assertThat(refusal.reason()).isEqualTo(Reason.UNEXPECTED_MEMBER);
+                        assertThat(refusal.level()).contains(level);
+                        // "tenantId" is not a Meta-style key name, so it is never echoed into a log line.
+                        assertThat(refusal.member()).contains(WebhookPayloadException.OTHER_MEMBER);
+                    });
+        }
+    }
+
+    /**
+     * Issue 289: a refusal names its level and a Meta-style member name so the allowlist fix is one log line away; any
+     * other name (case, control characters, length) is replaced, and no value is ever carried.
+     */
+    @Test
+    void anUnexpectedMemberRefusalNamesItsLevelAndOnlyAMetaStyleKeyName() {
+        String longName = "a".repeat(65);
+        List<String> names = List.of("new_member", "x\\nforged", longName, "Has-Dash");
+        List<String> logged = List.of("new_member", WebhookPayloadException.OTHER_MEMBER,
+                WebhookPayloadException.OTHER_MEMBER, WebhookPayloadException.OTHER_MEMBER);
+
+        for (int i = 0; i < names.size(); i++) {
+            String expected = logged.get(i);
+            String json = body("", MetaCallbacks.report("wamid.X", "delivered", 1760000000L, null,
+                    ",\"" + names.get(i) + "\":\"CANARY-BODY\""));
+            assertThatThrownBy(() -> parser.parse(verified(json))).as(names.get(i))
+                    .isInstanceOfSatisfying(WebhookPayloadException.class, refusal -> {
+                        assertThat(refusal.level()).contains(Level.STATUS);
+                        assertThat(refusal.member()).contains(expected);
+                        assertThat(refusal.getMessage()).endsWith("level=STATUS member=" + expected)
+                                .doesNotContain("CANARY");
+                    })
+                    .hasNoCause();
+        }
+    }
+
+    /**
+     * Issue 289: the live status shape (recipient logical and user ids, pricing, conversation, internal provider
+     * metadata, plus value-level contacts) parses for every delivery state; none of the extras is read.
+     */
+    @Test
+    void theLiveStatusShapeParsesForEveryDeliveryStateAndNoExtraMemberSurvives() {
+        String contacts = "\"contacts\":[{\"profile\":{\"name\":\"CANARY-BODY\"},\"wa_id\":\"50600000001\"}],";
+        String json = body(contacts, String.join(",",
+                MetaCallbacks.liveReport("wamid.LIVE-1", "sent", 1760000000L, null),
+                MetaCallbacks.liveReport("wamid.LIVE-1", "delivered", 1760000005L, null),
+                MetaCallbacks.liveReport("wamid.LIVE-1", "read", 1760000010L, null),
+                MetaCallbacks.liveReport("wamid.LIVE-2", "failed", 1760000020L, 131026)));
+
+        ParsedWebhook parsed = parser.parse(verified(json));
+
+        assertThat(parsed.unsupportedCount()).isZero();
+        assertThat(parsed.updates()).extracting(StatusUpdate::status).containsExactly(DeliveryStatus.SENT,
+                DeliveryStatus.DELIVERED, DeliveryStatus.READ, DeliveryStatus.FAILED);
+        assertThat(parsed.updates()).extracting(StatusUpdate::occurredAt).containsExactly(
+                Instant.ofEpochSecond(1760000000L), Instant.ofEpochSecond(1760000005L),
+                Instant.ofEpochSecond(1760000010L), Instant.ofEpochSecond(1760000020L));
+        assertThat(parsed.updates()).extracting(StatusUpdate::failure).containsExactly(Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.of(FailureCategory.INVALID_RECIPIENT));
+        String rendered = parsed + " " + parsed.updates();
+        assertThat(rendered).doesNotContain("SYNTHETIC").doesNotContain("CANARY").doesNotContain("50600000001")
+                .doesNotContain("PMP").doesNotContain("utility");
+    }
+
+    /** The extra members never relax the required delivery facts. */
+    @Test
+    void aLiveShapedStatusWithoutItsRequiredFactsIsStillRefused() {
+        String live = MetaCallbacks.liveReport("wamid.X", "delivered", 1760000000L, null);
+        List<String> invalid = List.of(
+                live.replace("\"id\":\"wamid.X\",", ""),
+                live.replace("\"timestamp\":\"1760000000\",", ""),
+                live.replace("\"timestamp\":\"1760000000\"", "\"timestamp\":\"soon\""),
+                live.replace("\"status\":\"delivered\",", ""));
+
+        for (String status : invalid) {
+            assertThat(status).isNotEqualTo(live);
+            assertThatThrownBy(() -> parser.parse(verified(body("", status)))).as(status)
                     .isInstanceOfSatisfying(WebhookPayloadException.class,
-                            refusal -> assertThat(refusal.reason()).isEqualTo(Reason.UNEXPECTED_MEMBER));
+                            refusal -> assertThat(refusal.reason()).isEqualTo(Reason.SCHEMA));
         }
     }
 
@@ -127,7 +214,8 @@ class MetaWebhookPayloadParserTest {
 
         ParsedWebhook parsed = parser.parse(verified(json));
 
-        assertThat(parsed.unsupportedCount()).isEqualTo(4);
+        // account_update, the inbound message and "played"; contacts only accompany other items and are not counted.
+        assertThat(parsed.unsupportedCount()).isEqualTo(3);
         assertThat(parsed.updates()).extracting(StatusUpdate::status).containsExactly(DeliveryStatus.READ);
     }
 

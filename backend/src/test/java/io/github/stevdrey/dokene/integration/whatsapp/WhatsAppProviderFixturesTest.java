@@ -50,7 +50,7 @@ class WhatsAppProviderFixturesTest {
     private static final String SYNTHETIC_MESSAGE_ID_PREFIX = "wamid.SYNTHETIC";
     private static final String REAL_MESSAGE_ID_PREFIX = "wamid.HBg";
     private static final List<String> WEBHOOK_IDS = List.of("delivered", "failed", "duplicateOfDelivered",
-            "readBeforeDelivered", "deliveredAfterRead");
+            "readBeforeDelivered", "deliveredAfterRead", "liveDelivered");
     private static final Set<String> HANDLINGS = Set.of("applied", "deduplicated", "ignoredTerminal");
     private static final String FAILED_ERROR = "entry[0].changes[0].value.statuses[0].errors[0]";
     private static final Set<String> CANARY_FIELDS = Set.of(FAILED_ERROR + ".title", FAILED_ERROR + ".message",
@@ -64,7 +64,8 @@ class WhatsAppProviderFixturesTest {
             "duplicateOfDelivered", new Expectation("deduplicated", "delivered", MessageStatus.DELIVERED, null),
             "failed", new Expectation("applied", null, MessageStatus.SENT, FailureCategory.INVALID_RECIPIENT),
             "readBeforeDelivered", new Expectation("applied", null, MessageStatus.SENT, null),
-            "deliveredAfterRead", new Expectation("ignoredTerminal", "readBeforeDelivered", MessageStatus.READ, null));
+            "deliveredAfterRead", new Expectation("ignoredTerminal", "readBeforeDelivered", MessageStatus.READ, null),
+            "liveDelivered", new Expectation("applied", null, MessageStatus.SENT, null));
 
     /** Strict on duplicate keys so a repeated fixture id fails to parse instead of silently keeping the last value. */
     private static final JsonMapper JSON = JsonMapper.builder()
@@ -86,7 +87,7 @@ class WhatsAppProviderFixturesTest {
 
     /** covers: AC-1 */
     @Test
-    void theWebhookFileCarriesThePublishedKeyAndExactlyTheFiveEntries() {
+    void theWebhookFileCarriesThePublishedKeyAndExactlyTheSixEntries() {
         assertThat(webhooks.propertyNames()).containsExactly("signingKey", "phoneNumberId", "entries");
         assertThat(webhooks.path("signingKey").asString()).isEqualTo(SIGNING_KEY);
         assertThat(webhooks.path("phoneNumberId").asString()).isEqualTo(PHONE_NUMBER_ID);
@@ -141,9 +142,10 @@ class WhatsAppProviderFixturesTest {
                 }),
                 dynamicTest("b. the ordering pair shares one provider message id", () -> assertThat(
                         messageId(entries, "readBeforeDelivered")).isEqualTo(messageId(entries, "deliveredAfterRead"))),
-                dynamicTest("c. delivered, failed and the pair use three distinct provider message ids", () -> assertThat(
-                        Set.of(messageId(entries, "delivered"), messageId(entries, "failed"),
-                                messageId(entries, "readBeforeDelivered"))).hasSize(3)),
+                dynamicTest("c. delivered, failed, the pair and liveDelivered use four distinct provider message ids",
+                        () -> assertThat(Set.of(messageId(entries, "delivered"), messageId(entries, "failed"),
+                                messageId(entries, "readBeforeDelivered"), messageId(entries, "liveDelivered")))
+                                .hasSize(4)),
                 dynamicTest("d. the late delivered report carries an earlier timestamp than the read report", () -> assertThat(
                         occurredAt(entries, "deliveredAfterRead")).isBefore(occurredAt(entries, "readBeforeDelivered"))),
                 dynamicTest("e. handling, after, statusBefore and failure match the spec table", () -> WEBHOOK_IDS
@@ -294,6 +296,17 @@ class WhatsAppProviderFixturesTest {
             members.add("conversation");
             assertThat(status.path("conversation").toString())
                     .isEqualTo("{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}}");
+        }
+        if (id.equals("liveDelivered")) {
+            // The live shape of issue 289: every extra member is synthetic and none of them is read by the parser.
+            members.addAll(List.of("recipient_logical_id", "recipient_user_id", "conversation", "pricing",
+                    "internal_1p_only_data"));
+            assertThat(value.path("contacts").toString())
+                    .isEqualTo("[{\"profile\":{\"name\":\"SYNTHETIC-CONTACT-NAME\"},\"wa_id\":\"" + RECIPIENT + "\"}]");
+            assertThat(status.path("recipient_logical_id").asString()).isEqualTo("SYNTHETIC-LOGICAL-ID-0001");
+            assertThat(status.path("recipient_user_id").asString()).isEqualTo("SYNTHETIC-USER-ID-0001");
+            assertThat(status.path("internal_1p_only_data").toString())
+                    .isEqualTo("{\"note\":\"SYNTHETIC-INTERNAL-0001\"}");
         }
         if (id.equals("failed")) {
             members.add("errors");

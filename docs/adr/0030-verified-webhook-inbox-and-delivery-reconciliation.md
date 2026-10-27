@@ -59,12 +59,14 @@ The application must:
 | Change | `field`, `value` |
 | Value | `messaging_product`, `metadata`, `statuses`, `messages`, `contacts`, `errors` |
 | Metadata | `display_phone_number`, `phone_number_id` |
-| Status | `id`, `status`, `timestamp`, `recipient_id`, `recipient_type`, `conversation`, `pricing`, `errors`, `biz_opaque_callback_data` |
+| Status | `id`, `status`, `timestamp`, `recipient_id`, `recipient_type`, `recipient_logical_id`, `recipient_user_id`, `conversation`, `pricing`, `errors`, `biz_opaque_callback_data`, `internal_1p_only_data` (issue 289 addendum) |
 
 **Recognised but not processed.** The following are counted as `dokene.webhook.dropped{reason=UNSUPPORTED_EVENT}`:
 - change fields other than `messages`;
-- inbound `messages`, `contacts` and value-level `errors`;
+- inbound `messages` and value-level `errors`;
 - status values other than the four delivery states.
+
+`contacts` must be an array but is neither read nor counted: it only accompanies inbound messages or statuses (issue 289 addendum).
 
 **Bounds:**
 - More than 1000 statuses in one body is `400`. Every status element counts, tracked or not, across all changes, before any is parsed.
@@ -75,7 +77,7 @@ The application must:
 **What survives parsing.** The result holds only `(phoneNumberId, providerMessageId, status, occurredAt, failure)`.
 - The failure is the closed `FailureCategory` of the first error's numeric code, through the same table the send adapter uses (`GraphApiSendErrors.categoryFor`). Error entries are not allowlisted: a missing or non-numeric code, a non-object first entry or a non-array `errors` is `UNKNOWN`, never a refusal that would lose the rest of the batch.
 - The provider message id is validated by building the messaging `DeliveryStatusReport` at parse time, so one rule decides validity and no stored row can later fail to become a report.
-- Error titles, messages and details, recipient phones, conversation and pricing data are never read into it.
+- Error titles, messages and details, recipient phones and identifiers, conversation, pricing and internal provider metadata are never read into it.
 
 ### 3. Tenant resolution and the durable inbox
 
@@ -164,3 +166,24 @@ ADR 0023 §3.1 keeps `GET /api/messages/{messageId}/events` (`MESSAGE_READ`, ten
 - Template status webhooks.
 - The `SENT`/`DELIVERED` open-message window (scope item 11, #198).
 - Live callback evidence, which belongs to the final integration run.
+
+## Addendum (issue 289): live status metadata
+
+Live Meta status callbacks (`sent`, `delivered`, `read`) were refused with `400 UNEXPECTED_MEMBER` after signature verification. Their status objects carry three members the allowlist did not name: `recipient_logical_id`, `recipient_user_id` and `internal_1p_only_data`. Every report was lost, and the messages stayed `SENT`.
+
+**Decision: extend the status allowlist explicitly.** The three names join the Status row of §2.
+- The parser accepts them and never reads them. They never reach the result, the inbox, logs, audit or any API.
+- `recipient_logical_id` and `recipient_user_id` are provider recipient identifiers. Like `recipient_id`, they are never a tenant, message or authorization input. The tenant still comes only from `VerifiedPhoneNumberMappings.tenantFor(phoneNumberId)`.
+- `internal_1p_only_data` was observed in Meta's developer event panel and may be specific to Meta's test tooling. It is untrusted provider metadata: allowed so a test or live callback is not refused, and never interpreted.
+- Nothing else changes. The raw-body signature check, body and batch bounds, duplicate-key refusal, required delivery facts (`id`, `status`, epoch-second `timestamp`), tenant resolution, dedup and transition ordering are as in §1 to §4.
+- Every other unknown member at every level is still `400 UNEXPECTED_MEMBER`. That includes a `tenantId` beside the new members in a status (P3-HOOK-04), so a future Meta addition still needs a deliberate allowlist change.
+
+**Alternative rejected.** Ignoring unknown members at the status level only would survive the next Meta addition without a release. But a smuggled member there would become silently accepted, and P3-HOOK-04 would weaken at one level. The explicit list keeps every accepted name reviewed.
+
+**Refusal detail.** An `UNEXPECTED_MEMBER` refusal now carries the level it was found at (`ENVELOPE`, `ENTRY`, `CHANGE`, `VALUE`, `METADATA` or `STATUS`, a closed enum). It also carries the member name, but only when the name matches `^[a-z0-9_]{1,64}$`. Any other name, `tenantId` included, is written as `<other>`. The controller logs `reason`, `level` and `member` and never a value, so the next Meta schema addition shows up in one log line instead of a payload comparison in Meta's panel. The name comes from a signature-verified body, and the pattern keeps control characters, casing tricks and long input out of the log.
+
+**Unsupported count.** Live status callbacks carry a value-level `contacts` array. Counting it as `UNSUPPORTED_EVENT` would have turned that counter, meant to surface new Meta fields, into constant noise once these callbacks were accepted. `contacts` is still type-checked as an array but is no longer counted (§2).
+
+**Consequence.** The §Consequences note about retries is bounded by Meta's retry window: a refused report is lost once Meta stops retrying. A refusal spike of `UNEXPECTED_MEMBER` after signature verification is therefore an operational signal to review the allowlist promptly.
+
+Verification: [issue 289 record](../verification/issue-289-webhook-live-status-metadata-verification.md).

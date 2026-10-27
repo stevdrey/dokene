@@ -205,6 +205,38 @@ class ApprovedSendJourneyIntegrationTest {
         }
     }
 
+    /** Issue 289: live-shaped Meta callbacks advance an already sent message to READ without a second send. */
+    @Test
+    void liveShapedDeliveryAndReadCallbacksAdvanceTheSentMessageWithoutResending() throws Exception {
+        Customer customer = dueCustomer("Sofía Rojas");
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(customer);
+        String wamid = body(send(workspace.operator, message, "send-" + UUID.randomUUID()))
+                .path("providerMessageId").asString();
+        long now = Instant.now().getEpochSecond();
+
+        // A past delivery is bounded to the message's creation and a future read to the time it is applied, so the
+        // two timestamps differ and each can only have come from its own callback.
+        assertThat(postSigned(liveCallback(wamid, "delivered", now)).getStatus()).isEqualTo(200);
+        assertThat(postSigned(liveCallback(wamid, "read", now + 60)).getStatus()).isEqualTo(200);
+        Instant afterCallbacks = Instant.now();
+
+        assertThat(inboxStates()).containsExactly("APPLIED", "APPLIED");
+        JsonNode detail = message.read(this);
+        assertThat(detail.path("status").asString()).isEqualTo("READ");
+        assertThat(detail.path("deliveredAt").isString()).as(detail.toString()).isTrue();
+        assertThat(detail.path("readAt").isString()).as(detail.toString()).isTrue();
+        Instant deliveredAt = Instant.parse(detail.path("deliveredAt").asString());
+        Instant readAt = Instant.parse(detail.path("readAt").asString());
+        assertThat(deliveredAt).isAfterOrEqualTo(Instant.parse(detail.path("createdAt").asString()));
+        assertThat(readAt).isAfter(deliveredAt).isBeforeOrEqualTo(afterCallbacks);
+        assertThat(eventTypes(message)).containsExactly("SUBMITTED", "APPROVED", "SEND_REQUESTED",
+                "SEND_ATTEMPT_STARTED", "SENT", "DELIVERY_UPDATED", "DELIVERY_UPDATED");
+        assertThat(detail.toString()).doesNotContain("SYNTHETIC-LOGICAL", "SYNTHETIC-USER", "SYNTHETIC-INTERNAL",
+                "PMP");
+        assertThat(GRAPH.sends(workspace)).isEqualTo(1);
+    }
+
     @Test
     void anUncertainProviderAnswerIsKeptUncertainAndNeverResent() throws Exception {
         Customer customer = dueCustomer("Luis Mora");
@@ -528,6 +560,11 @@ class ApprovedSendJourneyIntegrationTest {
     private byte[] callback(String wamid, String state, Integer errorCode) {
         return MetaCallbacks.statuses(workspace.wabaId, workspace.phoneNumberId,
                 MetaCallbacks.report(wamid, state, Instant.now().getEpochSecond(), errorCode));
+    }
+
+    private byte[] liveCallback(String wamid, String state, long epochSeconds) {
+        return MetaCallbacks.statuses(workspace.wabaId, workspace.phoneNumberId,
+                MetaCallbacks.liveReport(wamid, state, epochSeconds, null));
     }
 
     /** The workspace's inbox rows in arrival order, read past RLS as the migration role. */

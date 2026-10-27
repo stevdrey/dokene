@@ -66,6 +66,19 @@
         "after": "readBeforeDelivered",
         "statusBefore": "READ"
       }
+    },
+    "liveDelivered": {
+      "signature": "sha256=490d92c327eaf6d4c4df60e139bfbc147b929b1add0eb9d8534f9f8b1a43c0b8",
+      "body": "{\"object\":\"whatsapp_business_account\",\"entry\":[{\"id\":\"200000000000001\",\"changes\":[{\"field\":\"messages\",\"value\":{\"messaging_product\":\"whatsapp\",\"metadata\":{\"display_phone_number\":\"50600000000\",\"phone_number_id\":\"100000000000001\"},\"contacts\":[{\"profile\":{\"name\":\"SYNTHETIC-CONTACT-NAME\"},\"wa_id\":\"50600000001\"}],\"statuses\":[{\"id\":\"wamid.SYNTHETIC-HOOK-0004\",\"status\":\"delivered\",\"timestamp\":\"1760000300\",\"recipient_id\":\"50600000001\",\"recipient_logical_id\":\"SYNTHETIC-LOGICAL-ID-0001\",\"recipient_user_id\":\"SYNTHETIC-USER-ID-0001\",\"conversation\":{\"id\":\"SYNTHETIC-CONVERSATION-0001\",\"origin\":{\"type\":\"utility\"}},\"pricing\":{\"billable\":true,\"pricing_model\":\"PMP\",\"category\":\"utility\"},\"internal_1p_only_data\":{\"note\":\"SYNTHETIC-INTERNAL-0001\"}}]}}]}]}",
+      "expected": {
+        "providerMessageId": "wamid.SYNTHETIC-HOOK-0004",
+        "status": "DELIVERED",
+        "occurredAt": "2025-10-09T08:58:20Z",
+        "failure": null,
+        "handling": "applied",
+        "after": null,
+        "statusBefore": "SENT"
+      }
     }
   }
 }
