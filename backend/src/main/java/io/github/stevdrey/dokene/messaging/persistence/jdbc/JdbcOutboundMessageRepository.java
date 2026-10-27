@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import io.github.stevdrey.dokene.messaging.domain.MessageActorKind;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageCancellation;
+import io.github.stevdrey.dokene.messaging.domain.MessageResolution;
 import io.github.stevdrey.dokene.messaging.domain.MessageChannel;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
@@ -220,6 +221,28 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
                         row.getTimestamp("cancelled_at").toInstant(),
                         row.getObject("cancelled_by_membership_id", UUID.class),
                         row.getObject("cancelled_by_actor_id", UUID.class)), tenantId, cancellationId));
+    }
+
+    @Override
+    public MessageResolution insertResolution(MessageResolution r) {
+        jdbc.update("""
+                INSERT INTO dokene.outbound_message_resolutions
+                    (id, tenant_id, message_id, note, resolved_at, resolved_by_membership_id, resolved_by_actor_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, r.id(), r.tenantId(), r.messageId(), r.note(), Timestamp.from(r.resolvedAt()),
+                r.resolvedByMembershipId(), r.resolvedByActorId());
+        return r;
+    }
+
+    @Override
+    public Optional<MessageResolution> findResolution(UUID tenantId, UUID resolutionId) {
+        return first(jdbc.query("""
+                SELECT * FROM dokene.outbound_message_resolutions WHERE tenant_id = ? AND id = ?
+                """, (row, index) -> new MessageResolution(row.getObject("id", UUID.class),
+                        row.getObject("tenant_id", UUID.class), row.getObject("message_id", UUID.class),
+                        row.getString("note"), row.getTimestamp("resolved_at").toInstant(),
+                        row.getObject("resolved_by_membership_id", UUID.class),
+                        row.getObject("resolved_by_actor_id", UUID.class)), tenantId, resolutionId));
     }
 
     @Override

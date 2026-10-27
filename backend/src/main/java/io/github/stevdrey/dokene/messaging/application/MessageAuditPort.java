@@ -22,6 +22,9 @@ public interface MessageAuditPort {
 
     void sendOutcomeUnknown(MessageEvent event);
 
+    /** T12: a member declared an unknown outcome FAILED; audited apart from a provider failure. */
+    void resolvedFailed(MessageEvent event);
+
     /** Tenant attributed, no actor or membership; only valid under the provider context. */
     void deliveryUpdated(ProviderContext context, MessageEvent event);
 }

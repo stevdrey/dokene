@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageCancellation;
+import io.github.stevdrey.dokene.messaging.domain.MessageResolution;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
@@ -74,6 +75,10 @@ public interface OutboundMessageRepository {
     MessageCancellation insertCancellation(MessageCancellation cancellation);
 
     Optional<MessageCancellation> findCancellation(UUID tenantId, UUID cancellationId);
+
+    MessageResolution insertResolution(MessageResolution resolution);
+
+    Optional<MessageResolution> findResolution(UUID tenantId, UUID resolutionId);
 
     SendAttempt insertAttempt(SendAttempt attempt);
 

@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditMessageStatus;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.messaging.application.MessageAuditPort;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
+import io.github.stevdrey.dokene.messaging.domain.MessageActorKind;
 import io.github.stevdrey.dokene.messaging.domain.MessageEvent;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
@@ -61,6 +62,16 @@ public class DurableMessageAuditAdapter implements MessageAuditPort {
     @Override
     public void sendOutcomeUnknown(MessageEvent event) {
         record(event, MessageEventType.SEND_OUTCOME_UNKNOWN);
+    }
+
+    @Override
+    public void resolvedFailed(MessageEvent event) {
+        requireType(event, MessageEventType.SEND_FAILED);
+        // A provider failure is a SYSTEM event audited through sendFailed; T12 is the only MEMBER SEND_FAILED event.
+        if (event.actorKind() != MessageActorKind.MEMBER) {
+            throw new IllegalArgumentException("Only a member resolution is audited as resolved");
+        }
+        recorder.messageTransition(event.messageId(), AuditEventType.MESSAGE_SEND_RESOLVED, metadata(event));
     }
 
     @Override

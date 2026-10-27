@@ -109,7 +109,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("32");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -118,7 +118,8 @@ class TenantPersistenceIntegrationTest {
                 "customer_phone_contacts", "customers",
                 "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions", "oidc_identity_mappings",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
-                "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
+                "outbound_message_idempotency_keys", "outbound_message_resolutions", "outbound_messages",
+                "outbound_send_attempts",
                 "provider_webhook_events", "purchase_history", "purchases",
                 "tenant_context_signing_keys", "tenant_follow_up_policies", "tenant_memberships",
                 "tenant_messaging_integrations", "tenant_provider_templates", "tenants",
@@ -131,7 +132,8 @@ class TenantPersistenceIntegrationTest {
                 "customer_phone_contacts", "customers",
                 "follow_up_dismissals", "manual_follow_up_completions",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
-                "outbound_message_idempotency_keys", "outbound_messages", "outbound_send_attempts",
+                "outbound_message_idempotency_keys", "outbound_message_resolutions", "outbound_messages",
+                "outbound_send_attempts",
                 "provider_webhook_events", "purchase_history", "purchases",
                 "tenant_follow_up_policies", "tenant_memberships", "tenant_messaging_integrations",
                 "tenant_provider_templates", "tenants");
@@ -151,6 +153,7 @@ class TenantPersistenceIntegrationTest {
         assertThat(tableOwner("outbound_messages")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("outbound_message_approvals")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("outbound_message_cancellations")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("outbound_message_resolutions")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("outbound_send_attempts")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("outbound_message_events")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("outbound_message_idempotency_keys")).isEqualTo(MIGRATION_ROLE);

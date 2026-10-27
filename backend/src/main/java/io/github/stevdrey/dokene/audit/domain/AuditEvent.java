@@ -95,7 +95,8 @@ public record AuditEvent(
                 }
             }
             case MESSAGE_SUBMITTED, MESSAGE_APPROVED, MESSAGE_REJECTED, MESSAGE_CANCELLED, MESSAGE_SEND_REQUESTED,
-                    MESSAGE_SENT, MESSAGE_SEND_FAILED, MESSAGE_SEND_OUTCOME_UNKNOWN, MESSAGE_DELIVERY_UPDATED -> {
+                    MESSAGE_SENT, MESSAGE_SEND_FAILED, MESSAGE_SEND_OUTCOME_UNKNOWN, MESSAGE_SEND_RESOLVED,
+                    MESSAGE_DELIVERY_UPDATED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
                         || target.type() != AuditTarget.Type.MESSAGE
                         || !(metadata instanceof AuditMetadata.MessageTransition transition)

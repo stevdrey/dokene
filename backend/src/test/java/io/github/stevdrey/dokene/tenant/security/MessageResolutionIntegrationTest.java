@@ -1,11 +1,15 @@
 // ABOUTME: Proves POST /api/messages/{id}/resolutions (T12, issue 140) over HTTP against Postgres: role matrix, If-Match,
-// ABOUTME: state guard, replay, cross-tenant ids, strict body, audit row, and that no provider is ever called.
+// ABOUTME: state guard, replay, cross-tenant ids, the stored note, its own audit type, and no provider call ever.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.context;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -41,6 +45,7 @@ import io.github.stevdrey.dokene.tenant.application.ProviderContext;
 import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
@@ -54,6 +59,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -68,6 +74,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -106,6 +113,7 @@ class MessageResolutionIntegrationTest {
     @Autowired StubSafetyControl safety;
     @Autowired ScriptedMessagingProvider provider;
     @Autowired JdbcTemplate jdbc;
+    @MockitoSpyBean TenantContextResolver resolver;
 
     private final JsonMapper json = JsonMapper.builder().build();
     private MockMvc mvc;
@@ -120,7 +128,7 @@ class MessageResolutionIntegrationTest {
     private UUID contactId;
     private long policyVersion;
 
-    private record Member(IdentityId identity, TenantContext context, Tenant tenant) {
+    private record Member(IdentityId identity, TenantContext context, Tenant tenant, TenantMembership membership) {
     }
 
     @BeforeEach
@@ -192,7 +200,15 @@ class MessageResolutionIntegrationTest {
         assertThat(resolved.failureCategory()).isEqualTo(FailureCategory.UNKNOWN);
         assertThat(resolved.version()).isEqualTo(resolvedVersion);
         assertThat(lastEventType(unknown.id())).isEqualTo(MessageEventType.SEND_FAILED.name());
-        assertThat(sendFailedAudits(unknown.id(), ownerA)).isEqualTo(1);
+        // A human declaration has its own audit type, never the provider failure's (ADR 0023 §2, amended).
+        assertThat(audits(unknown.id(), "MESSAGE_SEND_RESOLVED", ownerA)).isEqualTo(1);
+        assertThat(audits(unknown.id(), "MESSAGE_SEND_FAILED", null)).isZero();
+        // The note is kept on the resolution row only, once, with the resolving member; the replay wrote no second.
+        assertThat(resolutions(unknown.id())).singleElement().satisfies(row -> {
+            assertThat(row.get("note")).isEqualTo("Not in the Meta delivery log");
+            assertThat(row.get("resolved_by_membership_id")).isEqualTo(ownerA.context().membershipId().value());
+            assertThat(row.get("resolved_by_actor_id")).isEqualTo(ownerA.identity().value());
+        });
         assertThat(provider.calls()).hasSize(1);
 
         mvc.perform(get("/api/messages/" + unknown.id() + "/events").with(user(viewerA))
@@ -208,7 +224,7 @@ class MessageResolutionIntegrationTest {
         Unknown unknown = unknownOutcome(Optional.empty());
         resolve(adminA, unknown.id(), "r-" + UUID.randomUUID(), unknown.etag(), FAILED)
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("FAILED"));
-        assertThat(sendFailedAudits(unknown.id(), adminA)).isEqualTo(1);
+        assertThat(audits(unknown.id(), "MESSAGE_SEND_RESOLVED", adminA)).isEqualTo(1);
         assertThat(provider.calls()).hasSize(1);
     }
 
@@ -229,7 +245,40 @@ class MessageResolutionIntegrationTest {
         assertThat(after.status()).isEqualTo(MessageStatus.SENDING);
         assertThat(after.outcomeUnknown()).isTrue();
         assertThat(after.version()).isEqualTo(unknown.version());
-        assertThat(sendFailedAudits(unknown.id(), null)).isZero();
+        assertThat(audits(unknown.id(), "MESSAGE_SEND_RESOLVED", null)).isZero();
+        assertThat(resolutions(unknown.id())).isEmpty();
+        assertThat(provider.calls()).hasSize(1);
+    }
+
+    /**
+     * The route admits the admin on its cached role; a revocation committed before the customer lock is caught by the
+     * re-read under it (ADR 0028 §2 step 1), denied with an audit row, and leaves nothing behind.
+     */
+    @Test
+    void aMembershipRevokedAfterTheRouteCheckIsRefusedUnderTheLock() throws Exception {
+        Unknown unknown = unknownOutcome(Optional.empty());
+        TenantMembership membership = adminA.membership();
+        // The request's context is built from a membership that is still active; the revocation then commits.
+        doAnswer(invocation -> {
+            Object resolved = invocation.callRealMethod();
+            membership.revoke(Instant.now());
+            contexts.runWithTenantId(tenantA.id(), () -> memberships.save(membership));
+            return resolved;
+        }).doCallRealMethod().when(resolver).resolve(eq(adminA.identity()), eq(tenantA.id()));
+
+        resolve(adminA, unknown.id(), "r-" + UUID.randomUUID(), unknown.etag(), FAILED)
+                .andExpect(status().isForbidden()).andExpect(content().contentType(PROBLEM))
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        // Once by the request filter (before the revocation), once by the re-read under the customer lock.
+        verify(resolver, times(2)).resolve(eq(adminA.identity()), eq(tenantA.id()));
+        assertThat(denials(adminA)).containsExactly(TenantPermission.INTEGRATION_MANAGE.name());
+        OutboundMessage after = message(unknown.id());
+        assertThat(after.status()).isEqualTo(MessageStatus.SENDING);
+        assertThat(after.outcomeUnknown()).isTrue();
+        assertThat(after.version()).isEqualTo(unknown.version());
+        assertThat(resolutions(unknown.id())).isEmpty();
+        assertThat(audits(unknown.id(), "MESSAGE_SEND_RESOLVED", null)).isZero();
         assertThat(provider.calls()).hasSize(1);
     }
 
@@ -291,6 +340,7 @@ class MessageResolutionIntegrationTest {
         OutboundMessage after = message(unknown.id());
         assertThat(after.status()).isEqualTo(MessageStatus.SENDING);
         assertThat(after.version()).isEqualTo(unknown.version());
+        assertThat(resolutions(unknown.id())).isEmpty();
         assertThat(provider.calls()).hasSize(1);
     }
 
@@ -365,15 +415,22 @@ class MessageResolutionIntegrationTest {
                 """, String.class, tenantA.id().value(), UUID.fromString(messageId)));
     }
 
-    /** MESSAGE_SEND_FAILED audit rows targeting the message, attributed to {@code by} when given. */
-    private int sendFailedAudits(String messageId, Member by) throws Exception {
+    /** Audit rows of {@code type} targeting the message, attributed to {@code by} when given. */
+    private int audits(String messageId, String type, Member by) throws Exception {
         return inContext(ownerA, () -> jdbc.queryForObject("""
                 SELECT count(*) FROM dokene.audit_events
-                WHERE tenant_id = ? AND event_type = 'MESSAGE_SEND_FAILED' AND target_id = ?
+                WHERE tenant_id = ? AND event_type = ? AND target_id = ?
                   AND (?::uuid IS NULL OR membership_id = ?::uuid)
-                """, Integer.class, tenantA.id().value(), UUID.fromString(messageId),
+                """, Integer.class, tenantA.id().value(), type, UUID.fromString(messageId),
                 by == null ? null : by.context().membershipId().value(),
                 by == null ? null : by.context().membershipId().value()));
+    }
+
+    private List<Map<String, Object>> resolutions(String messageId) throws Exception {
+        return inContext(ownerA, () -> jdbc.queryForList("""
+                SELECT note, resolved_by_membership_id, resolved_by_actor_id FROM dokene.outbound_message_resolutions
+                WHERE tenant_id = ? AND message_id = ?
+                """, tenantA.id().value(), UUID.fromString(messageId)));
     }
 
     /** The permission each AUTHORIZATION_DENIED row names for this member, oldest first. */
@@ -396,7 +453,7 @@ class MessageResolutionIntegrationTest {
     private Member member(Tenant tenant, TenantRole role) {
         IdentityId identity = new IdentityId(UUID.randomUUID());
         TenantMembership membership = seedMembership(memberships, contexts, tenant.id(), identity, role, Instant.now());
-        return new Member(identity, context(membership), tenant);
+        return new Member(identity, context(membership), tenant, membership);
     }
 
     private <T> T asProvider(Callable<T> operation) throws Exception {

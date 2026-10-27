@@ -109,7 +109,8 @@ class JdbcAuditStore {
                     AiAuditOutcome.valueOf(row.getString("ai_outcome")),
                     AiAuditDetail.valueOf(row.getString("ai_detail")));
             case MESSAGE_SUBMITTED, MESSAGE_APPROVED, MESSAGE_REJECTED, MESSAGE_CANCELLED, MESSAGE_SEND_REQUESTED,
-                    MESSAGE_SENT, MESSAGE_SEND_FAILED, MESSAGE_SEND_OUTCOME_UNKNOWN, MESSAGE_DELIVERY_UPDATED ->
+                    MESSAGE_SENT, MESSAGE_SEND_FAILED, MESSAGE_SEND_OUTCOME_UNKNOWN, MESSAGE_SEND_RESOLVED,
+                    MESSAGE_DELIVERY_UPDATED ->
                     new AuditMetadata.MessageTransition(
                             row.getString("status_from") == null ? null
                                     : AuditMessageStatus.valueOf(row.getString("status_from")),
