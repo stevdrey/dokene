@@ -353,7 +353,8 @@ describe('AiAssistantPanel', () => {
       action: baseDraft.draft!.action,
       templateIntent: baseDraft.draft!.templateIntent,
       body: 'Hola, ¿necesitas más café?',
-      policyVersion: 3
+      policyVersion: 3,
+      source: expect.objectContaining({ action: baseDraft.draft!.action })
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

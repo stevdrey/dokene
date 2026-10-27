@@ -216,11 +216,16 @@ const MainAppContent: React.FC = () => {
         />
       )}
 
-      {activeTab === 'configuracion' && activeWorkspace && (
-        <IntegrationStatusPanel
-          workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
-        />
-      )}
+      {activeTab === 'configuracion' &&
+        (activeWorkspace ? (
+          <IntegrationStatusPanel
+            workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
+          />
+        ) : (
+          <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-muted)' }}>
+            Selecciona un espacio de trabajo para ver su configuración.
+          </p>
+        ))}
     </AppShell>
   );
 };

@@ -20,6 +20,7 @@ import {
 import { DRAFT_BODY_MAX_CODE_POINTS } from '@/features/followups/types';
 import type {
   DraftResponse,
+  MessageDraft,
   RecommendationResponse,
   SemanticAction,
   SemanticTemplateIntent
@@ -40,6 +41,10 @@ interface AiAssistantPanelProps {
    * messages; it never submits anything itself, so sending still needs the explicit review, approval and send.
    */
   onReviewDraft?: (draft: ReviewableDraft) => void;
+  /** The generated draft whose hand-off was already submitted; it cannot be handed off again, only a new draft can. */
+  submittedDraft?: MessageDraft | null;
+  /** Message review holds a request in flight or an unsure outcome; a new hand-off would replace it, so it waits. */
+  reviewBusy?: boolean;
 }
 
 /**
@@ -52,7 +57,12 @@ export interface ReviewableDraft {
   templateIntent: SemanticTemplateIntent;
   body: string;
   policyVersion: number;
+  /** The generated draft this came from, so the host can tell when that draft was already submitted. */
+  source: MessageDraft;
 }
+
+const HANDOFF_BUSY_MESSAGE = 'Espera a que termine la revisión en curso antes de revisar otro borrador.';
+const HANDOFF_SUBMITTED_MESSAGE = 'Este borrador ya está en revisión. Genera uno nuevo para preparar otro mensaje.';
 
 const FORBIDDEN_MESSAGE = 'Tu rol no permite usar el asistente IA en este espacio de trabajo.';
 
@@ -140,9 +150,12 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   policyVersion,
   canUseAi,
   onRequestRefresh,
-  onReviewDraft
+  onReviewDraft,
+  submittedDraft = null,
+  reviewBusy = false
 }) => {
   const headingId = useId();
+  const handOffNoteId = useId();
   const recHeadingId = useId();
   const draftLabelId = useId();
   const rawValuesId = useId();
@@ -198,6 +211,10 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   const [rawValuesShownFor, setRawValuesShownFor] = useState<typeof shownDraft>(null);
   const rawValuesShown = shownDraft !== null && rawValuesShownFor === shownDraft;
   const keptDraft = isStale && draftDirty && draftText !== '';
+  // Why the shown draft cannot be handed off now: review holds a request, or this very draft was already submitted.
+  let handOffBlocked: string | null = null;
+  if (reviewBusy) handOffBlocked = HANDOFF_BUSY_MESSAGE;
+  else if (shownDraft !== null && shownDraft === submittedDraft) handOffBlocked = HANDOFF_SUBMITTED_MESSAGE;
 
   const showRecommendation = recData !== null && !isStale;
   const showDraftEditor = showRecommendation && draftData?.status === 'AVAILABLE' && !!draftData.draft;
@@ -660,10 +677,16 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
                       action: shownDraft.action,
                       templateIntent: shownDraft.templateIntent,
                       body: draftText,
-                      policyVersion: draft.version
+                      policyVersion: draft.version,
+                      source: shownDraft
                     })
                   }
-                  disabled={draftText.trim() === '' || countCodePoints(draftText) > DRAFT_BODY_MAX_CODE_POINTS}
+                  disabled={
+                    handOffBlocked !== null ||
+                    draftText.trim() === '' ||
+                    countCodePoints(draftText) > DRAFT_BODY_MAX_CODE_POINTS
+                  }
+                  aria-describedby={handOffBlocked !== null ? handOffNoteId : undefined}
                 >
                   Revisar y enviar
                 </Button>
@@ -672,6 +695,11 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
                 Regenerar borrador
               </Button>
             </div>
+          )}
+          {onReviewDraft && handOffBlocked !== null && (
+            <p id={handOffNoteId} style={noteStyle}>
+              {handOffBlocked}
+            </p>
           )}
         </div>
       )}

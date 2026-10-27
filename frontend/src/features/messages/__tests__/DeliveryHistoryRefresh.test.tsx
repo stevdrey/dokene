@@ -1,6 +1,8 @@
 // ABOUTME: Tests the refresh paths of the delivery history: row Actualizar, Actualizar historial and Cargar más.
 // ABOUTME: Proves the version rule holds for every source, replies out of order never regress a row, and only GET is sent.
+import { createRef } from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import type { DeliveryHistoryRefresh } from '../components/DeliveryHistory';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   details,
@@ -741,6 +743,43 @@ describe('DeliveryHistory refresh', () => {
       });
       // The fetch stub keeps one listener per request signal; the hook's mount signal must keep none.
       expect(Math.max(...net.values())).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('host refresh', () => {
+    it('reads the first page again when the host asks, keeping the list and the open row', async () => {
+      const shown = details.pendingApproval;
+      const historyRef = createRef<DeliveryHistoryRefresh>();
+      servePage(suite.server, [shown]);
+      serveRow(suite.server, shown);
+      renderHistory({ historyRef });
+      await listed();
+      fireEvent.click(toggleOf(shown.messageId));
+      await rowLoaded(shown);
+      const moved = variant(details.approved, { messageId: shown.messageId });
+      suite.server.on(historyPath(CUSTOMER_A), ok(pageOf([moved])));
+
+      await act(async () => historyRef.current!.refresh());
+
+      await waitFor(() => expect(toggleOf(shown.messageId)).toHaveTextContent('Aprobado, sin enviar'));
+      expect(suite.server.count(historyPath(CUSTOMER_A))).toBe(2);
+      expect(panelOf(shown.messageId)).toBeInTheDocument();
+    });
+
+    it('runs one more read when the host asks while a read is in flight, so a later change is not missed', async () => {
+      const historyRef = createRef<DeliveryHistoryRefresh>();
+      const first = pending();
+      suite.server.on(historyPath(CUSTOMER_A), first, ok(pageOf([details.sent])));
+      renderHistory({ historyRef });
+
+      // Asked twice while the first page is still loading: one extra read, not two.
+      act(() => historyRef.current!.refresh());
+      act(() => historyRef.current!.refresh());
+      expect(suite.server.count(historyPath(CUSTOMER_A))).toBe(1);
+      await act(async () => first.resolve(ok(pageOf([]))));
+
+      await waitFor(() => expect(rowIds()).toEqual([details.sent.messageId]));
+      expect(suite.server.count(historyPath(CUSTOMER_A))).toBe(2);
     });
   });
 });

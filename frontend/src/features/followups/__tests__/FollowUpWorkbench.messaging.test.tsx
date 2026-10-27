@@ -1,7 +1,7 @@
 // ABOUTME: The composed Phase 3 workbench (issue 140): an AI draft is handed to message review, submitted and approved
 // ABOUTME: only through explicit controls, and the delivery history reopens a message. Messaging routes use FakeServer.
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FollowUpWorkbench } from '../components/FollowUpWorkbench';
 import { useTenant } from '@/features/tenants/TenantContext';
@@ -22,6 +22,7 @@ import {
   historyPath,
   ok,
   pages,
+  pending,
   problem,
   submitPath,
   variant
@@ -298,5 +299,92 @@ describe('FollowUpWorkbench Phase 3 messaging', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir en revisión' }));
 
     expect(await screen.findByText(`Revisión ${pendingApproval.version}`)).toBeInTheDocument();
+  });
+
+  it('does not hand a submitted draft off again until a new one is written', async () => {
+    server
+      .on(submitPath(customerId), created(pendingApproval))
+      .on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
+    await generateDraft();
+    await handOff();
+    submit();
+    await screen.findByText(`Revisión ${pendingApproval.version}`);
+
+    // A second hand-off of the same draft would create a second message from it.
+    expect(screen.getByRole('button', { name: 'Revisar y enviar' })).toBeDisabled();
+    // Review reports idle in the render after the message shows, so the note is awaited.
+    expect(await screen.findByText(/Este borrador ya está en revisión/)).toBeInTheDocument();
+
+    // A newly generated draft can be handed off.
+    vi.mocked(followUpApi.requestDraft).mockResolvedValueOnce({
+      data: { ...draftResponse, draft: { ...draftResponse.draft!, body: 'Hola Ana, ¿te ayudo con tu pedido?' } },
+      version: 7
+    });
+    click('Regenerar borrador');
+    await waitFor(() => expect(screen.getByLabelText('Borrador del mensaje (editable)')).toHaveValue('Hola Ana, ¿te ayudo con tu pedido?'));
+    expect(screen.getByRole('button', { name: 'Revisar y enviar' })).toBeEnabled();
+    expect(server.count(submitPath(customerId))).toBe(1);
+  });
+
+  it('keeps the review in place while its submit is in flight', async () => {
+    const reply = pending();
+    const listed = pages.firstPage.items.find((entry) => entry.messageId === pendingApproval.messageId)!;
+    server
+      .on(historyPath(customerId), ok({ items: [listed], nextCursor: null }))
+      .on(submitPath(customerId), reply)
+      .on(detailPath(pendingApproval.messageId), detailReply(pendingApproval))
+      .on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
+    await generateDraft();
+    const toggle = document.querySelector(`[aria-controls="delivery-row-${pendingApproval.messageId}"]`) as HTMLButtonElement;
+    fireEvent.click(toggle);
+    await screen.findByRole('button', { name: 'Abrir en revisión' });
+    await handOff();
+
+    submit();
+
+    // Neither a new hand-off, closing nor opening another message may unmount the request.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Revisar y enviar' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Cerrar revisión' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Abrir en revisión' })).toBeNull();
+    expect(screen.getByText(/Espera a que termine la revisión en curso/)).toBeInTheDocument();
+
+    await act(async () => reply.resolve(created(pendingApproval)));
+    await screen.findByText(`Revisión ${pendingApproval.version}`);
+    expect(screen.getByRole('button', { name: 'Cerrar revisión' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Abrir en revisión' })).toBeInTheDocument();
+    expect(server.count(submitPath(customerId))).toBe(1);
+  });
+
+  it('reads the history again after an approval made in review, without remounting it', async () => {
+    const approved = variant(details.approved, { messageId: pendingApproval.messageId });
+    const listed = pages.firstPage.items.find((entry) => entry.messageId === pendingApproval.messageId)!;
+    server
+      .on(
+        historyPath(customerId),
+        ok({ items: [], nextCursor: null }),
+        ok({ items: [listed], nextCursor: null }),
+        ok({ items: [{ ...listed, status: approved.status, version: approved.version }], nextCursor: null })
+      )
+      .on(submitPath(customerId), created(pendingApproval))
+      .on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval))
+      .on(approvalsPath(pendingApproval.messageId), created(approved));
+    await generateDraft();
+    await handOff();
+    submit();
+    await screen.findByText(`Revisión ${pendingApproval.version}`);
+    await waitFor(() => expect(server.count(historyPath(customerId))).toBe(2));
+    const row = await waitFor(() => {
+      const button = document.querySelector(`[aria-controls="delivery-row-${pendingApproval.messageId}"]`);
+      if (!(button instanceof HTMLButtonElement)) throw new Error('row not rendered');
+      return button;
+    });
+
+    click('Aprobar');
+    click('Confirmar aprobación', screen.getByRole('group', { name: 'Confirmar aprobación' }));
+
+    await waitFor(() => expect(server.count(historyPath(customerId))).toBe(3));
+    await waitFor(() => expect(row).toHaveTextContent('Aprobado, sin enviar'));
+    // The same row element: the history was refreshed in place, not remounted.
+    expect(document.querySelector(`[aria-controls="delivery-row-${pendingApproval.messageId}"]`)).toBe(row);
   });
 });

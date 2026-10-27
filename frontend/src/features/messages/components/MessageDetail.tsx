@@ -25,6 +25,7 @@ import {
   waitSentence
 } from '../utils/messageLabels';
 import { canActOnMessages } from '@/features/tenants/TenantContext';
+import { useReportBusy } from '../hooks/useReportBusy';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
 import { EventTimeline } from './EventTimeline';
 
@@ -35,6 +36,10 @@ interface MessageDetailProps {
   initial?: VersionedMessage;
   announce: (text: string) => void;
   onCorrect: (cancelled: MessageResponse) => void;
+  /** A read replaced the shown message with another version (see `useMessageDetail`'s `onChanged`). */
+  onChanged?: (read: VersionedMessage) => void;
+  /** True while an action is in flight or its outcome is unsure, when unmounting would lose the retry on its key. */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 interface IntentCopy {
@@ -128,7 +133,16 @@ export function controlsFor(detail: MessageResponse, poll: PollState): Controls 
   }
 }
 
-export function MessageDetail({ messageId, role, customerDisplayName, initial, announce, onCorrect }: MessageDetailProps) {
+export function MessageDetail({
+  messageId,
+  role,
+  customerDisplayName,
+  initial,
+  announce,
+  onCorrect,
+  onChanged,
+  onBusyChange
+}: MessageDetailProps) {
   const headingId = useId();
   const timelineHeadingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -137,8 +151,9 @@ export function MessageDetail({ messageId, role, customerDisplayName, initial, a
     (read: VersionedMessage) => announce(changedSentence(read.detail.status)),
     [announce]
   );
-  const detail = useMessageDetail(messageId, initial, { onPolledChange });
+  const detail = useMessageDetail(messageId, initial, { onPolledChange, onChanged });
   const actions = useReviewActions({ messageId, detail, canAct: canActOnMessages(role), announce, onCorrect });
+  useReportBusy(actions.group?.step.kind === 'submitting' || actions.unsureIntent !== null, onBusyChange);
   const { state } = detail;
 
   if (state.kind === 'sessionEnded' || state.kind === 'notFound') {

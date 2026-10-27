@@ -158,6 +158,10 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
   const moreController = useRef<AbortController | null>(null);
   const rowControllers = useRef(new Map<string, AbortController>());
   const announcementSeq = useRef(0);
+  // A list refresh asked for while the list is loading or refreshing; it runs once more when that read settles, so a
+  // change made after the read started is never missed.
+  const refreshAgain = useRef(false);
+  const refreshListRef = useRef<() => void>(() => {});
 
   // State changes go through here so async handlers always see the latest held state, not a stale closure.
   const commit = useCallback((next: HistoryState) => {
@@ -222,16 +226,23 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
     void read((signal) => messageApi.listCustomerHistory(customerId, null, signal), controller).then((outcome) => {
       if (generation !== listGeneration.current || outcome.kind === 'dropped') return;
       if (outcome.kind === 'failed') {
+        refreshAgain.current = false;
         commit({ kind: outcome.failure.kind === 'forbidden' ? 'forbidden' : 'error' });
         return;
       }
       commit(readyFrom(outcome.value));
+      if (refreshAgain.current) refreshListRef.current();
     });
   }, [commit, customerId, read]);
 
   const refreshList = useCallback(() => {
     const held = stateRef.current;
-    if (held.kind !== 'ready' || held.refreshing) return;
+    if (held.kind === 'loading' || (held.kind === 'ready' && held.refreshing)) {
+      refreshAgain.current = true;
+      return;
+    }
+    if (held.kind !== 'ready') return;
+    refreshAgain.current = false;
     const generation = ++listGeneration.current;
     // A page that lands after the refresh could sit beside rows the refresh replaced, so it is dropped here.
     moreController.current?.abort();
@@ -243,15 +254,19 @@ export function useDeliveryHistory(customerId: string, { onRowRefreshed }: Optio
       if (generation !== listGeneration.current || outcome.kind === 'dropped' || current.kind !== 'ready') return;
       if (outcome.kind === 'failed') {
         commit({ ...current, refreshing: false, refreshFailure: readFailure(outcome.failure) });
-        return;
+      } else {
+        const next = mergeFirstPage(current, outcome.value);
+        commit(next);
+        // A list started again may no longer hold the open row.
+        const open = openRef.current;
+        if (open !== null && next.kind === 'ready' && !next.rows.some((row) => row.item.messageId === open)) setOpen(null);
       }
-      const next = mergeFirstPage(current, outcome.value);
-      commit(next);
-      // A list started again may no longer hold the open row.
-      const open = openRef.current;
-      if (open !== null && next.kind === 'ready' && !next.rows.some((row) => row.item.messageId === open)) setOpen(null);
+      if (refreshAgain.current) refreshListRef.current();
     });
   }, [commit, customerId, read, setOpen]);
+  useEffect(() => {
+    refreshListRef.current = refreshList;
+  });
 
   const loadMore = useCallback(() => {
     const held = stateRef.current;

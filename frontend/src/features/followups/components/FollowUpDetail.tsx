@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { QueueItemResponse } from '@/features/followups/types';
+import { QueueItemResponse, type MessageDraft } from '@/features/followups/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { PurchaseResponse } from '@/features/customers/types';
 import { ManualFollowUpModal } from './ManualFollowUpModal';
@@ -53,9 +53,14 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   const { activeWorkspace } = useTenant();
   const role = activeWorkspace?.role ?? null;
   const [messagePanel, setMessagePanel] = useState<MessagePanel>({ kind: 'none' });
+  // The generated draft whose hand-off was submitted: handing it off again would create a second message from it.
+  const [submittedDraft, setSubmittedDraft] = useState<MessageDraft | null>(null);
+  // Review holds a request in flight or an unsure outcome; replacing it then would lose the outcome and its retry.
+  const [messageBusy, setMessageBusy] = useState(false);
   // Every hand-off gets its own number, never reused, so its compose and its contact lookup are always fresh.
   const handOffCount = useRef(0);
   const reviewDraft = (draft: ReviewableDraft) => {
+    if (messageBusy) return;
     handOffCount.current += 1;
     setMessagePanel({ kind: 'compose', draft, nonce: handOffCount.current });
   };
@@ -442,6 +447,8 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
         canUseAi={canUseAi}
         onRequestRefresh={onRequestRefresh}
         onReviewDraft={canActOnMessages(role) ? reviewDraft : undefined}
+        submittedDraft={submittedDraft}
+        reviewBusy={messageBusy}
       />
 
       {activeWorkspace && (
@@ -452,6 +459,9 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
           panel={messagePanel}
           onPanelChange={setMessagePanel}
           onRequestRefresh={onRequestRefresh}
+          onDraftSubmitted={setSubmittedDraft}
+          busy={messageBusy}
+          onBusyChange={setMessageBusy}
         />
       )}
 

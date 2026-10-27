@@ -1,12 +1,12 @@
 // ABOUTME: Composes Phase 3 messaging into the follow-up detail (issue 140): review of a handed-off AI draft and the
 // ABOUTME: customer's delivery history, from which a message reopens in review. Nothing here sends by itself.
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/shared/components/Button';
 import { customerApi } from '@/features/customers/api/customerApi';
-import type { QueueItemResponse } from '@/features/followups/types';
+import type { MessageDraft, QueueItemResponse } from '@/features/followups/types';
 import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 import { MessageReview } from '@/features/messages/components/MessageReview';
-import { DeliveryHistory } from '@/features/messages/components/DeliveryHistory';
+import { DeliveryHistory, type DeliveryHistoryRefresh } from '@/features/messages/components/DeliveryHistory';
 import type { ReviewableDraft } from './AiAssistantPanel';
 
 /** What the review area shows: nothing, a draft being composed for approval, or an existing message. */
@@ -22,6 +22,12 @@ interface FollowUpMessagingProps {
   panel: MessagePanel;
   onPanelChange: (panel: MessagePanel) => void;
   onRequestRefresh: (reason?: QueueRefreshReason) => Promise<boolean>;
+  /** The handed-off draft was submitted as a message, so it must not be handed off again. */
+  onDraftSubmitted: (draft: MessageDraft) => void;
+  /** Review holds a request in flight or an unsure outcome: it must not be closed or replaced until that settles. */
+  busy: boolean;
+  /** A stable setter: review reports busy through it (`MessageReview` `onBusyChange`). */
+  onBusyChange: (busy: boolean) => void;
 }
 
 type PrimaryContact =
@@ -80,11 +86,15 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
   role,
   panel,
   onPanelChange,
-  onRequestRefresh
+  onRequestRefresh,
+  onDraftSubmitted,
+  busy,
+  onBusyChange
 }) => {
   const [contactAttempt, setContactAttempt] = useState(0);
-  // Remounts the history after a submit so the new message is listed without a manual refresh.
-  const [historyGeneration, setHistoryGeneration] = useState(0);
+  // Asks the history to read again after a submit or a change made in review, keeping its pages and open row.
+  const historyRef = useRef<DeliveryHistoryRefresh>(null);
+  const refreshHistory = useCallback(() => historyRef.current?.refresh(), []);
   const contact = usePrimaryContact(item.customerId, panel.kind === 'compose' ? panel.nonce : null, contactAttempt);
 
   let review: React.ReactNode = null;
@@ -124,8 +134,13 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
             policyVersion: panel.draft.policyVersion,
             initialBody: panel.draft.body
           }}
-          onSubmitted={() => setHistoryGeneration((value) => value + 1)}
+          onSubmitted={() => {
+            onDraftSubmitted(panel.draft.source);
+            refreshHistory();
+          }}
           onPolicyStale={() => void onRequestRefresh('stale')}
+          onMessageChanged={refreshHistory}
+          onBusyChange={onBusyChange}
         />
       );
     }
@@ -136,6 +151,8 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
         tenantId={tenantId}
         role={role}
         mode={{ kind: 'review', messageId: panel.messageId, customerDisplayName: item.displayName }}
+        onMessageChanged={refreshHistory}
+        onBusyChange={onBusyChange}
       />
     );
   }
@@ -146,18 +163,19 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
         <div style={sectionStyle}>
           {review}
           <div>
-            <Button variant="ghost" size="sm" onClick={() => onPanelChange({ kind: 'none' })}>
+            <Button variant="ghost" size="sm" onClick={() => onPanelChange({ kind: 'none' })} disabled={busy}>
               Cerrar revisión
             </Button>
           </div>
         </div>
       )}
       <DeliveryHistory
-        key={historyGeneration}
+        ref={historyRef}
         tenantId={tenantId}
         customerId={item.customerId}
         role={role}
-        onOpenMessage={(messageId) => onPanelChange({ kind: 'review', messageId })}
+        // While review is busy, opening another message would replace it, so the history offers no way to.
+        onOpenMessage={busy ? undefined : (messageId) => onPanelChange({ kind: 'review', messageId })}
       />
     </section>
   );

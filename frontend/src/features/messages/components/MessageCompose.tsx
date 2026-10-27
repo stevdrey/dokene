@@ -27,6 +27,7 @@ import {
   rateLimitedSentence
 } from '../utils/messageLabels';
 import { canActOnMessages } from '@/features/tenants/TenantContext';
+import { useReportBusy } from '../hooks/useReportBusy';
 import { ConfirmGroup, useReturnFocus } from './ConfirmGroup';
 
 export interface ComposeInput {
@@ -51,6 +52,8 @@ interface MessageComposeProps {
   onSubmitted: (read: VersionedMessage) => void;
   onPolicyStale?: () => void;
   announce: (text: string) => void;
+  /** True while the submit is in flight or its outcome is unsure, when unmounting would lose the retry on its key. */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 type Phase =
@@ -112,7 +115,15 @@ interface Attempt {
   policyVersion: number;
 }
 
-export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPolicyStale, announce }: MessageComposeProps) {
+export function MessageCompose({
+  input,
+  role,
+  fromCorrection,
+  onSubmitted,
+  onPolicyStale,
+  announce,
+  onBusyChange
+}: MessageComposeProps) {
   const headingId = useId();
   const textId = useId();
   const counterId = useId();
@@ -134,6 +145,7 @@ export function MessageCompose({ input, role, fromCorrection, onSubmitted, onPol
   const inFlight = useRef(false);
   // A refusal unmounts the focused confirm button; the heading then takes focus so keyboard users keep their place.
   const focus = useReturnFocus(phase.kind === 'confirming' || phase.kind === 'submitting', headingRef);
+  useReportBusy(phase.kind === 'submitting' || phase.kind === 'uncertain', onBusyChange);
 
   // A fresh policy version from the parent ends the stale state and the intent together. The draft written for the old
   // evaluation is never reused (ADR 0020 §4, restated by ADR 0023 §4.1), so unedited text takes the new draft; text the
