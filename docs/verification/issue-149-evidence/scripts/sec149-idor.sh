@@ -35,8 +35,10 @@ echo "== P3-IDOR-05 send and resolve tenant B messages as A-ADMIN"
 read -r CB2 PB2 MB2 <<< "$(ready_approved $B_OPERATOR "$B" "IDOR B2 $RUN")"
 S=$(snap); send $A_ADMIN "$A" "$MB2" qa149-$RUN-$RANDOM '"2"'; notfound P3-IDOR-05 $H "send of a tenant B approved message" "$S"
 chk P3-IDOR-05 $H "no attempt row on the tenant B message" 0 "$(attempts_n "$MB2")"
-req $A_ADMIN "$A" POST "/api/messages/$MB2/resolutions" '{"outcome":"FAILED"}' -H "Idempotency-Key: qa149-$RUN-$RANDOM" -H 'If-Match: "2"'
-if [ "$CODE" = 404 ] || [ "$CODE" = 405 ]; then rec P3-IDOR-05 $H BLOCKED "resolutions route not deployed ($CODE): the unknown outcome half waits for T12 (#138)"; else chk P3-IDOR-05 $H "resolution of a tenant B message" 404 "$CODE"; fi
+read -r CB3 PB3 MB3 <<< "$(ready_unknown $B_OPERATOR "$B" "IDOR B3 $RUN")"; MB3_BEFORE=$(msg_status "$MB3")
+S=$(snap); resolve $A_ADMIN "$A" "$MB3" FAILED "qa149-$RUN-$RANDOM" "\"$(echo "$MB3_BEFORE" | cut -d/ -f2)\""
+notfound P3-IDOR-05 $H "resolution of a tenant B message in SENDING with unknown outcome (B's current version as If-Match)" "$S"
+chk P3-IDOR-05 $H "tenant B message unchanged, no resolution row" "$MB3_BEFORE 0" "$(msg_status "$MB3") $(resolutions_n "$MB3")"
 
 echo "== P3-IDOR-06 tenant A member sends X-Tenant-Id of tenant B"
 for p in "GET /api/messages" "GET /api/messages/$MB" "POST /api/messages/$MB/approvals" "POST /api/customers/$CB1/messages" "GET /api/templates" "GET /api/integrations/whatsapp" "PUT /api/integrations/whatsapp/outbound"; do

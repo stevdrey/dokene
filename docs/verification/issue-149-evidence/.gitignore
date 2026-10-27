@@ -1,6 +1,3 @@
-# Runtime state the scripts regenerate; the recorded evidence is out/results.tsv, out/verdicts.tsv, out/run.txt and out/sec149-*.out.
+# Runtime state the scripts regenerate. The recorded evidence is outputs.txt, assembled from out/ after a run.
 stub/
-out/stub-bin/
-out/*.gradle.log
-out/compose.qa149.yaml
-out/ids
+out/

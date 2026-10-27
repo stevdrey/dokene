@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Control files (all optional, read on every request):
- * send          accept | error500 | error401canary | rate429 | malformed | hang
+ * send          accept | paused | error500 | error401canary | rate429 | malformed | hang
  * templates     approved | rejected | paused | deleted | absent | otherLanguage | otherName | error500 | redirect | canaryError | hang
  * phones        owned | notOwned | error500 | hang
  * params        comma separated placeholder names the APPROVED template body carries (default: customer_name)
@@ -149,6 +149,9 @@ public class GraphStub {
                         case "accept" -> reply(ex, 200, "{\"messaging_product\":\"whatsapp\",\"contacts\":[{\"input\":\""
                                 + "+50600000001\",\"wa_id\":\"50600000001\"}],\"messages\":[{\"id\":\"wamid.SYNTHETIC-"
                                 + n + "\",\"message_status\":\"accepted\"}]}");
+                        // An id with a non accepted status: the outcome is unknown, but webhooks can match the id.
+                        case "paused" -> reply(ex, 200, "{\"messaging_product\":\"whatsapp\",\"messages\":[{\"id\":"
+                                + "\"wamid.SYNTHETIC-" + n + "\",\"message_status\":\"paused\"}]}");
                         case "error500" -> reply(ex, 500, error(1, "An unknown error occurred", "stub"));
                         case "rate429" -> reply(ex, 429, error(130429, "Rate limit hit", "stub"));
                         case "error401canary" -> reply(ex, 401, error(190,

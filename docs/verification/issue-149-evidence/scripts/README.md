@@ -17,6 +17,7 @@ All values are synthetic: the Meta ids, phone numbers, tokens and the three cana
 | `sec149-browser.sh` + `.mjs` | P3-CSRF-03, P3-SEC-08 and the screen halves of P3-SEC-07 and P3-KILL-03 in a headless Chromium. |
 | `sec149-inprocess.sh` | P3-PERM-13, P3-HOOK-12, P3-SEC-09, P3-SEC-11, P3-KILL-07 and every automated fixture the matrix names, run as backend tests on the same commit. |
 | `run-all.sh` | The whole thing in order, into `out/`. |
+| `isolated149.sh` + `compose.isolated149.yaml` | Optional prelude for a second stack beside a standard one: project `dokene-qa149`, own image tags, host ports 28080/28081/25173/25432, and a generated `.curlrc` (plus a mapping proxy for Chromium) so every URL still reads `localhost:8080/8081/5173`. |
 
 ## Running
 
@@ -29,10 +30,15 @@ bash docs/verification/issue-149-evidence/scripts/run-all.sh          # about 30
 ```
 
 `run-all.sh` prints a per-suite line and writes `out/results.tsv`, `out/verdicts.tsv` (worst result per case id) and
-`out/sec149-*.out`. A single suite runs with `bash docs/verification/issue-149-evidence/scripts/sec149-perm.sh`.
+`out/sec149-*.out`. A single suite runs with `bash docs/verification/issue-149-evidence/scripts/sec149-perm.sh`;
+`RESULTS=<file>` sends its lines elsewhere. `out/` is not committed; the recorded run is `../outputs.txt`.
+
+To run beside a standard dev stack without touching it, source `isolated149.sh` first in every shell, then
+`docker compose up -d --build` (the `:qa149` images), `scripts/seed-local-qa.sh`, `fixtures149.sh` and `run-all.sh`.
 
 The browser cases need `playwright-core` 1.52 installed somewhere outside the repository (`QA149_PW_DIR`) and a
-Chromium headless shell (`QA149_CHROME`, defaults to the Playwright cache path on macOS). The in-process suite needs
+Chromium headless shell (`QA149_CHROME`, defaults to the Playwright cache path on macOS; on Linux point it at
+`~/.cache/ms-playwright/chromium_headless_shell-<rev>/chrome-headless-shell-linux64/chrome-headless-shell`). The in-process suite needs
 Docker for Testcontainers and the JDK the Gradle build declares.
 
 ## Things that bite

@@ -43,11 +43,12 @@ chk P3-HOOK-06 $H "replay: 200, no state change, no second MESSAGE_DELIVERY_UPDA
 chk P3-HOOK-15 $H "exactly one MESSAGE_DELIVERY_UPDATED audit row for the delivery" 1 "$(( a1 - a0 ))"
 
 echo "== P3-HOOK-05 a signed event for PN-A naming tenant B's provider message id"
-u0=$(psqlq "select count(*) from dokene.provider_webhook_events where tenant_id='$A' and state='UNMATCHED' and provider_message_id is null")
 post_signed "$(hook_body "$PN_A" "$WB" delivered)"; c1=$CODE; sleep 2
 chk P3-HOOK-05 $H "200, MB unchanged, the row is parked in tenant A, nothing in tenant B" "200 SENT 1 0" "$c1 $(msg_status "$MB" | cut -d/ -f1) $(psqlq "select count(*) from dokene.provider_webhook_events where tenant_id='$A' and provider_message_id='$WB'") $(psqlq "select count(*) from dokene.provider_webhook_events where tenant_id='$B' and provider_message_id='$WB'")"
+# Follow this row by its id: rows parked by an earlier run in the same minute must not count.
+HID=$(psqlq "select id from dokene.provider_webhook_events where tenant_id='$A' and provider_message_id='$WB'")
 echo "  waiting for the park window (1 min) plus a sweep"; for i in $(seq 1 20); do st=$(psqlq "select state from dokene.provider_webhook_events where tenant_id='$A' and provider_message_id='$WB'"); [ -z "$st" ] && break; sleep 5; done
-chk P3-HOOK-05 $H "after the park window the row is UNMATCHED with its provider message id cleared" "0 1" "$(psqlq "select count(*) from dokene.provider_webhook_events where tenant_id='$A' and provider_message_id='$WB'") $(( $(psqlq "select count(*) from dokene.provider_webhook_events where tenant_id='$A' and state='UNMATCHED' and provider_message_id is null") - u0 ))"
+chk P3-HOOK-05 $H "after the park window the row is UNMATCHED with its provider message id cleared" "0 UNMATCHED true" "$(psqlq "select count(*) from dokene.provider_webhook_events where tenant_id='$A' and provider_message_id='$WB'") $(psqlq "select state||' '||(provider_message_id is null) from dokene.provider_webhook_events where id='$HID'")"
 chk P3-HOOK-05 $H "MB still SENT" SENT "$(msg_status "$MB" | cut -d/ -f1)"
 
 echo "== P3-HOOK-07 out of order reports never move a message backwards"
@@ -85,7 +86,10 @@ post_signed "$(hook_body "$PN_A" "$WT" delivered "$(( $(date +%s) + 86400 * 365 
 d1=$(psqlq "select extract(epoch from delivered_at)::bigint - extract(epoch from now())::bigint from dokene.outbound_messages where id='$MT'")
 chk P3-HOOK-14 $H "a delivery a year in the future is stored bounded (within an hour of now)" yes "$([ -n "$d1" ] && [ "$d1" -lt 3600 ] && [ "$d1" -gt -3600 ] && echo yes || echo "offset=$d1")"
 read -r MT2 WT2 <<< "$(sent_message $O "$A" "HOOK time2 $RUN")"; created=$(psqlq "select extract(epoch from created_at)::bigint from dokene.outbound_messages where id='$MT2'")
+anchor0=$(psqlq "select p.last_outbound_message_date from dokene.customer_follow_up_policies p join dokene.outbound_messages m on m.customer_id=p.customer_id where m.id='$MT2'")
 post_signed "$(hook_body "$PN_A" "$WT2" delivered "$(( created - 86400 * 30 ))")"; sleep 2
-d2=$(psqlq "select extract(epoch from delivered_at)::bigint - extract(epoch from sent_at)::bigint from dokene.outbound_messages where id='$MT2'")
-chk P3-HOOK-14 $H "a delivery dated a month before the send is stored not earlier than the send" yes "$([ -n "$d2" ] && [ "$d2" -ge 0 ] && echo yes || echo "offset=$d2")"
+# Spec 0001 AC-14: the window is [created_at, now], so a pre-creation report lands on created_at exactly (which is
+# before sent_at by the approval and dispatch time; the preparation run compared with sent_at and passed on rounding).
+chk P3-HOOK-14 $H "a delivery dated a month before the message existed is stored at created_at (spec 0001 AC-14 window)" "DELIVERED true" "$(psqlq "select status||' '||(delivered_at = created_at) from dokene.outbound_messages where id='$MT2'")"
+chk P3-HOOK-14 $H "the follow-up cadence anchor did not move backwards" "$anchor0" "$(psqlq "select p.last_outbound_message_date from dokene.customer_follow_up_policies p join dokene.outbound_messages m on m.customer_id=p.customer_id where m.id='$MT2'")"
 summary

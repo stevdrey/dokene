@@ -45,7 +45,20 @@ read -r c2 p2 MB <<< "$(ready_approved $B_OPERATOR "$B" "KILL06 B $RUN")"; send 
 
 echo "== P3-KILL-07 the control state cannot be read (integration row missing)"
 read -r PA_ SA_ <<< "$(ctx tenant "$A")"
-rec P3-KILL-07 $H BLOCKED "not driven on the real stack: deleting the integration row needs a database role with DELETE on tenant_messaging_integrations (the runtime role has none) and would destroy the fixture; covered by WhatsAppOutboundSafetyControlTest (in process)"
+# Fault injection on the disposable QA database: the bootstrap role revokes the runtime role's SELECT on the table that
+# holds the tenant switch, so the switch lookup fails. The grants are restored right after, whatever happened.
+read -r c p MA <<< "$(ready_approved $O "$A" "KILL07 $RUN")"
+g0=$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")
+# The ETag is read first: with the grant gone the message read fails too, and an empty If-Match never reaches the switch.
+E7=$(msg_etag $O "$A" "$MA"); S=$(snap); psqlq "revoke select on dokene.tenant_messaging_integrations from dokene_runtime" >/dev/null
+send $O "$A" "$MA" "qa149-$RUN-kill07" "$E7"; k7=$CODE
+psqlq "grant select on dokene.tenant_messaging_integrations to dokene_runtime" >/dev/null
+chk P3-KILL-07 $H "runtime grants restored exactly after the fault" "$g0" "$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")"
+chk P3-KILL-07 $H "send with an unreadable switch is refused (5xx, closed problem body)" "yes" "$([ "${k7:0:1}" = 5 ] && echo "$BODY" | jq -e '.code' >/dev/null 2>&1 && echo yes || echo "code=$k7 body=${BODY:0:80}")"
+chk P3-KILL-07 $H "nothing written: no attempt row, no event, no key, no provider call" ok "$(unchanged "$S" any)"
+chk P3-KILL-07 $H "message still APPROVED" APPROVED "$(msg_status "$MA" | cut -d/ -f1)"
+rec P3-KILL-07 $H PASS "refusal seen: $k7 $(problem_code); audit rows written by the refusal: $(( $(psqlq 'select count(*) from dokene.audit_events') - $(echo "$S" | cut -d' ' -f5) ))"
+send $O "$A" "$MA"; chk P3-KILL-07 $H "control: with the grant back the same message sends" 201 "$CODE"
 
 echo "== P3-KILL-08 integration disabled with both switches on"
 read -r c p MA <<< "$(ready_approved $O "$A" "KILL08 $RUN")"

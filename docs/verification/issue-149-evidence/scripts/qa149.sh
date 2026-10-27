@@ -67,6 +67,7 @@ events_n() { psqlq "select count(*) from dokene.outbound_message_events${1:+ whe
 keys_n() { psqlq "select count(*) from dokene.outbound_message_idempotency_keys${1:+ where tenant_id='$1'}"; }
 messages_n() { psqlq "select count(*) from dokene.outbound_messages${1:+ where tenant_id='$1'}"; }
 msg_status() { psqlq "select status||'/'||version||'/'||outcome_unknown from dokene.outbound_messages where id='$1'"; }
+resolutions_n() { psqlq "select count(*) from dokene.outbound_message_resolutions${1:+ where message_id='$1'}"; }
 hooks_n() { psqlq "select count(*) from dokene.provider_webhook_events${1:+ where tenant_id='$1'}"; }
 
 # --- stub control -----------------------------------------------------------------------------------------------------
@@ -165,6 +166,8 @@ msg_etag() { req "$1" "$2" GET "/api/messages/$3" -; etag; }
 approve() { req "$1" "$2" POST "/api/messages/$3/approvals" '{"decision":"APPROVE"}' -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
 reject() { req "$1" "$2" POST "/api/messages/$3/approvals" '{"decision":"REJECT"}' -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
 cancel() { req "$1" "$2" POST "/api/messages/$3/cancellations" '{}' -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
+# resolve <user> <tenant> <message> <outcome> [key] [If-Match]: T12, a member declares an unknown send FAILED
+resolve() { req "$1" "$2" POST "/api/messages/$3/resolutions" "{\"outcome\":\"$4\"}" -H "Idempotency-Key: ${5:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${6:-$(msg_etag "$1" "$2" "$3")}"; }
 send() { req "$1" "$2" POST "/api/messages/$3/sends" - -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
 # ready_approved <user> <tenant> <name> -> prints "customerId contactId messageId" with the message APPROVED
 ready_approved() {
@@ -173,6 +176,14 @@ ready_approved() {
   [ "$CODE" = 201 ] || { echo "submit failed: $CODE $BODY" >&2; return 1; }
   approve "$1" "$2" "$MSG"; [ "$CODE" = 201 ] || { echo "approve failed: $CODE $BODY" >&2; return 1; }
   echo "$cid $pid $MSG"
+}
+# ready_unknown <user> <tenant> <name> [stub send mode] -> "customerId contactId messageId" with the message SENDING and
+# its outcome unknown (MA-UNKNOWN). error500 leaves no provider id; paused keeps one a delivery report can match.
+ready_unknown() {
+  local ids m prev; ids=$(ready_approved "$1" "$2" "$3") || return 1; m=${ids##* }
+  prev=$(cat "$STUBDIR/send" 2>/dev/null || echo accept); stub_set send "${4:-error500}"; send "$1" "$2" "$m"; stub_set send "$prev"
+  case $(msg_status "$m") in SENDING/*/t|SENDING/*/true) ;; *) echo "ready_unknown: $CODE $(msg_status "$m")" >&2; return 1;; esac
+  echo "$ids"
 }
 ready_pending() {
   local ids cid pid; ids=$(mk_customer "$1" "$2" "$3") || return 1; read -r cid pid <<< "$ids"

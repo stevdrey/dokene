@@ -3,7 +3,8 @@
 # ABOUTME: with signed, forged and expired tenant capabilities against the running stack's PostgreSQL.
 cd "$(git rev-parse --show-toplevel)"; . docs/verification/issue-149-evidence/scripts/env149.sh
 D=Database
-V18_TABLES="outbound_messages outbound_message_approvals outbound_message_cancellations outbound_send_attempts outbound_message_events outbound_message_idempotency_keys"
+# V33 adds outbound_message_resolutions to the messaging set (T12, issue 140); it gets the same checks.
+V18_TABLES="outbound_messages outbound_message_approvals outbound_message_cancellations outbound_send_attempts outbound_message_events outbound_message_idempotency_keys outbound_message_resolutions"
 OTHER_TABLES="tenant_messaging_integrations tenant_provider_templates provider_webhook_events"
 
 echo "== fixtures: messaging rows in both tenants"

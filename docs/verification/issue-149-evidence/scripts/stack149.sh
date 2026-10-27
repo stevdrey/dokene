@@ -15,18 +15,20 @@ cd "$(git rev-parse --show-toplevel)"
 QA149_DIR=${QA149_DIR:-docs/verification/issue-149-evidence}
 OUTD=${OUTD:-$QA149_DIR/out}; STUBDIR=${STUBDIR:-$QA149_DIR/stub}; STUBBIN=${STUBBIN:-$OUTD/stub-bin}
 OVERRIDE=$OUTD/compose.qa149.yaml
+# isolated149.sh points these at the second stack; the defaults are the plain dev stack.
+BASE=${QA149_COMPOSE_BASE:--f compose.yaml}; STUB=${QA149_STUB_NAME:-qa149-stub}
 mkdir -p "$OUTD" "$STUBDIR" "$STUBBIN"
 . "$OUTD/ids"
 
 stub_up() {
-  docker rm -f qa149-stub >/dev/null 2>&1 || true
+  docker rm -f "$STUB" >/dev/null 2>&1 || true
   javac --release 26 -d "$STUBBIN" "$QA149_DIR/scripts/GraphStub.java"
   printf 'A=CANARY-TOKEN\nB=QA149-TOKEN-B-SYNTHETIC\n' > "$STUBDIR/tokens"
   printf '%s,%s' "$PN_A" "$PN_B" > "$STUBDIR/phones.list"
   printf 'customer_name,message_body' > "$STUBDIR/params"
-  docker run -d --rm --name qa149-stub --network "container:$(docker compose ps -q oidc-bridge)" \
+  docker run -d --rm --name "$STUB" --network "container:$(docker compose ps -q oidc-bridge)" \
     -v "$(pwd)/$STUBDIR:/stub" -v "$(pwd)/$STUBBIN:/stub-bin:ro" eclipse-temurin:26-jre java -cp /stub-bin GraphStub >/dev/null
-  sleep 1; docker logs qa149-stub 2>&1 | tail -1
+  sleep 1; docker logs "$STUB" 2>&1 | tail -1
 }
 
 write_override() {
@@ -76,12 +78,12 @@ backend_wait() {
 }
 
 case ${1:-} in
-  up) stub_up; write_override; docker compose -f compose.yaml -f "$OVERRIDE" up -d --no-build backend >/dev/null; backend_wait ;;
-  restart) write_override; docker compose -f compose.yaml -f "$OVERRIDE" up -d --no-build backend >/dev/null; backend_wait ;;
+  up) stub_up; write_override; docker compose $BASE -f "$OVERRIDE" up -d --no-build backend >/dev/null; backend_wait ;;
+  restart) write_override; docker compose $BASE -f "$OVERRIDE" up -d --no-build backend >/dev/null; backend_wait ;;
   # Any plain `docker compose up` (even of another service) recreates the backend without the override, because its
   # config hash differs. Always pass the override while the suite runs; `frontend` does that for the proxy image.
-  frontend) write_override; docker compose -f compose.yaml -f "$OVERRIDE" up -d --no-build frontend >/dev/null; backend_wait ;;
+  frontend) write_override; docker compose $BASE -f "$OVERRIDE" up -d --no-build frontend >/dev/null; backend_wait ;;
   stub) stub_up ;;
-  down) docker rm -f qa149-stub >/dev/null 2>&1 || true; docker compose up -d --no-build backend >/dev/null; backend_wait ;;
+  down) docker rm -f "$STUB" >/dev/null 2>&1 || true; docker compose up -d --no-build backend >/dev/null; backend_wait ;;
   *) echo "usage: $0 up|restart|stub|down" >&2; exit 2 ;;
 esac

@@ -50,8 +50,12 @@ stub_set send accept; S=$(snap); send $O "$A" "$MA"; chk P3-DUP-07 $H "second se
 MU=$MA
 
 echo "== P3-DUP-08 resolutions"
-req $A_ADMIN "$A" POST "/api/messages/$MU/resolutions" '{"outcome":"SENT"}' -H "Idempotency-Key: qa149-$RUN-$RANDOM" -H "If-Match: $(msg_etag $A_ADMIN "$A" "$MU")"
-if [ "$CODE" = 404 ] || [ "$CODE" = 405 ]; then rec P3-DUP-08 $H BLOCKED "POST /api/messages/{id}/resolutions is not deployed on this commit ($CODE); T12 is owed by #138"; else chk P3-DUP-08 $H "outcome SENT rejected" 400 "$CODE"; fi
+EU=$(msg_etag $A_ADMIN "$A" "$MU"); S=$(snap); resolve $A_ADMIN "$A" "$MU" SENT "qa149-$RUN-$RANDOM" "$EU"
+refused P3-DUP-08 $H "outcome SENT on MA-UNKNOWN" INVALID_INPUT 400 "$S"
+n0=$(stub_calls send); e0=$(events_n "$MU"); resolve $A_ADMIN "$A" "$MU" FAILED "qa149-$RUN-dup08" "$EU"
+chk P3-DUP-08 $H "outcome FAILED: 201, FAILED, no provider message id, one new event, one resolution row, no provider call" "201 FAILED 0 1 1 0" "$CODE $(echo "$BODY" | jq -r .status) $(psqlq "select count(provider_message_id) from dokene.outbound_messages where id='$MU'") $(( $(events_n "$MU") - e0 )) $(resolutions_n "$MU") $(stub_since send $n0)"
+S=$(snap); resolve $A_ADMIN "$A" "$MU" FAILED "qa149-$RUN-dup08" "$EU"
+chk P3-DUP-08 $H "replay with the same key: 200 FAILED, nothing written" "200 FAILED ok" "$CODE $(echo "$BODY" | jq -r .status) $(unchanged "$S")"
 
 echo "== P3-DUP-09 transient failures up to the attempt limit"
 # A provider 5xx is an unknown outcome under ADR 0027 (P3-DUP-12 territory); the transient failure here is a 429.
