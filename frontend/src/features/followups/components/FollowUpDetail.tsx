@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { QueueItemResponse } from '@/features/followups/types';
+import React, { useState, useEffect, useRef } from 'react';
+import { QueueItemResponse, type MessageDraft } from '@/features/followups/types';
 import { customerApi } from '@/features/customers/api/customerApi';
 import { PurchaseResponse } from '@/features/customers/types';
 import { ManualFollowUpModal } from './ManualFollowUpModal';
@@ -7,7 +7,9 @@ import { SnoozeModal } from './SnoozeModal';
 import { DismissModal } from './DismissModal';
 import { Button } from '@/shared/components/Button';
 import { computeDaysOverdueInTimeZone } from '../utils/dateUtils';
-import { AiAssistantPanel } from './AiAssistantPanel';
+import { AiAssistantPanel, type ReviewableDraft } from './AiAssistantPanel';
+import { FollowUpMessaging, type MessagePanel } from './FollowUpMessaging';
+import { canActOnMessages, useTenant } from '@/features/tenants/TenantContext';
 import './FollowUpLayout.css';
 import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 
@@ -47,6 +49,21 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSnoozeModalOpen, setIsSnoozeModalOpen] = useState(false);
   const [isDismissModalOpen, setIsDismissModalOpen] = useState(false);
+
+  const { activeWorkspace } = useTenant();
+  const role = activeWorkspace?.role ?? null;
+  const [messagePanel, setMessagePanel] = useState<MessagePanel>({ kind: 'none' });
+  // The generated draft whose hand-off was submitted: handing it off again would create a second message from it.
+  const [submittedDraft, setSubmittedDraft] = useState<MessageDraft | null>(null);
+  // Review holds a request in flight or an unsure outcome; replacing it then would lose the outcome and its retry.
+  const [messageBusy, setMessageBusy] = useState(false);
+  // Every hand-off gets its own number, never reused, so its compose and its contact lookup are always fresh.
+  const handOffCount = useRef(0);
+  const reviewDraft = (draft: ReviewableDraft) => {
+    if (messageBusy) return;
+    handOffCount.current += 1;
+    setMessagePanel({ kind: 'compose', draft, nonce: handOffCount.current });
+  };
 
   useEffect(() => {
     let active = true;
@@ -429,7 +446,24 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
         policyVersion={item.policyVersion}
         canUseAi={canUseAi}
         onRequestRefresh={onRequestRefresh}
+        onReviewDraft={canActOnMessages(role) ? reviewDraft : undefined}
+        submittedDraft={submittedDraft}
+        reviewBusy={messageBusy}
       />
+
+      {activeWorkspace && (
+        <FollowUpMessaging
+          item={item}
+          tenantId={activeWorkspace.tenantId}
+          role={role}
+          panel={messagePanel}
+          onPanelChange={setMessagePanel}
+          onRequestRefresh={onRequestRefresh}
+          onDraftSubmitted={setSubmittedDraft}
+          busy={messageBusy}
+          onBusyChange={setMessageBusy}
+        />
+      )}
 
       {/* Recent Purchases Section */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>

@@ -19,6 +19,16 @@ export interface MessageReviewProps {
   mode: MessageReviewMode;
   onSubmitted?: (messageId: string) => void;
   onPolicyStale?: () => void;
+  /**
+   * The shown message moved to another version after it loaded: an approve, cancel or send result, a refresh or a poll.
+   * The read is the new version, so a host can apply it wherever it shows that message.
+   */
+  onMessageChanged?: (read: VersionedMessage) => void;
+  /**
+   * True while a submit or an action is in flight or its outcome is unsure. A host should not unmount the review then,
+   * or the outcome and its retry on the same key are lost. Pass a stable function.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 type Current =
@@ -38,7 +48,15 @@ export function MessageReview(props: MessageReviewProps) {
   return <MessageReviewSwitch key={propKey(props.tenantId, props.mode)} {...props} />;
 }
 
-function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale }: MessageReviewProps) {
+function MessageReviewSwitch({
+  tenantId,
+  role,
+  mode,
+  onSubmitted,
+  onPolicyStale,
+  onMessageChanged,
+  onBusyChange
+}: MessageReviewProps) {
   const [current, setCurrent] = useState<Current>({ kind: 'fromProps' });
   // Each announcement gets a new sequence so a repeated sentence still replaces the live region's child node;
   // an unchanged string alone would make no DOM mutation and assistive technology would stay silent.
@@ -85,6 +103,7 @@ function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale 
       onSubmitted={(read) => handleSubmitted(read, input.customerDisplayName)}
       onPolicyStale={fromCorrection ? undefined : onPolicyStale}
       announce={announce}
+      onBusyChange={onBusyChange}
     />
   );
 
@@ -97,6 +116,8 @@ function MessageReviewSwitch({ tenantId, role, mode, onSubmitted, onPolicyStale 
       initial={initial}
       announce={announce}
       onCorrect={(cancelled) => handleCorrect(cancelled, customerDisplayName)}
+      onChanged={onMessageChanged}
+      onBusyChange={onBusyChange}
     />
   );
 

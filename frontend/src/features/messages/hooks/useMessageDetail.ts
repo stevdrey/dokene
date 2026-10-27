@@ -52,12 +52,17 @@ export interface MessageDetailHandle {
 export interface MessageDetailOptions {
   /** A poll tick applied a reply whose status or outcome differs from the held one; the caller announces it. */
   onPolledChange?: (read: VersionedMessage) => void;
+  /**
+   * A read replaced the loaded message with another version: an action result, a refresh or a poll. Not called for the
+   * first load, so a host can tell other views of the message (such as the delivery history) to read it again.
+   */
+  onChanged?: (read: VersionedMessage) => void;
 }
 
 export function useMessageDetail(
   messageId: string,
   initial?: VersionedMessage,
-  { onPolledChange }: MessageDetailOptions = {}
+  { onPolledChange, onChanged }: MessageDetailOptions = {}
 ): MessageDetailHandle {
   const [state, setState] = useState<DetailState>(() =>
     initial ? { kind: 'loaded', detail: initial.detail, version: initial.version } : { kind: 'loading' }
@@ -125,8 +130,17 @@ export function useMessageDetail(
 
   const run = useCallback(<T,>(task: (signal: AbortSignal) => Promise<T>) => runWith(task), [runWith]);
 
+  const onChangedRef = useRef(onChanged);
+  useEffect(() => {
+    onChangedRef.current = onChanged;
+  });
+
   const apply = useCallback(
-    (read: VersionedMessage) => commit({ kind: 'loaded', detail: read.detail, version: read.version }),
+    (read: VersionedMessage) => {
+      const held = stateRef.current;
+      commit({ kind: 'loaded', detail: read.detail, version: read.version });
+      if (held.kind === 'loaded' && held.version !== read.version) onChangedRef.current?.(read);
+    },
     [commit]
   );
 

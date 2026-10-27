@@ -78,6 +78,7 @@ interface PanelOverrides {
   policyVersion?: number;
   canUseAi?: boolean;
   onRequestRefresh?: (reason?: 'stale' | 'ineligible') => Promise<boolean>;
+  onReviewDraft?: (draft: { action: string; templateIntent: string; body: string; policyVersion: number }) => void;
 }
 
 function renderPanel(overrides: PanelOverrides = {}) {
@@ -330,6 +331,32 @@ describe('AiAssistantPanel', () => {
       expect(label).not.toMatch(/enviar|aprobar|programar|publicar|confirmar env/i);
     }
     expect(screen.getByText(/El envío es manual/)).toBeInTheDocument();
+  });
+
+  it('hands the edited draft to message review only when the host offers it, without any request', async () => {
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({ data: baseRec, version: 3 });
+    vi.spyOn(followUpApi, 'requestDraft').mockResolvedValue({ data: baseDraft, version: 3 });
+    const onReviewDraft = vi.fn();
+    renderPanel({ onReviewDraft });
+
+    await getRecommendation();
+    fireEvent.click(screen.getByRole('button', { name: 'Generar borrador' }));
+    const textarea = await screen.findByLabelText('Borrador del mensaje (editable)');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fireEvent.change(textarea, { target: { value: '   ' } });
+    expect(screen.getByRole('button', { name: 'Revisar y enviar' })).toBeDisabled();
+
+    fireEvent.change(textarea, { target: { value: 'Hola, ¿necesitas más café?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar y enviar' }));
+
+    expect(onReviewDraft).toHaveBeenCalledWith({
+      action: baseDraft.draft!.action,
+      templateIntent: baseDraft.draft!.templateIntent,
+      body: 'Hola, ¿necesitas más café?',
+      policyVersion: 3,
+      source: expect.objectContaining({ action: baseDraft.draft!.action })
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('copies the edited draft to the clipboard and announces it', async () => {

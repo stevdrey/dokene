@@ -31,6 +31,21 @@ export function canArchiveCustomer(role?: string | null): boolean {
   return role === 'OWNER' || role === 'ADMIN' || role === 'TENANT_ADMIN';
 }
 
+const MESSAGE_ACTING_ROLES: readonly string[] = ['OWNER', 'ADMIN', 'OPERATOR', 'TENANT_ADMIN', 'TENANT_OPERATOR'];
+
+/**
+ * Whether the role may see the message action controls (submit, approve, cancel, send). A usability aid only; the
+ * server stays the gate and a missing or unknown role is read only.
+ */
+export function canActOnMessages(role?: string | null): boolean {
+  return typeof role === 'string' && MESSAGE_ACTING_ROLES.includes(role);
+}
+
+/** Every present role holds MESSAGE_READ (ADR 0023 §5); only a missing role hides the read only history. */
+export function canReadMessages(role?: string | null): boolean {
+  return typeof role === 'string' && role !== '';
+}
+
 export const MAX_WORKSPACE_NAME_CODE_POINTS = 160;
 
 /**

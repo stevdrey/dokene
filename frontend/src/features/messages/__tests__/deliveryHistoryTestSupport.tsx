@@ -1,9 +1,10 @@
 // ABOUTME: Shared setup for the delivery history suites: fixture pages built from the detail fixtures and the no leak spies.
 // ABOUTME: Every suite that uses it proves only GET requests, no unexpected request, no console call and no storage write.
+import type React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, vi, type MockInstance } from 'vitest';
 import { httpClient } from '@/shared/api/httpClient';
-import { DeliveryHistory } from '../components/DeliveryHistory';
+import { DeliveryHistory, type DeliveryHistoryRefresh } from '../components/DeliveryHistory';
 import type { MessageListItem, MessagePageResponse, MessageResponse } from '../types';
 import {
   FakeServer,
@@ -86,6 +87,8 @@ export interface RenderOptions {
   /** The tenant the client holds, when it should differ from the prop; defaults to the prop. */
   activeTenantId?: string | null;
   onOpenMessage?: (messageId: string) => void;
+  /** Receives the history's refresh handle, as a host that changed a message would hold it. */
+  historyRef?: React.Ref<DeliveryHistoryRefresh>;
 }
 
 export function renderHistory(options: RenderOptions = {}) {
@@ -94,7 +97,13 @@ export function renderHistory(options: RenderOptions = {}) {
   const role = options.role === undefined ? 'OPERATOR' : options.role;
   httpClient.setTenantId(options.activeTenantId === undefined ? tenantId : options.activeTenantId);
   const view = render(
-    <DeliveryHistory tenantId={tenantId} customerId={customerId} role={role} onOpenMessage={options.onOpenMessage} />
+    <DeliveryHistory
+      ref={options.historyRef}
+      tenantId={tenantId}
+      customerId={customerId}
+      role={role}
+      onOpenMessage={options.onOpenMessage}
+    />
   );
   return {
     ...view,

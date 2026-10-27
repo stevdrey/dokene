@@ -122,7 +122,8 @@ A throwaway harness page (Vite on port 5199, `/api` fulfilled by Playwright from
 
 ## Caller contract
 
-- `MessageReview` in compose mode reads its draft props once per mount. It remounts only on a change of tenant, customer or contact (its key). A caller that changes another compose prop, such as the draft body or `sourcePolicyVersion` for the same customer, must remount it (give it a React `key`) for the change to show. The composition slice (scope row 4) owns that.
+- `MessageReview` in compose mode remounts on a change of tenant, customer or contact (its key). A new `policyVersion` is adopted in place: unedited text takes the new `initialBody`, edited text is kept, and the live region announces which (ADR 0020 §4). Any other compose prop change, such as a new draft body at the same version, needs a React `key` from the caller. The #140 composition keys it by hand-off (`compose|<nonce>`).
+- Two optional host signals were added by #140. `onBusyChange(busy)` is true while a submit or a review action is in flight or its outcome is unsure, so the host does not unmount the review and lose the retry on the same key. `onMessageChanged(read)` fires with the new versioned read when the shown message moves to another version after it loaded (an action result, a refresh or a poll), so the host can apply it to other views of it.
 
 ## Not covered here
 

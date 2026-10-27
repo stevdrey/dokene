@@ -1,6 +1,6 @@
 // ABOUTME: The read only history of one customer's messages: collapsed rows with their delivery outcome, one open row at a time.
 // ABOUTME: Renders nothing for an inactive tenant or a missing role, remounts on a tenant or customer change, and only ever reads.
-import { useCallback, useId, useRef, type MouseEvent, type ReactNode, type Ref } from 'react';
+import { forwardRef, useCallback, useId, useImperativeHandle, useRef, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { httpClient } from '@/shared/api/httpClient';
 import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
@@ -12,7 +12,7 @@ import { useDeliveryHistory, type HistoryRow, type ReadFailure } from '../hooks/
 import { deliveryOutcome, HISTORY_COPY } from '../utils/deliveryOutcome';
 import { formatDateTime } from '../utils/format';
 import { COPY, originLabel } from '../utils/messageLabels';
-import { canReadMessages } from '../utils/permissions';
+import { canReadMessages } from '@/features/tenants/TenantContext';
 import { OpenDeliveryRow, type OpenDeliveryRowHandle } from './OpenDeliveryRow';
 import './MessageReview.css';
 import './DeliveryHistory.css';
@@ -24,12 +24,26 @@ export interface DeliveryHistoryProps {
   onOpenMessage?: (messageId: string) => void;
 }
 
-export function DeliveryHistory(props: DeliveryHistoryProps) {
+/** Lets a host that created or changed a message bring the history up to date, keeping later pages and the open row. */
+export interface DeliveryHistoryRefresh {
+  /** Reads the first page again, where a newly created message appears. */
+  refresh: () => void;
+  /**
+   * Applies a newer version of a message the host read itself, under the version rule, to its loaded row on any page
+   * and to the open row's detail. A message the history has not loaded is left alone.
+   */
+  applyMessage: (read: VersionedMessage) => void;
+}
+
+export const DeliveryHistory = forwardRef<DeliveryHistoryRefresh, DeliveryHistoryProps>(function DeliveryHistory(
+  props,
+  ref
+) {
   const activeTenant = httpClient.getTenantId();
   if (activeTenant === null || activeTenant !== props.tenantId || !canReadMessages(props.role)) return null;
   // Keying by tenant and customer remounts everything, so no state of a previous value renders even once.
-  return <DeliveryHistoryList key={`${props.tenantId}|${props.customerId}`} {...props} />;
-}
+  return <DeliveryHistoryList key={`${props.tenantId}|${props.customerId}`} ref={ref} {...props} />;
+});
 
 const panelId = (messageId: string) => `delivery-row-${messageId}`;
 
@@ -58,7 +72,10 @@ function BusyButton({ busy, onClick, children, variant = 'secondary', buttonRef 
   );
 }
 
-function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps) {
+const DeliveryHistoryList = forwardRef<DeliveryHistoryRefresh, DeliveryHistoryProps>(function DeliveryHistoryList(
+  { customerId, onOpenMessage },
+  ref
+) {
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const loadMoreRef = useRef<HTMLButtonElement>(null);
@@ -70,6 +87,20 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
 
   const history = useDeliveryHistory(customerId, { onRowRefreshed });
   const { state, openMessageId, announcement } = history;
+  const { refreshList, applyDetail } = history;
+  useImperativeHandle(
+    ref,
+    () => ({
+      refresh: refreshList,
+      applyMessage(read) {
+        const messageId = read.detail.messageId;
+        applyDetail(messageId, read);
+        // The open row ignores a read of another message, and reads its events again for this one.
+        if (openMessageId === messageId) openRowRef.current?.applyRefresh(read);
+      }
+    }),
+    [applyDetail, openMessageId, refreshList]
+  );
 
   // Which read the focused control started, so focus has somewhere to go when that control leaves with the reply.
   const reading = state.kind === 'loading' || (state.kind === 'ready' && state.loadingMore);
@@ -189,7 +220,7 @@ function DeliveryHistoryList({ customerId, onOpenMessage }: DeliveryHistoryProps
       )}
     </section>
   );
-}
+});
 
 interface DeliveryRowProps {
   row: HistoryRow;

@@ -8,7 +8,7 @@ import { MESSAGE_EVENT_TYPES, MESSAGE_STATUSES, MESSAGING_ERROR_CODES } from '..
 import { formatDateTime, maskPhone } from '../utils/format';
 import { classifyFailure } from '../utils/messageErrors';
 import { errorCodeSentence, eventTypeLabel, statusLabel } from '../utils/messageLabels';
-import { canActOnMessages } from '../utils/permissions';
+import { canActOnMessages } from '@/features/tenants/TenantContext';
 
 const problems = JSON.parse(problemsJson);
 

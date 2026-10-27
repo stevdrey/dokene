@@ -3,9 +3,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { httpClient } from '@/shared/api/httpClient';
-import { MessageReview, type MessageReviewMode } from '../components/MessageReview';
+import { MessageReview, type MessageReviewMode, type MessageReviewProps } from '../components/MessageReview';
 import {
   FakeServer,
+  approvalsPath,
   cancellationsPath,
   created,
   details,
@@ -24,7 +25,8 @@ import {
   submitPath,
   templateFixtures,
   templateList,
-  templatesPath
+  templatesPath,
+  variant
 } from './messageTestServer';
 
 let server: FakeServer;
@@ -60,7 +62,9 @@ afterEach(() => {
   expect(server.calls.filter((call) => call.key.endsWith('/sends'))).toEqual([]);
 });
 
-function renderCompose(mode = composeMode(), role = 'OPERATOR', callbacks: { onSubmitted?: (id: string) => void; onPolicyStale?: () => void } = {}) {
+type Callbacks = Pick<MessageReviewProps, 'onSubmitted' | 'onPolicyStale' | 'onMessageChanged' | 'onBusyChange'>;
+
+function renderCompose(mode = composeMode(), role = 'OPERATOR', callbacks: Callbacks = {}) {
   const view = render(<MessageReview tenantId="tenant-a" role={role} mode={mode} {...callbacks} />);
   return {
     ...view,
@@ -591,5 +595,52 @@ describe('source guards', () => {
       .map(([path]) => path);
     expect(Object.keys(files).length).toBeGreaterThan(10);
     expect(offenders).toEqual([]);
+  });
+});
+
+// covers: issue 140 composition (the host must not unmount a request in flight, and keeps other views current)
+describe('host signals', () => {
+  it('reports busy while the submit is in flight and while its outcome is unsure, and idle once it lands', async () => {
+    const onBusyChange = vi.fn();
+    const reply = pending();
+    server
+      .on(submitPath(customerId), networkFailure(), reply)
+      .on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval));
+    renderCompose(composeMode(), 'OPERATOR', { onBusyChange });
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.click(submitButton());
+    confirmSubmit();
+    const alert = await screen.findByRole('alert');
+    // Unsure: unmounting now would lose the retry on the same key, so it is still busy.
+    expect(onBusyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }));
+    expect(onBusyChange).toHaveBeenLastCalledWith(true);
+
+    await act(async () => reply.resolve(created(pendingApproval)));
+    expect(await screen.findByText('Revisión 1')).toBeInTheDocument();
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reports a change made in review, but not the submitted message itself', async () => {
+    const onMessageChanged = vi.fn();
+    server
+      .on(submitPath(customerId), created(pendingApproval))
+      .on(eventsPath(pendingApproval.messageId), eventsReply(pendingApproval))
+      .on(approvalsPath(pendingApproval.messageId), created(variant(details.approved, { messageId: pendingApproval.messageId })));
+    renderCompose(composeMode(), 'OPERATOR', { onMessageChanged });
+    fireEvent.click(submitButton());
+    confirmSubmit();
+    expect(await screen.findByText('Revisión 1')).toBeInTheDocument();
+    expect(onMessageChanged).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aprobar' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Confirmar aprobación' })).getByRole('button', { name: 'Confirmar aprobación' }));
+
+    await waitFor(() =>
+      expect(onMessageChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ detail: expect.objectContaining({ messageId: pendingApproval.messageId, status: 'APPROVED' }) })
+      )
+    );
   });
 });
