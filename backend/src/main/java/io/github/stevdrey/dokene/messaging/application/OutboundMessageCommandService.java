@@ -1,4 +1,4 @@
-// ABOUTME: Transactional T1 to T5 command services: submit, approve (binding the approval fingerprint), reject, cancel.
+// ABOUTME: Transactional T1 to T5 and T12: submit, approve (binding the approval fingerprint), reject, cancel, resolve.
 // ABOUTME: Order: validate, permission, idempotency lock, customer lock, message lock, guards, domain, persist, audit.
 package io.github.stevdrey.dokene.messaging.application;
 
@@ -176,6 +176,47 @@ public class OutboundMessageCommandService {
         log.info("Message cancelled; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(), tenantId,
                 message.status(), stored.status());
         return support.result(tenantId, stored.id(), Optional.of(cancellation), true);
+    }
+
+    /**
+     * T12: a member who checked the provider side declares an unknown outcome {@code FAILED}; only that outcome
+     * exists, because a message is never marked sent without a provider message id. No provider is called. The note is
+     * part of the request fingerprint only; there is no resolution record to store it on (spec 0001).
+     */
+    @Transactional
+    public CommandResult resolve(ResolutionCommand command) {
+        Objects.requireNonNull(command, "Command is required");
+        // Issue 162: the permission is checked before any input is validated.
+        support.require(TenantPermission.INTEGRATION_MANAGE);
+        var input = validateChild(command.messageId(), command.note(), command.ifMatch(), command.idempotencyKey());
+        if (!"FAILED".equals(command.outcome())) {
+            throw refuse(MessagingErrorCode.INVALID_INPUT);
+        }
+        TenantContext context = support.currentContext();
+        UUID tenantId = context.tenantId().value();
+        String fingerprint = RequestFingerprint.of(MessageOperation.RESOLUTION, Arrays.asList(
+                command.messageId().toString(), Long.toString(input.ifMatch()), command.outcome(), input.note()));
+        idempotency.acquireLock(tenantId, MessageOperation.RESOLUTION, input.idempotencyKey());
+        var replay = idempotency.find(tenantId, MessageOperation.RESOLUTION, input.idempotencyKey());
+        if (replay.isPresent()) {
+            return replay(replay.get(), fingerprint, command.messageId());
+        }
+
+        Locked locked = lockMessage(context, command.messageId(), input.ifMatch());
+        OutboundMessage message = locked.message();
+        context = currentMember(TenantPermission.INTEGRATION_MANAGE, locked.customer());
+        Instant now = clock.instant();
+        Transition transition = message.resolveFailed(context.membershipId().value(), now);
+        OutboundMessage stored = messages.update(message, transition.next());
+        messages.appendEvent(transition.event());
+        // record_id is the resolution's event id (spec 0001, outbound_message_idempotency_keys).
+        idempotency.record(new MessageIdempotencyStore.IdempotencyRecord(UUID.randomUUID(), tenantId,
+                MessageOperation.RESOLUTION, input.idempotencyKey(), fingerprint, stored.id(),
+                transition.event().id(), now));
+        audit.sendFailed(transition.event());
+        log.info("Unknown send outcome resolved; messageId={}, tenantId={}, statusFrom={}, statusTo={}", stored.id(),
+                tenantId, message.status(), stored.status());
+        return support.result(tenantId, stored.id(), Optional.empty(), true);
     }
 
     private CommandResult decide(ApprovalCommand command, ApprovalDecision decision) {

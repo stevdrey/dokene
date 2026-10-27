@@ -1,4 +1,4 @@
-// ABOUTME: /api/messages/** and /api/customers/{id}/messages: submit, read, decide, cancel and send (ADR 0023 §3.1).
+// ABOUTME: /api/messages/** and /api/customers/{id}/messages: submit, read, decide, cancel, send, resolve (ADR 0023).
 // ABOUTME: Thin transport layer over the frozen v1 contract; every rule and re-check lives in the messaging services.
 package io.github.stevdrey.dokene.messaging.api;
 
@@ -15,6 +15,7 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagePageR
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageResponse;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplateButton;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessageTemplatePreview;
+import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.ResolutionRequest;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.SubmitMessageRequest;
 import io.github.stevdrey.dokene.messaging.application.ApprovalBindingAssembler.ReviewedTemplate;
 import io.github.stevdrey.dokene.messaging.application.ApprovalCommand;
@@ -25,6 +26,7 @@ import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandSer
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageQueryService;
 import io.github.stevdrey.dokene.messaging.application.MessageDetail;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageRepository.ListedMessage;
+import io.github.stevdrey.dokene.messaging.application.ResolutionCommand;
 import io.github.stevdrey.dokene.messaging.application.SendMessageCommand;
 import io.github.stevdrey.dokene.messaging.application.SubmitMessageCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
@@ -187,6 +189,23 @@ public class MessageController {
         }
         String version = version(ifMatch);
         return respond(dispatch.send(new SendMessageCommand(messageId, version, idempotencyKey)), false);
+    }
+
+    /**
+     * T12: declares an unknown send outcome {@code FAILED} after a member checked the provider side. Only
+     * {@code FAILED} exists in the contract, so a message is never marked sent without a provider message id; any other
+     * value is {@code 400 INVALID_INPUT}. It calls no provider (ADR 0023 §2, ADR 0028 §4).
+     */
+    @RequiredPermission(TenantPermission.INTEGRATION_MANAGE)
+    @PostMapping("/messages/{messageId}/resolutions")
+    public ResponseEntity<MessageResponse> resolve(@PathVariable UUID messageId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody(required = false) JsonNode body) {
+        String version = version(ifMatch);
+        ResolutionRequest request = read(body, ResolutionRequest.class);
+        return respond(commands.resolve(new ResolutionCommand(messageId, request.outcome().name(), request.note(),
+                version, idempotencyKey)), false);
     }
 
     /**
