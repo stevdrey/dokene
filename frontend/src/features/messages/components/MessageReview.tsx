@@ -19,8 +19,11 @@ export interface MessageReviewProps {
   mode: MessageReviewMode;
   onSubmitted?: (messageId: string) => void;
   onPolicyStale?: () => void;
-  /** The shown message moved to another version after it loaded: an approve, cancel or send result, a refresh or a poll. */
-  onMessageChanged?: (messageId: string) => void;
+  /**
+   * The shown message moved to another version after it loaded: an approve, cancel or send result, a refresh or a poll.
+   * The read is the new version, so a host can apply it wherever it shows that message.
+   */
+  onMessageChanged?: (read: VersionedMessage) => void;
   /**
    * True while a submit or an action is in flight or its outcome is unsure. A host should not unmount the review then,
    * or the outcome and its retry on the same key are lost. Pass a stable function.
@@ -113,7 +116,7 @@ function MessageReviewSwitch({
       initial={initial}
       announce={announce}
       onCorrect={(cancelled) => handleCorrect(cancelled, customerDisplayName)}
-      onChanged={onMessageChanged ? (read) => onMessageChanged(read.detail.messageId) : undefined}
+      onChanged={onMessageChanged}
       onBusyChange={onBusyChange}
     />
   );

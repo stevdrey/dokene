@@ -7,6 +7,7 @@ import type { MessageDraft, QueueItemResponse } from '@/features/followups/types
 import type { QueueRefreshReason } from '@/features/followups/hooks/useFollowUpAssistant';
 import { MessageReview } from '@/features/messages/components/MessageReview';
 import { DeliveryHistory, type DeliveryHistoryRefresh } from '@/features/messages/components/DeliveryHistory';
+import type { VersionedMessage } from '@/features/messages/api/messageApi';
 import type { ReviewableDraft } from './AiAssistantPanel';
 
 /** What the review area shows: nothing, a draft being composed for approval, or an existing message. */
@@ -92,9 +93,14 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
   onBusyChange
 }) => {
   const [contactAttempt, setContactAttempt] = useState(0);
-  // Asks the history to read again after a submit or a change made in review, keeping its pages and open row.
+  // Brings the history up to date after a submit or a change made in review, keeping its pages and open row.
   const historyRef = useRef<DeliveryHistoryRefresh>(null);
   const refreshHistory = useCallback(() => historyRef.current?.refresh(), []);
+  // The changed message may sit beyond the first page, so its new version is applied to its own row as well.
+  const messageChanged = useCallback((read: VersionedMessage) => {
+    historyRef.current?.applyMessage(read);
+    historyRef.current?.refresh();
+  }, []);
   const contact = usePrimaryContact(item.customerId, panel.kind === 'compose' ? panel.nonce : null, contactAttempt);
 
   let review: React.ReactNode = null;
@@ -139,7 +145,7 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
             refreshHistory();
           }}
           onPolicyStale={() => void onRequestRefresh('stale')}
-          onMessageChanged={refreshHistory}
+          onMessageChanged={messageChanged}
           onBusyChange={onBusyChange}
         />
       );
@@ -151,7 +157,7 @@ export const FollowUpMessaging: React.FC<FollowUpMessagingProps> = ({
         tenantId={tenantId}
         role={role}
         mode={{ kind: 'review', messageId: panel.messageId, customerDisplayName: item.displayName }}
-        onMessageChanged={refreshHistory}
+        onMessageChanged={messageChanged}
         onBusyChange={onBusyChange}
       />
     );

@@ -27,6 +27,7 @@ import {
   submitPath,
   variant
 } from '@/features/messages/__tests__/messageTestServer';
+import { listItemFromDetail } from '@/features/messages/utils/mergeItem';
 
 vi.mock('@/features/tenants/TenantContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/tenants/TenantContext')>();
@@ -386,5 +387,38 @@ describe('FollowUpWorkbench Phase 3 messaging', () => {
     await waitFor(() => expect(row).toHaveTextContent('Aprobado, sin enviar'));
     // The same row element: the history was refreshed in place, not remounted.
     expect(document.querySelector(`[aria-controls="delivery-row-${pendingApproval.messageId}"]`)).toBe(row);
+  });
+
+  it('applies a change made in review to its row beyond the first history page', async () => {
+    const sent = variant(details.sent, { customerId });
+    const delivered = variant(details.delivered, { messageId: sent.messageId, customerId });
+    const cursor = pages.firstPage.nextCursor;
+    server
+      .on(historyPath(customerId), ok(pages.firstPage))
+      .on(historyPath(customerId, cursor), ok({ items: [listItemFromDetail(sent)], nextCursor: null }))
+      // The open history row and the review each read the sent version; the review's refresh then reads it delivered.
+      .on(detailPath(sent.messageId), detailReply(sent), detailReply(sent), detailReply(delivered))
+      .on(eventsPath(sent.messageId), eventsReply(sent));
+    render(<FollowUpWorkbench onNavigateToCustomer={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cargar más' }));
+    const row = await waitFor(() => {
+      const button = document.querySelector(`[aria-controls="delivery-row-${sent.messageId}"]`);
+      if (!(button instanceof HTMLButtonElement)) throw new Error('row not rendered');
+      return button;
+    });
+    expect(row).toHaveTextContent('Aceptado por el proveedor');
+    fireEvent.click(row);
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir en revisión' }));
+    const actions = await screen.findByRole('region', { name: 'Acciones' });
+
+    click('Actualizar', actions);
+
+    await waitFor(() => expect(row).toHaveTextContent('Entregado'));
+    // The first page is read again too, and the loaded second page and the open row stay.
+    await waitFor(() => expect(server.count(historyPath(customerId))).toBe(2));
+    expect(server.count(historyPath(customerId, cursor))).toBe(1);
+    expect(document.querySelector(`[aria-controls="delivery-row-${sent.messageId}"]`)).toBe(row);
+    const panel = document.getElementById(`delivery-row-${sent.messageId}`)!;
+    await waitFor(() => expect(panel).toHaveTextContent('Entregado'));
   });
 });

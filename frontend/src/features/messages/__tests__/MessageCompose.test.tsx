@@ -637,6 +637,10 @@ describe('host signals', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Aprobar' }));
     fireEvent.click(within(screen.getByRole('group', { name: 'Confirmar aprobación' })).getByRole('button', { name: 'Confirmar aprobación' }));
 
-    await waitFor(() => expect(onMessageChanged).toHaveBeenCalledWith(pendingApproval.messageId));
+    await waitFor(() =>
+      expect(onMessageChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ detail: expect.objectContaining({ messageId: pendingApproval.messageId, status: 'APPROVED' }) })
+      )
+    );
   });
 });

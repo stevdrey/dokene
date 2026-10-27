@@ -24,9 +24,15 @@ export interface DeliveryHistoryProps {
   onOpenMessage?: (messageId: string) => void;
 }
 
-/** Lets a host that changed a message ask the history to read its first page again, keeping later pages and the open row. */
+/** Lets a host that created or changed a message bring the history up to date, keeping later pages and the open row. */
 export interface DeliveryHistoryRefresh {
+  /** Reads the first page again, where a newly created message appears. */
   refresh: () => void;
+  /**
+   * Applies a newer version of a message the host read itself, under the version rule, to its loaded row on any page
+   * and to the open row's detail. A message the history has not loaded is left alone.
+   */
+  applyMessage: (read: VersionedMessage) => void;
 }
 
 export const DeliveryHistory = forwardRef<DeliveryHistoryRefresh, DeliveryHistoryProps>(function DeliveryHistory(
@@ -81,7 +87,20 @@ const DeliveryHistoryList = forwardRef<DeliveryHistoryRefresh, DeliveryHistoryPr
 
   const history = useDeliveryHistory(customerId, { onRowRefreshed });
   const { state, openMessageId, announcement } = history;
-  useImperativeHandle(ref, () => ({ refresh: history.refreshList }), [history.refreshList]);
+  const { refreshList, applyDetail } = history;
+  useImperativeHandle(
+    ref,
+    () => ({
+      refresh: refreshList,
+      applyMessage(read) {
+        const messageId = read.detail.messageId;
+        applyDetail(messageId, read);
+        // The open row ignores a read of another message, and reads its events again for this one.
+        if (openMessageId === messageId) openRowRef.current?.applyRefresh(read);
+      }
+    }),
+    [applyDetail, openMessageId, refreshList]
+  );
 
   // Which read the focused control started, so focus has somewhere to go when that control leaves with the reply.
   const reading = state.kind === 'loading' || (state.kind === 'ready' && state.loadingMore);

@@ -17,17 +17,17 @@ Status: the second #140 PR. It mounts the reviewed Phase 3 components in the app
 - **Follow-up detail:** a new `FollowUpMessaging` section, placed below the assistant, holds the review area and the customer's delivery history.
   - **Recipient:** every hand-off reads the customer's primary phone again (`customerApi.getCustomer`). That phone's id is the `contactId` the submit binds. Compose waits for that hand-off's own lookup, so neither the queue item nor an earlier hand-off can supply a stale phone. Without a primary phone it explains why and offers no compose. A failed read offers a retry.
   - **Compose:** `MessageReview` in compose mode with `origin: 'AI_DRAFT'` and the policy version **the draft was written for**, never the queue item's current one. It is keyed per hand-off, with a number that is never reused. A `STALE_VERSION` refusal asks the workbench to refresh the queue, and the compose stays stale. Only a new draft, written for the new version and handed off again, can be submitted.
-  - **History:** `DeliveryHistory` for the customer. It reads its first page again in place (through its refresh handle, keeping later pages and the open row) after a submit and after any change made in review: an approve, cancel or send result, a refresh or a poll. "Abrir en revisión" opens that message in `MessageReview` review mode.
+  - **History:** `DeliveryHistory` for the customer. It reads its first page again in place (through its refresh handle, keeping later pages and the open row) after a submit and after any change made in review: an approve, cancel or send result, a refresh or a poll. A change made in review is also applied to that message's own row and open detail, so a message beyond the first page follows it too. "Abrir en revisión" opens that message in `MessageReview` review mode.
   - **One message per draft:** once a handed-off draft is submitted, "Revisar y enviar" is disabled for that draft with a note. Only a newly generated draft can be handed off again, so the same draft never becomes two messages.
   - **No unmount mid-request:** while review holds a submit or an action in flight, or an unsure outcome, a new hand-off, "Cerrar revisión" and the history's "Abrir en revisión" are unavailable (`MessageReview` `onBusyChange`). The outcome and the retry on the same idempotency key are never lost.
   - Dispositions (record, snooze, dismiss), the phone copy button and the assistant are unchanged.
 - **Permissions:** `canActOnMessages` and `canReadMessages` moved from `features/messages/utils/permissions.ts` into `features/tenants/TenantContext.tsx`, beside `canWriteCustomer`. The two workbench test files now mock `useTenant` over the real module (`importOriginal`), as the customer tests already did.
-- **Messages components (additive):** `MessageReview` gains `onBusyChange` and `onMessageChanged`, `useMessageDetail` an `onChanged` option, and `DeliveryHistory` a refresh handle whose request during a read in flight runs once more after it.
+- **Messages components (additive):** `MessageReview` gains `onBusyChange` and `onMessageChanged`, `useMessageDetail` an `onChanged` option, and `DeliveryHistory` a handle: `refresh()`, whose request during a read in flight runs once more after it, and `applyMessage(read)`, which applies a newer version to its loaded row on any page.
 - **Docs:** the caller-contract notes of the #147 and #148 records are brought up to date.
 
 ## Automated coverage
 
-### `FollowUpWorkbench.messaging.test.tsx` (11 tests)
+### `FollowUpWorkbench.messaging.test.tsx` (12 tests)
 
 | Acceptance item | Test |
 | --- | --- |
@@ -42,6 +42,7 @@ Status: the second #140 PR. It mounts the reviewed Phase 3 components in the app
 | A submitted draft cannot be handed off again; a newly generated one can | `does not hand a submitted draft off again until a new one is written` |
 | While a submit is in flight, hand-off, closing and opening another message are unavailable; they return when it lands | `keeps the review in place while its submit is in flight` |
 | An approval made in review re-reads the history in place (same row element) | `reads the history again after an approval made in review, without remounting it` |
+| A change made in review reaches its row on the second page: a `SENT` row opened from "Cargar más" shows "Entregado" in the row and its open detail after the review's refresh; the same row element, the second page not read again | `applies a change made in review to its row beyond the first history page` |
 
 Every test fails on any request the fake server does not expect.
 
@@ -61,7 +62,7 @@ Duplicate clicks, uncertain outcomes, approve and send ordering, and polling are
 
 | Command (working directory) | Result |
 | --- | --- |
-| `npx vitest run` (`frontend/`) | **Passed** (after both review rounds): 46 files, 1102 tests |
+| `npx vitest run` (`frontend/`) | **Passed** (after all review rounds): 46 files, 1103 tests |
 | `npx tsc -b` (`frontend/`) | **Passed** |
 | `npm run build` (`frontend/`) | **Passed**. Vite still prints its chunk-size warning (>500 kB); this PR does not change the bundling |
 
@@ -79,6 +80,8 @@ A later high-effort review found five more issues, all fixed:
 - the history was refreshed by remounting it.
 
 With each guard switched off temporarily, the matching new test fails: the two hand-off tests, and the in-flight refresh test.
+
+A third review found that a change made in review reached only the first history page. The changed message's id was dropped, so a row loaded by "Cargar más" kept its old status. Review now passes the new versioned read, and the history applies it to that row and its open detail as well as reading the first page. With that step removed temporarily, the new second-page test fails.
 
 The first run of the new file had one failure, and the bug was in the test: it asked a viewer to generate a draft, which the assistant correctly refuses for that role. The test now checks the viewer's history without a draft.
 
