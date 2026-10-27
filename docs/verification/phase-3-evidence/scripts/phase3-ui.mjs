@@ -7,6 +7,8 @@ const PW = process.env.DOKENE_TEST_USER_PASSWORD || 'testpassword';
 const RUN = Date.now().toString().slice(-7);
 const NAME = `QA140 Sintético ${RUN}`;
 let pass = 0, fail = 0;
+// JSON for values embedded in evaluated page code, with <, U+2028 and U+2029 escaped (same helper as issue 123).
+const safeJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const READY = `document.body.innerText.includes("No hay una plantilla aprobada")||[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Enviar a aprobación'&&!b.disabled)`;
 const chk = (label, ok, note = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  P3-UI  ${label}${note ? '  -- ' + note : ''}`); };
 
@@ -17,24 +19,24 @@ async function open(user, port) {
   await p.waitFor('location.host.includes("8081")||document.querySelector("main")', 15000);
   if (await p.ev('location.host.includes("8081")')) {
     await p.waitFor('document.querySelector("#username")', 10000);
-    await p.ev(`document.querySelector('#username').value=${JSON.stringify(user)};document.querySelector('#password').value=${JSON.stringify(PW)};document.querySelector('form').submit()`);
+    await p.ev(`document.querySelector('#username').value=${safeJson(user)};document.querySelector('#password').value=${safeJson(PW)};document.querySelector('form').submit()`);
   }
   await p.waitFor('location.host==="localhost:5174"&&document.querySelector("main")&&document.body.innerText.includes("Seguimientos")', 30000);
   await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 30000);
   return p;
 }
 // Click the visible button whose normalized text is exactly `text`, inside `scope` when given.
-const clickExact = (p, text, scope = 'document') => p.ev(`(()=>{const n=x=>x.textContent.replace(/\\s+/g,' ').trim();const e=[...${scope}.querySelectorAll('button')].find(b=>b.offsetParent!==null&&n(b)===${JSON.stringify(text)}&&!b.disabled);if(!e)return false;e.scrollIntoView({block:'center'});e.click();return true})()`);
-const hasButton = (p, text) => p.ev(`[...document.querySelectorAll('button')].some(b=>b.offsetParent!==null&&b.textContent.replace(/\\s+/g,' ').trim()===${JSON.stringify(text)})`);
+const clickExact = (p, text, scope = 'document') => p.ev(`(()=>{const n=x=>x.textContent.replace(/\\s+/g,' ').trim();const e=[...${scope}.querySelectorAll('button')].find(b=>b.offsetParent!==null&&n(b)===${safeJson(text)}&&!b.disabled);if(!e)return false;e.scrollIntoView({block:'center'});e.click();return true})()`);
+const hasButton = (p, text) => p.ev(`[...document.querySelectorAll('button')].some(b=>b.offsetParent!==null&&b.textContent.replace(/\\s+/g,' ').trim()===${safeJson(text)})`);
 const text = (p) => p.ev('document.body.innerText');
-const api = (p, method, path, body, extra = {}) => p.ev(`(async()=>{const s=await (await fetch('/api/session')).json();const t=await (await fetch('/api/tenants')).json();const tid=t.find(x=>x.displayName==='QA Café Norte').tenantId;const r=await fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:Object.assign({'X-Tenant-Id':tid,'X-CSRF-TOKEN':s.csrfToken,'Content-Type':'application/json'},${JSON.stringify(extra)}),body:${body ? JSON.stringify(JSON.stringify(body)) : 'undefined'}});let j=null;try{j=await r.json()}catch{};return {status:r.status,etag:r.headers.get('etag'),body:j}})()`);
+const api = (p, method, path, body, extra = {}) => p.ev(`(async()=>{const s=await (await fetch('/api/session')).json();const t=await (await fetch('/api/tenants')).json();const tid=t.find(x=>x.displayName==='QA Café Norte').tenantId;const r=await fetch(${safeJson(path)},{method:${safeJson(method)},headers:Object.assign({'X-Tenant-Id':tid,'X-CSRF-TOKEN':s.csrfToken,'Content-Type':'application/json'},${safeJson(extra)}),body:${body ? safeJson(JSON.stringify(body)) : 'undefined'}});let j=null;try{j=await r.json()}catch{};return {status:r.status,etag:r.headers.get('etag'),body:j}})()`);
 
 async function openCard(p) {
   await p.waitFor('!!document.querySelector(\'input[placeholder*="Buscar"]\')', 30000);
-  await p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(NAME)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await p.ev(`(()=>{const i=document.querySelector('input[placeholder*="Buscar"]');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${safeJson(NAME)});i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   for (let i = 0; i < 8; i++) {
     await sleep(1200);
-    const hit = await p.ev(`(()=>{const e=[...document.querySelectorAll('.follow-up-card')].find(x=>x.textContent.includes(${JSON.stringify(NAME)}));if(!e)return false;e.scrollIntoView({block:'center'});e.click();return true})()`);
+    const hit = await p.ev(`(()=>{const e=[...document.querySelectorAll('.follow-up-card')].find(x=>x.textContent.includes(${safeJson(NAME)}));if(!e)return false;e.scrollIntoView({block:'center'});e.click();return true})()`);
     if (hit) return true;
     if (!(await clickExact(p, 'Cargar más seguimientos'))) await clickExact(p, 'Cargar más');
   }
