@@ -150,7 +150,7 @@ Draft generation is strictly an advisory decision-support operation, and Phase 3
 - **Deterministic gates:** the deterministic policy gates and the kill switches decide at the last moment, not the model.
 - **No automatic send:** no draft is ever sent by itself, and there is no scheduler, campaign or auto-send.
 
-The handoff is certified in [`phase-3-release-certification.md`](../verification/phase-3-release-certification.md) (issue 140). One case from the live runs shows the grounding: asked about a customer whose only purchase was that day, the model declined to recommend a follow-up. Another case shows the gates: when the model chose an intent with no approved template, the review refused to submit the message.
+The handoff was exercised on the real stack in [`phase-3-release-certification.md`](../verification/phase-3-release-certification.md) (issue 140). That run is not yet a release certification: two gates remain open. One case from the live runs shows the grounding: asked about a customer whose only purchase was that day, the model declined to recommend a follow-up. Another case shows the gates: when the model chose an intent with no approved template, the review refused to submit the message.
 
 ## AI Failure Handling, Telemetry and Audit
 

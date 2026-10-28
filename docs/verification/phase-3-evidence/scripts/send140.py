@@ -23,6 +23,11 @@ def outbound(api, enabled):
     _, data = request(api, 'PUT', '/api/integrations/whatsapp/outbound', {'enabled': enabled}, {'If-Match': headers['ETag']})
     print(json.dumps({'tenantOutboundEnabled': data['outboundEnabled']}))
 
+def tenant(api):
+    # Read only: the tenant switch as the API reports it, so a wrapper can verify the window is closed.
+    _, data = request(api, 'GET', '/api/integrations/whatsapp')
+    print(json.dumps({'tenantOutboundEnabled': data['outboundEnabled']}))
+
 def send(api, state):
     if state.get('messageId'):
         raise RuntimeError('Send already recorded; inspect status, never resend automatically.')
@@ -62,10 +67,11 @@ def status(api, state):
                       'events': [(e['type'], e.get('statusTo')) for e in ev['events']]}))
 
 if __name__ == '__main__':
-    action = argparse.ArgumentParser(); action.add_argument('action', choices=('enable', 'disable', 'send', 'status'))
+    action = argparse.ArgumentParser(); action.add_argument('action', choices=('enable', 'disable', 'tenant', 'send', 'status'))
     a = action.parse_args().action
     state = json.loads(STATE.read_text()) if STATE.exists() else {'testedCommit': 'f4cb0ec'}
     api = LocalApi()
     if a in ('enable', 'disable'): outbound(api, a == 'enable')
+    elif a == 'tenant': tenant(api)
     elif a == 'send': send(api, state)
     else: status(api, state)

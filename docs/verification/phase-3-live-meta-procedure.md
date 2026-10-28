@@ -48,7 +48,7 @@ All of these must hold. If one does not, the live leg is **BLOCKED**, not PASS.
 7. **Close the window immediately.**
    - Register the close-down as an exit/signal handler before step 5 opens the window (for example a shell `trap` on `EXIT`, `INT`, `TERM` and `HUP`). An interrupted run then still turns the switches off and restores the interval.
    - Tenant switch off, then restart the backend with the global switch off.
-   - Confirm both through `GET /api/integrations/whatsapp` and the startup property.
+   - Confirm both through `GET /api/integrations/whatsapp` and the running backend's effective settings. The window counts as closed only when they read back as off, off and `24h`. A shutdown step that fails is retried a bounded number of times; if closure still cannot be confirmed, stop and close it by hand before anything else.
    - If the contact interval was lowered for the run, start the backend again with the default `24h`.
 8. **Callback leg.** Where preconditions allow, confirm in the webhook inbox that the signed callback arrived and was `APPLIED`. Confirm on the message detail and timeline that the status moved to `DELIVERED` or `READ`.
 9. **Ask the recipient** to confirm receipt in their own words. Record only "confirmed" or "not confirmed".

@@ -15,10 +15,11 @@ Providers:
 
 All data is synthetic, except the one consenting test recipient of the live sends. This report proves the scenarios it lists; it does not claim that no other defect exists.
 
-**Verdict: PASS with one open Low finding and one BLOCKED live leg.**
-- The approved-send journey is certified end to end on one SHA: deterministic, on the real stack, and live up to Meta's acceptance and delivery to the recipient's phone.
-- The security track has one open Low defect ([#293](https://github.com/stevdrey/dokene/issues/293)). It must be fixed and retested before that track is clean.
-- The real status-callback leg is BLOCKED while the Meta app is unpublished.
+**Overall verdict: BLOCKED — not certified.** #140 and #149 require both tracks to pass on the final candidate, with no required case left FAIL or BLOCKED. Two required gates are still open:
+- **Security (#149): not yet passing.** P3-KILL-07 failed on `f4cb0ec` ([#293](https://github.com/stevdrey/dokene/issues/293), Low). The fix has since been merged ([PR #296](https://github.com/stevdrey/dokene/pull/296)), but P3-KILL-07 has not been retested on a candidate that includes it.
+- **Real status callbacks: BLOCKED.** The Meta app is unpublished, so no real `delivered`/`read` callback updated a Dokene message. Meta's acceptance and the recipient's confirmation prove the two sends, not the callback reconciliation.
+
+Every individual leg recorded below as PASS keeps its evidence. Certification needs these two gates to pass on one candidate, or an explicitly agreed and recorded change to the acceptance scope.
 
 ## Results
 
@@ -26,7 +27,7 @@ All data is synthetic, except the one consenting test recipient of the live send
 | --- | --- | --- |
 | Deterministic backend journey | **PASS** | `./gradlew check` on this commit: 186 suites, 2295 tests, 0 failures, 0 errors, 0 skipped. It includes `ApprovedSendJourneyIntegrationTest`: synthetic customer → consent/purchase → AI draft → explicit, revision-bound approval → manual send through the real Graph adapter (loopback Meta) → signed `delivered`/`failed` callbacks. It also covers duplicate clicks, drift, opt-out, tenant switch, integration disable and uncertain outcomes, each refusal with zero provider requests. |
 | Frontend | **PASS** | `npm test`: 46 files, 1103 tests passed (see the observation below). `npm run build`: passed. The composed workbench messaging tests from #291 are included. |
-| Phase 3 security (#149) | **PASS except 1 Low FAIL** | [PR #294](https://github.com/stevdrey/dokene/pull/294), [report](issue-149-phase-3-security-verification.md), same SHA, on an isolated stack with the Graph stub. 116 PASS, 1 FAIL (P3-KILL-07, [#293](https://github.com/stevdrey/dokene/issues/293), Low: an unexpected switch-lookup failure answers Spring's default 500 body instead of the problem body; the send is still refused, nothing is written and the provider is not called), 2 BLOCKED (metrics halves with no exposed endpoint by design, covered in process). #265 and #266 retested fixed. |
+| Phase 3 security (#149) | **NOT YET PASSING (1 FAIL)** | [PR #294](https://github.com/stevdrey/dokene/pull/294), [report](issue-149-phase-3-security-verification.md), same SHA, on an isolated stack with the Graph stub. 116 PASS, 1 FAIL (P3-KILL-07, [#293](https://github.com/stevdrey/dokene/issues/293), Low: an unexpected switch-lookup failure answers Spring's default 500 body instead of the problem body; the send is still refused, nothing is written and the provider is not called), 2 BLOCKED (metrics halves with no exposed endpoint by design, covered in process). #265 and #266 retested fixed. |
 | Phase 3 browser journey on the real stack | **PASS (16/16; hardened script 19/19)** | See [Phase 3 browser journey](#phase-3-browser-journey). |
 | Live Meta send, Spanish template | **PASS** | See [Live provider legs](#live-provider-legs). |
 | Live Meta send, English template | **PASS** | See [Live provider legs](#live-provider-legs). |
@@ -102,7 +103,7 @@ The Path B drivers of campaign #118 were rerun on this commit (`regress.sh`, `re
 
 | Issue | Severity | Status |
 | --- | --- | --- |
-| [#293](https://github.com/stevdrey/dokene/issues/293) | Low | Open: Phase 3 route answers Spring's default 500 body on an unexpected failure. Blocks a clean security track until fixed and retested. |
+| [#293](https://github.com/stevdrey/dokene/issues/293) | Low | Fixed on `main` by [PR #296](https://github.com/stevdrey/dokene/pull/296) after this run: a Phase 3 route now answers unexpected failures with the problem body. P3-KILL-07 still needs a retest on a candidate that includes the fix, so the security track stays not passing. |
 | #265, #266 | Low | Fixed and retested by #149 |
 
 No new defect was found by the regression, the browser journey or the live legs.
