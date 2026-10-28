@@ -50,9 +50,9 @@ read -r PA_ SA_ <<< "$(ctx tenant "$A")"
 read -r c p MA <<< "$(ready_approved $O "$A" "KILL07 $RUN")"
 g0=$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")
 # The ETag is read first: with the grant gone the message read fails too, and an empty If-Match never reaches the switch.
-E7=$(msg_etag $O "$A" "$MA"); S=$(snap); psqlq "revoke select on dokene.tenant_messaging_integrations from dokene_runtime" >/dev/null
+E7=$(msg_etag $O "$A" "$MA"); S=$(snap); revoke_runtime_select tenant_messaging_integrations
 send $O "$A" "$MA" "qa149-$RUN-kill07" "$E7"; k7=$CODE
-psqlq "grant select on dokene.tenant_messaging_integrations to dokene_runtime" >/dev/null
+restore_runtime_select tenant_messaging_integrations
 chk P3-KILL-07 $H "runtime grants restored exactly after the fault" "$g0" "$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")"
 # ADR 0023 §4.4 (amended by #293): exactly 500, application/problem+json and the four members with these values.
 # selftest149.sh proves offline that the predicate rejects partial fixes (a code added to the default body, extra ids).

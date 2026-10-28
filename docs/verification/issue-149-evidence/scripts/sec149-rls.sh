@@ -10,9 +10,19 @@ OTHER_TABLES="tenant_messaging_integrations tenant_provider_templates provider_w
 echo "== fixtures: messaging rows in both tenants"
 read -r CA PA MA <<< "$(ready_pending $A_OPERATOR "$A" "RLS A $RUN")"
 read -r CB PB MB <<< "$(ready_pending $B_OPERATOR "$B" "RLS B $RUN")"
+# Rows in both tenants for every table probed below, so "0 of B" is a real isolation result and not an empty table:
+# a cancellation and a T12 resolution per tenant, and a webhook inbox row parked in tenant B.
+for t in "$A_OPERATOR $A_OWNER $A" "$B_OPERATOR $B_OWNER $B"; do set -- $t
+  read -r c p m <<< "$(ready_pending $1 "$3" "RLS cancel $RUN")"; cancel $1 "$3" "$m"; echo "  cancellation in $3: $CODE"
+  read -r c p m <<< "$(ready_unknown $1 "$3" "RLS resolve $RUN")"; resolve $2 "$3" "$m" FAILED; echo "  resolution in $3: $CODE"
+done
+hook_post "$(hook_body "$PN_B" "wamid.SYNTHETIC-rls-B-$RUN" delivered)" "$CANARY_APP_SECRET"; echo "  webhook inbox row for PN-B: $CODE"; sleep 2
+# both_sides <table> -> "yes yes" when the table holds rows of tenant A and of tenant B
+both_sides() { echo "$([ "$(psqlq "select count(*) from dokene.$1 where tenant_id='$A'")" -gt 0 ] && echo yes || echo no) $([ "$(psqlq "select count(*) from dokene.$1 where tenant_id='$B'")" -gt 0 ] && echo yes || echo no)"; }
 read -r PA_ SA_ <<< "$(ctx tenant "$A")"; read -r PB_ SB_ <<< "$(ctx tenant "$B")"; read -r PX_ SX_ <<< "$(ctx tenant "$B" -10)"
 
 for t in $V18_TABLES; do id=P3-RLS-01
+  chk $id $D "$t: fixture rows exist in both tenants" "yes yes" "$(both_sides "$t")"
   chk $id $D "$t: forced RLS on" "true true" "$(psqlq "select relrowsecurity||' '||relforcerowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='dokene' and relname='$t'")"
   chk $id $D "$t: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant" "" "$(psqlq "select string_agg(privilege_type,',') from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='$t' and privilege_type in ('DELETE','TRUNCATE','REFERENCES','TRIGGER')")"
   chk $id $D "$t: no capability reads 0 rows" 0 "$(rt -c "select count(*) from dokene.$t")"
@@ -41,10 +51,11 @@ chk P3-RLS-03 $D "event update and delete denied, rows intact" "denied denied $e
 echo "== P3-RLS-04 the integration, template and webhook inbox tables"
 for t in $OTHER_TABLES; do id=P3-RLS-04
   if [ "$(psqlq "select count(*) from pg_tables where schemaname='dokene' and tablename='$t'")" != 1 ]; then rec $id $D BLOCKED "$t does not exist on this commit"; continue; fi
+  chk $id $D "$t: fixture rows exist in both tenants" "yes yes" "$(both_sides "$t")"
   chk $id $D "$t: forced RLS on" "true true" "$(psqlq "select relrowsecurity||' '||relforcerowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='dokene' and relname='$t'")"
   chk $id $D "$t: no DELETE/TRUNCATE grant for the runtime role" "" "$(psqlq "select string_agg(privilege_type,',') from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='$t' and privilege_type in ('DELETE','TRUNCATE')")"
-  na=$(psqlq "select count(*) from dokene.$t where tenant_id='$A'")
-  chk $id $D "$t: no capability 0, A capability $na and 0 of B, forged 0, expired 0" "0 $na 0 0 0" "$(rt -c "select count(*) from dokene.$t") $(runctx $PA_ $SA_ "select count(*) from dokene.$t") $(runctx $PA_ $SA_ "select count(*) from dokene.$t where tenant_id='$B'") $(runctx $PB_ ${SB_/a/b}x "select count(*) from dokene.$t") $(runctx $PX_ $SX_ "select count(*) from dokene.$t")"
+  na=$(psqlq "select count(*) from dokene.$t where tenant_id='$A'"); nb=$(psqlq "select count(*) from dokene.$t where tenant_id='$B'")
+  chk $id $D "$t: no capability 0, A capability $na and 0 of B ($nb exist), forged 0, expired 0" "0 $na 0 0 0" "$(rt -c "select count(*) from dokene.$t") $(runctx $PA_ $SA_ "select count(*) from dokene.$t") $(runctx $PA_ $SA_ "select count(*) from dokene.$t where tenant_id='$B'") $(runctx $PB_ ${SB_/a/b}x "select count(*) from dokene.$t") $(runctx $PX_ $SX_ "select count(*) from dokene.$t")"
 done
 
 echo "== P3-HOOK-13 provider attributed audit append with forged or expired provider capabilities"

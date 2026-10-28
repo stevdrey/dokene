@@ -151,6 +151,22 @@ audit row fell inside the second pass's refusal window and is the one counted th
 a per-start token (`GraphStub.java`). A real Meta id is never reused, so this is not a product defect. Both passes are
 in `outputs.txt`.
 
+## Review follow-up on `38b5cb9`
+
+The review of PR #294 found two more harness gaps. Both are fixed, and the affected suites were rerun on the isolated
+stack at `main` @ `38b5cb9`. Nothing in RLS changed since `f4cb0ec`: there is no migration (Flyway still V33).
+
+- **RLS fixtures in both tenants.** On `f4cb0ec`, tenant B held no row in `outbound_message_cancellations` or
+  `outbound_message_resolutions`, so "tenant A reads 0 of B" there showed nothing. P3-RLS-04 also never counted B's
+  rows. `sec149-rls.sh` now creates a cancellation and a T12 resolution in each tenant and parks a webhook inbox row in
+  tenant B. Before the visibility probes it checks "fixture rows exist in both tenants" for every table, so an empty
+  side fails instead of passing. Rerun: **63 PASS, 0 FAIL**. For example, B holds 1 resolution, 1 cancellation and
+  1 inbox row, and tenant A's capability reads none of them.
+- **Cleanup trap for the KILL-07 fault.** `revoke_runtime_select` (`qa149.sh`) installs an EXIT/INT/TERM trap before the
+  revoke, and `restore_runtime_select` grants again and clears the trap. Checked offline on the isolated stack: after
+  `SIGTERM`, `SIGINT` or `exit 1` right after the revoke, the runtime grants are back to `INSERT,SELECT,UPDATE`. Kill
+  suite rerun: **49 PASS, 0 FAIL**.
+
 ## Repeating the run
 
 ```sh

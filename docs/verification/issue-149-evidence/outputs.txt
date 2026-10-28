@@ -1949,3 +1949,125 @@ PASS  P3-KILL-08  [HTTP]  send with IA disabled: nothing written
 PASS  P3-KILL-09  [HTTP]  refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
 PASS  P3-KILL-09  [HTTP]  refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
 == sec149-kill.sh: PASS=49 FAIL=0 BLOCKED=0
+
+===== REVIEW FOLLOW-UP on main @ 38b5cb9 (2026-10-28): sec149-rls.sh with two-tenant fixtures
+P3-RLS-01	Database	PASS	2026-10-28T23:47:57Z	outbound_messages: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:47:57Z	outbound_messages: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:47:57Z	outbound_messages: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:47:57Z	outbound_messages: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:47:58Z	outbound_messages: tenant A capability reads exactly tenant A rows (147) and 0 of B (29 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:47:59Z	outbound_message_approvals: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:47:59Z	outbound_message_approvals: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:47:59Z	outbound_message_approvals: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:47:59Z	outbound_message_approvals: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:48:00Z	outbound_message_approvals: tenant A capability reads exactly tenant A rows (126) and 0 of B (23 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:48:00Z	outbound_message_cancellations: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:48:01Z	outbound_message_cancellations: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:48:01Z	outbound_message_cancellations: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:48:01Z	outbound_message_cancellations: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:48:02Z	outbound_message_cancellations: tenant A capability reads exactly tenant A rows (17) and 0 of B (1 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:48:02Z	outbound_send_attempts: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:48:02Z	outbound_send_attempts: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:48:03Z	outbound_send_attempts: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:48:03Z	outbound_send_attempts: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:48:04Z	outbound_send_attempts: tenant A capability reads exactly tenant A rows (57) and 0 of B (17 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:48:04Z	outbound_message_events: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:48:04Z	outbound_message_events: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:48:04Z	outbound_message_events: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:48:04Z	outbound_message_events: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:48:05Z	outbound_message_events: tenant A capability reads exactly tenant A rows (508) and 0 of B (105 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:48:06Z	outbound_message_idempotency_keys: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:48:06Z	outbound_message_idempotency_keys: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:48:06Z	outbound_message_idempotency_keys: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:48:06Z	outbound_message_idempotency_keys: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:48:07Z	outbound_message_idempotency_keys: tenant A capability reads exactly tenant A rows (351) and 0 of B (71 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:48:07Z	outbound_message_resolutions: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-28T23:48:07Z	outbound_message_resolutions: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-28T23:48:08Z	outbound_message_resolutions: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-28T23:48:08Z	outbound_message_resolutions: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-28T23:48:09Z	outbound_message_resolutions: tenant A capability reads exactly tenant A rows (4) and 0 of B (1 exist)
+P3-RLS-01	Database	PASS	2026-10-28T23:48:09Z	runtime role: not superuser, no bypassrls
+P3-RLS-02	Database	PASS	2026-10-28T23:48:09Z	outbound_messages: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:10Z	outbound_message_approvals: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:11Z	outbound_message_cancellations: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:11Z	outbound_send_attempts: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:12Z	outbound_message_events: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:12Z	outbound_message_idempotency_keys: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:13Z	outbound_message_resolutions: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-28T23:48:13Z	forged capability cannot insert an event row for tenant B
+P3-RLS-02	Database	PASS	2026-10-28T23:48:13Z	expired capability cannot update tenant B message
+P3-RLS-03	Database	PASS	2026-10-28T23:48:14Z	body and recipient rewrite refused ('permission denied' or 0 rows) and stored values unchanged
+P3-RLS-03	Database	PASS	2026-10-28T23:48:15Z	event update and delete denied, rows intact
+P3-RLS-04	Database	PASS	2026-10-28T23:48:15Z	tenant_messaging_integrations: fixture rows exist in both tenants
+P3-RLS-04	Database	PASS	2026-10-28T23:48:16Z	tenant_messaging_integrations: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-28T23:48:16Z	tenant_messaging_integrations: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-28T23:48:17Z	tenant_messaging_integrations: no capability 0, A capability 1 and 0 of B (1 exist), forged 0, expired 0
+P3-RLS-04	Database	PASS	2026-10-28T23:48:18Z	tenant_provider_templates: fixture rows exist in both tenants
+P3-RLS-04	Database	PASS	2026-10-28T23:48:18Z	tenant_provider_templates: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-28T23:48:18Z	tenant_provider_templates: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-28T23:48:19Z	tenant_provider_templates: no capability 0, A capability 3 and 0 of B (1 exist), forged 0, expired 0
+P3-RLS-04	Database	PASS	2026-10-28T23:48:20Z	provider_webhook_events: fixture rows exist in both tenants
+P3-RLS-04	Database	PASS	2026-10-28T23:48:20Z	provider_webhook_events: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-28T23:48:20Z	provider_webhook_events: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-28T23:48:22Z	provider_webhook_events: no capability 0, A capability 52 and 0 of B (1 exist), forged 0, expired 0
+P3-HOOK-13	Database	PASS	2026-10-28T23:48:22Z	forged provider capability cannot append
+P3-HOOK-13	Database	PASS	2026-10-28T23:48:23Z	expired provider capability cannot append
+P3-HOOK-13	Database	PASS	2026-10-28T23:48:23Z	member capability cannot append a provider attributed event
+P3-HOOK-13	Database	PASS	2026-10-28T23:48:23Z	audit row count unchanged
+
+===== REVIEW FOLLOW-UP: sec149-kill.sh with the cleanup trap
+P3-KILL-01	HTTP	PASS	2026-10-28T23:48:44Z	send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-01	HTTP	PASS	2026-10-28T23:48:45Z	send with the global switch off: nothing written
+P3-KILL-01	HTTP	PASS	2026-10-28T23:48:45Z	still APPROVED, no attempt
+P3-KILL-10	HTTP	PASS	2026-10-28T23:48:46Z	tenant B send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-10	HTTP	PASS	2026-10-28T23:48:47Z	tenant B send with the global switch off: nothing written
+P3-KILL-10	HTTP	PASS	2026-10-28T23:48:49Z	a delivery report for an already sent message is still recorded
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:51Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:52Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: nothing written
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:52Z	no route to flip the global switch: PUT /api/integrations/whatsapp/outbound-global
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:52Z	no route to flip the global switch: PUT /api/messaging/outbound
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:52Z	no route to flip the global switch: PUT /api/settings/outbound
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:52Z	no route to flip the global switch: POST /api/integrations/whatsapp/outbound/global
+P3-KILL-03	HTTP	PASS	2026-10-28T23:48:52Z	the screens half (row 10 of the scope) is a browser case; the SPA has no control for the global switch (checked in sec149-browser.mjs)
+P3-KILL-02	HTTP	PASS	2026-10-28T23:49:13Z	tenant A switch off
+P3-KILL-02	HTTP	PASS	2026-10-28T23:49:14Z	tenant A send: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-02	HTTP	PASS	2026-10-28T23:49:15Z	tenant A send: nothing written
+P3-KILL-02	HTTP	PASS	2026-10-28T23:49:16Z	tenant B sends
+P3-KILL-04	HTTP	PASS	2026-10-28T23:49:18Z	send right after the admin flipped the switch off: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-04	HTTP	PASS	2026-10-28T23:49:19Z	send right after the admin flipped the switch off: nothing written
+P3-KILL-04	HTTP	PASS	2026-10-28T23:49:19Z	the change is audited as OUTBOUND_KILL_SWITCH_CHANGED
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:21Z	testoperator sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:21Z	testoperator sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:22Z	testoperator sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:22Z	testoperator sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:23Z	testoperator sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:23Z	testoperator sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:24Z	testoperator sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:25Z	testoperator sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:26Z	testviewer sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:26Z	testviewer sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:27Z	testviewer sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:27Z	testviewer sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:29Z	testviewer sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:29Z	testviewer sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:30Z	testviewer sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:30Z	testviewer sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:49:30Z	switch unchanged (on)
+P3-KILL-06	HTTP	PASS	2026-10-28T23:49:32Z	403 and nothing written
+P3-KILL-06	HTTP	PASS	2026-10-28T23:49:34Z	tenant B still sends
+P3-KILL-07	HTTP	PASS	2026-10-28T23:49:37Z	runtime grants restored exactly after the fault
+P3-KILL-07	HTTP	PASS	2026-10-28T23:49:37Z	send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem
+P3-KILL-07	HTTP	PASS	2026-10-28T23:49:38Z	nothing written: no attempt row, no event, no key, no provider call
+P3-KILL-07	HTTP	PASS	2026-10-28T23:49:38Z	message still APPROVED
+P3-KILL-07	HTTP	PASS	2026-10-28T23:49:39Z	refusal seen: 500 INTERNAL_ERROR; audit rows written by the refusal: 0
+P3-KILL-07	HTTP	PASS	2026-10-28T23:49:39Z	control: with the grant back the same message sends
+P3-KILL-08	HTTP	PASS	2026-10-28T23:49:41Z	send with IA disabled: 409 INTEGRATION_DISABLED
+P3-KILL-08	HTTP	PASS	2026-10-28T23:49:42Z	send with IA disabled: nothing written
+P3-KILL-09	HTTP	PASS	2026-10-28T23:49:45Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
+P3-KILL-09	HTTP	PASS	2026-10-28T23:49:46Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
+
+===== REVIEW FOLLOW-UP: trap check (revoke, then SIGTERM / exit 1 / SIGINT; runtime grants afterwards)
+before: INSERT,SELECT,UPDATE
+kill -TERM -> rc=143, during SELECT=f, after: INSERT,SELECT,UPDATE
+exit 1 -> rc=1, during SELECT=f, after: INSERT,SELECT,UPDATE
+kill -INT -> rc=130, during SELECT=f, after: INSERT,SELECT,UPDATE
