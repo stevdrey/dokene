@@ -334,5 +334,13 @@ The #149 acceptance run (P3-KILL-07) found that an exception no handler maps, he
   - a database outage stays the empty `503` with `Retry-After` from the ADR 0029 boundary;
   - Spring MVC, servlet and Spring Security failures (405, 404, 401 and the like) keep their answers;
   - an audit persistence failure stays the empty `503`, because `AuditExceptionHandler` is now ordered first.
-- The failure is logged with its exception class and root-cause class only, never its message.
+- Spring's own resolver keeps answering:
+  - type-conversion and binding errors (`TypeMismatchException`, `BindException`);
+  - an unwritable response (`HttpMessageNotWritableException`);
+  - a client that went away mid-response (`AsyncRequestNotUsableException`);
+  - any failure after the response was committed.
+
+  The decision lives in one place, `http.UnexpectedFailures.claim`.
+- A failure raised by a filter, before any controller advice, reaches the servlet error dispatch. `Phase3ErrorPageFilter` runs on that dispatch only, after Spring Security's filter, so the response carries the same headers Spring Boot's error page would. For a `500` on a Phase 3 path (`/api/messages/**`, `/api/messaging/**`, `/api/templates/**`, `/api/integrations/**`, `/api/customers/*/messages`) it writes the same closed problem. Spring Boot's error controller still answers every other route and status.
+- The failure is logged with its exception class, its root-cause class and the stack frames of each cause (class, method, file and line), never a message.
 - The frontend treats `INTERNAL_ERROR` like an uncoded `5xx`: the command may or may not have committed, so the review component reads the message again before saying anything.

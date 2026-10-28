@@ -182,6 +182,30 @@ class Phase3UnexpectedFailureIntegrationTest {
     }
 
     @Test
+    void theIntegrationRoutesPassOutagesAndAuditFailuresThroughToo() throws Exception {
+        doThrow(new CannotGetJdbcConnectionException(CANARY)).when(integrations).get();
+        MockHttpServletResponse outage = perform(get("/api/integrations/whatsapp"));
+        assertThat(outage.getStatus()).isEqualTo(503);
+        assertThat(outage.getHeader("Retry-After")).isNotBlank();
+        assertThat(outage.getContentAsString()).isEmpty();
+
+        doThrow(new AuditPersistenceException()).when(integrations).get();
+        MockHttpServletResponse audit = perform(get("/api/integrations/whatsapp"));
+        assertThat(audit.getStatus()).isEqualTo(503);
+        assertThat(audit.getContentAsString()).isEmpty();
+    }
+
+    @Test
+    void anAuditFailureWrappedAsACauseIsStillTheAuditAnswer() throws Exception {
+        doThrow(new IllegalStateException(CANARY, new AuditPersistenceException())).when(queries).detail(any());
+
+        MockHttpServletResponse response = perform(get("/api/messages/" + UUID.randomUUID()));
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getContentAsString()).isEmpty();
+    }
+
+    @Test
     void springMvcErrorsKeepTheirOwnStatus() throws Exception {
         // No DELETE route exists; Spring answers 405 before any Phase 3 advice applies.
         assertThat(perform(delete("/api/messages/" + UUID.randomUUID())).getStatus()).isEqualTo(405);

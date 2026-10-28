@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.template.api.TemplateApiContract.InvalidRequest
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateProblem;
 import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateRefusedException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -42,17 +43,14 @@ public class TemplateExceptionHandler {
     }
 
     /**
-     * The last resort (issue 293): any other failure is a closed {@code 500 INTERNAL_ERROR} problem, never Spring's
-     * default body, which echoes the path. A database outage and Spring MVC, servlet or security failures are
-     * rethrown unchanged, so the outage boundary and Spring keep answering them; audit failures never get here
-     * because the audit handler is ordered first.
+     * The last resort (issue 293): the closed {@code 500 INTERNAL_ERROR}, or a rethrow, as
+     * {@link UnexpectedFailures#claim} decides.
      */
     @ExceptionHandler(Exception.class)
-    ResponseEntity<TemplateProblem> unexpected(Exception failure) throws Exception {
-        if (!UnexpectedFailures.isUnexpected(failure) || databaseUnavailability.isCause(failure)) {
+    ResponseEntity<TemplateProblem> unexpected(Exception failure, HttpServletResponse response) throws Exception {
+        if (!UnexpectedFailures.claim(failure, response, databaseUnavailability::isCause)) {
             throw failure;
         }
-        UnexpectedFailures.log(failure);
         return problem(TemplateErrorCode.INTERNAL_ERROR);
     }
 

@@ -28,10 +28,25 @@ Status: single PR.
 | A `CannotGetJdbcConnectionException` on a message route is still the empty `503` with `Retry-After` from the ADR 0029 boundary. | `aDatabaseOutageStillAnswersTheEmptyRetryable503` |
 | An `AuditPersistenceException` on a template route is still the empty `503`. The audit handler is ordered first. | `anAuditFailureStillAnswersTheEmpty503` |
 | `DELETE /api/messages/{id}` (no such route) is still `405`, and a malformed id is still the mapped `400 INVALID_INPUT`. | `springMvcErrorsKeepTheirOwnStatus` |
+| On `GET /api/integrations/whatsapp`, an outage is still the empty `503` with `Retry-After`, and an audit failure is still the empty `503`. | `theIntegrationRoutesPassOutagesAndAuditFailuresThroughToo` |
+| An `AuditPersistenceException` wrapped as the cause of another exception is still the empty audit `503`. | `anAuditFailureWrappedAsACauseIsStillTheAuditAnswer` |
+
+### `Phase3ErrorPageSystemTest` (real server on a random port, JDK `HttpClient`; 3 tests)
+
+A test-only filter fails marked requests before Spring Security and every controller, carrying a canary.
+
+| Case | Test |
+| --- | --- |
+| `GET /api/messages/{id}` answers `500` `application/problem+json` with the four members and `INTERNAL_ERROR`. The body has no `path`, `timestamp`, message id or canary, and the policy headers match those of Spring Boot's own error page. | `aFilterFailureOnAPhase3RouteIsTheClosedProblem` |
+| `/api/templates`, `/api/integrations/whatsapp` and `/api/customers/{id}/messages` answer the same problem. | `theTemplateIntegrationAndSubmitRoutesAreCoveredToo` |
+| `/api/customers` (Phase 1) keeps Spring Boot's default error body. | `otherRoutesKeepSpringBootsErrorBody` |
 
 ### Unit and contract
 
+- `Phase3ErrorPageFilterTest` checks that every Phase 3 path, including the submit route under a customer, is matched, and that no Phase 1 or 2 path or the webhook is.
 - `UnexpectedFailuresTest`:
+  - type-mismatch, bind, unwritable-response and client-abort failures are not claimed, and neither is a committed response or an outage;
+  - the log line carries classes and stack frames but no message canary;
   - ordinary runtime and data-access failures are unexpected;
   - `ErrorResponse`, `ServletException`, `AccessDeniedException` and `AuthenticationException` are not;
   - logging survives a cyclic cause chain.
@@ -44,7 +59,8 @@ Status: single PR.
 | Command (working directory) | Result |
 | --- | --- |
 | `./gradlew test --tests '*Phase3UnexpectedFailure*' --tests '*UnexpectedFailuresTest' --tests '*MessagingContractFixtures*' --tests '*WhatsAppIntegrationControllerTest' --tests '*DatabaseOutageIntegrationTest' --tests '*ModuleDependencyArchitectureTest' --tests '*TemplateErrorCode*'` (`backend/`) | **Passed**: 5, 3, 61, 27, 3, 21 and 1 tests |
-| `./gradlew check` (`backend/`) | **Passed**: 188 suites, 2303 tests, 0 failures, 0 errors, 0 skipped |
+| `./gradlew test --tests '*Phase3UnexpectedFailure*' --tests '*Phase3ErrorPage*' --tests '*UnexpectedFailuresTest' --tests '*ModuleDependencyArchitectureTest' --tests '*DatabaseOutageIntegrationTest' --tests '*WhatsAppIntegrationControllerTest'` (`backend/`, after the code review fixes) | **Passed**: 7, 3 + 2, 4, 21, 3 and 27 tests. The first run of `Phase3ErrorPageSystemTest` failed one assertion that expected `X-Content-Type-Options` on the error dispatch. Spring Security's header writer, a once-per-request filter, does not run on that dispatch, so the test now asserts the same policy headers as Spring Boot's own error page. |
+| `./gradlew check` (`backend/`, after the code review fixes) | **Passed**: 190 suites, 2311 tests, 0 failures, 0 errors, 0 skipped |
 | `npm test` (`frontend/`) | **Passed**: 46 files, 1104 tests |
 | `npm run build` (`frontend/`) | **Passed** |
 

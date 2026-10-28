@@ -10,6 +10,7 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.ratelimit.RetryAfter;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -59,17 +60,14 @@ public class MessagingExceptionHandler {
     }
 
     /**
-     * The last resort (issue 293): any other failure is a closed {@code 500 INTERNAL_ERROR} problem, never Spring's
-     * default body, which echoes the path. A database outage and Spring MVC, servlet or security failures are
-     * rethrown unchanged, so the outage boundary and Spring keep answering them; audit failures never get here
-     * because the audit handler is ordered first.
+     * The last resort (issue 293): the closed {@code 500 INTERNAL_ERROR}, or a rethrow, as
+     * {@link UnexpectedFailures#claim} decides.
      */
     @ExceptionHandler(Exception.class)
-    ResponseEntity<MessagingProblem> unexpected(Exception failure) throws Exception {
-        if (!UnexpectedFailures.isUnexpected(failure) || databaseUnavailability.isCause(failure)) {
+    ResponseEntity<MessagingProblem> unexpected(Exception failure, HttpServletResponse response) throws Exception {
+        if (!UnexpectedFailures.claim(failure, response, databaseUnavailability::isCause)) {
             throw failure;
         }
-        UnexpectedFailures.log(failure);
         return problem(MessagingErrorCode.INTERNAL_ERROR);
     }
 
