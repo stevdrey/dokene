@@ -1800,3 +1800,152 @@ PASS  P3-TMPL-06  [Automated]  GraphApiMessagingProviderTest.noSecretPhoneOrMess
 PASS  P3-TMPL-06  [Automated]  GraphApiTemplateProviderGatewayTest.everyFailureIsUnavailableWithoutThrowing (passed 1)
 PASS  P3-TMPL-07  [Automated]  GraphApiTemplateProviderGatewayTest.mapsProviderStatusesAndSendsTheTenantsCredentialAsABearerOnly (passed 1)
 == sec149-inprocess.sh: see docs/verification/issue-149-evidence/out/results.tsv (gradle log in docs/verification/issue-149-evidence/out/sec149-inprocess.gradle.log)
+
+===== RETEST of #293 on main @ 38b5cb9 (2026-10-28): sec149-kill.sh, second pass (the one that counts)
+P3-KILL-01	HTTP	PASS	2026-10-28T23:14:19Z	send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-01	HTTP	PASS	2026-10-28T23:14:19Z	send with the global switch off: nothing written
+P3-KILL-01	HTTP	PASS	2026-10-28T23:14:20Z	still APPROVED, no attempt
+P3-KILL-10	HTTP	PASS	2026-10-28T23:14:21Z	tenant B send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-10	HTTP	PASS	2026-10-28T23:14:22Z	tenant B send with the global switch off: nothing written
+P3-KILL-10	HTTP	PASS	2026-10-28T23:14:24Z	a delivery report for an already sent message is still recorded
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:26Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:26Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: nothing written
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:27Z	no route to flip the global switch: PUT /api/integrations/whatsapp/outbound-global
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:27Z	no route to flip the global switch: PUT /api/messaging/outbound
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:27Z	no route to flip the global switch: PUT /api/settings/outbound
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:27Z	no route to flip the global switch: POST /api/integrations/whatsapp/outbound/global
+P3-KILL-03	HTTP	PASS	2026-10-28T23:14:27Z	the screens half (row 10 of the scope) is a browser case; the SPA has no control for the global switch (checked in sec149-browser.mjs)
+P3-KILL-02	HTTP	PASS	2026-10-28T23:14:44Z	tenant A switch off
+P3-KILL-02	HTTP	PASS	2026-10-28T23:14:45Z	tenant A send: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-02	HTTP	PASS	2026-10-28T23:14:47Z	tenant A send: nothing written
+P3-KILL-02	HTTP	PASS	2026-10-28T23:14:47Z	tenant B sends
+P3-KILL-04	HTTP	PASS	2026-10-28T23:14:49Z	send right after the admin flipped the switch off: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-04	HTTP	PASS	2026-10-28T23:14:49Z	send right after the admin flipped the switch off: nothing written
+P3-KILL-04	HTTP	PASS	2026-10-28T23:14:49Z	the change is audited as OUTBOUND_KILL_SWITCH_CHANGED
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:50Z	testoperator sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:50Z	testoperator sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:51Z	testoperator sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:51Z	testoperator sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:52Z	testoperator sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:52Z	testoperator sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:53Z	testoperator sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:53Z	testoperator sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:53Z	testviewer sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:53Z	testviewer sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:54Z	testviewer sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:54Z	testviewer sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:55Z	testviewer sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:55Z	testviewer sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:55Z	testviewer sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:56Z	testviewer sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-28T23:14:56Z	switch unchanged (on)
+P3-KILL-06	HTTP	PASS	2026-10-28T23:14:57Z	403 and nothing written
+P3-KILL-06	HTTP	PASS	2026-10-28T23:14:57Z	tenant B still sends
+P3-KILL-07	HTTP	PASS	2026-10-28T23:14:59Z	runtime grants restored exactly after the fault
+P3-KILL-07	HTTP	PASS	2026-10-28T23:14:59Z	send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem
+P3-KILL-07	HTTP	PASS	2026-10-28T23:15:00Z	nothing written: no attempt row, no event, no key, no provider call
+P3-KILL-07	HTTP	PASS	2026-10-28T23:15:00Z	message still APPROVED
+P3-KILL-07	HTTP	PASS	2026-10-28T23:15:00Z	refusal seen: 500 INTERNAL_ERROR; audit rows written by the refusal: 1
+P3-KILL-07	HTTP	PASS	2026-10-28T23:15:00Z	control: with the grant back the same message sends
+P3-KILL-08	HTTP	PASS	2026-10-28T23:15:01Z	send with IA disabled: 409 INTEGRATION_DISABLED
+P3-KILL-08	HTTP	PASS	2026-10-28T23:15:02Z	send with IA disabled: nothing written
+P3-KILL-09	HTTP	PASS	2026-10-28T23:15:04Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
+P3-KILL-09	HTTP	PASS	2026-10-28T23:15:04Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
+
+===== RETEST of #293, first pass (harness FAIL on the control send: stub id collision, see the report)
+P3-KILL-07	HTTP	FAIL	2026-10-28T23:12:40Z	control: with the grant back the same message sends (expected '201', got '500')
+P3-KILL-07	HTTP	PASS	2026-10-28T23:12:39Z	runtime grants restored exactly after the fault
+P3-KILL-07	HTTP	PASS	2026-10-28T23:12:39Z	send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem
+P3-KILL-07	HTTP	PASS	2026-10-28T23:12:40Z	nothing written: no attempt row, no event, no key, no provider call
+P3-KILL-07	HTTP	PASS	2026-10-28T23:12:40Z	message still APPROVED
+P3-KILL-07	HTTP	PASS	2026-10-28T23:12:40Z	refusal seen: 500 INTERNAL_ERROR; audit rows written by the refusal: 0
+
+===== out/retest293-kill.out (second pass)
+== P3-KILL-01, P3-KILL-03 and P3-KILL-10: global switch off (restart with the property unset / false)
+ Container dokene-qa149-postgres-1 Running 
+ Container dokene-qa149-keycloak-1 Running 
+ Container dokene-qa149-oidc-bridge-1 Running 
+ Container dokene-qa149-backend-1 Recreate 
+ Container dokene-qa149-backend-1 Recreated 
+ Container dokene-qa149-keycloak-1 Waiting 
+ Container dokene-qa149-keycloak-1 Healthy 
+ Container dokene-qa149-postgres-1 Waiting 
+ Container dokene-qa149-keycloak-1 Waiting 
+ Container dokene-qa149-oidc-bridge-1 Waiting 
+ Container dokene-qa149-oidc-bridge-1 Healthy 
+ Container dokene-qa149-keycloak-1 Healthy 
+ Container dokene-qa149-postgres-1 Healthy 
+ Container dokene-qa149-backend-1 Starting 
+ Container dokene-qa149-backend-1 Started 
+PASS  P3-KILL-01  [HTTP]  send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+PASS  P3-KILL-01  [HTTP]  send with the global switch off: nothing written
+PASS  P3-KILL-01  [HTTP]  still APPROVED, no attempt
+PASS  P3-KILL-10  [HTTP]  tenant B send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+PASS  P3-KILL-10  [HTTP]  tenant B send with the global switch off: nothing written
+PASS  P3-KILL-10  [HTTP]  a delivery report for an already sent message is still recorded
+PASS  P3-KILL-03  [HTTP]  after the tenant switch and the integration were written (200/200), the global switch still refuses: 409 OUTBOUND_DISABLED_GLOBALLY
+PASS  P3-KILL-03  [HTTP]  after the tenant switch and the integration were written (200/200), the global switch still refuses: nothing written
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: PUT /api/integrations/whatsapp/outbound-global
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: PUT /api/messaging/outbound
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: PUT /api/settings/outbound
+PASS  P3-KILL-03  [HTTP]  no route to flip the global switch: POST /api/integrations/whatsapp/outbound/global
+PASS  P3-KILL-03  [HTTP]  the screens half (row 10 of the scope) is a browser case; the SPA has no control for the global switch (checked in sec149-browser.mjs)
+ Container dokene-qa149-postgres-1 Running 
+ Container dokene-qa149-keycloak-1 Running 
+ Container dokene-qa149-oidc-bridge-1 Running 
+ Container dokene-qa149-backend-1 Recreate 
+ Container dokene-qa149-backend-1 Recreated 
+ Container dokene-qa149-keycloak-1 Waiting 
+ Container dokene-qa149-keycloak-1 Healthy 
+ Container dokene-qa149-oidc-bridge-1 Waiting 
+ Container dokene-qa149-postgres-1 Waiting 
+ Container dokene-qa149-keycloak-1 Waiting 
+ Container dokene-qa149-postgres-1 Healthy 
+ Container dokene-qa149-keycloak-1 Healthy 
+ Container dokene-qa149-oidc-bridge-1 Healthy 
+ Container dokene-qa149-backend-1 Starting 
+ Container dokene-qa149-backend-1 Started 
+== P3-KILL-02 global on, tenant A off, tenant B on
+PASS  P3-KILL-02  [HTTP]  tenant A switch off
+PASS  P3-KILL-02  [HTTP]  tenant A send: 409 OUTBOUND_DISABLED_FOR_TENANT
+PASS  P3-KILL-02  [HTTP]  tenant A send: nothing written
+PASS  P3-KILL-02  [HTTP]  tenant B sends
+== P3-KILL-04 the tenant switch takes effect at once and is audited
+PASS  P3-KILL-04  [HTTP]  send right after the admin flipped the switch off: 409 OUTBOUND_DISABLED_FOR_TENANT
+PASS  P3-KILL-04  [HTTP]  send right after the admin flipped the switch off: nothing written
+PASS  P3-KILL-04  [HTTP]  the change is audited as OUTBOUND_KILL_SWITCH_CHANGED
+== P3-KILL-05 OPERATOR and VIEWER cannot touch the tenant switch
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: 403
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testoperator sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: 403
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testoperator sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: 403
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testviewer sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: 403
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: problem body FORBIDDEN
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: nothing written except the denial audit row
+PASS  P3-KILL-05  [HTTP]  testviewer sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+PASS  P3-KILL-05  [HTTP]  switch unchanged (on)
+== P3-KILL-06 tenant A admin against tenant B's switch
+PASS  P3-KILL-06  [HTTP]  403 and nothing written
+PASS  P3-KILL-06  [HTTP]  tenant B still sends
+== P3-KILL-07 the control state cannot be read (integration row missing)
+PASS  P3-KILL-07  [HTTP]  runtime grants restored exactly after the fault
+PASS  P3-KILL-07  [HTTP]  send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem
+PASS  P3-KILL-07  [HTTP]  nothing written: no attempt row, no event, no key, no provider call
+PASS  P3-KILL-07  [HTTP]  message still APPROVED
+PASS  P3-KILL-07  [HTTP]  refusal seen: 500 INTERNAL_ERROR; audit rows written by the refusal: 1
+PASS  P3-KILL-07  [HTTP]  control: with the grant back the same message sends
+== P3-KILL-08 integration disabled with both switches on
+PASS  P3-KILL-08  [HTTP]  send with IA disabled: 409 INTEGRATION_DISABLED
+PASS  P3-KILL-08  [HTTP]  send with IA disabled: nothing written
+== P3-KILL-09 the whole policy runs again after the switch is turned back on
+PASS  P3-KILL-09  [HTTP]  refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
+PASS  P3-KILL-09  [HTTP]  refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
+== sec149-kill.sh: PASS=49 FAIL=0 BLOCKED=0

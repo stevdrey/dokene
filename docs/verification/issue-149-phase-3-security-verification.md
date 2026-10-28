@@ -27,6 +27,9 @@ the reason for each.
 | BLOCKED | 2 | 2 |
 | Total | 119 of 119 catalog ids | 681 |
 
+*Superseded by [Retest of #293](#retest-of-293-on-38b5cb9): on `38b5cb9` P3-KILL-07 passes, so no defect found by
+this suite is still open.* Initial verdict on `f4cb0ec`:
+
 **The run is not clean.** P3-KILL-07 fails on the error contract, filed as [#293] (Low). The send is still refused,
 nothing is written and the provider is not called. The two `BLOCKED` rows are measurements this deployment cannot
 expose by design: no metrics endpoint is reachable. Each names the in-process test that covers it. Per the issue
@@ -126,6 +129,27 @@ All of these are on the harness side, made before or during this run:
     It now follows its own inbox row by id.
   - P3-KILL-07 first read the ETag after the revoke, so the request stopped at `400` before reaching the switch read.
     It now reads the ETag first.
+
+## Retest of #293 on `38b5cb9`
+
+#293 was fixed by PR #296. On 2026-10-28 the isolated stack was rebuilt from `main` @ `38b5cb9` (database at V33, the
+same data volume) and the whole `sec149-kill.sh` suite was rerun with the strengthened P3-KILL-07 body check.
+Result: **49 PASS, 0 FAIL, 0 BLOCKED. #293 is verified.**
+
+- With the switch lookup failing, the send is refused with exactly `500`, `application/problem+json` and
+  `{type:"about:blank", title:"Internal Server Error", status:500, code:"INTERNAL_ERROR"}`. No `path`, timestamp or
+  identifier is returned. Nothing is written for the message (no attempt row, event or idempotency key), the provider
+  is not called, the message stays `APPROVED`, and the runtime grants are restored exactly.
+- With the grant back, the control send of the same message succeeds (`201`).
+- All other P3-KILL rows (01 to 06, 08 to 10) still pass on `38b5cb9`.
+
+The first retest pass gave a harness `FAIL` on the control send. The stub had been restarted, so its id counter began
+again at 1 and it answered with `wamid.SYNTHETIC-6`, which tenant A already held from the 2026-10-27 run. Recording the
+outcome then hit the per-tenant unique index (`DuplicateKeyException`). The message was left in `SENDING`, and the
+recovery processor later moved it to an unknown outcome (`MESSAGE_SEND_OUTCOME_UNKNOWN`) as ADR 0027 intends; that
+audit row fell inside the second pass's refusal window and is the one counted there. The stub now prefixes its ids with
+a per-start token (`GraphStub.java`). A real Meta id is never reused, so this is not a product defect. Both passes are
+in `outputs.txt`.
 
 ## Repeating the run
 
@@ -265,7 +289,7 @@ fixed and retested above. The full report is in git history at commit `941693d`.
 | P3-KILL-04 | PASS | HTTP, Automated | 5 |  |
 | P3-KILL-05 | PASS | HTTP, Automated | 18 |  |
 | P3-KILL-06 | PASS | HTTP, Automated | 4 |  |
-| P3-KILL-07 | FAIL | HTTP, In process, Automated | 8 | was BLOCKED; finding #293: refused, nothing written, but the 500 is the default error body, not a problem body |
+| P3-KILL-07 | FAIL | HTTP, In process, Automated | 8 | was BLOCKED; finding #293: refused, nothing written, but the 500 is the default error body, not a problem body. **PASS on the `38b5cb9` retest** (#293 verified) |
 | P3-KILL-08 | PASS | HTTP, Automated | 3 |  |
 | P3-KILL-09 | PASS | HTTP, Automated | 3 |  |
 | P3-KILL-10 | PASS | HTTP | 3 |  |
