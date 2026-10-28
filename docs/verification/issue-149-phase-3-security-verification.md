@@ -110,6 +110,13 @@ All of these are on the harness side, made before or during this run:
   `TRUNCATE`, tenant-scoped reads, and forged or expired capabilities denied.
 - **P3-KILL-07**: driven by a reversible revoke on the disposable database. The exact grants are checked after the
   restore, and a control send succeeds.
+- **P3-KILL-07 body check, strengthened after review** (for the #293 retest): this run's check only required a `5xx`
+  and a truthy `code`, which a partial fix would also pass, for example a `code` added to the default body while
+  `path` still echoes the message id. It now requires `500`, `application/problem+json` and exactly
+  `{type:"about:blank", title:"Internal Server Error", status:500, code:"INTERNAL_ERROR"}` (`problem_exact` in
+  `qa149.sh`). Before the live check, `selftest149.sh` runs 16 offline controls: the valid body plus missing, extra and
+  identifier members, unknown and wrong codes, a mismatched or string status, the wrong HTTP status, the wrong media
+  type, non-JSON and empty bodies. The recorded `FAIL` on `f4cb0ec` would also fail the stronger check.
 - **Corrections after the first pass**. The `hook`, `rls` and `kill` suites were rerun and their lines replace the
   first-pass lines in `outputs.txt`, which also keeps the replaced non-`PASS` lines:
   - P3-HOOK-14 compared the stored time with `sent_at`, which is stricter than AC-14. It now checks

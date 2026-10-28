@@ -53,6 +53,15 @@ problem_keys() { echo "$BODY" | jq -r 'keys|join(",")' 2>/dev/null; }
 problem_code() { echo "$BODY" | jq -r '.code // empty' 2>/dev/null; }
 problem_ok() { [ "$(problem_keys)" = "code,status,title,type" ] && [ "$(problem_code)" = "$1" ] && echo ok || echo "keys=$(problem_keys) code=$(problem_code)"; }
 ctype() { hdr content-type; }
+# problem_exact <status> <title> <code>: CODE, media type and body are exactly the ADR 0023 §4.4 problem, nothing more.
+# Compares the canonical JSON, so a missing or extra member (path, an id), a wrong value or type all fail.
+problem_exact() {
+  local want got mt
+  want=$(jq -cnS --argjson s "$1" --arg t "$2" --arg c "$3" '{type:"about:blank",title:$t,status:$s,code:$c}')
+  got=$(printf '%s' "$BODY" | jq -cS . 2>/dev/null); mt=$(ctype | cut -d';' -f1 | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+  if [ "$CODE" = "$1" ] && [ "$mt" = application/problem+json ] && [ "$got" = "$want" ]; then echo ok
+  else echo "status=$CODE type=$mt body=${got:-${BODY:0:120}}"; fi
+}
 
 # --- database ---------------------------------------------------------------------------------------------------------
 psqlq() { docker compose exec -T postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -Atc \"$1\"" | tr -d '\r'; }

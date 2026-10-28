@@ -54,7 +54,11 @@ E7=$(msg_etag $O "$A" "$MA"); S=$(snap); psqlq "revoke select on dokene.tenant_m
 send $O "$A" "$MA" "qa149-$RUN-kill07" "$E7"; k7=$CODE
 psqlq "grant select on dokene.tenant_messaging_integrations to dokene_runtime" >/dev/null
 chk P3-KILL-07 $H "runtime grants restored exactly after the fault" "$g0" "$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")"
-chk P3-KILL-07 $H "send with an unreadable switch is refused (5xx, closed problem body)" "yes" "$([ "${k7:0:1}" = 5 ] && echo "$BODY" | jq -e '.code' >/dev/null 2>&1 && echo yes || echo "code=$k7 body=${BODY:0:80}")"
+# ADR 0023 §4.4 (amended by #293): exactly 500, application/problem+json and the four members with these values.
+# selftest149.sh proves offline that the predicate rejects partial fixes (a code added to the default body, extra ids).
+if bash "$(dirname "${BASH_SOURCE[0]}")/selftest149.sh" > "$QA_TMP/selftest149.out" 2>&1; then
+  chk P3-KILL-07 $H "send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem" ok "$(problem_exact 500 "Internal Server Error" INTERNAL_ERROR)"
+else rec P3-KILL-07 $H BLOCKED "problem body predicate failed its offline self-test: $(tail -1 "$QA_TMP/selftest149.out")"; fi
 chk P3-KILL-07 $H "nothing written: no attempt row, no event, no key, no provider call" ok "$(unchanged "$S" any)"
 chk P3-KILL-07 $H "message still APPROVED" APPROVED "$(msg_status "$MA" | cut -d/ -f1)"
 rec P3-KILL-07 $H PASS "refusal seen: $k7 $(problem_code); audit rows written by the refusal: $(( $(psqlq 'select count(*) from dokene.audit_events') - $(echo "$S" | cut -d' ' -f5) ))"

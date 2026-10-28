@@ -17,6 +17,7 @@ All values are synthetic: the Meta ids, phone numbers, tokens and the three cana
 | `sec149-browser.sh` + `.mjs` | P3-CSRF-03, P3-SEC-08 and the screen halves of P3-SEC-07 and P3-KILL-03 in a headless Chromium. |
 | `sec149-inprocess.sh` | P3-PERM-13, P3-HOOK-12, P3-SEC-09, P3-SEC-11, P3-KILL-07 and every automated fixture the matrix names, run as backend tests on the same commit. |
 | `run-all.sh` | The whole thing in order, into `out/`. |
+| `selftest149.sh` | Offline self-test of `problem_exact`, the exact ADR 0023 §4.4 body check P3-KILL-07 uses: the closed `500 INTERNAL_ERROR` passes; a code added to the default body, extra members, a wrong code, status or media type are rejected. Needs only bash and jq. |
 | `isolated149.sh` + `compose.isolated149.yaml` | Optional prelude for a second stack beside a standard one: project `dokene-qa149`, own image tags, host ports 28080/28081/25173/25432, and a generated `.curlrc` (plus a mapping proxy for Chromium) so every URL still reads `localhost:8080/8081/5173`. |
 
 ## Running
