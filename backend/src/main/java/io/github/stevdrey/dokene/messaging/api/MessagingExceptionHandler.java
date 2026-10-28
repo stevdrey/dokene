@@ -2,6 +2,8 @@
 // ABOUTME: Audit persistence failures are left to the shared handler, which answers 503 with an empty body.
 package io.github.stevdrey.dokene.messaging.api;
 
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
+import io.github.stevdrey.dokene.http.UnexpectedFailures;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
@@ -22,6 +24,12 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice(assignableTypes = MessageController.class)
 public class MessagingExceptionHandler {
+    private final DatabaseUnavailability databaseUnavailability;
+
+    public MessagingExceptionHandler(DatabaseUnavailability databaseUnavailability) {
+        this.databaseUnavailability = databaseUnavailability;
+    }
+
     @ExceptionHandler(MessagingRefusedException.class)
     ResponseEntity<MessagingProblem> refused(MessagingRefusedException refusal) {
         return problem(refusal.code());
@@ -48,6 +56,21 @@ public class MessagingExceptionHandler {
             HttpMediaTypeNotAcceptableException.class})
     ResponseEntity<MessagingProblem> invalid() {
         return problem(MessagingErrorCode.INVALID_INPUT);
+    }
+
+    /**
+     * The last resort (issue 293): any other failure is a closed {@code 500 INTERNAL_ERROR} problem, never Spring's
+     * default body, which echoes the path. A database outage and Spring MVC, servlet or security failures are
+     * rethrown unchanged, so the outage boundary and Spring keep answering them; audit failures never get here
+     * because the audit handler is ordered first.
+     */
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<MessagingProblem> unexpected(Exception failure) throws Exception {
+        if (!UnexpectedFailures.isUnexpected(failure) || databaseUnavailability.isCause(failure)) {
+            throw failure;
+        }
+        UnexpectedFailures.log(failure);
+        return problem(MessagingErrorCode.INTERNAL_ERROR);
     }
 
     private static ResponseEntity<MessagingProblem> problem(MessagingErrorCode code) {

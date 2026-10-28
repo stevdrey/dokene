@@ -97,6 +97,7 @@ public final class TemplateApiContract {
                 case 403 -> "Forbidden";
                 case 404 -> "Not Found";
                 case 409 -> "Conflict";
+                case 500 -> "Internal Server Error";
                 case 503 -> "Service Unavailable";
                 default -> throw new IllegalArgumentException("Unexpected problem status " + status);
             };

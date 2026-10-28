@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.integration.api;
 
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
+import io.github.stevdrey.dokene.http.UnexpectedFailures;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.integration.application.IntegrationRateLimitedException;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
@@ -20,6 +22,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** Closed-code problem+json only: no detail, ids or tenant hints (ADR 0023 §4.4). */
 @RestControllerAdvice(assignableTypes = WhatsAppIntegrationController.class)
 public class IntegrationExceptionHandler {
+    private final DatabaseUnavailability databaseUnavailability;
+
+    public IntegrationExceptionHandler(DatabaseUnavailability databaseUnavailability) {
+        this.databaseUnavailability = databaseUnavailability;
+    }
+
     @ExceptionHandler(IntegrationRefusedException.class)
     ResponseEntity<MessagingProblem> refused(IntegrationRefusedException refusal) {
         return problem(refusal.code());
@@ -44,6 +52,21 @@ public class IntegrationExceptionHandler {
             HttpMediaTypeNotSupportedException.class, HttpMediaTypeNotAcceptableException.class})
     ResponseEntity<MessagingProblem> invalid() {
         return problem(MessagingErrorCode.INVALID_INPUT);
+    }
+
+    /**
+     * The last resort (issue 293): any other failure is a closed {@code 500 INTERNAL_ERROR} problem, never Spring's
+     * default body, which echoes the path. A database outage and Spring MVC, servlet or security failures are
+     * rethrown unchanged, so the outage boundary and Spring keep answering them; audit failures never get here
+     * because the audit handler is ordered first.
+     */
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<MessagingProblem> unexpected(Exception failure) throws Exception {
+        if (!UnexpectedFailures.isUnexpected(failure) || databaseUnavailability.isCause(failure)) {
+            throw failure;
+        }
+        UnexpectedFailures.log(failure);
+        return problem(MessagingErrorCode.INTERNAL_ERROR);
     }
 
     private static ResponseEntity<MessagingProblem> problem(MessagingErrorCode code) {
