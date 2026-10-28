@@ -27,7 +27,7 @@ All data is synthetic, except the one consenting test recipient of the live send
 | Deterministic backend journey | **PASS** | `./gradlew check` on this commit: 186 suites, 2295 tests, 0 failures, 0 errors, 0 skipped. It includes `ApprovedSendJourneyIntegrationTest`: synthetic customer → consent/purchase → AI draft → explicit, revision-bound approval → manual send through the real Graph adapter (loopback Meta) → signed `delivered`/`failed` callbacks. It also covers duplicate clicks, drift, opt-out, tenant switch, integration disable and uncertain outcomes, each refusal with zero provider requests. |
 | Frontend | **PASS** | `npm test`: 46 files, 1103 tests passed (see the observation below). `npm run build`: passed. The composed workbench messaging tests from #291 are included. |
 | Phase 3 security (#149) | **PASS except 1 Low FAIL** | [PR #294](https://github.com/stevdrey/dokene/pull/294), [report](issue-149-phase-3-security-verification.md), same SHA, on an isolated stack with the Graph stub. 116 PASS, 1 FAIL (P3-KILL-07, [#293](https://github.com/stevdrey/dokene/issues/293), Low: an unexpected switch-lookup failure answers Spring's default 500 body instead of the problem body; the send is still refused, nothing is written and the provider is not called), 2 BLOCKED (metrics halves with no exposed endpoint by design, covered in process). #265 and #266 retested fixed. |
-| Phase 3 browser journey on the real stack | **PASS (16/16)** | See [Phase 3 browser journey](#phase-3-browser-journey). |
+| Phase 3 browser journey on the real stack | **PASS (16/16; hardened script 19/19)** | See [Phase 3 browser journey](#phase-3-browser-journey). |
 | Live Meta send, Spanish template | **PASS** | See [Live provider legs](#live-provider-legs). |
 | Live Meta send, English template | **PASS** | See [Live provider legs](#live-provider-legs). |
 | Live status callbacks (`delivered`/`read`) | **BLOCKED** | The Meta app is in development mode, which delivers only dashboard test webhooks and no production status callbacks. 0 inbox rows arrived for the live sends. The deterministic callback path is covered by `ApprovedSendJourneyIntegrationTest`, and the parser for the live status shape is covered by #289. |
@@ -59,7 +59,7 @@ Two later versions of `phase3-ui.mjs` came out of review. The first escapes ever
 - checks scoped to the delivery-history section;
 - an exact pending-approval assertion.
 
-That last version has not been rerun: the Meta test token expired afterwards (Graph refresh `503 PROVIDER_UNAVAILABLE`). It does not change what the 16/16 and 19/19 runs observed.
+That last version was rerun after the Meta test token was refreshed (the expired token had shown as a Graph refresh `503 PROVIDER_UNAVAILABLE`). Result: **19/19**, including the exact pending-approval check, the history checks scoped to the delivery-history section and the cleanup that disabled the temporary mapping. The output is in the `phase3-ui-hardened.txt` section of the evidence.
 
 ## Live provider legs
 

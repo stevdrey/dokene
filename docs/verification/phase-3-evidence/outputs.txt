@@ -1433,3 +1433,26 @@ exit=0
 {"templateIntent": "GENERAL_FOLLOW_UP", "approvalStatus": "APPROVED", "sendable": true, "language": "es", "version": 10}
 {"status": "SENT", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-10-27T21:21:13.996412Z", "deliveredAt": null, "readAt": null, "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"]]}
 2026-10-27T21:21:38Z LIVEENDONE
+
+===== phase3-ui-hardened.txt =====
+PASS  P3-UI  synthetic customer created  -- 201
+PASS  P3-UI  customer made due today  -- 200
+PASS  P3-UI  due customer found in the queue and opened
+PASS  P3-UI  live OpenAI recommendation offers a draft
+PASS  P3-UI  live OpenAI draft shown in the editable panel
+PASS  P3-UI  "Revisar y enviar" is offered next to the draft
+PASS  P3-UI  review refuses to submit when the chosen intent has no approved template
+PASS  P3-UI  temporary REPEAT_PURCHASE mapping verified APPROVED through Graph  -- APPROVED
+PASS  P3-UI  submitted message is pending approval, not sent
+PASS  P3-UI  pending message shows what the customer will receive (template preview)
+PASS  P3-UI  approval bound to the reviewed template preview succeeds
+PASS  P3-UI  send refused with the global-disable message (Spanish, no provider text)
+PASS  P3-UI  message is AI_DRAFT, APPROVED, with zero attempts and no provider id  -- AI_DRAFT APPROVED attempts=0
+PASS  P3-UI  delivery history in the workbench lists the message as Aprobado
+PASS  P3-UI  viewer opens the same customer
+PASS  P3-UI  viewer sees no Revisar y enviar / Aprobar / Enviar controls
+PASS  P3-UI  viewer still sees the delivery history
+PASS  P3-UI  synthetic message cancelled, still zero attempts  -- CANCELLED
+PASS  P3-UI  temporary REPEAT_PURCHASE mapping disabled again  -- 200
+SUMMARY P3-UI PASS=19 FAIL=0
+exit=0
