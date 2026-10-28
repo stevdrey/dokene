@@ -46,6 +46,7 @@ All of these must hold. If one does not, the live leg is **BLOCKED**, not PASS.
    - Record the outcome: `status`, `outcomeUnknown`, `failureCategory` and the number of attempts.
    - **Never resend automatically.** An uncertain outcome is investigated, not retried.
 7. **Close the window immediately.**
+   - Register the close-down as an exit/signal handler before step 5 opens the window (for example a shell `trap` on `EXIT`, `INT`, `TERM` and `HUP`). An interrupted run then still turns the switches off and restores the interval.
    - Tenant switch off, then restart the backend with the global switch off.
    - Confirm both through `GET /api/integrations/whatsapp` and the startup property.
    - If the contact interval was lowered for the run, start the backend again with the default `24h`.
