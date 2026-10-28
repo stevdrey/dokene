@@ -1,5 +1,7 @@
 package io.github.stevdrey.dokene.integration.api;
 
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
+import io.github.stevdrey.dokene.http.UnexpectedFailures;
 import io.github.stevdrey.dokene.integration.api.IntegrationApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.integration.application.IntegrationRateLimitedException;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
@@ -7,6 +9,7 @@ import io.github.stevdrey.dokene.messaging.api.MessagingApiContract;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -20,6 +23,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** Closed-code problem+json only: no detail, ids or tenant hints (ADR 0023 §4.4). */
 @RestControllerAdvice(assignableTypes = WhatsAppIntegrationController.class)
 public class IntegrationExceptionHandler {
+    private final DatabaseUnavailability databaseUnavailability;
+
+    public IntegrationExceptionHandler(DatabaseUnavailability databaseUnavailability) {
+        this.databaseUnavailability = databaseUnavailability;
+    }
+
     @ExceptionHandler(IntegrationRefusedException.class)
     ResponseEntity<MessagingProblem> refused(IntegrationRefusedException refusal) {
         return problem(refusal.code());
@@ -44,6 +53,18 @@ public class IntegrationExceptionHandler {
             HttpMediaTypeNotSupportedException.class, HttpMediaTypeNotAcceptableException.class})
     ResponseEntity<MessagingProblem> invalid() {
         return problem(MessagingErrorCode.INVALID_INPUT);
+    }
+
+    /**
+     * The last resort (issue 293): the closed {@code 500 INTERNAL_ERROR}, or a rethrow, as
+     * {@link UnexpectedFailures#claim} decides.
+     */
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<MessagingProblem> unexpected(Exception failure, HttpServletResponse response) throws Exception {
+        if (!UnexpectedFailures.claim(failure, response, databaseUnavailability::isCause)) {
+            throw failure;
+        }
+        return problem(MessagingErrorCode.INTERNAL_ERROR);
     }
 
     private static ResponseEntity<MessagingProblem> problem(MessagingErrorCode code) {
