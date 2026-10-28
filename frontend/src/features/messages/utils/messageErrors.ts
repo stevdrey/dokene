@@ -51,6 +51,8 @@ export function classifyFailure(error: unknown): MessageFailure {
   if (error.status === 404) return { kind: 'notFound' };
   const code = problemCode(error);
   if (code === null) return error.status >= 500 ? { kind: 'uncertain' } : { kind: 'unexpected' };
+  // An unexpected server failure (issue 293) says nothing about whether the command committed, like an uncoded 5xx.
+  if (code === 'INTERNAL_ERROR') return { kind: 'uncertain' };
   if (RELOAD_CODES.includes(code)) return { kind: 'reload', code: code as ReloadCode };
   if (code === 'RATE_LIMITED') return { kind: 'rateLimited', retryAfterSeconds: error.retryAfterSeconds };
   return { kind: 'refused', code };

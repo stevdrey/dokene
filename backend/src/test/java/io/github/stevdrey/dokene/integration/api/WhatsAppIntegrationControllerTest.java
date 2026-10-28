@@ -13,12 +13,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService;
 import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationService.IntegrationView;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +43,7 @@ class WhatsAppIntegrationControllerTest {
     void setUp() {
         service = mock(WhatsAppIntegrationService.class);
         mvc = MockMvcBuilders.standaloneSetup(new WhatsAppIntegrationController(service))
-                .setControllerAdvice(new IntegrationExceptionHandler()).build();
+                .setControllerAdvice(new IntegrationExceptionHandler(new DatabaseUnavailability(Duration.ofSeconds(5)))).build();
         stored = WhatsAppIntegration.create(TenantId.random(), "100000000000001", "200000000000001",
                 "+50688887777", true, "wa-token", T0).withVersion(3);
     }

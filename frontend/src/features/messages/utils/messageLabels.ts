@@ -102,7 +102,8 @@ const ERROR_CODE_SENTENCES = {
   IDEMPOTENCY_KEY_REUSED: 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.',
   APPROVAL_INVALIDATED: 'La aprobación ya no es válida. Revisa el mensaje de nuevo.',
   RATE_LIMITED: 'Hay demasiadas solicitudes. Espera un momento e intenta de nuevo.',
-  LOCALE_NOT_ACCEPTED: 'Este idioma no está habilitado para enviar mensajes en este despliegue.'
+  LOCALE_NOT_ACCEPTED: 'Este idioma no está habilitado para enviar mensajes en este despliegue.',
+  INTERNAL_ERROR: 'Ocurrió un error inesperado. Intenta de nuevo más tarde.'
 } as const satisfies Partial<Record<MessagingErrorCode, string>>;
 
 export const COPY = {

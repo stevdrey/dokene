@@ -4,7 +4,7 @@ package io.github.stevdrey.dokene.template.application;
 
 public enum TemplateErrorCode {
     INVALID_INPUT(400), FORBIDDEN(403), NOT_FOUND(404), STALE_VERSION(409), INTEGRATION_DISABLED(409),
-    PROVIDER_UNAVAILABLE(503);
+    PROVIDER_UNAVAILABLE(503), INTERNAL_ERROR(500);
 
     private final int status;
 

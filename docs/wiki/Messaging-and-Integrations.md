@@ -80,7 +80,7 @@ Rules that hold for every route:
 - **Strict bodies.** Unknown members, unknown enum values, numbers for enums or text, and missing required members are `400 INVALID_INPUT`, so a client cannot set a status, a recipient or a fingerprint.
 - **Authorization first.** Permissions are checked before headers or bodies are read, so a `VIEWER` gets `403` even for a malformed request. Another tenant's ids are `404`.
 - **Preconditions.** `If-Match` must be one strong numeric ETag (`"3"`); a stale one is `409 STALE_VERSION`. Replays follow ADR 0023 §4.2; a reused key with another payload or target is `409 IDEMPOTENCY_KEY_REUSED`.
-- **Responses.** Every command answers with the current detail representation and its `ETag`. Message responses are `Cache-Control: no-store` because `contactRemoved` is derived live. Refusals are closed-code `application/problem+json`; an audit failure is `503` with an empty body and rolls the change back. A database outage is an empty `503` with `Retry-After` (ADR 0029).
+- **Responses.** Every command answers with the current detail representation and its `ETag`. Message responses are `Cache-Control: no-store` because `contactRemoved` is derived live. Refusals are closed-code `application/problem+json`; an audit failure is `503` with an empty body and rolls the change back. A database outage is an empty `503` with `Retry-After` (ADR 0029). Any other unexpected failure on a Phase 3 route is the closed `500 INTERNAL_ERROR` problem, never Spring's default body (#293).
 
 Approval (T2) re-checks customer status, do-not-contact, WhatsApp consent, eligibility, the body, the template mapping and the open-message rule from stored state under the customer lock. It then computes the approval fingerprint and stores it on the approval row (V22). The fingerprint is never returned, audited or logged. Template parameters are rendered from a closed vocabulary only:
 
@@ -392,6 +392,20 @@ The Meta adapter reports four result classes (ADR 0027 §4):
 `OutcomeUnknown` is never retried automatically. Only the integer Meta error code is read; error text, trace ids and bodies are discarded.
 
 The dispatcher maps these results through the message state machine. An exception that escapes the port counts as `OutcomeUnknown`. A transient failure returns the message to `APPROVED`, where only a new operator send, which passes the whole policy again, can try once more, up to the attempt cap. An unknown outcome keeps the message `SENDING` until a human resolves it (T12). A claim whose outcome was never recorded is turned into an unknown outcome by the recovery processor (ADR 0028 §5), never resent.
+
+## Verification status
+
+The Phase 3 messaging core and the manually approved send are **not yet certified**. The run on `main` `f4cb0ec` ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140) is BLOCKED by the open gates below. Its individual legs passed.
+- **Covered:**
+  - the deterministic journey through the real Graph adapter;
+  - the browser journey on the real stack;
+  - the [#149 security run](../verification/issue-149-phase-3-security-verification.md);
+  - two authorized live template sends, Spanish and English, accepted by Meta and received.
+- **Open:**
+  - real `delivered`/`read` callbacks from Meta are BLOCKED until the Meta app is published (a development-mode app delivers only dashboard test webhooks);
+  - P3-KILL-07 must be retested on a candidate that includes the [#293](https://github.com/stevdrey/dokene/issues/293) fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)).
+
+Live runs follow the opt-in [live Meta procedure](../verification/phase-3-live-meta-procedure.md). Nothing in the build or CI calls Meta.
 
 ## Future channels
 

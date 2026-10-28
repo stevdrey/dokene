@@ -9,5 +9,10 @@ public enum MessagingErrorCode {
     OUTBOUND_DISABLED_GLOBALLY, OUTBOUND_DISABLED_FOR_TENANT, INTEGRATION_DISABLED, SEND_ATTEMPTS_EXHAUSTED,
     RATE_LIMITED, PROVIDER_UNAVAILABLE, APPROVAL_INVALIDATED,
     /** A supported locale this deployment does not accept yet ({@code en-US} before English writes are enabled). */
-    LOCALE_NOT_ACCEPTED
+    LOCALE_NOT_ACCEPTED,
+    /**
+     * An unexpected server failure on a Phase 3 route (issue 293). It always answers 500 and never carries detail;
+     * database outages and audit failures keep their own empty 503 (ADR 0029, ADR 0006).
+     */
+    INTERNAL_ERROR
 }

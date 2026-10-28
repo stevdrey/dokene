@@ -1,0 +1,10 @@
+# Issue 140 live journey: run the backend and frontend images built from main f4cb0ec by dev-env.sh.
+services:
+  backend:
+    image: dokene-backend:local
+  frontend:
+    image: dokene-frontend:local
+  webhook-gateway:
+    # Same gateway, plus an access log of method, path, status and size (no headers or bodies).
+    volumes: !override
+    - /home/stevdrey/qa140/nginx.conf:/etc/nginx/nginx.conf:ro,Z
