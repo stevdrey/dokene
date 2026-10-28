@@ -322,3 +322,17 @@ Spec 0008 makes the two switches of ADR 0023 §3.3 real behind the unchanged `Ou
   - `DeliveryWebhookEventHandler` is the only `VerifiedWebhookEventHandler`.
   - `VerifiedWebhookEventHandler.handle` now returns a closed `Handling` (`APPLIED`, `IGNORED`, `NOT_FOUND`), so the inbox can park a report whose message is not found yet. It runs in the caller's transaction.
 - **Further decisions.** The inbox, the dedup key, the bounded park of unmatched reports, retention and the outward statuses are decided in [ADR 0030](0030-verified-webhook-inbox-and-delivery-reconciliation.md).
+
+## Addendum (issue 293): a closed problem for unexpected failures
+
+The #149 acceptance run (P3-KILL-07) found that an exception no handler maps, here a failed read of the tenant outbound switch at T6, left a Phase 3 route through Spring's default error body `{timestamp,status,error,path}`. That body breaks §4.4 of ADR 0023 and echoes the message id in `path`.
+
+- `MessagingErrorCode` gains `INTERNAL_ERROR` (`500 Internal Server Error`). It is an additive change to the frozen v1 set, like `LOCALE_NOT_ACCEPTED` (#268). The `enums.json` and `problems.json` fixtures carry it.
+- `TemplateErrorCode` gains the same name, keeping its parity with `MessagingErrorCode`.
+- The message, template and integration route advices each end with a last-resort handler that answers this problem.
+- Some failures keep their existing answers and are rethrown untouched:
+  - a database outage stays the empty `503` with `Retry-After` from the ADR 0029 boundary;
+  - Spring MVC, servlet and Spring Security failures (405, 404, 401 and the like) keep their answers;
+  - an audit persistence failure stays the empty `503`, because `AuditExceptionHandler` is now ordered first.
+- The failure is logged with its exception class and root-cause class only, never its message.
+- The frontend treats `INTERNAL_ERROR` like an uncoded `5xx`: the command may or may not have committed, so the review component reads the message again before saying anything.
