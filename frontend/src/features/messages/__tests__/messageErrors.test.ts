@@ -62,8 +62,12 @@ describe('classifyFailure', () => {
     expect(classifyFailure(apiError(429, problems.valid.RATE_LIMITED))).toEqual({ kind: 'rateLimited' });
   });
 
+  it('treats a coded 500 INTERNAL_ERROR as uncertain, like an uncoded 5xx', () => {
+    expect(classifyFailure(apiError(500, problems.valid.INTERNAL_ERROR))).toEqual({ kind: 'uncertain' });
+  });
+
   it('refuses with the code for every other problem fixture', () => {
-    const special = ['FORBIDDEN', 'NOT_FOUND', 'STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED', 'CONTACT_NOT_OWNED', 'RATE_LIMITED'];
+    const special = ['FORBIDDEN', 'NOT_FOUND', 'STALE_VERSION', 'INVALID_TRANSITION', 'APPROVAL_INVALIDATED', 'CONTACT_NOT_OWNED', 'RATE_LIMITED', 'INTERNAL_ERROR'];
     for (const [code, body] of Object.entries<{ status: number }>(problems.valid)) {
       if (special.includes(code)) continue;
       expect(classifyFailure(apiError(body.status, body))).toEqual({ kind: 'refused', code });

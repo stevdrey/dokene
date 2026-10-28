@@ -207,6 +207,7 @@ public final class MessagingApiContract {
                 case NOT_FOUND -> 404;
                 case RATE_LIMITED -> 429;
                 case PROVIDER_UNAVAILABLE -> 503;
+                case INTERNAL_ERROR -> 500;
                 case STALE_VERSION, IDEMPOTENCY_KEY_REUSED, INVALID_TRANSITION, CUSTOMER_ARCHIVED, DO_NOT_CONTACT,
                         NO_CONTACT_CONSENT, CONTACT_NOT_OWNED, FOLLOW_UP_INELIGIBLE, MESSAGE_ALREADY_OPEN,
                         CONTACT_FREQUENCY_EXCEEDED, TEMPLATE_NOT_MAPPED, BODY_REJECTED, OUTBOUND_DISABLED_GLOBALLY,
@@ -222,6 +223,7 @@ public final class MessagingApiContract {
                 case 404 -> "Not Found";
                 case 409 -> "Conflict";
                 case 429 -> "Too Many Requests";
+                case 500 -> "Internal Server Error";
                 case 503 -> "Service Unavailable";
                 default -> throw new IllegalArgumentException("Unexpected problem status " + status);
             };

@@ -92,7 +92,8 @@ export const MESSAGING_ERROR_STATUS = {
   RATE_LIMITED: 429,
   PROVIDER_UNAVAILABLE: 503,
   APPROVAL_INVALIDATED: 409,
-  LOCALE_NOT_ACCEPTED: 400
+  LOCALE_NOT_ACCEPTED: 400,
+  INTERNAL_ERROR: 500
 } as const;
 export type MessagingErrorCode = keyof typeof MESSAGING_ERROR_STATUS;
 export const MESSAGING_ERROR_CODES = Object.keys(MESSAGING_ERROR_STATUS) as MessagingErrorCode[];
@@ -268,6 +269,7 @@ const PROBLEM_TITLES: Record<number, string> = {
   404: 'Not Found',
   409: 'Conflict',
   429: 'Too Many Requests',
+  500: 'Internal Server Error',
   503: 'Service Unavailable'
 };
 
