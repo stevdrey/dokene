@@ -5,6 +5,7 @@ Prints no phone number, credential or provider payload.
 """
 from pathlib import Path
 import argparse, json, sys
+from datetime import date
 sys.path.insert(0, '/home/stevdrey/.codex/.chatgpt-projects/g-p-6a8b7129b5c081919574ba9938baba0a/whatsapp-local')
 from local_api import LocalApi
 from live_cases_oct24 import map_template, request
@@ -32,7 +33,7 @@ def send(api, state):
     consent = next(c for c in policy['consents'] if c['contactId'] == diag['contactId'] and c['channel'] == 'WHATSAPP')
     assert consent['status'] == 'GRANTED', 'No WhatsApp consent'
     headers, _ = request(api, 'GET', base + '/follow-up-policy')
-    request(api, 'PUT', base + '/follow-up-policy', {'cadenceDays': None, 'explicitNextDate': '2026-10-27'},
+    request(api, 'PUT', base + '/follow-up-policy', {'cadenceDays': None, 'explicitNextDate': date.today().isoformat()},
             {'If-Match': headers['ETag']})
     _, eligible = request(api, 'GET', base + '/follow-up-eligibility')
     assert eligible['eligible'], 'Recipient not eligible: ' + json.dumps(eligible)

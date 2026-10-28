@@ -54,6 +54,13 @@ Script `phase3-ui.mjs`. It ran on the live-override stack (frontend `:5174`) in 
 
 Before this run, the live model was asked about a customer whose only purchase was the same day. It answered with no recommendation ("el historial de compras es insuficiente") rather than invent a follow-up. That is the intended grounded behaviour, so the fixture's purchase was moved 60 days back.
 
+Two later versions of `phase3-ui.mjs` came out of review. The first escapes every value it puts into page code (`safeJson`) and gave 19/19 on the same stack, because it also took the temporary-mapping branch. The second adds:
+- cleanup in a `finally` block, so a failure never leaves the temporary mapping or an open synthetic message behind;
+- checks scoped to the delivery-history section;
+- an exact pending-approval assertion.
+
+That last version has not been rerun: the Meta test token expired afterwards (Graph refresh `503 PROVIDER_UNAVAILABLE`). It does not change what the 16/16 and 19/19 runs observed.
+
 ## Live provider legs
 
 Procedure: [phase-3-live-meta-procedure.md](phase-3-live-meta-procedure.md). Each send was one explicitly authorized template send to the consenting test recipient, through Dokene's normal API (`send140.py`, fixed idempotency keys):
@@ -73,7 +80,7 @@ The recipient owner authorized lowering `dokene.messaging.min-contact-interval` 
 
 ## Phase 1/2 regression
 
-The Path B drivers of campaign #118 were rerun on this commit (`regress.sh`, `regress2.sh`, `rerun-ui.sh`).
+The Path B drivers of campaign #118 were rerun on this commit (`regress.sh`, `rerun-ui.sh`). During the run, the first driver started #121 e, f and g before the stub. It was stopped after `e` and resumed from `e` with the stub; the published `regress.sh` runs them in the stub phase.
 
 | Suite | Result | Notes |
 | --- | --- | --- |

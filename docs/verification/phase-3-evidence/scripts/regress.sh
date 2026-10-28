@@ -9,9 +9,10 @@ for s in reg-api v159 v162 recurrence; do ( cd /home/stevdrey/Projects/Java/doke
 restart() { docker rm -f qa-stub >/dev/null 2>&1; ./scripts/dev-env.sh restart-backend --no-build --yes >/dev/null 2>&1; }
 stub() { docker run -d --name qa-stub --network container:dokene-qa-run-oidc-bridge-1 -v /home/stevdrey/qa121/stub:/stub --entrypoint java dokene-backend:local -cp /stub Stub >/dev/null; sleep 3; }
 run121() { timeout 1500 bash /home/stevdrey/qa121/s/sec121-$1.sh > $O/121-$1.txt 2>&1; echo "exit=$?" >> $O/121-$1.txt; count 121-$1 $O/121-$1.txt; }
-for s in a b c d e f g; do run121 $s; done
+# a-d run on the real provider; e-l are fault-injection suites and need the stub.
+for s in a b c d; do run121 $s; done
 export DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1; restart; stub
-for s in h i j k l; do run121 $s; done
+for s in e f g h i j k l; do run121 $s; done
 export COMPOSE_FILE=compose.yaml:/home/stevdrey/qa121/override.yaml; restart; stub; run121 m
 unset COMPOSE_FILE; restart; stub
 runjs() { ( cd /home/stevdrey/qa122; timeout 900 node $1.mjs > $O/ui-$1.txt 2>&1; echo "exit=$?" >> $O/ui-$1.txt ); echo "ui-$1 $(tail -1 $O/ui-$1.txt) fail-lines=$(grep -ciE '^FAIL' $O/ui-$1.txt)" >> $P; ps -eo pid,args | awk '/[h]eadless/{print $1}' | xargs -r kill 2>/dev/null; sleep 2; }
