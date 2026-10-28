@@ -3,9 +3,11 @@
 # interval, sends once, then restores tenant off, global off, interval 24h and the Spanish GENERAL_FOLLOW_UP mapping.
 # Logs no identifiers. Usage: live.sh es|en
 #
-# Exit status: 0 when the send ran and the window was verified closed; the original status (130 for an interrupt)
-# when the window was verified closed after an error or interrupt; 70 when the window could not be verified closed,
-# whatever happened before: the operator must close it by hand (see the CLEANUP FAILED log line).
+# Exit status: 0 only when every step succeeded and the window was verified closed (the log then ends with
+# LIVEENDONE). When a step fails or the run is interrupted and the window is still verified closed, the status of
+# the failed step: 130 for an interrupt, the helper's status for a failed or timed-out send (124 for a timeout), the
+# status of a failed opening step (71 if the backend never became healthy), enable or status read. 70 when the window could not be verified closed, whatever
+# happened before: the operator must close it by hand (see the CLEANUP FAILED log line).
 case "${1:-}" in
   es) HELPER=send140.py ;;
   en) HELPER=send140en.py ;;
@@ -57,10 +59,15 @@ on_exit() {
 trap on_exit EXIT
 trap 'log "interrupted"; exit 130' INT TERM HUP
 
-DOKENE_WHATSAPP_TEST_INTERVAL=1m ./control.sh outbound true >/dev/null 2>&1; wait_healthy
+# Every required step keeps its own status: a failure stops the run before the next step (so nothing is sent after a
+# failed setup), and the EXIT handler still closes the window. Statuses are captured before anything else runs.
+DOKENE_WHATSAPP_TEST_INTERVAL=1m ./control.sh outbound true >/dev/null 2>&1 || { rc=$?; log "open failed: control.sh=$rc"; exit "$rc"; }
+wait_healthy || { log "open failed: backend not healthy"; exit 71; }
 log "window: $(backend_state)"
-timeout 120 python3 -I $HELPER enable >> "$L" 2>&1
-timeout 180 python3 -I $HELPER send >> "$L" 2>&1; log "send-exit=$?"
+timeout 120 python3 -I $HELPER enable >> "$L" 2>&1 || { rc=$?; log "enable failed: $rc"; exit "$rc"; }
+timeout 180 python3 -I $HELPER send >> "$L" 2>&1; send_rc=$?
+log "send-exit=$send_rc"
 close_window || exit 70
-timeout 120 python3 -I $HELPER status >> "$L" 2>&1
+[ "$send_rc" -eq 0 ] || exit "$send_rc"
+timeout 120 python3 -I $HELPER status >> "$L" 2>&1 || { rc=$?; log "status failed: $rc"; exit "$rc"; }
 log LIVEENDONE
