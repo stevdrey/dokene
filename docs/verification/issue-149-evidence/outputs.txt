@@ -2071,3 +2071,180 @@ before: INSERT,SELECT,UPDATE
 kill -TERM -> rc=143, during SELECT=f, after: INSERT,SELECT,UPDATE
 exit 1 -> rc=1, during SELECT=f, after: INSERT,SELECT,UPDATE
 kill -INT -> rc=130, during SELECT=f, after: INSERT,SELECT,UPDATE
+
+===== HARNESS HARDENING after code review, main @ 38b5cb9 (2026-10-29): rls, hook, kill, browser
+--- sec149-rls
+P3-RLS-01	Database	PASS	2026-10-29T00:30:42Z	outbound_messages: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_messages: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_messages: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_messages: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_messages: tenant A capability reads exactly tenant A rows (157) and 0 of B (35 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_message_approvals: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_message_approvals: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_message_approvals: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:43Z	outbound_message_approvals: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_message_approvals: tenant A capability reads exactly tenant A rows (134) and 0 of B (27 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_message_cancellations: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_message_cancellations: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_message_cancellations: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_message_cancellations: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_message_cancellations: tenant A capability reads exactly tenant A rows (18) and 0 of B (2 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:44Z	outbound_send_attempts: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_send_attempts: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_send_attempts: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_send_attempts: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_send_attempts: tenant A capability reads exactly tenant A rows (60) and 0 of B (20 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_message_events: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_message_events: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_message_events: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:45Z	outbound_message_events: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_events: tenant A capability reads exactly tenant A rows (538) and 0 of B (126 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_idempotency_keys: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_idempotency_keys: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_idempotency_keys: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_idempotency_keys: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_idempotency_keys: tenant A capability reads exactly tenant A rows (374) and 0 of B (86 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:46Z	outbound_message_resolutions: fixture rows exist in both tenants
+P3-RLS-01	Database	PASS	2026-10-29T00:30:47Z	outbound_message_resolutions: forced RLS on
+P3-RLS-01	Database	PASS	2026-10-29T00:30:47Z	outbound_message_resolutions: runtime role has no DELETE, TRUNCATE, REFERENCES or TRIGGER grant
+P3-RLS-01	Database	PASS	2026-10-29T00:30:47Z	outbound_message_resolutions: no capability reads 0 rows
+P3-RLS-01	Database	PASS	2026-10-29T00:30:47Z	outbound_message_resolutions: tenant A capability reads exactly tenant A rows (5) and 0 of B (2 exist)
+P3-RLS-01	Database	PASS	2026-10-29T00:30:47Z	runtime role: not superuser, no bypassrls
+P3-RLS-02	Database	PASS	2026-10-29T00:30:47Z	outbound_messages: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:48Z	outbound_message_approvals: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:48Z	outbound_message_cancellations: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:48Z	outbound_send_attempts: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:48Z	outbound_message_events: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:49Z	outbound_message_idempotency_keys: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:49Z	outbound_message_resolutions: tampered signature reads 0, expired reads 0, re-targeted payload reads 0
+P3-RLS-02	Database	PASS	2026-10-29T00:30:49Z	forged capability cannot insert an event row for tenant B
+P3-RLS-02	Database	PASS	2026-10-29T00:30:49Z	expired capability cannot update tenant B message
+P3-RLS-03	Database	PASS	2026-10-29T00:30:50Z	body and recipient rewrite refused ('permission denied' or 0 rows) and stored values unchanged
+P3-RLS-03	Database	PASS	2026-10-29T00:30:50Z	event update and delete denied, rows intact
+P3-RLS-04	Database	PASS	2026-10-29T00:30:50Z	tenant_messaging_integrations: fixture rows exist in both tenants
+P3-RLS-04	Database	PASS	2026-10-29T00:30:50Z	tenant_messaging_integrations: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-29T00:30:51Z	tenant_messaging_integrations: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-29T00:30:51Z	tenant_messaging_integrations: no capability 0, A capability 1 and 0 of B (1 exist), forged 0, expired 0
+P3-RLS-04	Database	PASS	2026-10-29T00:30:51Z	tenant_provider_templates: fixture rows exist in both tenants
+P3-RLS-04	Database	PASS	2026-10-29T00:30:51Z	tenant_provider_templates: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-29T00:30:52Z	tenant_provider_templates: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-29T00:30:52Z	tenant_provider_templates: no capability 0, A capability 3 and 0 of B (1 exist), forged 0, expired 0
+P3-RLS-04	Database	PASS	2026-10-29T00:30:52Z	provider_webhook_events: fixture rows exist in both tenants
+P3-RLS-04	Database	PASS	2026-10-29T00:30:52Z	provider_webhook_events: forced RLS on
+P3-RLS-04	Database	PASS	2026-10-29T00:30:53Z	provider_webhook_events: no DELETE/TRUNCATE grant for the runtime role
+P3-RLS-04	Database	PASS	2026-10-29T00:30:53Z	provider_webhook_events: no capability 0, A capability 53 and 0 of B (2 exist), forged 0, expired 0
+P3-HOOK-13	Database	PASS	2026-10-29T00:30:53Z	forged provider capability cannot append
+P3-HOOK-13	Database	PASS	2026-10-29T00:30:54Z	expired provider capability cannot append
+P3-HOOK-13	Database	PASS	2026-10-29T00:30:54Z	member capability cannot append a provider attributed event
+P3-HOOK-13	Database	PASS	2026-10-29T00:30:54Z	audit row count unchanged
+--- sec149-hook
+P3-HOOK-15	HTTP	PASS	2026-10-29T00:34:05Z	fixtures: MA-SENT and MB-SENT with provider ids
+P3-HOOK-01	HTTP	PASS	2026-10-29T00:34:05Z	body '{"object":"whatsapp_busi...': no signature 403, wrong signature 403
+P3-HOOK-01	HTTP	PASS	2026-10-29T00:34:06Z	body 'not json at all...': no signature 403, wrong signature 403
+P3-HOOK-01	HTTP	PASS	2026-10-29T00:34:06Z	body '{"object":"whatsapp_busi...': no signature 403, wrong signature 403
+P3-HOOK-01	HTTP	PASS	2026-10-29T00:34:06Z	nothing stored, MA unchanged
+P3-HOOK-02	HTTP	PASS	2026-10-29T00:34:06Z	wrong secret 403, one byte changed 403, whitespace changed 403
+P3-HOOK-02	HTTP	PASS	2026-10-29T00:34:06Z	nothing stored
+P3-HOOK-03	HTTP	PASS	2026-10-29T00:34:06Z	header [sha1=d80b25e2a2b...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-29T00:34:06Z	header [d80b25e2a2b49364...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-29T00:34:06Z	header [sha256=d80b25e2a...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-29T00:34:06Z	header [sha256=zz0b25e2a...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-29T00:34:06Z	header [...]: 403 with an empty body
+P3-HOOK-03	HTTP	PASS	2026-10-29T00:34:06Z	header [sha256=...]: 403 with an empty body
+P3-HOOK-04	HTTP	PASS	2026-10-29T00:34:06Z	400, nothing stored, MA and MB unchanged
+P3-HOOK-15	HTTP	PASS	2026-10-29T00:34:09Z	200, MA DELIVERED, MB untouched, one inbox row in tenant A, none in B
+P3-HOOK-06	HTTP	PASS	2026-10-29T00:34:11Z	replay: 200, no state change, no second MESSAGE_DELIVERY_UPDATED audit row
+P3-HOOK-15	HTTP	PASS	2026-10-29T00:34:11Z	exactly one MESSAGE_DELIVERY_UPDATED audit row for the delivery
+P3-HOOK-05	HTTP	PASS	2026-10-29T00:34:14Z	200, MB unchanged, the row is parked in tenant A, nothing in tenant B
+P3-HOOK-05	HTTP	PASS	2026-10-29T00:35:20Z	after the park window the row is UNMATCHED with its provider message id cleared
+P3-HOOK-05	HTTP	PASS	2026-10-29T00:35:20Z	MB still SENT
+P3-HOOK-07	HTTP	PASS	2026-10-29T00:35:23Z	fixture: message READ
+P3-HOOK-07	HTTP	PASS	2026-10-29T00:35:26Z	delivered, sent and failed after read: still READ, the two unseen statuses recorded as non applied events, no failure stored
+P3-HOOK-07	HTTP	PASS	2026-10-29T00:35:31Z	a late failure does not erase a delivery
+P3-HOOK-08	HTTP	PASS	2026-10-29T00:35:31Z	unknown number: same status and body as a normal event, nothing stored
+P3-HOOK-08	HTTP	PASS	2026-10-29T00:35:31Z	unknown provider message id: same status and body, parked in tenant A
+P3-HOOK-09	HTTP	PASS	2026-10-29T00:35:31Z	wrong token: 403, challenge not echoed
+P3-HOOK-09	HTTP	PASS	2026-10-29T00:35:31Z	right token: 200 text/plain with only the challenge
+P3-HOOK-09	HTTP	PASS	2026-10-29T00:35:31Z	the verify token is in no response and not in the backend log
+P3-HOOK-10	HTTP	PASS	2026-10-29T00:35:32Z	signed but schema invalid: 400
+P3-HOOK-10	HTTP	PASS	2026-10-29T00:35:32Z	4.5 MB body: refused (403 or 413) within 10 s
+P3-HOOK-11	HTTP	PASS	2026-10-29T00:35:32Z	unsigned event with the owner's cookie: 403
+P3-HOOK-14	HTTP	PASS	2026-10-29T00:35:34Z	a delivery a year in the future is stored bounded (within an hour of now)
+P3-HOOK-14	HTTP	PASS	2026-10-29T00:35:35Z	the send set the follow-up cadence anchor (a date, so the next check is not NULL = NULL)
+P3-HOOK-14	HTTP	PASS	2026-10-29T00:35:37Z	a delivery dated a month before the message existed is stored at created_at (spec 0001 AC-14 window)
+P3-HOOK-14	HTTP	PASS	2026-10-29T00:35:37Z	the follow-up cadence anchor did not move backwards
+--- sec149-kill
+P3-KILL-01	HTTP	PASS	2026-10-29T00:32:42Z	send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-01	HTTP	PASS	2026-10-29T00:32:42Z	send with the global switch off: nothing written
+P3-KILL-01	HTTP	PASS	2026-10-29T00:32:42Z	still APPROVED, no attempt
+P3-KILL-10	HTTP	PASS	2026-10-29T00:32:43Z	tenant B send with the global switch off: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-10	HTTP	PASS	2026-10-29T00:32:43Z	tenant B send with the global switch off: nothing written
+P3-KILL-10	HTTP	PASS	2026-10-29T00:32:45Z	a delivery report for an already sent message is still recorded
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:46Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: 409 OUTBOUND_DISABLED_GLOBALLY
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:47Z	after the tenant switch and the integration were written (200/200), the global switch still refuses: nothing written
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:47Z	no route to flip the global switch: PUT /api/integrations/whatsapp/outbound-global
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:47Z	no route to flip the global switch: PUT /api/messaging/outbound
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:47Z	no route to flip the global switch: PUT /api/settings/outbound
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:47Z	no route to flip the global switch: POST /api/integrations/whatsapp/outbound/global
+P3-KILL-03	HTTP	PASS	2026-10-29T00:32:47Z	the screens half (row 10 of the scope) is a browser case; the SPA has no control for the global switch (checked in sec149-browser.mjs)
+P3-KILL-02	HTTP	PASS	2026-10-29T00:32:59Z	tenant A switch off
+P3-KILL-02	HTTP	PASS	2026-10-29T00:33:00Z	tenant A send: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-02	HTTP	PASS	2026-10-29T00:33:00Z	tenant A send: nothing written
+P3-KILL-02	HTTP	PASS	2026-10-29T00:33:00Z	tenant B sends
+P3-KILL-04	HTTP	PASS	2026-10-29T00:33:02Z	send right after the admin flipped the switch off: 409 OUTBOUND_DISABLED_FOR_TENANT
+P3-KILL-04	HTTP	PASS	2026-10-29T00:33:02Z	send right after the admin flipped the switch off: nothing written
+P3-KILL-04	HTTP	PASS	2026-10-29T00:33:02Z	the change is audited as OUTBOUND_KILL_SWITCH_CHANGED
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:03Z	testoperator sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:03Z	testoperator sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:03Z	testoperator sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:03Z	testoperator sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:04Z	testoperator sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:04Z	testoperator sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:04Z	testoperator sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:04Z	testoperator sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:05Z	testviewer sets false: 403
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:05Z	testviewer sets false: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:05Z	testviewer sets false: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:05Z	testviewer sets false: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:06Z	testviewer sets true: 403
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:06Z	testviewer sets true: problem body FORBIDDEN
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:06Z	testviewer sets true: nothing written except the denial audit row
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:07Z	testviewer sets true: the new audit row is AUTHORIZATION_DENIED naming INTEGRATION_MANAGE
+P3-KILL-05	HTTP	PASS	2026-10-29T00:33:07Z	switch unchanged (on)
+P3-KILL-06	HTTP	PASS	2026-10-29T00:33:08Z	403 and nothing written
+P3-KILL-06	HTTP	PASS	2026-10-29T00:33:08Z	tenant B still sends
+P3-KILL-07	HTTP	PASS	2026-10-29T00:33:09Z	runtime grants restored exactly after the fault
+P3-KILL-07	HTTP	PASS	2026-10-29T00:33:10Z	send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem
+P3-KILL-07	HTTP	PASS	2026-10-29T00:33:10Z	nothing written: no attempt row, no event, no key, no provider call
+P3-KILL-07	HTTP	PASS	2026-10-29T00:33:10Z	no audit row about the refused message
+P3-KILL-07	HTTP	PASS	2026-10-29T00:33:10Z	message still APPROVED
+P3-KILL-07	HTTP	PASS	2026-10-29T00:33:10Z	control: with the grant back the same message sends
+P3-KILL-08	HTTP	PASS	2026-10-29T00:33:11Z	send with IA disabled: 409 INTEGRATION_DISABLED
+P3-KILL-08	HTTP	PASS	2026-10-29T00:33:12Z	send with IA disabled: nothing written
+P3-KILL-09	HTTP	PASS	2026-10-29T00:33:13Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: 409 DO_NOT_CONTACT
+P3-KILL-09	HTTP	PASS	2026-10-29T00:33:13Z	refused by the switch (409), do not contact set during the outage, switch back on: send refused by policy: nothing written
+--- sec149-browser
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	local and session storage hold no canary and no access token
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	cookies carry no canary; the session cookie is HttpOnly with SameSite Lax
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	cookies seen: AUTH_SESSION_ID(localhost/realms/dokene/,httpOnly=true,sameSite=None) KC_AUTH_SESSION_HASH(localhost/realms/dokene/,httpOnly=false,sameSite=None) KEYCLOAK_IDENTITY(localhost/realms/dokene/,httpOnly=true,sameSite=None) KEYCLOAK_SESSION(localhost/realms/dokene/,httpOnly=false,sameSite=None) JSESSIONID(localhost/,httpOnly=true,sameSite=Lax)
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	every request since sign-in went to the proxy or Keycloak (no Meta, no third party)
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	JavaScript bundle (3 scripts) holds no canary and no Graph API host
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	the integration status request, if any, goes through /api on the proxy only
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	the integration and template responses of the panel were captured with readable, non-empty bodies
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	the integration screen is mounted: Configuración shows the WhatsApp integration card
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	integration and template responses read by the screen (2) carry no canary and no token field
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	the integration screen shows the reference name only, never a canary
+P3-SEC-08	Browser	PASS	2026-10-29T00:33:18Z	integration responses inspected: /api/templates /api/integrations/whatsapp
+P3-SEC-07	Browser	PASS	2026-10-29T00:33:18Z	no canary secret on the 4 screens
+P3-SEC-07	Browser	PASS	2026-10-29T00:33:18Z	screens visited: Seguimientos, Clientes, Configuración, Más; CANARY-BODY on screen: false (allowed only where a MESSAGE_READ member reads a message)
+P3-KILL-03	Browser	PASS	2026-10-29T00:33:18Z	no control that names the global outbound switch on any screen
+P3-KILL-03	Browser	PASS	2026-10-29T00:33:18Z	controls were read from the screens, including those of the integration panel (Verificar propiedad)
+P3-KILL-03	Browser	PASS	2026-10-29T00:33:18Z	no control on any screen (173 controls) names a global or platform switch
+P3-KILL-03	Browser	PASS	2026-10-29T00:33:18Z	Configuración controls: Editar | Verificar propiedad
+P3-CSRF-03	Browser	PASS	2026-10-29T00:33:21Z	fetch outcome: blocked: Failed to fetch; form target frame: opaque (SecurityError); send requests issued by the browser: 2
+P3-CSRF-03	Browser	PASS	2026-10-29T00:33:21Z	the cross-site fetch did not succeed (blocked by CORS or answered 401/403)
+P3-CSRF-03	Browser	PASS	2026-10-29T00:33:21Z	session cookie is SameSite=Lax, so the cross-site POST carried no session
+P3-CSRF-03	Database	PASS	2026-10-29T00:33:22Z	no attempt row, message still APPROVED, no provider call
+--- first hook pass (FAIL from the old absolute inbox baseline, fixed)
+P3-HOOK-15	HTTP	FAIL	2026-10-29T00:31:00Z	200, MA DELIVERED, MB untouched, one inbox row in tenant A, none in B (expected '200 DELIVERED SENT 1 0', got '200 DELIVERED SENT -1 2')
+--- trap check: caller EXIT trap kept and run once; SIGTERM rc=143, exit 1 rc=1, SIGINT rc=130, exit 3 rc=3; grants INSERT,SELECT,UPDATE after each

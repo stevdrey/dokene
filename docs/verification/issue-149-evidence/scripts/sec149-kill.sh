@@ -48,20 +48,21 @@ read -r PA_ SA_ <<< "$(ctx tenant "$A")"
 # Fault injection on the disposable QA database: the bootstrap role revokes the runtime role's SELECT on the table that
 # holds the tenant switch, so the switch lookup fails. The grants are restored right after, whatever happened.
 read -r c p MA <<< "$(ready_approved $O "$A" "KILL07 $RUN")"
-g0=$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")
+g0=$(runtime_grants tenant_messaging_integrations)
 # The ETag is read first: with the grant gone the message read fails too, and an empty If-Match never reaches the switch.
-E7=$(msg_etag $O "$A" "$MA"); S=$(snap); revoke_runtime_select tenant_messaging_integrations
+E7=$(msg_etag $O "$A" "$MA"); S=$(snap); au7=$(psqlq "select count(*) from dokene.audit_events where target_id='$MA'"); revoke_runtime_select tenant_messaging_integrations
 send $O "$A" "$MA" "qa149-$RUN-kill07" "$E7"; k7=$CODE
 restore_runtime_select tenant_messaging_integrations
-chk P3-KILL-07 $H "runtime grants restored exactly after the fault" "$g0" "$(psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='tenant_messaging_integrations'")"
+chk P3-KILL-07 $H "runtime grants restored exactly after the fault" "$g0" "$(runtime_grants tenant_messaging_integrations)"
 # ADR 0023 §4.4 (amended by #293): exactly 500, application/problem+json and the four members with these values.
 # selftest149.sh proves offline that the predicate rejects partial fixes (a code added to the default body, extra ids).
 if bash "$(dirname "${BASH_SOURCE[0]}")/selftest149.sh" > "$QA_TMP/selftest149.out" 2>&1; then
   chk P3-KILL-07 $H "send with an unreadable switch is refused with exactly the closed 500 INTERNAL_ERROR problem" ok "$(problem_exact 500 "Internal Server Error" INTERNAL_ERROR)"
 else rec P3-KILL-07 $H BLOCKED "problem body predicate failed its offline self-test: $(tail -1 "$QA_TMP/selftest149.out")"; fi
 chk P3-KILL-07 $H "nothing written: no attempt row, no event, no key, no provider call" ok "$(unchanged "$S" any)"
+chk P3-KILL-07 $H "no audit row about the refused message" 0 "$(( $(psqlq "select count(*) from dokene.audit_events where target_id='$MA'") - au7 ))"
 chk P3-KILL-07 $H "message still APPROVED" APPROVED "$(msg_status "$MA" | cut -d/ -f1)"
-rec P3-KILL-07 $H PASS "refusal seen: $k7 $(problem_code); audit rows written by the refusal: $(( $(psqlq 'select count(*) from dokene.audit_events') - $(echo "$S" | cut -d' ' -f5) ))"
+echo "  note: refusal seen: $k7 $(problem_code); audit rows written anywhere meanwhile: $(( $(psqlq 'select count(*) from dokene.audit_events') - $(echo "$S" | cut -d' ' -f5) ))"
 send $O "$A" "$MA"; chk P3-KILL-07 $H "control: with the grant back the same message sends" 201 "$CODE"
 
 echo "== P3-KILL-08 integration disabled with both switches on"

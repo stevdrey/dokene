@@ -4,6 +4,7 @@
 #
 #   . docs/verification/issue-149-evidence/scripts/isolated149.sh
 #   docker compose up -d --build        # builds the :qa149 images, starts the second stack
+#   scripts/seed-local-qa.sh            # QA users and tenant A, which fixtures149.sh expects
 #   bash docs/verification/issue-149-evidence/scripts/fixtures149.sh
 #   bash docs/verification/issue-149-evidence/scripts/run-all.sh
 _iso_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

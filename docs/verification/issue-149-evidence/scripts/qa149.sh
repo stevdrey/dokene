@@ -135,11 +135,22 @@ refused() { chk "$1" "$2" "$3: $5 $4" "$5 ok" "$CODE $(problem_ok "$4")"; chk "$
 notfound() { chk "$1" "$2" "$3: 404 NOT_FOUND" "404 ok" "$CODE $(problem_ok NOT_FOUND)"; chk "$1" "$2" "$3: nothing written" ok "$(unchanged "$4")"; }
 # Fault injection (P3-KILL-07): take the runtime role's SELECT on a table away. The trap puts it back if the script dies
 # or is interrupted before restore_runtime_select; GRANT is idempotent, so a double restore is harmless.
-restore_runtime_select() { psqlq "grant select on dokene.$1 to dokene_runtime" >/dev/null; trap - EXIT INT TERM; }
+# Any EXIT/INT/TERM handlers the caller had are saved first and put back on restore.
+restore_runtime_select() {
+  psqlq "grant select on dokene.$1 to dokene_runtime" >/dev/null
+  trap - EXIT INT TERM; eval "${_QA149_PREV_TRAPS:-}"; _QA149_PREV_TRAPS=
+}
+# bash does not run an EXIT trap installed while the EXIT trap runs, so on a plain exit the caller's EXIT command is run
+# explicitly after the restore; on INT/TERM the restore reinstalls it and the following `exit` runs it once.
+_qa149_trap_arg() { _QA149_PREV_EXIT=$1; }
 revoke_runtime_select() {
-  trap "restore_runtime_select $1" EXIT; trap "restore_runtime_select $1; exit 130" INT; trap "restore_runtime_select $1; exit 143" TERM
+  _QA149_PREV_TRAPS=$(trap -p EXIT INT TERM); _QA149_PREV_EXIT=
+  local t; t=$(trap -p EXIT); [ -n "$t" ] && eval "_qa149_trap_arg ${t#trap -- }"
+  trap "restore_runtime_select $1; eval \"\$_QA149_PREV_EXIT\"" EXIT; trap "restore_runtime_select $1; exit 130" INT; trap "restore_runtime_select $1; exit 143" TERM
   psqlq "revoke select on dokene.$1 from dokene_runtime" >/dev/null
 }
+# runtime_grants <table>: the runtime role's privileges on a table, sorted ("INSERT,SELECT,UPDATE")
+runtime_grants() { psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='$1'"; }
 # Keycloak admin helpers for throwaway identities (P3-PERM-18)
 kc_token() { curl -s -d grant_type=password -d client_id=admin-cli -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password=$KC_BOOTSTRAP_ADMIN_PASSWORD" "http://localhost:${KEYCLOAK_PORT:-8081}/realms/master/protocol/openid-connect/token" | jq -r .access_token; }
 kc_create_user() { curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $(kc_token)" -H 'Content-Type: application/json' "http://localhost:${KEYCLOAK_PORT:-8081}/admin/realms/dokene/users" -d "$(jq -nc --arg u "$1" --arg p "$PW" '{username:$u,email:($u+"@dokene.local"),firstName:"QA",lastName:"Temp",enabled:true,emailVerified:true,credentials:[{type:"password",value:$p,temporary:false}]}')"; }

@@ -14,17 +14,18 @@ chk P3-HOOK-15 $H "fixtures: MA-SENT and MB-SENT with provider ids" "SENT SENT y
 GOOD=$(hook_body "$PN_A" "$WA" delivered)
 
 echo "== P3-HOOK-01 no signature and wrong signatures, well formed and malformed bodies"
-h0=$(hooks_n); m0=$(msg_status "$MA")
+# Per tenant baselines: other suites (sec149-rls.sh) leave inbox rows in tenant B, so absolute counts prove nothing.
+hg0=$(hooks_n); h0=$(hooks_n "$A"); hb0=$(hooks_n "$B"); m0=$(msg_status "$MA")
 for b in "$GOOD" "not json at all" '{"object":"whatsapp_business_account","entry":"nope"}'; do
   hook_post "$b" -; c1=$CODE; hook_post "$b" "wrong-secret"; chk P3-HOOK-01 $H "body '${b:0:24}...': no signature 403, wrong signature 403" "403 403" "$c1 $CODE"; done
-chk P3-HOOK-01 $H "nothing stored, MA unchanged" "$h0 $m0" "$(hooks_n) $(msg_status "$MA")"
+chk P3-HOOK-01 $H "nothing stored, MA unchanged" "$hg0 $m0" "$(hooks_n) $(msg_status "$MA")"
 
 echo "== P3-HOOK-02 the check is on the raw bytes"
 sig=$(sign "$GOOD" "$SEC"); tampered="${GOOD/delivered/delivereD}"; spaced=$(echo "$GOOD" | sed 's/,/, /g')
 raw -X POST "$BFF/webhooks/whatsapp" -H 'Content-Type: application/json' -H "X-Hub-Signature-256: $sig" --data-binary "$tampered"; c1=$CODE
 raw -X POST "$BFF/webhooks/whatsapp" -H 'Content-Type: application/json' -H "X-Hub-Signature-256: $sig" --data-binary "$spaced"; c2=$CODE
 hook_post "$GOOD" "CANARY-APP-SECRET-WRONG"; chk P3-HOOK-02 $H "wrong secret 403, one byte changed 403, whitespace changed 403" "403 403 403" "$CODE $c1 $c2"
-chk P3-HOOK-02 $H "nothing stored" "$h0" "$(hooks_n)"
+chk P3-HOOK-02 $H "nothing stored" "$hg0" "$(hooks_n)"
 
 echo "== P3-HOOK-03 malformed signature headers"
 hex=${sig#sha256=}
@@ -33,11 +34,11 @@ for s in "sha1=$hex" "$hex" "sha256=${hex:0:60}" "sha256=zz${hex:2}" "" "sha256=
 
 echo "== P3-HOOK-04 a tenantId member in a signed event"
 forged=$(hook_body "$PN_A" "$WA" delivered | sed "s/\"statuses\"/\"tenantId\":\"$B\",\"statuses\"/"); post_signed "$forged"
-chk P3-HOOK-04 $H "400, nothing stored, MA and MB unchanged" "400 $h0 SENT SENT" "$CODE $(hooks_n) $(msg_status "$MA" | cut -d/ -f1) $(msg_status "$MB" | cut -d/ -f1)"
+chk P3-HOOK-04 $H "400, nothing stored, MA and MB unchanged" "400 $hg0 SENT SENT" "$CODE $(hooks_n) $(msg_status "$MA" | cut -d/ -f1) $(msg_status "$MB" | cut -d/ -f1)"
 
 echo "== P3-HOOK-15 and P3-HOOK-06 a signed delivery for the verified number, then its replay"
 a0=$(audit_n MESSAGE_DELIVERY_UPDATED "$A"); post_signed "$GOOD"; c1=$CODE; sleep 2
-chk P3-HOOK-15 $H "200, MA DELIVERED, MB untouched, one inbox row in tenant A, none in B" "200 DELIVERED SENT 1 0" "$c1 $(msg_status "$MA" | cut -d/ -f1) $(msg_status "$MB" | cut -d/ -f1) $(( $(hooks_n "$A") - $(echo $h0) )) $(hooks_n "$B")"
+chk P3-HOOK-15 $H "200, MA DELIVERED, MB untouched, one inbox row in tenant A, none in B" "200 DELIVERED SENT 1 0" "$c1 $(msg_status "$MA" | cut -d/ -f1) $(msg_status "$MB" | cut -d/ -f1) $(( $(hooks_n "$A") - h0 )) $(( $(hooks_n "$B") - hb0 ))"
 v1=$(msg_status "$MA"); a1=$(audit_n MESSAGE_DELIVERY_UPDATED "$A"); post_signed "$GOOD"; sleep 2
 chk P3-HOOK-06 $H "replay: 200, no state change, no second MESSAGE_DELIVERY_UPDATED audit row" "200 $v1 $a1" "$CODE $(msg_status "$MA") $(audit_n MESSAGE_DELIVERY_UPDATED "$A")"
 chk P3-HOOK-15 $H "exactly one MESSAGE_DELIVERY_UPDATED audit row for the delivery" 1 "$(( a1 - a0 ))"
@@ -87,6 +88,7 @@ d1=$(psqlq "select extract(epoch from delivered_at)::bigint - extract(epoch from
 chk P3-HOOK-14 $H "a delivery a year in the future is stored bounded (within an hour of now)" yes "$([ -n "$d1" ] && [ "$d1" -lt 3600 ] && [ "$d1" -gt -3600 ] && echo yes || echo "offset=$d1")"
 read -r MT2 WT2 <<< "$(sent_message $O "$A" "HOOK time2 $RUN")"; created=$(psqlq "select extract(epoch from created_at)::bigint from dokene.outbound_messages where id='$MT2'")
 anchor0=$(psqlq "select p.last_outbound_message_date from dokene.customer_follow_up_policies p join dokene.outbound_messages m on m.customer_id=p.customer_id where m.id='$MT2'")
+chk P3-HOOK-14 $H "the send set the follow-up cadence anchor (a date, so the next check is not NULL = NULL)" yes "$(echo "$anchor0" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' && echo yes || echo "anchor='$anchor0'")"
 post_signed "$(hook_body "$PN_A" "$WT2" delivered "$(( created - 86400 * 30 ))")"; sleep 2
 # Spec 0001 AC-14: the window is [created_at, now], so a pre-creation report lands on created_at exactly (which is
 # before sent_at by the approval and dispatch time; the preparation run compared with sent_at and passed on rounding).

@@ -166,6 +166,30 @@ stack at `main` @ `38b5cb9`. Nothing in RLS changed since `f4cb0ec`: there is no
   revoke, and `restore_runtime_select` grants again and clears the trap. Checked offline on the isolated stack: after
   `SIGTERM`, `SIGINT` or `exit 1` right after the revoke, the runtime grants are back to `INSERT,SELECT,UPDATE`. Kill
   suite rerun: **49 PASS, 0 FAIL**.
+- **Harness hardening after a code review.** Three checks could pass without testing anything; each now asserts its
+  input first:
+  - P3-KILL-03: the controls were read, including the panel's `Verificar propiedad`.
+  - P3-SEC-08: both panel responses were captured with readable, non-empty bodies. Each body read is awaited, and an
+    unreadable one counts as a failure.
+  - P3-HOOK-14: the send set the cadence anchor, so the comparison is not NULL against NULL.
+
+  P3-KILL-07 changes:
+  - It no longer writes an unconditional `PASS` line.
+  - It asserts that no audit row names the refused message.
+  - Its grants query is one helper, `runtime_grants`.
+
+  Other changes:
+  - The fault helpers save and restore the caller's own EXIT/INT/TERM handlers; the caller's EXIT command still runs
+    once on a plain exit.
+  - The browser mapping proxy no longer crashes when an upstream error arrives after headers were sent.
+  - `sec149-browser.mjs` honours `RESULTS` like the shell suites.
+  - The RLS loops count each table once.
+  - The `isolated149.sh` usage block includes the seed step.
+  - P3-HOOK-15 and HOOK-01/02/04 compare inbox counts with per-tenant and global baselines. The rows the RLS fixture
+    now parks in tenant B made the old absolute "none in B" check fail. That check had only held while B had no inbox
+    rows.
+
+  Rerun on `38b5cb9`: RLS **63 PASS**, hook **35 PASS**, kill **49 PASS**, browser **21 PASS**, all with 0 FAIL.
 
 ## Repeating the run
 
