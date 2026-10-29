@@ -5,6 +5,7 @@ These scripts drove the Phase 3 certification run on `main` `f4cb0ec`. They run 
 | Script | Purpose |
 |---|---|
 | `regress.sh` | Phase 1/2 regression: the suite #119 API scripts, suite #121 a–m and suite #122 UI. #121 a–d run on the real provider and e–l on the fault-injection stub. It reuses the harnesses checked in for #119, #121 and #122. |
+| `reverify-regress.sh` | The regression rerun on `main` `80c7ab7` after the #293 fix: #119 `v159`, `v162`, `recurrence` and #121 a–d, with the same drivers on the base backend. |
 | `rerun-ui.sh` | Reruns `ux06` after refreshing the emoji fixture, then `ux07` on the stub. |
 | `phase3-ui.mjs` | The Phase 3 browser journey on the live-override stack with outbound off. It uses the #122 Chrome harness (`cdp.mjs`). |
 | `live.sh es\|en` | One guarded live send in Spanish (`send140.py`) or English (`send140en.py`). It opens the window with a `1m` interval. An exit/signal handler, registered before the window opens, closes it. Each attempt (at most 3) runs every shutdown step, then reads back the tenant switch and the running backend's `outbound=false interval=24h`. Only that read-back counts as closed. If it cannot be confirmed, the log says `CLEANUP FAILED` with the operator steps and the script exits 70. Otherwise a failed step keeps its own exit status (the send's, 124 for a timeout, 130 for an interrupt), and only a fully successful run ends with `LIVEENDONE` and exit 0. It also maps `GENERAL_FOLLOW_UP` back to the Spanish template. |

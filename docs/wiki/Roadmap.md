@@ -80,14 +80,14 @@ Key outcomes:
 
 Exit condition: an approved follow-up can be sent exactly once and tracked safely through delivery/failure state.
 
-Exit status: **not yet certified.** The certification run on `main` `f4cb0ec` ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140) is **BLOCKED**, but these legs passed:
+Exit status: **not yet certified.** The certification run on `main` `f4cb0ec` and its re-verification on `80c7ab7`, which includes the [#293](https://github.com/stevdrey/dokene/issues/293) fix ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140), are **BLOCKED**, but these legs passed:
 - **Deterministic journey:** `ApprovedSendJourneyIntegrationTest` covers draft → explicit revision-bound approval → one send through the real Graph adapter → signed delivery/failure callbacks, and every refusal leaves zero provider requests.
 - **Real-stack runs:** the Phase 3 browser journey, the Phase 1/2 regression and the [#149 security run](../verification/issue-149-phase-3-security-verification.md).
 - **Live sends:** two authorized live template sends (Spanish and English), both accepted by Meta and received by the consenting test recipient.
 
-Required gates still open before Phase 3 can be certified:
-- the real status-callback leg is BLOCKED until the Meta app is published;
-- P3-KILL-07 must be retested on a candidate that includes the [#293](https://github.com/stevdrey/dokene/issues/293) fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)) before the security track passes.
+The security track passes: P3-KILL-07 was retested on `38b5cb9`, which includes the #293 fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)).
+
+Required gate still open before Phase 3 can be certified: the real status-callback leg is BLOCKED until the Meta app is published.
 
 Live sending stays off by default. The opt-in procedure is [`phase-3-live-meta-procedure.md`](../verification/phase-3-live-meta-procedure.md). Phase 3 ships no scheduler, campaigns or auto-send.
 
