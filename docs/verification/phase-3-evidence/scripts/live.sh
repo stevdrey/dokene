@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Issue 140: one authorized live template send, Spanish (es) or English (en). Opens the global window with a 1m
 # interval, sends once, then restores tenant off, global off, interval 24h and the Spanish GENERAL_FOLLOW_UP mapping.
-# Logs no identifiers. Usage: live.sh es|en
+# Logs no identifiers. Usage: live.sh es|en|cbes|cben (LIVE_INTERVAL sets the window interval, default 1m)
 #
 # Exit status: 0 only when every step succeeded and the window was verified closed (the log then ends with
 # LIVEENDONE). When a step fails or the run is interrupted and the window is still verified closed, the status of
@@ -11,7 +11,9 @@
 case "${1:-}" in
   es) HELPER=send140.py ;;
   en) HELPER=send140en.py ;;
-  *) echo 'Usage: live.sh es|en' >&2; exit 2 ;;
+  cbes) HELPER=send140cbes.py ;;
+  cben) HELPER=send140cben.py ;;
+  *) echo 'Usage: live.sh es|en|cbes|cben' >&2; exit 2 ;;
 esac
 QA_DIR=${QA_DIR:-/home/stevdrey/qa140}
 CLEANUP_ATTEMPTS=${CLEANUP_ATTEMPTS:-3}
@@ -61,7 +63,7 @@ trap 'log "interrupted"; exit 130' INT TERM HUP
 
 # Every required step keeps its own status: a failure stops the run before the next step (so nothing is sent after a
 # failed setup), and the EXIT handler still closes the window. Statuses are captured before anything else runs.
-DOKENE_WHATSAPP_TEST_INTERVAL=1m ./control.sh outbound true >/dev/null 2>&1 || { rc=$?; log "open failed: control.sh=$rc"; exit "$rc"; }
+DOKENE_WHATSAPP_TEST_INTERVAL=${LIVE_INTERVAL:-1m} ./control.sh outbound true >/dev/null 2>&1 || { rc=$?; log "open failed: control.sh=$rc"; exit "$rc"; }
 wait_healthy || { log "open failed: backend not healthy"; exit 71; }
 log "window: $(backend_state)"
 timeout 120 python3 -I $HELPER enable >> "$L" 2>&1 || { rc=$?; log "enable failed: $rc"; exit "$rc"; }

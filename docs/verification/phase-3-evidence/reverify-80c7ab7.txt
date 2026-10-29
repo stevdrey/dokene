@@ -1,4 +1,4 @@
-# Issue 140 re-verification on main 80c7ab7 (code identical to 38b5cb9), 2026-10-28. Synthetic data only; no live send.
+# Issue 140 re-verification on main 80c7ab7 (code identical to 38b5cb9), 2026-10-28/29. Synthetic data, except the two authorized live sends to the consenting test recipient, summarized without identifiers.
 
 ===== progress.txt =====
 base backend restarted: 0
@@ -509,3 +509,47 @@ backend test results: suites=190 tests=2311 failures=0 errors=0 skipped=0
 
 ===== npm-build.txt (tail) =====
 ✓ built in 189ms
+
+===== live-140-cbes.txt (authorized live send, Spanish, interval 24h) =====
+2026-10-29T06:27:01Z window: outbound=true interval=24h
+{"tenantOutboundEnabled": true}
+{"template": "dokene_integration_test_v1", "status": "SENT", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-10-29T06:27:04.094055Z", "attempts": 1}
+2026-10-29T06:27:04Z send-exit=0
+{"tenantOutboundEnabled": false}
+2026-10-29T06:27:21Z close attempt 1: disable=0 backend=0 healthy=0 tenant={"tenantOutboundEnabled": false} backend_state=outbound=false interval=24h
+2026-10-29T06:27:21Z closed (verified): tenant off, outbound=false interval=24h
+{"templateIntent": "GENERAL_FOLLOW_UP", "approvalStatus": "APPROVED", "sendable": true, "language": "es", "version": 21}
+{"status": "SENT", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-10-29T06:27:04.094055Z", "deliveredAt": null, "readAt": null, "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"]]}
+2026-10-29T06:27:22Z LIVEENDONE
+
+===== live-140-cben.txt (authorized live send, English, interval 1m) =====
+2026-10-29T06:37:49Z window: outbound=true interval=1m
+{"tenantOutboundEnabled": true}
+{"template": "hello_world", "status": "SENT", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-10-29T06:37:52.899880Z", "attempts": 1}
+2026-10-29T06:37:52Z send-exit=0
+{"tenantOutboundEnabled": false}
+2026-10-29T06:38:09Z close attempt 1: disable=0 backend=0 healthy=0 tenant={"tenantOutboundEnabled": false} backend_state=outbound=false interval=24h
+2026-10-29T06:38:09Z closed (verified): tenant off, outbound=false interval=24h
+{"templateIntent": "GENERAL_FOLLOW_UP", "approvalStatus": "APPROVED", "sendable": true, "language": "es", "version": 23}
+{"status": "DELIVERED", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-10-29T06:37:52.899880Z", "deliveredAt": "2026-10-29T06:37:54Z", "readAt": null, "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"], ["DELIVERY_UPDATED", "SENT"], ["DELIVERY_UPDATED", "DELIVERED"]]}
+2026-10-29T06:38:11Z LIVEENDONE
+
+===== webhook inbox after the Callback URL pointed at the tunnel (provider_webhook_events, no identifiers) =====
+ delivery_status |   state   | attempts |    occurred_utc     |    received_utc     | matches_a_message 
+-----------------+-----------+----------+---------------------+---------------------+-------------------
+ READ            | APPLIED   |        1 | 2026-10-27 21:35:02 | 2026-10-29 05:31:23 | t
+ SENT            | IGNORED   |        1 | 2026-10-27 21:10:45 | 2026-10-29 05:32:12 | t
+ SENT            | IGNORED   |        1 | 2026-10-29 06:27:05 | 2026-10-29 06:27:28 | t
+ DELIVERED       | APPLIED   |        1 | 2026-10-29 06:27:06 | 2026-10-29 06:27:28 | t
+ SENT            | IGNORED   |        1 | 2026-10-29 06:37:53 | 2026-10-29 06:38:01 | t
+ DELIVERED       | APPLIED   |        1 | 2026-10-29 06:37:54 | 2026-10-29 06:38:10 | t
+ SENT            | UNMATCHED |        1 | 2026-10-22 16:28:21 | 2026-10-29 06:41:29 | f
+ DELIVERED       | APPLIED   |        1 | 2026-10-25 01:44:20 | 2026-10-29 06:41:29 | t
+(8 rows)
+
+Rows 1-2: the backlog for the 2026-10-27 sends (English READ applied, Spanish SENT ignored). Rows 3-6: the two sends above. Rows 7-8: older backlog (one applied to an earlier QA campaign message, one with no matching message in this database, settled UNMATCHED).
+
+Final status of the Spanish send (read-only, after its callbacks):
+{"status": "DELIVERED", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-10-29T06:27:04.094055Z", "deliveredAt": "2026-10-29T06:27:06Z", "readAt": null, "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"], ["DELIVERY_UPDATED", "SENT"], ["DELIVERY_UPDATED", "DELIVERED"]]}
+
+Gateway: the callbacks Meta sent while the window-closing step recreated the backend got 502 and were retried by Meta with 200 (06:27:08 to 06:27:28, 06:37:54 to 06:38:10).

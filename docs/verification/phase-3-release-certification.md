@@ -15,14 +15,16 @@ Providers:
 
 All data is synthetic, except the one consenting test recipient of the live sends. This report proves the scenarios it lists; it does not claim that no other defect exists.
 
-**Re-verified on `main` @ `80c7ab7`** (2026-10-28). Its code is identical to `38b5cb9`, which adds the #293 fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)) to `f4cb0ec`. See [Re-verification on `80c7ab7`](#re-verification-on-80c7ab7).
+**Re-verified on `main` @ `80c7ab7`** (2026-10-28/29), the final candidate. Its code is identical to `38b5cb9`, which adds the #293 fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)) to `f4cb0ec`. See [Re-verification on `80c7ab7`](#re-verification-on-80c7ab7).
 
-**Overall verdict: BLOCKED — not certified.** #140 and #149 require both tracks to pass on the final candidate, with no required case left FAIL or BLOCKED. One required gate is still open:
-- **Real status callbacks: BLOCKED.** The Meta app is unpublished, so no real `delivered`/`read` callback updated a Dokene message. Meta's acceptance and the recipient's confirmation prove the two sends, not the callback reconciliation.
+**Overall verdict: PASS — the scoped Phase 3 release is certified on `80c7ab7`.** #140 and #149 require both tracks to pass on the final candidate, with no required case left FAIL or BLOCKED. Both gates that blocked the `f4cb0ec` run are now closed:
+- **Security:** P3-KILL-07 failed on `f4cb0ec` ([#293](https://github.com/stevdrey/dokene/issues/293), Low). #149 retested it on `38b5cb9` (kill suite 49 PASS, 0 FAIL), and no defect found by #149 is still open.
+- **Real status callbacks:** after the Meta app was published, two new authorized live sends on `80c7ab7` moved from `SENT` to `DELIVERED` through real, signed Meta callbacks. Meta also delivered the pending `read` callback for the English send of 2026-10-27, which moved that message to `READ`. See [Live status callbacks on `80c7ab7`](#live-status-callbacks-on-80c7ab7).
 
-The security gate is closed. P3-KILL-07 failed on `f4cb0ec` ([#293](https://github.com/stevdrey/dokene/issues/293), Low). #149 retested it on `38b5cb9` (kill suite 49 PASS, 0 FAIL), and no defect found by #149 is still open.
-
-Every individual leg recorded below as PASS keeps its evidence. Certification needs the callback gate to pass on the candidate, or an explicitly agreed and recorded change to the acceptance scope.
+Accepted limitations, not open gates:
+- the two #149 `BLOCKED` rows are metrics halves that this deployment does not expose by design, each covered by a named in-process test;
+- the #149 approval, duplicate, IDOR and permission suites ran on `f4cb0ec`; the only code change since then is #296's error handling of unexpected failures, whose security case was retested;
+- the limits under [Limitations](#limitations).
 
 ## Results
 
@@ -34,7 +36,7 @@ Every individual leg recorded below as PASS keeps its evidence. Certification ne
 | Phase 3 browser journey on the real stack | **PASS (16/16; hardened script 19/19)** | See [Phase 3 browser journey](#phase-3-browser-journey). |
 | Live Meta send, Spanish template | **PASS** | See [Live provider legs](#live-provider-legs). |
 | Live Meta send, English template | **PASS** | See [Live provider legs](#live-provider-legs). |
-| Live status callbacks (`delivered`/`read`) | **BLOCKED** | The Meta app is in development mode, which delivers only dashboard test webhooks and no production status callbacks. 0 inbox rows arrived for the live sends. The deterministic callback path is covered by `ApprovedSendJourneyIntegrationTest`, and the parser for the live status shape is covered by #289. |
+| Live status callbacks (`delivered`/`read`) | **PASS on `80c7ab7`** | BLOCKED on `f4cb0ec` (the app was in development mode, which delivers only dashboard test webhooks: 0 inbox rows). After the app was published: real signed callbacks moved both new live sends to `DELIVERED` and the 2026-10-27 English send to `READ`, each on the same message and without a second send. See [Live status callbacks on `80c7ab7`](#live-status-callbacks-on-80c7ab7). |
 | Live OpenAI | **PASS** | Real drafts in the browser journey, suite #121 d (prompt injection, grounding) and the UI suite. See below. |
 | Phase 1/2 regression | **PASS with known limitations** | See [Phase 1/2 regression](#phase-12-regression). |
 
@@ -80,7 +82,7 @@ The recipient owner authorized lowering `dokene.messaging.min-contact-interval` 
 | Spanish template (`es-419`), 21:10:44Z | **PASS**: 1 attempt, `SENT`, `outcomeUnknown=false`, no failure category. Timeline: `SUBMITTED` → `APPROVED` → `SEND_REQUESTED` → `SEND_ATTEMPT_STARTED` → `SENT`. **The recipient confirmed receipt.** |
 | English template (`en-US`), 21:21:13Z | **PASS**: 1 attempt, `SENT`, `outcomeUnknown=false`, no failure category, the same timeline. **The recipient confirmed receipt.** `GENERAL_FOLLOW_UP` was mapped to the English template for this send and restored to the Spanish one afterwards (`APPROVED`/`sendable`, language `es`). |
 | Windows closed | PASS: tenant `outboundEnabled=false`, global `false`, interval `24h`, confirmed after each send |
-| Status callbacks | **BLOCKED** (app unpublished). 0 inbox rows. The messages stay `SENT`, not `DELIVERED`, in Dokene. |
+| Status callbacks | **BLOCKED on `f4cb0ec`** (app unpublished): 0 inbox rows, the messages stayed `SENT`. Closed on `80c7ab7`, see [Live status callbacks on `80c7ab7`](#live-status-callbacks-on-80c7ab7). |
 
 ## Phase 1/2 regression
 
@@ -100,7 +102,7 @@ The Path B drivers of campaign #118 were rerun on this commit (`regress.sh`, `re
 
 ## Re-verification on `80c7ab7`
 
-`main` @ `80c7ab7` adds to `f4cb0ec` the #293 fix (PR #296: a closed `INTERNAL_ERROR` problem body for unexpected failures on Phase 3 routes, and the frontend reading it as an uncertain outcome) and the documentation of PR #294 and PR #295. The checks below ran on it on 2026-10-28. The QA stack images were rebuilt from it with outbound off; there was no live send. Raw outputs are in [reverify-80c7ab7.txt](phase-3-evidence/reverify-80c7ab7.txt); the regression driver is `reverify-regress.sh`.
+`main` @ `80c7ab7` adds to `f4cb0ec` the #293 fix (PR #296: a closed `INTERNAL_ERROR` problem body for unexpected failures on Phase 3 routes, and the frontend reading it as an uncertain outcome) and the documentation of PR #294 and PR #295. The checks below ran on it on 2026-10-28. The QA stack images were rebuilt from it with outbound off; the only live sends are the two in [Live status callbacks on `80c7ab7`](#live-status-callbacks-on-80c7ab7). Raw outputs are in [reverify-80c7ab7.txt](phase-3-evidence/reverify-80c7ab7.txt); the regression driver is `reverify-regress.sh`.
 
 | Check | Result | Notes |
 | --- | --- | --- |
@@ -112,7 +114,29 @@ The Path B drivers of campaign #118 were rerun on this commit (`regress.sh`, `re
 | #121 a, b, c | **PASS** 53, 63, 44 checks, 0 FAIL | Authentication, CSRF, roles and tenant isolation are unchanged by the new error handling. |
 | #121 d (live prompt injection and grounding) | **PASS** 107/109, the same 2 heuristic FAILs as on `f4cb0ec` | Both are the script's Spanish-word heuristic on two short, all-Spanish drafts (`notes-es2-en0`, no English words), with locale `es-419`. |
 
-The live Meta legs, the #121 e–m and #122 suites were not rerun: #296 does not touch the send path, the AI path or the Phase 1/2 UI, and their `f4cb0ec` results stand.
+The #121 e–m and #122 suites were not rerun: #296 does not touch the send path, the AI path or the Phase 1/2 UI, and their `f4cb0ec` results stand.
+
+## Live status callbacks on `80c7ab7`
+
+On 2026-10-29 the Meta app was published, and the webhook Callback URL pointed at a temporary tunnel in front of the local gateway, which proxies only `/webhooks/whatsapp`. From outside, every other path answered `404`, and requests without a valid signature or verify token answered `403`. Meta's verification `GET` passed. The backend ran the `80c7ab7` image with the live override. The procedure is [phase-3-live-meta-procedure.md](phase-3-live-meta-procedure.md).
+
+As soon as the Callback URL was set, Meta delivered the status reports it held for the 2026-10-27 sends:
+- **English, 2026-10-27:** a `read` report, `APPLIED`. The message moved from `SENT` to `READ` (`readAt` 21:35:02Z, Meta's time), with 1 attempt and a `DELIVERY_UPDATED` event.
+- **Spanish, 2026-10-27:** a `sent` report. The message was already `SENT`, so the report was `IGNORED` and the message did not change.
+
+The recipient owner then authorized one new send in each language (`live.sh cbes` and `live.sh cben`), with new idempotency keys so neither could replay a 10-27 message:
+
+| Send | Interval | Result | Callbacks (signed, in the inbox) |
+| --- | --- | --- | --- |
+| Spanish (`es-419`), 06:27:04Z | `24h` (the last message to this recipient was more than 24 h earlier) | **PASS**: 1 attempt, `SENT`, then **`DELIVERED`** (`deliveredAt` 06:27:06Z). **The recipient confirmed receipt.** | `delivered` `APPLIED`; `sent` `IGNORED` |
+| English (`en-US`), 06:37:52Z | `1m`, authorized by the recipient owner for this send only | **PASS**: 1 attempt, `SENT`, then **`DELIVERED`** (`deliveredAt` 06:37:54Z). **The recipient confirmed receipt.** | `delivered` `APPLIED`; `sent` `IGNORED` |
+| Windows closed | | **PASS**: after each send, read back as tenant `outboundEnabled=false`, global `false`, interval `24h`; `GENERAL_FOLLOW_UP` restored to the Spanish template. The tunnel was stopped afterwards. | |
+
+The timeline of each new message is `SUBMITTED` → `APPROVED` → `SEND_REQUESTED` → `SEND_ATTEMPT_STARTED` → `SENT` → `DELIVERY_UPDATED` (`SENT`) → `DELIVERY_UPDATED` (`DELIVERED`). Each status moved forward on the same Dokene message, with no second attempt. The `sent` report arrived after Dokene had already recorded `SENT`, so ignoring it is the intended idempotent behaviour.
+
+Observations from this leg (not defects):
+- **Callbacks during the window close.** Closing the window recreates the backend. Callbacks Meta sent during those seconds got `502` from the gateway. Meta retried them, and they were accepted about 20 s later (`200`). No report was lost.
+- **Older backlog.** Two older reports also arrived: a `delivered` report from 2026-10-25, applied to an earlier QA campaign message, and a `sent` report from 2026-10-22 with no matching message in this database, settled `UNMATCHED`.
 
 ## Observations (not filed)
 
@@ -125,14 +149,14 @@ The live Meta legs, the #121 e–m and #122 suites were not rerun: #296 does not
 | [#293](https://github.com/stevdrey/dokene/issues/293) | Low | Fixed on `main` by [PR #296](https://github.com/stevdrey/dokene/pull/296) after the `f4cb0ec` run: a Phase 3 route now answers unexpected failures with the problem body. Verified by the #149 retest of P3-KILL-07 on `38b5cb9`. |
 | #265, #266 | Low | Fixed and retested by #149 |
 
-No new defect was found by the regression, the browser journey or the live legs.
+No new defect was found by the regression, the browser journey, the live sends or the live callbacks.
 
 ## Limitations
 
-- **Real status callbacks were not observed.** That needs the Meta app published. Until then the live callback leg is BLOCKED, not PASS.
+- **Real status callbacks were observed only on `80c7ab7`**, after the Meta app was published. On `f4cb0ec` that leg was BLOCKED. A live `failed` callback was not provoked; the `failed` path is covered by `ApprovedSendJourneyIntegrationTest`.
 - **The database was migrated, not clean.** Scripts that assume clean-database counts are marked as harness limits, with the reason, and the evidence for those checks is reused or covered elsewhere as stated.
 - **Screen reader checks** (#122 UX-04, real assistive technology) remain outside this automated run.
-- **The minimum contact interval was lowered to `1m`** for the live sends, with the recipient owner's authorization, on the QA stack only. It was restored to `24h` and confirmed.
+- **The minimum contact interval was lowered to `1m`** for the live sends that followed an earlier send within 24 h (both on `f4cb0ec` and the English send on `80c7ab7`), with the recipient owner's authorization, on the QA stack only. It was restored to `24h` and confirmed each time.
 - **This is a scoped certification.** It does not include a recurring scheduler, campaigns or auto-send, which are out of Phase 3 by design.
 
 ## Evidence kept in this repository
