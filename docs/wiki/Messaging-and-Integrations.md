@@ -395,7 +395,7 @@ The dispatcher maps these results through the message state machine. An exceptio
 
 ## Verification status
 
-The Phase 3 messaging core and the manually approved send are **certified (scoped) on `main` `80c7ab7`** ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140). The first run on `f4cb0ec` was BLOCKED; the re-verification on `80c7ab7` closed its gates.
+The Phase 3 messaging core and the manually approved send **pass on `main` `80c7ab7`**; the certification takes effect once [#149](https://github.com/stevdrey/dokene/issues/149) posts its independent scoped verdict ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140). The first run on `f4cb0ec` was BLOCKED; the re-verification on `80c7ab7` closed its gates.
 - **Covered:**
   - the deterministic journey through the real Graph adapter;
   - the browser journey on the real stack;
