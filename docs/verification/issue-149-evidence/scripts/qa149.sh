@@ -53,6 +53,15 @@ problem_keys() { echo "$BODY" | jq -r 'keys|join(",")' 2>/dev/null; }
 problem_code() { echo "$BODY" | jq -r '.code // empty' 2>/dev/null; }
 problem_ok() { [ "$(problem_keys)" = "code,status,title,type" ] && [ "$(problem_code)" = "$1" ] && echo ok || echo "keys=$(problem_keys) code=$(problem_code)"; }
 ctype() { hdr content-type; }
+# problem_exact <status> <title> <code>: CODE, media type and body are exactly the ADR 0023 §4.4 problem, nothing more.
+# Compares the canonical JSON, so a missing or extra member (path, an id), a wrong value or type all fail.
+problem_exact() {
+  local want got mt
+  want=$(jq -cnS --argjson s "$1" --arg t "$2" --arg c "$3" '{type:"about:blank",title:$t,status:$s,code:$c}')
+  got=$(printf '%s' "$BODY" | jq -cS . 2>/dev/null); mt=$(ctype | cut -d';' -f1 | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+  if [ "$CODE" = "$1" ] && [ "$mt" = application/problem+json ] && [ "$got" = "$want" ]; then echo ok
+  else echo "status=$CODE type=$mt body=${got:-${BODY:0:120}}"; fi
+}
 
 # --- database ---------------------------------------------------------------------------------------------------------
 psqlq() { docker compose exec -T postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -Atc \"$1\"" | tr -d '\r'; }
@@ -67,6 +76,7 @@ events_n() { psqlq "select count(*) from dokene.outbound_message_events${1:+ whe
 keys_n() { psqlq "select count(*) from dokene.outbound_message_idempotency_keys${1:+ where tenant_id='$1'}"; }
 messages_n() { psqlq "select count(*) from dokene.outbound_messages${1:+ where tenant_id='$1'}"; }
 msg_status() { psqlq "select status||'/'||version||'/'||outcome_unknown from dokene.outbound_messages where id='$1'"; }
+resolutions_n() { psqlq "select count(*) from dokene.outbound_message_resolutions${1:+ where message_id='$1'}"; }
 hooks_n() { psqlq "select count(*) from dokene.provider_webhook_events${1:+ where tenant_id='$1'}"; }
 
 # --- stub control -----------------------------------------------------------------------------------------------------
@@ -123,6 +133,24 @@ denied() {
 # refused <id> <channel> <what> <code> <status> <snapshot>: closed code, exact problem body, nothing written
 refused() { chk "$1" "$2" "$3: $5 $4" "$5 ok" "$CODE $(problem_ok "$4")"; chk "$1" "$2" "$3: nothing written" ok "$(unchanged "$6")"; }
 notfound() { chk "$1" "$2" "$3: 404 NOT_FOUND" "404 ok" "$CODE $(problem_ok NOT_FOUND)"; chk "$1" "$2" "$3: nothing written" ok "$(unchanged "$4")"; }
+# Fault injection (P3-KILL-07): take the runtime role's SELECT on a table away. The trap puts it back if the script dies
+# or is interrupted before restore_runtime_select; GRANT is idempotent, so a double restore is harmless.
+# Any EXIT/INT/TERM handlers the caller had are saved first and put back on restore.
+restore_runtime_select() {
+  psqlq "grant select on dokene.$1 to dokene_runtime" >/dev/null
+  trap - EXIT INT TERM; eval "${_QA149_PREV_TRAPS:-}"; _QA149_PREV_TRAPS=
+}
+# bash does not run an EXIT trap installed while the EXIT trap runs, so on a plain exit the caller's EXIT command is run
+# explicitly after the restore; on INT/TERM the restore reinstalls it and the following `exit` runs it once.
+_qa149_trap_arg() { _QA149_PREV_EXIT=$1; }
+revoke_runtime_select() {
+  _QA149_PREV_TRAPS=$(trap -p EXIT INT TERM); _QA149_PREV_EXIT=
+  local t; t=$(trap -p EXIT); [ -n "$t" ] && eval "_qa149_trap_arg ${t#trap -- }"
+  trap "restore_runtime_select $1; eval \"\$_QA149_PREV_EXIT\"" EXIT; trap "restore_runtime_select $1; exit 130" INT; trap "restore_runtime_select $1; exit 143" TERM
+  psqlq "revoke select on dokene.$1 from dokene_runtime" >/dev/null
+}
+# runtime_grants <table>: the runtime role's privileges on a table, sorted ("INSERT,SELECT,UPDATE")
+runtime_grants() { psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='$1'"; }
 # Keycloak admin helpers for throwaway identities (P3-PERM-18)
 kc_token() { curl -s -d grant_type=password -d client_id=admin-cli -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password=$KC_BOOTSTRAP_ADMIN_PASSWORD" "http://localhost:${KEYCLOAK_PORT:-8081}/realms/master/protocol/openid-connect/token" | jq -r .access_token; }
 kc_create_user() { curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $(kc_token)" -H 'Content-Type: application/json' "http://localhost:${KEYCLOAK_PORT:-8081}/admin/realms/dokene/users" -d "$(jq -nc --arg u "$1" --arg p "$PW" '{username:$u,email:($u+"@dokene.local"),firstName:"QA",lastName:"Temp",enabled:true,emailVerified:true,credentials:[{type:"password",value:$p,temporary:false}]}')"; }
@@ -165,6 +193,8 @@ msg_etag() { req "$1" "$2" GET "/api/messages/$3" -; etag; }
 approve() { req "$1" "$2" POST "/api/messages/$3/approvals" '{"decision":"APPROVE"}' -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
 reject() { req "$1" "$2" POST "/api/messages/$3/approvals" '{"decision":"REJECT"}' -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
 cancel() { req "$1" "$2" POST "/api/messages/$3/cancellations" '{}' -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
+# resolve <user> <tenant> <message> <outcome> [key] [If-Match]: T12, a member declares an unknown send FAILED
+resolve() { req "$1" "$2" POST "/api/messages/$3/resolutions" "{\"outcome\":\"$4\"}" -H "Idempotency-Key: ${5:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${6:-$(msg_etag "$1" "$2" "$3")}"; }
 send() { req "$1" "$2" POST "/api/messages/$3/sends" - -H "Idempotency-Key: ${4:-qa149-$RUN-$RANDOM$RANDOM}" -H "If-Match: ${5:-$(msg_etag "$1" "$2" "$3")}"; }
 # ready_approved <user> <tenant> <name> -> prints "customerId contactId messageId" with the message APPROVED
 ready_approved() {
@@ -173,6 +203,14 @@ ready_approved() {
   [ "$CODE" = 201 ] || { echo "submit failed: $CODE $BODY" >&2; return 1; }
   approve "$1" "$2" "$MSG"; [ "$CODE" = 201 ] || { echo "approve failed: $CODE $BODY" >&2; return 1; }
   echo "$cid $pid $MSG"
+}
+# ready_unknown <user> <tenant> <name> [stub send mode] -> "customerId contactId messageId" with the message SENDING and
+# its outcome unknown (MA-UNKNOWN). error500 leaves no provider id; paused keeps one a delivery report can match.
+ready_unknown() {
+  local ids m prev; ids=$(ready_approved "$1" "$2" "$3") || return 1; m=${ids##* }
+  prev=$(cat "$STUBDIR/send" 2>/dev/null || echo accept); stub_set send "${4:-error500}"; send "$1" "$2" "$m"; stub_set send "$prev"
+  case $(msg_status "$m") in SENDING/*/t|SENDING/*/true) ;; *) echo "ready_unknown: $CODE $(msg_status "$m")" >&2; return 1;; esac
+  echo "$ids"
 }
 ready_pending() {
   local ids cid pid; ids=$(mk_customer "$1" "$2" "$3") || return 1; read -r cid pid <<< "$ids"

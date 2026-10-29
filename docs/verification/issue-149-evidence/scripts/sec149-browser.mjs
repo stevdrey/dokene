@@ -7,7 +7,9 @@
 //   QA149_CHROME    chrome-headless-shell executable
 //   QA149_MA        an APPROVED message id in tenant A (the P3-CSRF-03 target)
 //   QA149_TENANT_A  tenant A id
-//   OUTD            results.tsv destination
+//   OUTD            results.tsv destination (RESULTS, when set, names the file instead, like the shell suites)
+//   QA149_PORT_MAP  optional, set by isolated149.sh: host:port=ip:port pairs; Chromium then goes through a local proxy
+//                   that connects there while the URLs, origins and Host headers stay as the app expects
 import { createRequire } from 'node:module';
 import { appendFileSync } from 'node:fs';
 import http from 'node:http';
@@ -24,7 +26,7 @@ const ALLOWED_HOSTS = new Set(['localhost:5173', 'localhost:8080', 'localhost:80
 let pass = 0, fail = 0, blocked = 0;
 
 function rec(id, verdict, note) {
-  appendFileSync(`${OUTD}/results.tsv`, `${id}\tBrowser\t${verdict}\t${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}\t${note}\n`);
+  appendFileSync(process.env.RESULTS ?? `${OUTD}/results.tsv`, `${id}\tBrowser\t${verdict}\t${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}\t${note}\n`);
   if (verdict === 'PASS') pass++; else if (verdict === 'FAIL') fail++; else blocked++;
   console.log(`${verdict}  ${id}  [Browser]  ${note}`);
 }
@@ -47,13 +49,35 @@ const attacker = http.createServer((req, res) => {
 });
 await new Promise(r => attacker.listen(18999, '127.0.0.1', r));
 
-const browser = await chromium.launch({ executablePath: process.env.QA149_CHROME });
+// Port map for an isolated second stack: the browser keeps seeing localhost:5173/8080/8081.
+const portMap = Object.fromEntries((process.env.QA149_PORT_MAP ?? '').split(',').filter(Boolean).map(p => p.split('=')));
+let mapper;
+if (Object.keys(portMap).length) {
+  mapper = http.createServer((req, res) => {
+    const u = new URL(req.url);
+    const [host, port] = (portMap[u.host] ?? u.host).split(':');
+    const headers = { ...req.headers }; delete headers['proxy-connection'];
+    const up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers }, r => {
+      res.writeHead(r.statusCode, r.headers); r.pipe(res);
+    });
+    up.on('error', () => { if (res.headersSent) res.destroy(); else { res.writeHead(502); res.end(); } });
+    req.pipe(up);
+  });
+  await new Promise(r => mapper.listen(18998, '127.0.0.1', r));
+}
+const browser = await chromium.launch({ executablePath: process.env.QA149_CHROME,
+  ...(mapper ? { proxy: { server: 'http://127.0.0.1:18998', bypass: '<-loopback>' }, args: ['--proxy-bypass-list=<-loopback>'] } : {}) });
 const context = await browser.newContext();
 const page = await context.newPage();
 const requests = [];
 const scripts = [];
 page.on('request', r => requests.push(r.url()));
-page.on('response', async r => { if (r.request().resourceType() === 'script') scripts.push([r.url(), await r.text().catch(() => '')]); });
+const apiBodies = [];
+const bodyReads = [];
+page.on('response', r => {
+  if (r.request().resourceType() === 'script') bodyReads.push(r.text().catch(() => '').then(t => scripts.push([r.url(), t])));
+  else if (r.url().includes('/api/')) bodyReads.push(r.text().catch(() => null).then(t => apiBodies.push([r.url(), t])));
+});
 
 // Sign in as A-OWNER through the real Keycloak flow.
 await page.goto(`${APP}/oauth2/authorization/dokene`);
@@ -64,14 +88,23 @@ await page.waitForURL(u => u.origin === APP, { timeout: 30000 });
 await page.getByRole('navigation').first().waitFor({ timeout: 30000 }).catch(() => {});
 const appLoadedAt = requests.length;
 
-// Walk every screen the shell offers on this commit.
+// Walk every screen the shell offers on this commit. On Configuración wait for the integration panel and its templates,
+// and keep the names of every control there (P3-KILL-03 screen half).
 const screens = {};
+const controls = {};
 for (const tab of ['Seguimientos', 'Clientes', 'Configuración', 'Más']) {
   const link = page.getByRole('button', { name: tab }).or(page.getByRole('link', { name: tab })).first();
   if (await link.count()) { await link.click().catch(() => {}); await page.waitForTimeout(800); }
+  if (tab === 'Configuración') {
+    await page.getByText('Configuración del número').first().waitFor({ timeout: 15000 }).catch(() => {});
+    await page.getByText(/plantillas listas para enviar/).first().waitFor({ timeout: 15000 }).catch(() => {});
+  }
   screens[tab] = await page.locator('body').innerText().catch(() => '');
+  controls[tab] = await page.locator('main button, main input, main select, main [role=switch], main [role=checkbox]')
+    .evaluateAll(es => es.map(e => (e.getAttribute('aria-label') || e.textContent || e.getAttribute('name') || e.type || '').trim()));
 }
 const allText = Object.values(screens).join('\n');
+await Promise.all(bodyReads);
 
 console.log('== P3-SEC-08 no credential in the browser, no call to a host other than Dokene');
 const cookies = await context.cookies();
@@ -90,7 +123,18 @@ chk('P3-SEC-08', `JavaScript bundle (${scripts.length} scripts) holds no canary 
 if (bundleHits.length) console.log('  bundle hits:', bundleHits.join('; '));
 chk('P3-SEC-08', 'the integration status request, if any, goes through /api on the proxy only', 0,
   requests.slice(appLoadedAt).filter(u => /integrations|whatsapp/i.test(u) && !u.startsWith(`${APP}/api/`)).length);
-rec('P3-SEC-08', 'BLOCKED', 'the integration screen is not mounted in the shell on this commit (the Configuración tab is a placeholder; IntegrationStatusPanel exists but nothing renders it), so its network responses could not be inspected; #146 owes the screen');
+const integ = apiBodies.filter(([u]) => /\/api\/(integrations|templates)/.test(u));
+// Without both panel responses (readable and non-empty) the leak check below would pass on nothing.
+const integPaths = new Set(integ.filter(([, t]) => t).map(([u]) => new URL(u).pathname));
+chk('P3-SEC-08', 'the integration and template responses of the panel were captured with readable, non-empty bodies', 'true true 0',
+  `${integPaths.has('/api/integrations/whatsapp')} ${integPaths.has('/api/templates')} ${integ.filter(([, t]) => !t).length}`);
+chk('P3-SEC-08', 'the integration screen is mounted: Configuración shows the WhatsApp integration card', true,
+  screens['Configuración'].includes('Integración de WhatsApp') && screens['Configuración'].includes('Configuración del número'));
+chk('P3-SEC-08', `integration and template responses read by the screen (${integ.length}) carry no canary and no token field`, 0,
+  integ.filter(([, t]) => t && SECRETS.some(s => t.includes(s)) || /"(access_?token|token|appSecret|verifyToken)"/i.test(t)).length);
+chk('P3-SEC-08', 'the integration screen shows the reference name only, never a canary', 'true 0',
+  `${screens['Configuración'].includes('qa149-token-a')} ${SECRETS.filter(s => screens['Configuración'].includes(s)).length}`);
+rec('P3-SEC-08', 'PASS', `integration responses inspected: ${[...new Set(integ.map(([u]) => new URL(u).pathname))].join(' ')}`);
 
 console.log('== P3-SEC-07 screens: no canary secret on any screen');
 chk('P3-SEC-07', `no canary secret on the ${Object.keys(screens).length} screens`, 0, SECRETS.filter(s => allText.includes(s)).length);
@@ -99,7 +143,12 @@ rec('P3-SEC-07', 'PASS', `screens visited: ${Object.keys(screens).join(', ')}; C
 console.log('== P3-KILL-03 screens: no screen can change the global switch');
 chk('P3-KILL-03', 'no control that names the global outbound switch on any screen', 0,
   Object.values(screens).filter(t => /interruptor global|global switch|envíos globales/i.test(t)).length);
-rec('P3-KILL-03', 'BLOCKED', 'no messaging or integration settings screen is mounted on this commit (Configuración is a placeholder); the screen half of the row needs #144/#146 screens');
+const allControls = Object.entries(controls).flatMap(([t, cs]) => cs.map(c => `${t}:${c}`));
+chk('P3-KILL-03', 'controls were read from the screens, including those of the integration panel (Verificar propiedad)', 'true true',
+  `${allControls.length > 0} ${controls['Configuración'].includes('Verificar propiedad')}`);
+chk('P3-KILL-03', `no control on any screen (${allControls.length} controls) names a global or platform switch`, 0,
+  allControls.filter(c => /global|plataforma|platform/i.test(c)).length);
+rec('P3-KILL-03', 'PASS', `Configuración controls: ${controls['Configuración'].join(' | ')}`);
 
 console.log('== P3-CSRF-03 a page on another origin posts a form and runs a fetch against the send route');
 const before = requests.length;
@@ -115,4 +164,5 @@ chk('P3-CSRF-03', 'session cookie is SameSite=Lax, so the cross-site POST carrie
 
 await browser.close();
 attacker.close();
+mapper?.close();
 console.log(`== sec149-browser.mjs: PASS=${pass} FAIL=${fail} BLOCKED=${blocked}`);

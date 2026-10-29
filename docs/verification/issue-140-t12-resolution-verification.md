@@ -61,8 +61,8 @@ Other tests that cover this change:
 ## Effect on the #149 run
 
 The #149 candidate run marked P3-PERM-07, P3-DUP-08, P3-APPR-12 and the resolution half of P3-IDOR-05 `BLOCKED`
-because the route answered `404` on that commit. From this change on, they can be run over HTTP. The #149 report
-stays a record of its own commit and is not rewritten.
+because the route answered `404` on that commit. From this change on, they can be run over HTTP. The #149
+acceptance run on `f4cb0ec` did so and all four pass (`issue-149-phase-3-security-verification.md`).
 
 ## Verification
 

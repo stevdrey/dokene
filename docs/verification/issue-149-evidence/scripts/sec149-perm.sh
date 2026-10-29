@@ -52,10 +52,16 @@ done
 S=$(snap); send $A_VIEWER "$A" "$MA"; denied P3-PERM-06 $H "VIEWER send" MESSAGE_SEND "$S"
 chk P3-PERM-06 $H "VIEWER send: message still APPROVED, no attempt" "APPROVED 0" "$(msg_status "$MA" | cut -d/ -f1) $(attempts_n "$MA")"
 
-echo "== P3-PERM-07 resolutions route"
-req $A_OWNER "$A" POST "/api/messages/$MA/resolutions" '{"outcome":"FAILED"}' -H "Idempotency-Key: qa149-$RUN-$RANDOM" -H "If-Match: $(msg_etag $A_OWNER "$A" "$MA")"
-if [ "$CODE" = 404 ] || [ "$CODE" = 405 ]; then rec P3-PERM-07 $H BLOCKED "POST /api/messages/{id}/resolutions is not deployed on this commit ($CODE); T12 is owed by #138"
-else chk P3-PERM-07 $H "OWNER resolution on an approved message (not unknown outcome) is a refusal, not a denial" 409 "$CODE"; fi
+echo "== P3-PERM-07 resolutions route: OWNER and ADMIN allowed, OPERATOR and VIEWER denied"
+read -r c p MU <<< "$(ready_unknown $A_OPERATOR "$A" "PERM07 $RUN")"; U0=$(msg_status "$MU")
+for u in $A_OPERATOR $A_VIEWER; do S=$(snap); resolve $u "$A" "$MU" FAILED; denied P3-PERM-07 $H "$u resolution" INTEGRATION_MANAGE "$S"; done
+chk P3-PERM-07 $H "after both denials: message unchanged (SENDING, unknown), no resolution row" "$U0 0" "$(msg_status "$MU") $(resolutions_n "$MU")"
+for u in $A_OWNER $A_ADMIN; do
+  [ "$u" = "$A_ADMIN" ] && read -r c p MU <<< "$(ready_unknown $A_OPERATOR "$A" "PERM07 admin $RUN")"
+  n0=$(stub_calls send); resolve $u "$A" "$MU" FAILED
+  chk P3-PERM-07 $H "$u resolution FAILED: 201, message FAILED, one resolution row, no provider call" "201 FAILED 1 0" "$CODE $(echo "$BODY" | jq -r .status) $(resolutions_n "$MU") $(stub_since send $n0)"
+done
+S=$(snap); resolve $A_OWNER "$A" "$MA" FAILED; refused P3-PERM-07 $H "OWNER resolution of an APPROVED message (outcome known)" INVALID_TRANSITION 409 "$S"
 
 echo "== P3-PERM-08 template reads"
 for u in $A_OWNER $A_ADMIN $A_OPERATOR $A_VIEWER; do req $u "$A" GET /api/templates -; chk P3-PERM-08 $H "$u GET /api/templates" 200 "$CODE"; done

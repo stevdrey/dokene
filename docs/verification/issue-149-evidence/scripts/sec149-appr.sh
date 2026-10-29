@@ -98,5 +98,13 @@ S=$(snap); send $O "$A" "$MA"; refused P3-APPR-14 $H "send with an approval boun
 read -r c p MA2 <<< "$(ready_approved $O "$A" "APPR14b $RUN")"; n0=$(stub_calls send); send $O "$A" "$MA2"
 chk P3-APPR-14 $H "control: a message approved after the rotation sends with the token the stub knows as A" "201 1 A" "$CODE $(stub_since send $n0) $(tail -1 "$STUBDIR/requests.log" | grep -o 'token=[A-Za-z]*' | cut -d= -f2)"
 
-rec P3-APPR-12 $H BLOCKED "POST /api/messages/{id}/resolutions is not deployed on this commit; T12 is owed by #138"
+echo "== P3-APPR-12 resolution with an ETag a delivery report made stale"
+read -r c p MU <<< "$(ready_unknown $O "$A" "APPR12 $RUN" paused)"; WU=$(psqlq "select provider_message_id from dokene.outbound_messages where id='$MU'")
+EU=$(msg_etag $A_ADMIN "$A" "$MU"); chk P3-APPR-12 $H "MA-UNKNOWN kept the provider id the stub answered" yes "$([ -n "$WU" ] && echo yes || echo no)"
+hook_post "$(hook_body "$PN_A" "$WU" sent)" "$CANARY_APP_SECRET"; h=$CODE
+for i in $(seq 1 12); do [ "$(msg_status "$MU" | cut -d/ -f1)" = SENT ] && break; sleep 5; done
+chk P3-APPR-12 $H "signed delivery report: 200, message SENT, version moved past the held ETag" "200 SENT yes" "$h $(msg_status "$MU" | cut -d/ -f1) $([ "\"$(msg_status "$MU" | cut -d/ -f2)\"" != "$EU" ] && echo yes || echo no)"
+S=$(snap); resolve $A_ADMIN "$A" "$MU" FAILED "qa149-$RUN-$RANDOM" "$EU"; refused P3-APPR-12 $H "resolution with the held ETag" STALE_VERSION 409 "$S"
+S=$(snap); resolve $A_ADMIN "$A" "$MU" FAILED; refused P3-APPR-12 $H "resolution with the fresh ETag: the outcome is known now" INVALID_TRANSITION 409 "$S"
+chk P3-APPR-12 $H "message still SENT, no resolution row" "SENT 0" "$(msg_status "$MU" | cut -d/ -f1) $(resolutions_n "$MU")"
 summary
