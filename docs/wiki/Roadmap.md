@@ -80,14 +80,12 @@ Key outcomes:
 
 Exit condition: an approved follow-up can be sent exactly once and tracked safely through delivery/failure state.
 
-Exit status: **not yet certified.** The certification run on `main` `f4cb0ec` ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140) is **BLOCKED**, but these legs passed:
+Exit status: **passes on `main` `80c7ab7`, certification pending the independent [#149](https://github.com/stevdrey/dokene/issues/149) verdict** ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140). The first run on `f4cb0ec` was BLOCKED; the re-verification on `80c7ab7`, which includes the [#293](https://github.com/stevdrey/dokene/issues/293) fix, closed both of its gates. Evidence:
 - **Deterministic journey:** `ApprovedSendJourneyIntegrationTest` covers draft → explicit revision-bound approval → one send through the real Graph adapter → signed delivery/failure callbacks, and every refusal leaves zero provider requests.
 - **Real-stack runs:** the Phase 3 browser journey, the Phase 1/2 regression and the [#149 security run](../verification/issue-149-phase-3-security-verification.md).
-- **Live sends:** two authorized live template sends (Spanish and English), both accepted by Meta and received by the consenting test recipient.
+- **Live sends and callbacks:** authorized live template sends in Spanish and English, accepted by Meta and received by the consenting test recipient. On `80c7ab7`, real signed Meta callbacks moved them to `DELIVERED` (and an earlier one to `READ`) on the same message, without a second send.
 
-Required gates still open before Phase 3 can be certified:
-- the real status-callback leg is BLOCKED until the Meta app is published;
-- P3-KILL-07 must be retested on a candidate that includes the [#293](https://github.com/stevdrey/dokene/issues/293) fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)) before the security track passes.
+On the security track, P3-KILL-07 passes on the `38b5cb9` retest with the #149 harness, which includes the #293 fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)). #149 still has to post its scoped verdict for `80c7ab7`.
 
 Live sending stays off by default. The opt-in procedure is [`phase-3-live-meta-procedure.md`](../verification/phase-3-live-meta-procedure.md). Phase 3 ships no scheduler, campaigns or auto-send.
 

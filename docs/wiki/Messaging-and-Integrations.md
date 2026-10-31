@@ -395,15 +395,13 @@ The dispatcher maps these results through the message state machine. An exceptio
 
 ## Verification status
 
-The Phase 3 messaging core and the manually approved send are **not yet certified**. The run on `main` `f4cb0ec` ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140) is BLOCKED by the open gates below. Its individual legs passed.
+The Phase 3 messaging core and the manually approved send **pass on `main` `80c7ab7`**; the certification takes effect once [#149](https://github.com/stevdrey/dokene/issues/149) posts its independent scoped verdict ([`phase-3-release-certification.md`](../verification/phase-3-release-certification.md), issue 140). The first run on `f4cb0ec` was BLOCKED; the re-verification on `80c7ab7` closed its gates.
 - **Covered:**
   - the deterministic journey through the real Graph adapter;
   - the browser journey on the real stack;
-  - the [#149 security run](../verification/issue-149-phase-3-security-verification.md);
-  - two authorized live template sends, Spanish and English, accepted by Meta and received.
-- **Open:**
-  - real `delivered`/`read` callbacks from Meta are BLOCKED until the Meta app is published (a development-mode app delivers only dashboard test webhooks);
-  - P3-KILL-07 must be retested on a candidate that includes the [#293](https://github.com/stevdrey/dokene/issues/293) fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)).
+  - the [#149 security run](../verification/issue-149-phase-3-security-verification.md), with P3-KILL-07 retested on `38b5cb9` after the [#293](https://github.com/stevdrey/dokene/issues/293) fix;
+  - authorized live template sends, Spanish and English, accepted by Meta and received;
+  - real signed Meta callbacks on `80c7ab7` that moved those messages to `DELIVERED` (and an earlier one to `READ`) on the same message, without a second send. A development-mode Meta app delivers only dashboard test webhooks, so this leg needs a published app.
 
 Live runs follow the opt-in [live Meta procedure](../verification/phase-3-live-meta-procedure.md). Nothing in the build or CI calls Meta.
 
