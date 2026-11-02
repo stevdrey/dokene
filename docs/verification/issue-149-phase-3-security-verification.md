@@ -27,8 +27,9 @@ the reason for each.
 | BLOCKED | 2 | 2 |
 | Total | 119 of 119 catalog ids | 681 |
 
-*Superseded by [Retest of #293](#retest-of-293-on-38b5cb9): on `38b5cb9` P3-KILL-07 passes, so no defect found by
-this suite is still open.* Initial verdict on `f4cb0ec`:
+*Superseded by [Retest of #293](#retest-of-293-on-38b5cb9) and [Retest on `80c7ab7`](#retest-on-80c7ab7): on
+`38b5cb9` and again on `80c7ab7` P3-KILL-07 passes, so no defect found by this suite is still open and the scoped
+verdict for `80c7ab7` is clean.* Initial verdict on `f4cb0ec`:
 
 **The run is not clean.** P3-KILL-07 fails on the error contract, filed as [#293] (Low). The send is still refused,
 nothing is written and the provider is not called. The two `BLOCKED` rows are measurements this deployment cannot
@@ -190,6 +191,42 @@ stack at `main` @ `38b5cb9`. Nothing in RLS changed since `f4cb0ec`: there is no
     rows.
 
   Rerun on `38b5cb9`: RLS **63 PASS**, hook **35 PASS**, kill **49 PASS**, browser **21 PASS**, all with 0 FAIL.
+
+## Retest on `80c7ab7`
+
+`80c7ab7` is `main` after PR #294 merged and the commit #140 certifies in PR #297. Outside `docs/` it is identical to
+`38b5cb9` (`git diff --stat 38b5cb9..80c7ab7 -- . ':!docs'` is empty). The only product change since `f4cb0ec` is
+PR #296, the fix for #293: the messaging, template, integration and audit exception handlers, the Phase 3 error page
+filter and its configuration, `UnexpectedFailures`, one error code per module, the messaging problem contract files,
+and the frontend labels that read `INTERNAL_ERROR` as an uncertain outcome. There is no migration (Flyway still V33).
+
+On 2026-10-31 the isolated stack was built again from `80c7ab7` on a fresh data volume (`docker compose down -v`, then
+`up -d --build`, images `:qa149`), seeded with `scripts/seed-local-qa.sh`, given the #149 fixtures, and the whole
+`sec149-kill.sh` suite was rerun after `selftest149.sh` (16 ok, 0 wrong). Result: **49 PASS, 0 FAIL, 0 BLOCKED**, the
+same checks and counts as on `38b5cb9`. The run is at the end of `outputs.txt`.
+
+- P3-KILL-07: with the runtime role's `SELECT` on `tenant_messaging_integrations` revoked, the send is refused with
+  exactly `500`, `application/problem+json` and `{type, title, status, code: INTERNAL_ERROR}`. No attempt row, event,
+  idempotency key or provider call; no audit row names the refused message and no audit row at all was written in the
+  window; the message stays `APPROVED`; the grants are restored exactly; the control send with the grant back is `201`.
+- P3-KILL-01 to 06 and 08 to 10 pass unchanged.
+
+The other suites were not rerun on this commit. #296 changes only what a Phase 3 route answers when an unexpected
+exception escapes; the success and refusal paths that the permission, IDOR, RLS, CSRF, approval, template, consent,
+duplicate, webhook, secrecy and browser cases exercise are untouched by it, so their results on `f4cb0ec` (and the
+`38b5cb9` reruns above) stand for `80c7ab7`. The two `BLOCKED` rows (the metrics half of P3-SEC-07 and P3-SEC-11)
+remain limitations of the deployment by design, covered by the in process tests named under
+[What could not be driven](#what-could-not-be-driven).
+
+Scoped verdict for `80c7ab7`: **clean**. No open defect was found by this suite; the deviations listed under
+[Findings](#findings) are not defects.
+
+Environment note, not a product finding: on this host (macOS, Docker Desktop 29.7.2, VirtioFS file sharing) a fresh
+volume failed to initialise because the postgres entrypoint saw `infra/docker/postgres/init/01-create-database-roles.sh`
+(tracked as mode 644) as executable and tried to run it (`/usr/bin/env: bad interpreter: Permission denied`, exit 126).
+The roles were created by sourcing the same script inside the container (`docker compose exec -T postgres bash -c
+'. /docker-entrypoint-initdb.d/01-create-database-roles.sh'`), which is what the entrypoint does for a non executable
+file, and the stack was then started as usual. Existing volumes are not affected. Filed as #298, dev environment only.
 
 ## Repeating the run
 

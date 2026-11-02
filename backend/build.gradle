@@ -1,6 +1,6 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '4.1.1'
+    id 'org.springframework.boot' version '4.1.2'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'org.owasp.dependencycheck' version '13.0.0'
 }
@@ -34,8 +34,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     // Provides Micrometer MeterRegistry only; every actuator endpoint stays disabled and unexposed (see application.yml).
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.41'
-    implementation 'com.openai:openai-java:4.89.0'
+    implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.42'
+    implementation 'com.openai:openai-java:4.94.0'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
 
