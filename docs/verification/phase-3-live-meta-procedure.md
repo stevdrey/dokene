@@ -2,7 +2,7 @@
 
 This is how to run one bounded, explicitly authorized live WhatsApp journey against Meta's Cloud API. It is **opt-in**: nothing in the build, the test suites or CI ever calls Meta. Deterministic coverage of the same path lives in `ApprovedSendJourneyIntegrationTest` (issue 140) and needs no credentials. A live run can only add evidence that the real provider behaves as the fixtures say. Offline fixtures can never stand in for a live-provider claim.
 
-The procedure was written for issue 140 and first used on `main` `f4cb0ec`. The results are in [phase-3-release-certification.md](phase-3-release-certification.md).
+The procedure was written for issue 140, first used on `main` `f4cb0ec` and used for the callback leg on `80c7ab7`. The results are in [phase-3-release-certification.md](phase-3-release-certification.md).
 
 ## Preconditions
 
@@ -25,6 +25,7 @@ All of these must hold. If one does not, the live leg is **BLOCKED**, not PASS.
    - Meta must reach the webhook over public HTTPS, for example through a temporary tunnel in front of the local gateway.
    - The app's Callback URL must point at it, with the `messages` field subscribed.
    - **An app in development mode only delivers the dashboard "Test" webhooks, not real status callbacks for sent messages.** The real `delivered`/`read` callback leg therefore needs the app published. Until then it stays BLOCKED.
+   - Once the app is published and the Callback URL is set, Meta also delivers the status reports it still holds for earlier sends. Expect those backlog rows in the inbox and tell them apart by message and time.
 
 ## Steps
 
@@ -39,7 +40,7 @@ All of these must hold. If one does not, the live leg is **BLOCKED**, not PASS.
 5. **Open the send window, and only for this run.**
    - Start the backend with the global switch on (`DOKENE_MESSAGING_OUTBOUND_ENABLED=true`).
    - Turn the tenant switch on with `PUT /api/integrations/whatsapp/outbound`.
-6. **One send through the normal API**, with fixed idempotency keys so a rerun can never create a second message or attempt:
+6. **One send through the normal API**, with fixed idempotency keys so a rerun can never create a second message or attempt. A later authorized run needs new keys and a new state file; reusing the keys only replays the earlier message:
    - submit (`POST /api/customers/{id}/messages`, `If-Match` = policy version);
    - approve with the preview revision (`templateRevision` from `template.revision`);
    - send (`POST /api/messages/{id}/sends`).
@@ -50,6 +51,7 @@ All of these must hold. If one does not, the live leg is **BLOCKED**, not PASS.
    - Tenant switch off, then restart the backend with the global switch off.
    - Confirm both through `GET /api/integrations/whatsapp` and the running backend's effective settings. The window counts as closed only when they read back as off, off and `24h`. A shutdown step that fails is retried a bounded number of times; if closure still cannot be confirmed, stop and close it by hand before anything else.
    - If the contact interval was lowered for the run, start the backend again with the default `24h`.
+   - Restarting the backend makes the gateway answer `502` for a few seconds. Meta retries a callback that fails, so keep the tunnel up until the callbacks have arrived.
 8. **Callback leg.** Where preconditions allow, confirm in the webhook inbox that the signed callback arrived and was `APPLIED`. Confirm on the message detail and timeline that the status moved to `DELIVERED` or `READ`.
 9. **Ask the recipient** to confirm receipt in their own words. Record only "confirmed" or "not confirmed".
 10. **Stop the tunnel** and revert the Callback URL if it was changed for this run.
