@@ -17,16 +17,17 @@ All data is synthetic, except the one consenting test recipient of the live send
 
 **Re-verified on `main` @ `80c7ab7`** (2026-10-28/29), the final candidate. Its code is identical to `38b5cb9`, which adds the #293 fix ([PR #296](https://github.com/stevdrey/dokene/pull/296)) to `f4cb0ec`. See [Re-verification on `80c7ab7`](#re-verification-on-80c7ab7).
 
-**Overall verdict: PASS on `80c7ab7`, pending the independent #149 verdict.** #140 and #149 require both tracks to pass on the final candidate, with no required case left FAIL or BLOCKED. The #140 track passes on `80c7ab7`. The certification takes effect only once [#149](https://github.com/stevdrey/dokene/issues/149) posts its own scoped verdict for `80c7ab7` (code identical to `38b5cb9`) and closes; until then the scoped Phase 3 release is **not yet certified**. Both gates that blocked the `f4cb0ec` run are closed on the evidence recorded here:
-- **Security:** P3-KILL-07 failed on `f4cb0ec` ([#293](https://github.com/stevdrey/dokene/issues/293), Low). It was retested on `38b5cb9` with the #149 harness and recorded in the [#149 report](issue-149-phase-3-security-verification.md#retest-of-293-on-38b5cb9) (PR #294): kill suite 49 PASS, 0 FAIL, with RLS, hook and browser suites also at 0 FAIL. #149 has not yet posted that retest as its independent verdict.
+**Overall verdict: PASS — the scoped Phase 3 release is certified on `main` @ `80c7ab7`.** #140 and #149 require both tracks to pass on the final candidate, with no required case left FAIL or BLOCKED. Both tracks pass on `80c7ab7`, and both gates that blocked the `f4cb0ec` run are closed:
+- **Security:** P3-KILL-07 failed on `f4cb0ec` ([#293](https://github.com/stevdrey/dokene/issues/293), Low). #149 retested it independently on `80c7ab7` itself, on a fresh isolated stack built from that commit: the whole kill suite gave 49 PASS, 0 FAIL, 0 BLOCKED ([report section](issue-149-phase-3-security-verification.md#retest-on-80c7ab7), PR #299). [#149's scoped verdict](https://github.com/stevdrey/dokene/issues/149#issuecomment-6548204686) (2026-10-31) is **clean**: no open defect found by the suite on `80c7ab7`. #149 is closed.
 - **Real status callbacks:** after the Meta app was published, two new authorized live sends on `80c7ab7` moved from `SENT` to `DELIVERED` through real, signed Meta callbacks. Meta also delivered the pending `read` callback for the English send of 2026-10-27, which moved that message to `READ`. See [Live status callbacks on `80c7ab7`](#live-status-callbacks-on-80c7ab7).
 
-Limitations for #149 to accept or reject in its verdict:
-- the two #149 `BLOCKED` rows are metrics halves that this deployment does not expose by design, each covered by a named in-process test;
-- the #149 approval, duplicate, IDOR and permission suites ran on `f4cb0ec`. The only code change since then is #296's error handling of unexpected failures, whose security case was retested. #149 decides whether that scope argument holds or those suites must be rerun on `80c7ab7`.
+Limitations accepted in #149's verdict:
+- the two #149 `BLOCKED` rows (P3-SEC-07 metrics half, P3-SEC-11) are metrics that this deployment does not expose by design, covered in process by `WebhookTelemetryTest` and the dispatch telemetry tests;
+- the #149 approval, duplicate, IDOR and permission suites ran on `f4cb0ec` and stand on `80c7ab7`: outside `docs/` it is identical to `38b5cb9`, and #296 changes only the answer to an unexpected exception on a Phase 3 route. There is no migration since (Flyway V33).
 
-Other accepted limitations:
-- the limits under [Limitations](#limitations).
+Other accepted limitations: the limits under [Limitations](#limitations).
+
+**Scope of the certified SHA.** The certification applies to `80c7ab7`. Later commits on `main` are not covered by it; the first ones are dependency bumps in `backend/build.gradle` (#300 Spring Boot 4.1.1 → 4.1.2, #301 `openai-java` 4.89.0 → 4.94.0, #302 `libphonenumber`), verified by CI only.
 
 ## Results
 
@@ -34,7 +35,7 @@ Other accepted limitations:
 | --- | --- | --- |
 | Deterministic backend journey | **PASS** | `./gradlew check` on this commit: 186 suites, 2295 tests, 0 failures, 0 errors, 0 skipped. It includes `ApprovedSendJourneyIntegrationTest`: synthetic customer → consent/purchase → AI draft → explicit, revision-bound approval → manual send through the real Graph adapter (loopback Meta) → signed `delivered`/`failed` callbacks. It also covers duplicate clicks, drift, opt-out, tenant switch, integration disable and uncertain outcomes, each refusal with zero provider requests. |
 | Frontend | **PASS** | `npm test`: 46 files, 1103 tests passed (see the observation below). `npm run build`: passed. The composed workbench messaging tests from #291 are included. |
-| Phase 3 security (#149) | **PASS after retest; independent #149 verdict pending** | [PR #294](https://github.com/stevdrey/dokene/pull/294), [report](issue-149-phase-3-security-verification.md), on an isolated stack with the Graph stub. On `f4cb0ec`: 116 PASS, 1 FAIL (P3-KILL-07, [#293](https://github.com/stevdrey/dokene/issues/293), Low: an unexpected switch-lookup failure answered Spring's default 500 body instead of the problem body; the send was still refused, nothing was written and the provider was not called), 2 BLOCKED (metrics halves with no exposed endpoint by design, covered in process). On `38b5cb9`: kill suite 49 PASS (P3-KILL-07 included), RLS 63, hook 35 and browser 21 PASS, all with 0 FAIL. The other #149 suites (approval, duplicate, IDOR, permission) ran on `f4cb0ec` only; #296 changed only the error handling of unexpected failures. #265 and #266 retested fixed. |
+| Phase 3 security (#149) | **PASS: independent #149 verdict clean on `80c7ab7`** | [PR #294](https://github.com/stevdrey/dokene/pull/294), [report](issue-149-phase-3-security-verification.md), on an isolated stack with the Graph stub. On `f4cb0ec`: 116 PASS, 1 FAIL (P3-KILL-07, [#293](https://github.com/stevdrey/dokene/issues/293), Low: an unexpected switch-lookup failure answered Spring's default 500 body instead of the problem body; the send was still refused, nothing was written and the provider was not called), 2 BLOCKED (metrics halves with no exposed endpoint by design, covered in process). On `38b5cb9`: kill suite 49 PASS (P3-KILL-07 included), RLS 63, hook 35 and browser 21 PASS, all with 0 FAIL. The other #149 suites (approval, duplicate, IDOR, permission) ran on `f4cb0ec` only; #296 changed only the error handling of unexpected failures. #265 and #266 retested fixed. |
 | Phase 3 browser journey on the real stack | **PASS (16/16; hardened script 19/19)** | See [Phase 3 browser journey](#phase-3-browser-journey). |
 | Live Meta send, Spanish template | **PASS** | See [Live provider legs](#live-provider-legs). |
 | Live Meta send, English template | **PASS** | See [Live provider legs](#live-provider-legs). |
@@ -148,7 +149,7 @@ Observations from this leg (not defects):
 
 | Issue | Severity | Status |
 | --- | --- | --- |
-| [#293](https://github.com/stevdrey/dokene/issues/293) | Low | Fixed on `main` by [PR #296](https://github.com/stevdrey/dokene/pull/296) after the `f4cb0ec` run: a Phase 3 route now answers unexpected failures with the problem body. Verified by the #149 retest of P3-KILL-07 on `38b5cb9`. |
+| [#293](https://github.com/stevdrey/dokene/issues/293) | Low | Fixed on `main` by [PR #296](https://github.com/stevdrey/dokene/pull/296) after the `f4cb0ec` run: a Phase 3 route now answers unexpected failures with the problem body. Verified by the #149 retests of P3-KILL-07 on `38b5cb9` and on `80c7ab7`. |
 | #265, #266 | Low | Fixed and retested by #149 |
 
 No new defect was found by the regression, the browser journey, the live sends or the live callbacks.
