@@ -20,5 +20,10 @@ public interface WebhookTelemetry {
         // Not counted unless the implementation records it.
     }
 
+    /** A callback refused with 503 because every admission permit was taken (issue 306); not a verification reason. */
+    default void overloaded() {
+        // Not counted unless the implementation records it.
+    }
+
     enum DropReason { UNKNOWN_PHONE_NUMBER, DUPLICATE, UNMATCHED_MESSAGE, UNSUPPORTED_EVENT, PROCESSING_ABANDONED }
 }

@@ -26,13 +26,15 @@ public final class WebhookChallengeVerifier {
     private final IntegrationSecretResolver resolver;
     private final Optional<SecretReference> verifyTokenRef;
     private final WebhookTelemetry telemetry;
+    private final WebhookRejectionLog rejectionLog;
 
     /** An empty {@code verifyTokenRef} is the refusing state: every call refuses without touching the resolver. */
     public WebhookChallengeVerifier(IntegrationSecretResolver resolver, Optional<SecretReference> verifyTokenRef,
-            WebhookTelemetry telemetry) {
+            WebhookTelemetry telemetry, WebhookRejectionLog rejectionLog) {
         this.resolver = Objects.requireNonNull(resolver, "Secret resolver is required");
         this.verifyTokenRef = Objects.requireNonNull(verifyTokenRef, "Verify token reference is required");
         this.telemetry = Objects.requireNonNull(telemetry, "Telemetry is required");
+        this.rejectionLog = Objects.requireNonNull(rejectionLog, "Rejection log is required");
     }
 
     /**
@@ -99,7 +101,7 @@ public final class WebhookChallengeVerifier {
     }
 
     private WebhookVerificationException refuse(Reason reason) {
-        log.warn("Webhook rejected reason={}", reason);
+        rejectionLog.rejected(log, reason);
         telemetry.rejected(reason);
         return new WebhookVerificationException(reason);
     }

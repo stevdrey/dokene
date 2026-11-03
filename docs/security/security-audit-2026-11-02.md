@@ -63,6 +63,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### M1. The unauthenticated webhook buffers up to 4 MiB per request before any cheap rejection: memory exhaustion — Confirmed
 
+- **Status:** fixed by [#306](https://github.com/stevdrey/dokene/issues/306); see [the verification record](../verification/issue-306-webhook-resource-bounds-verification.md).
+
 - **Where:**
   - `backend/src/main/java/io/github/stevdrey/dokene/integration/whatsapp/webhook/WhatsAppWebhookController.java:70-72`
   - `.../webhook/verify/BoundedWebhookBodyReader.java`, which calls `readNBytes(maxBodyBytes + 1)`

@@ -1,5 +1,5 @@
 // ABOUTME: Checks Meta's X-Hub-Signature-256 over the exact request bytes with the deployment app secret (spec 0007).
-// ABOUTME: Header grammar first, then the reference, then one resolve and one HMAC; the only maker of VerifiedWebhookBody.
+// ABOUTME: prepare checks header grammar and reference before the body is read; verify then resolves and HMACs once.
 package io.github.stevdrey.dokene.integration.whatsapp.webhook.verify;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
@@ -27,30 +27,61 @@ public final class WebhookSignatureVerifier {
     private final IntegrationSecretResolver resolver;
     private final Optional<SecretReference> appSecretRef;
     private final WebhookTelemetry telemetry;
+    private final WebhookRejectionLog rejectionLog;
 
     /** An empty {@code appSecretRef} is the refusing state: every call refuses without touching the resolver. */
     public WebhookSignatureVerifier(IntegrationSecretResolver resolver, Optional<SecretReference> appSecretRef,
-            WebhookTelemetry telemetry) {
+            WebhookTelemetry telemetry, WebhookRejectionLog rejectionLog) {
         this.resolver = Objects.requireNonNull(resolver, "Secret resolver is required");
         this.appSecretRef = Objects.requireNonNull(appSecretRef, "App secret reference is required");
         this.telemetry = Objects.requireNonNull(telemetry, "Telemetry is required");
+        this.rejectionLog = Objects.requireNonNull(rejectionLog, "Rejection log is required");
     }
 
     /**
-     * Verifies {@code body} against every {@code X-Hub-Signature-256} value the request carried. The input array is
-     * copied before anything is hashed and the copy becomes the verified body, so a caller mutating its array after
-     * the call cannot change what was verified.
+     * Verifies {@code body} against every {@code X-Hub-Signature-256} value the request carried, in one step. The
+     * route uses {@link #prepare} instead so that a request failing the cheap checks is refused before it is read.
      */
     public VerifiedWebhookBody verify(byte[] body, List<String> signatureHeaderValues) {
         Objects.requireNonNull(body, "Body is required");
+        SignatureCheck check = prepare(signatureHeaderValues);
+        // Copied here, so a caller mutating its array after the call cannot change what was verified.
+        return check.verify(body.clone());
+    }
+
+    /**
+     * Checks everything that needs no body (issue 306): the header grammar of AC-2, then that an app secret reference
+     * is configured. Neither step reads the body or calls the resolver.
+     */
+    public SignatureCheck prepare(List<String> signatureHeaderValues) {
         byte[] expected = decode(signatureHeaderValues);
         SecretReference reference = appSecretRef.orElseThrow(() -> refuse(Reason.SECRET_UNAVAILABLE));
-        byte[] copy = body.clone();
-        byte[] actual = hmac(reference, copy);
-        if (!MessageDigest.isEqual(actual, expected)) {
-            throw refuse(Reason.SIGNATURE_MISMATCH);
+        return new SignatureCheck(expected, reference);
+    }
+
+    /** A request whose header and reference passed; only {@link #verify(byte[])} can turn it into a verified body. */
+    public final class SignatureCheck {
+        private final byte[] expected;
+        private final SecretReference reference;
+
+        private SignatureCheck(byte[] expected, SecretReference reference) {
+            this.expected = expected;
+            this.reference = reference;
         }
-        return new VerifiedWebhookBody(copy);
+
+        /**
+         * One resolve and one HMAC over {@code body}, which this call takes ownership of: the array is hashed and
+         * becomes the verified body without a copy (issue 306), so the caller must not touch it afterwards. The route
+         * passes the array the reader just allocated and keeps no other reference to it.
+         */
+        public VerifiedWebhookBody verify(byte[] body) {
+            Objects.requireNonNull(body, "Body is required");
+            byte[] actual = hmac(reference, body);
+            if (!MessageDigest.isEqual(actual, expected)) {
+                throw refuse(Reason.SIGNATURE_MISMATCH);
+            }
+            return new VerifiedWebhookBody(body);
+        }
     }
 
     private byte[] hmac(SecretReference reference, byte[] copy) {
@@ -110,7 +141,7 @@ public final class WebhookSignatureVerifier {
     }
 
     private WebhookVerificationException refuse(Reason reason) {
-        log.warn("Webhook rejected reason={}", reason);
+        rejectionLog.rejected(log, reason);
         telemetry.rejected(reason);
         return new WebhookVerificationException(reason);
     }

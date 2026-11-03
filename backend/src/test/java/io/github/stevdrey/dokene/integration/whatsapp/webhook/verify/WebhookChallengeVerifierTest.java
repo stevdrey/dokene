@@ -15,6 +15,7 @@ import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
 import io.github.stevdrey.dokene.integration.testsupport.RecordingSecretResolver;
 import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookVerificationException.Reason;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +31,7 @@ class WebhookChallengeVerifierTest {
     private final RecordingSecretResolver resolver = new RecordingSecretResolver()
             .holding(SecretPurpose.WEBHOOK_VERIFY_TOKEN, verifyTokenRef, verifyToken);
     private final WebhookChallengeVerifier verifier = new WebhookChallengeVerifier(resolver,
-            Optional.of(new SecretReference(verifyTokenRef)), rejected::add);
+            Optional.of(new SecretReference(verifyTokenRef)), rejected::add, freshLog());
 
     private LogCapture logs;
 
@@ -64,7 +65,9 @@ class WebhookChallengeVerifierTest {
                     .isEqualTo(Reason.WRONG_MODE);
         }
         assertThat(resolver.calls()).isEmpty();
-        assertThat(logs.warningsFrom(WebhookChallengeVerifier.class)).hasSize(6);
+        // Telemetry counts every refusal; the throttled log writes one line per reason per interval (issue 306).
+        assertThat(rejected).hasSize(6).containsOnly(Reason.WRONG_MODE);
+        assertThat(logs.warningsFrom(WebhookChallengeVerifier.class)).hasSize(1);
     }
 
     @Test
@@ -102,12 +105,14 @@ class WebhookChallengeVerifierTest {
 
         assertThat(resolver.calls()).hasSize(4);
         assertThat(resolver.allIssuedClosed()).isTrue();
-        assertThat(logs.warningsFrom(WebhookChallengeVerifier.class)).hasSize(4);
+        assertThat(rejected).hasSize(4).containsOnly(Reason.TOKEN_MISMATCH);
+        assertThat(logs.warningsFrom(WebhookChallengeVerifier.class)).hasSize(1);
     }
 
     @Test
     void aBlankReferenceRefusesAfterTheShapeChecksWithoutAResolverCall() {
-        WebhookChallengeVerifier refusing = new WebhookChallengeVerifier(resolver, Optional.empty(), rejected::add);
+        WebhookChallengeVerifier refusing = new WebhookChallengeVerifier(resolver, Optional.empty(),
+                rejected::add, freshLog());
 
         assertThat(reasonOf(() -> refusing.verify("x", verifyToken, challenge))).isEqualTo(Reason.WRONG_MODE);
         assertThat(reasonOf(() -> refusing.verify("subscribe", verifyToken, challenge)))
@@ -121,7 +126,7 @@ class WebhookChallengeVerifierTest {
         for (Category category : Category.values()) {
             RecordingSecretResolver denying = new RecordingSecretResolver().denying(category);
             WebhookChallengeVerifier denied = new WebhookChallengeVerifier(denying,
-                    Optional.of(new SecretReference(verifyTokenRef)), rejected::add);
+                    Optional.of(new SecretReference(verifyTokenRef)), rejected::add, freshLog());
 
             WebhookVerificationException refusal = catchThrowableOfType(WebhookVerificationException.class,
                     () -> denied.verify("subscribe", verifyToken, challenge));
@@ -137,10 +142,15 @@ class WebhookChallengeVerifierTest {
         RuntimeException failure = new IllegalStateException("resolver down");
         WebhookChallengeVerifier failing = new WebhookChallengeVerifier(
                 new RecordingSecretResolver().throwing(failure), Optional.of(new SecretReference(verifyTokenRef)),
-                rejected::add);
+                rejected::add, freshLog());
 
         assertThatThrownBy(() -> failing.verify("subscribe", verifyToken, challenge)).isSameAs(failure);
         assertThat(rejected).isEmpty();
+    }
+
+    /** A new throttle per component, so each refusal reason logs its first line in every test. */
+    private static WebhookRejectionLog freshLog() {
+        return new WebhookRejectionLog(Clock.systemUTC());
     }
 
     private static Reason reasonOf(Runnable call) {

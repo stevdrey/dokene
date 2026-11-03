@@ -195,7 +195,7 @@ Webhook handling should:
 
 ### Meta signature and handshake verification (spec 0007, issue 143)
 
-Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The route, tenant resolution, inbox and dedup (issue 139) compose it: read the body through `BoundedWebhookBodyReader`, pass the raw bytes and every `X-Hub-Signature-256` value to `WebhookSignatureVerifier`, and hand the resulting `VerifiedWebhookBody` to the parser. Nothing parses JSON before verification.
+Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The route, tenant resolution, inbox and dedup (issue 139) compose it: pass every `X-Hub-Signature-256` value to `WebhookSignatureVerifier.prepare`, check the declared length, take a `WebhookAdmission` permit, read the body through `BoundedWebhookBodyReader`, verify the raw bytes with the prepared check, and hand the resulting `VerifiedWebhookBody` to the parser. Nothing parses JSON before verification, and nothing reads the body before the checks that need none (issue 306).
 
 **Meta's rules as checked on 2026-10-19** (Graph API webhooks getting started page, the Messenger Platform webhooks page, the WhatsApp Cloud API set up page and the Graph API versions changelog; current Graph API version v26.0, released 29 July 2026; no webhook page states a version and the Messenger page says to use the latest):
 
@@ -204,9 +204,9 @@ Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The 
 - Payload size: up to 3 MB per the WhatsApp Cloud API set up page (generic webhook text, unconfirmed for WhatsApp specifically); batches of up to 1000 updates. Meta retries a non `200` answer for up to 7 days (WhatsApp changelog of 8 December 2022) or 36 hours (Graph API page); the sources conflict, so the bound keeps headroom above Meta's limit rather than refusing a large legitimate batch for days.
 - Not confirmed on an official page: a WhatsApp specific statement of the signature rule, the hex case for WhatsApp, and any `hub.challenge` length limit.
 
-**Configuration.** `dokene.integration.whatsapp.app-secret-ref` (`DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF`) and `dokene.integration.whatsapp.verify-token-ref` (`DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF`) hold the bare keys of the `APP_SECRET` and `WEBHOOK_VERIFY_TOKEN` deployment entries of the secret source above, never the secrets. Each is resolved on every call and closed before the call returns. A blank reference puts that path in the refusing state: the stack boots, logs `Webhook verification refusing: <property> is unset` once, and refuses every request on that path with `SECRET_UNAVAILABLE`; the two paths are independent. A malformed or whitespace padded reference fails startup naming only the property. `dokene.integration.whatsapp.webhook.max-body-bytes` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES`, default 4194304, range 1 to 16777216) bounds the body; a declared `Content-Length` above it is refused before a byte is read, and a stream is refused as soon as it passes the bound.
+**Configuration.** `dokene.integration.whatsapp.app-secret-ref` (`DOKENE_INTEGRATION_WHATSAPP_APP_SECRET_REF`) and `dokene.integration.whatsapp.verify-token-ref` (`DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF`) hold the bare keys of the `APP_SECRET` and `WEBHOOK_VERIFY_TOKEN` deployment entries of the secret source above, never the secrets. Each is resolved on every call and closed before the call returns. A blank reference puts that path in the refusing state: the stack boots, logs `Webhook verification refusing: <property> is unset` once, and refuses every request on that path with `SECRET_UNAVAILABLE`; the two paths are independent. A malformed or whitespace padded reference fails startup naming only the property. `dokene.integration.whatsapp.webhook.max-body-bytes` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES`, default 4194304, range 1 to 16777216) bounds the body; a declared `Content-Length` above it is refused before a byte is read, and a stream with an unknown or understated length is refused as soon as it passes the bound (at most one byte past it is read). `dokene.integration.whatsapp.webhook.max-concurrent-requests` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_CONCURRENT_REQUESTS`, default 8, range 1 to 64) bounds how many callbacks are read and processed at once (issue 306); see the route section below.
 
-**Refusals.** Every refusal is `WebhookVerificationException` with one closed reason (`MISSING_SIGNATURE`, `MALFORMED_SIGNATURE`, `SIGNATURE_MISMATCH`, `BODY_TOO_LARGE`, `SECRET_UNAVAILABLE`, `WRONG_MODE`, `INVALID_CHALLENGE`, `TOKEN_MISMATCH`), one `WARN` line `Webhook rejected reason=<R>` from the refusing class, and one increment of the counter `dokene.webhook.rejected{reason}`. No secret, header value, challenge or body byte reaches a log, an exception or a `toString`. The route answers every reason with the same status, so an operator diagnosing a misconfigured secret reads the counter or the log line.
+**Refusals.** Every refusal is `WebhookVerificationException` with one closed reason (`MISSING_SIGNATURE`, `MALFORMED_SIGNATURE`, `SIGNATURE_MISMATCH`, `BODY_TOO_LARGE`, `SECRET_UNAVAILABLE`, `WRONG_MODE`, `INVALID_CHALLENGE`, `TOKEN_MISMATCH`), one increment of the counter `dokene.webhook.rejected{reason}`, and a `WARN` line `Webhook rejected reason=<R>` from the refusing class. The line is throttled by `WebhookRejectionLog` (issue 306): the first refusal of a reason is logged, further ones within one minute are held back, and the next line after the minute carries ` suppressed=<n>`, so an anonymous flood cannot flood the logs. The throttle is per refusing class and closed message, and a scheduled flush reports the held-back count of a flood that has stopped. The counter still sees every refusal and is the authoritative rate. No secret, header value, challenge or body byte reaches a log, an exception or a `toString`. The route answers every reason with the same status, so an operator diagnosing a misconfigured secret reads the counter or the log line.
 
 ### Webhook route, inbox and delivery reconciliation (issue 139, ADR 0030)
 
@@ -220,12 +220,19 @@ Step 1 is implemented by the `integration.whatsapp.webhook.verify` package. The 
 Every other path under `/webhooks/` is `403`. The nginx and Vite proxies forward `/webhooks`; nginx caps the body at 4 MiB.
 
 **Request handling:**
-1. The body is read through the bounded reader.
-2. The HMAC is checked on those raw bytes. Any refusal is `403`.
-3. `MetaWebhookPayloadParser` checks every member against an allowlist per level. A supplied `tenantId` or any other unknown member is `400`, before any tenant lookup. Inbound messages, other change fields and untracked statuses are only counted.
-4. Each delivery status is resolved to a tenant through the verified mapping resolver only.
-5. Each tenant's statuses are stored as typed `PENDING` rows in `provider_webhook_events`, in one transaction under that tenant's RLS.
-6. Then the route answers `200` with an empty body.
+1. Checks that need no body run first (issue 306): exactly one `X-Hub-Signature-256` matching `sha256=` and 64 hex digits, a configured app secret reference, and a declared `Content-Length` within the bound. Any refusal is `403` and no body byte is read, no secret resolved and no HMAC computed.
+2. The request takes one of `max-concurrent-requests` permits, held until the answer is sent. When every permit is taken the answer is `503` with `Retry-After: 5`, empty body, nothing read; the counter `dokene.webhook.overloaded` counts it and the throttled line `Webhook rejected: every admission permit is taken` logs it. Meta retries any non `200`, so a legitimate callback refused this way is delayed, not lost. The webhook body heap is therefore at most about `max-concurrent-requests × max-body-bytes` (32 MiB by default) whatever the request rate. **A body-buffering, connection-limited proxy in front of `/webhooks` is required.** The shipped nginx:
+   - sets `proxy_request_buffering on` and `client_body_timeout 10s`;
+   - allows at most 16 `/webhooks` requests in progress at once and 8 per client address, answering `503` beyond that (Meta retries) and logging those refusals at `info` only;
+   - buffers bodies under a 128 MiB tmpfs (`compose.yaml`), so buffered webhook bodies stay under 16 × 4 MiB = 64 MiB;
+   - logs the location at `error` level, so the one-per-body "buffered to a temporary file" warning is silenced.
+
+   Behind another proxy or tunnel every client shares that proxy's address. Restore the real address (`real_ip`), or the per-address limit becomes a global limit of 8. Without one, a client that drips a body slowly holds a permit (Meta then gets `503`) or, when refused before admission, a Tomcat worker while Tomcat discards up to `server.tomcat.max-swallow-size` of the unread body.
+3. The body is read through the bounded reader, and the HMAC is checked on those raw bytes, one secret resolve and one HMAC per admitted request. Any refusal is `403`.
+4. `MetaWebhookPayloadParser` checks every member against an allowlist per level. A supplied `tenantId` or any other unknown member is `400`, before any tenant lookup. Inbound messages, other change fields and untracked statuses are only counted.
+5. Each delivery status is resolved to a tenant through the verified mapping resolver only.
+6. Each tenant's statuses are stored as typed `PENDING` rows in `provider_webhook_events`, in one transaction under that tenant's RLS.
+7. Then the route answers `200` with an empty body.
 
 A database or audit failure while recording answers `503` (ADR 0029), and Meta retries.
 
@@ -240,7 +247,7 @@ A row that keeps failing past the abandon window becomes `ABANDONED` with its pr
 
 The request applies up to the inline limit of what it stored. A scheduled sweeper (single instance via an advisory lock) resumes the rest, including after a restart or an audit outage, and purges terminal rows after the retention period.
 
-**Counters.** `dokene.webhook.dropped{reason}` counts acknowledged events that changed nothing: `UNKNOWN_PHONE_NUMBER`, `DUPLICATE`, `UNMATCHED_MESSAGE`, `UNSUPPORTED_EVENT` and `PROCESSING_ABANDONED`.
+**Counters.** `dokene.webhook.dropped{reason}` counts acknowledged events that changed nothing: `UNKNOWN_PHONE_NUMBER`, `DUPLICATE`, `UNMATCHED_MESSAGE`, `UNSUPPORTED_EVENT` and `PROCESSING_ABANDONED`. `dokene.webhook.overloaded` counts callbacks refused with `503` because every admission permit was taken.
 
 **Privacy.** The inbox never holds raw JSON, error texts, recipient phones, conversation or pricing data. Delivery history stays `GET /api/messages/{messageId}/events`, where webhook transitions appear as `DELIVERY_UPDATED` events with `actorKind=PROVIDER`.
 

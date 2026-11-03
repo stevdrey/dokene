@@ -16,6 +16,7 @@ import io.github.stevdrey.dokene.integration.testsupport.RecordingSecretResolver
 import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookVerificationException.Reason;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -36,7 +37,7 @@ class WebhookSignatureVerifierTest {
     private final RecordingSecretResolver resolver = new RecordingSecretResolver()
             .holding(SecretPurpose.APP_SECRET, appSecretRef, appSecret);
     private final WebhookSignatureVerifier verifier = new WebhookSignatureVerifier(resolver,
-            Optional.of(new SecretReference(appSecretRef)), rejected::add);
+            Optional.of(new SecretReference(appSecretRef)), rejected::add, freshLog());
 
     private LogCapture logs;
 
@@ -84,7 +85,7 @@ class WebhookSignatureVerifierTest {
         assertThat(resolver.calls()).hasSize(refusals);
         assertThat(resolver.allIssuedClosed()).isTrue();
         assertThat(rejected).hasSize(refusals).containsOnly(Reason.SIGNATURE_MISMATCH);
-        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(refusals);
+        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(1);
     }
 
     @Test
@@ -94,7 +95,7 @@ class WebhookSignatureVerifierTest {
 
         assertThat(resolver.calls()).isEmpty();
         assertThat(rejected).containsExactly(Reason.MISSING_SIGNATURE, Reason.MISSING_SIGNATURE);
-        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(2);
+        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(1);
     }
 
     @Test
@@ -119,7 +120,7 @@ class WebhookSignatureVerifierTest {
 
         assertThat(resolver.calls()).isEmpty();
         assertThat(rejected).hasSize(malformed.size()).containsOnly(Reason.MALFORMED_SIGNATURE);
-        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(malformed.size());
+        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(1);
     }
 
     @Test
@@ -131,7 +132,8 @@ class WebhookSignatureVerifierTest {
 
     @Test
     void aBlankReferenceRefusesAfterTheShapeChecksWithoutAResolverCall() {
-        WebhookSignatureVerifier refusing = new WebhookSignatureVerifier(resolver, Optional.empty(), rejected::add);
+        WebhookSignatureVerifier refusing = new WebhookSignatureVerifier(resolver, Optional.empty(),
+                rejected::add, freshLog());
 
         assertThat(reasonOf(() -> refusing.verify(body, List.of()))).isEqualTo(Reason.MISSING_SIGNATURE);
         assertThat(reasonOf(() -> refusing.verify(body, List.of(signature)))).isEqualTo(Reason.SECRET_UNAVAILABLE);
@@ -145,7 +147,7 @@ class WebhookSignatureVerifierTest {
         for (Category category : Category.values()) {
             RecordingSecretResolver denying = new RecordingSecretResolver().denying(category);
             WebhookSignatureVerifier denied = new WebhookSignatureVerifier(denying,
-                    Optional.of(new SecretReference(appSecretRef)), rejected::add);
+                    Optional.of(new SecretReference(appSecretRef)), rejected::add, freshLog());
 
             WebhookVerificationException refusal = catchThrowableOfType(WebhookVerificationException.class,
                     () -> denied.verify(body, List.of(signature)));
@@ -160,7 +162,7 @@ class WebhookSignatureVerifierTest {
     @Test
     void anUnknownReferenceIsAlsoSecretUnavailable() {
         WebhookSignatureVerifier unknown = new WebhookSignatureVerifier(resolver,
-                Optional.of(new SecretReference(SecretCanaries.ref())), rejected::add);
+                Optional.of(new SecretReference(SecretCanaries.ref())), rejected::add, freshLog());
 
         assertThat(reasonOf(() -> unknown.verify(body, List.of(signature)))).isEqualTo(Reason.SECRET_UNAVAILABLE);
     }
@@ -170,10 +172,44 @@ class WebhookSignatureVerifierTest {
         RuntimeException failure = new IllegalStateException("resolver down");
         WebhookSignatureVerifier failing = new WebhookSignatureVerifier(
                 new RecordingSecretResolver().throwing(failure), Optional.of(new SecretReference(appSecretRef)),
-                rejected::add);
+                rejected::add, freshLog());
 
         assertThatThrownBy(() -> failing.verify(body, List.of(signature))).isSameAs(failure);
         assertThat(rejected).isEmpty();
+    }
+
+    /** covers: issue 306, every check that needs no body runs in prepare, before the route reads a byte. */
+    @Test
+    void prepareRefusesABadHeaderOrAnUnsetReferenceWithoutAResolverCall() {
+        WebhookSignatureVerifier refusing = new WebhookSignatureVerifier(resolver, Optional.empty(), rejected::add,
+                freshLog());
+
+        assertThat(reasonOf(() -> verifier.prepare(List.of()))).isEqualTo(Reason.MISSING_SIGNATURE);
+        assertThat(reasonOf(() -> verifier.prepare(List.of(signature, signature))))
+                .isEqualTo(Reason.MALFORMED_SIGNATURE);
+        assertThat(reasonOf(() -> verifier.prepare(List.of("sha256=" + "g".repeat(64)))))
+                .isEqualTo(Reason.MALFORMED_SIGNATURE);
+        assertThat(reasonOf(() -> refusing.prepare(List.of(signature)))).isEqualTo(Reason.SECRET_UNAVAILABLE);
+
+        assertThat(resolver.calls()).isEmpty();
+    }
+
+    @Test
+    void aPreparedCheckResolvesOnceOnlyWhenTheBodyArrives() {
+        WebhookSignatureVerifier.SignatureCheck check = verifier.prepare(List.of(signature));
+        assertThat(resolver.calls()).isEmpty();
+
+        assertThat(check.verify(body).copy()).isEqualTo(body);
+        assertThat(reasonOf(() -> verifier.prepare(List.of(signature)).verify(new byte[] {'x'})))
+                .isEqualTo(Reason.SIGNATURE_MISMATCH);
+
+        assertThat(resolver.calls()).hasSize(2);
+        assertThat(resolver.allIssuedClosed()).isTrue();
+    }
+
+    /** A new throttle per component, so each refusal reason logs its first line in every test. */
+    private static WebhookRejectionLog freshLog() {
+        return new WebhookRejectionLog(Clock.systemUTC());
     }
 
     private static Reason reasonOf(Runnable call) {

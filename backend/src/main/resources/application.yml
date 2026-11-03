@@ -68,6 +68,9 @@ dokene:
       webhook:
         # Largest webhook body read, in bytes (1 to 16777216). Meta documents payloads up to 3 MB.
         max-body-bytes: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES:4194304}
+        # Callbacks read and processed at once (1 to 64, issue 306); one more is refused with 503 and Retry-After
+        # before a byte is read. Webhook body heap is at most about this times max-body-bytes (32 MiB by default).
+        max-concurrent-requests: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_CONCURRENT_REQUESTS:8}
         # Durable webhook inbox (issue 139, ADR 0030): the sweeper applies PENDING rows and purges old terminal ones.
         inbox:
           enabled: ${DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_INBOX_ENABLED:true}

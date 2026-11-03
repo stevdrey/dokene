@@ -343,6 +343,9 @@ class WhatsAppWebhookIntegrationTest {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(oversized)
                         .header("X-Hub-Signature-256", WebhookSigning.sign(oversized, APP_SECRET)))
                 .andExpect(status().isForbidden());
+        // Issue 306: an unsigned form body is refused on the header alone; no filter parses it into parameters first.
+        mvc.perform(post(PATH).contentType(MediaType.APPLICATION_FORM_URLENCODED).content("hub.mode=subscribe&a=b"))
+                .andExpect(status().isForbidden()).andExpect(header().doesNotExist("Set-Cookie"));
         assertThat(message(a, messageA).status()).isEqualTo(MessageStatus.SENT);
 
         // No CSRF token and no session: the signature alone is enough here, and no session is ever started...
