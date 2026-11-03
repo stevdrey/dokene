@@ -8,12 +8,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record WhatsAppWebhookProperties(String verifyTokenRef, String appSecretRef, Webhook webhook) {
     public WhatsAppWebhookProperties {
         if (webhook == null) {
-            webhook = new Webhook(null);
+            webhook = new Webhook(null, null);
         }
     }
 
-    /** Null means the 4 MiB default; the configuration enforces the range at startup. */
-    public record Webhook(Long maxBodyBytes) {
+    /** Null means the default (4 MiB, 8 concurrent requests); the configuration enforces the ranges at startup. */
+    public record Webhook(Long maxBodyBytes, Integer maxConcurrentRequests) {
         @Override
         public String toString() {
             return "WhatsAppWebhookProperties.Webhook[REDACTED]";

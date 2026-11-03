@@ -31,6 +31,7 @@ class WhatsAppWebhookConfigurationTest {
     private static final String APP_SECRET_REF = "dokene.integration.whatsapp.app-secret-ref";
     private static final String VERIFY_TOKEN_REF = "dokene.integration.whatsapp.verify-token-ref";
     private static final String MAX_BODY_BYTES = "dokene.integration.whatsapp.webhook.max-body-bytes";
+    private static final String MAX_CONCURRENT_REQUESTS = "dokene.integration.whatsapp.webhook.max-concurrent-requests";
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(IntegrationSecretsConfiguration.class, WhatsAppWebhookConfiguration.class);
@@ -182,6 +183,37 @@ class WhatsAppWebhookConfigurationTest {
             assertThat(reader.read(new ByteArrayInputStream(new byte[4_194_304]), -1)).hasSize(4_194_304);
             assertThat(reasonOf(() -> reader.read(new ByteArrayInputStream(new byte[4_194_305]), -1)))
                     .isEqualTo(Reason.BODY_TOO_LARGE);
+        });
+    }
+
+    /** covers: issue 306, the admission bound defaults to 8, accepts 1 to 64 and fails startup outside it. */
+    @Test
+    void theConcurrencyBoundIsValidatedAtStartupAndDefaultsToEight() {
+        for (String outside : List.of("0", "65", "-1")) {
+            runner.withPropertyValues(plus(local(), MAX_CONCURRENT_REQUESTS + "=" + outside)).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(causeChain(context.getStartupFailure())).anyMatch(message ->
+                        message.contains(MAX_CONCURRENT_REQUESTS + " must be between 1 and 64"));
+            });
+        }
+        runner.withPropertyValues(plus(local(), MAX_CONCURRENT_REQUESTS + "=1")).run(context -> {
+            WebhookAdmission admission = context.getBean(WebhookAdmission.class);
+            assertThat(admission.tryAdmit()).isPresent();
+            assertThat(admission.tryAdmit()).isEmpty();
+        });
+        runner.withPropertyValues(local()).run(context -> {
+            assertThat(context).hasSingleBean(WebhookRejectionLog.class);
+            assertThat(context.getBean(WebhookAdmission.class).available()).isEqualTo(8);
+        });
+    }
+
+    @Test
+    void theMicrometerTelemetryCountsOverloadedCallbacks() {
+        runner.withUserConfiguration(RegistryConfiguration.class).withPropertyValues(configured()).run(context -> {
+            context.getBean(WebhookTelemetry.class).overloaded();
+
+            assertThat(context.getBean(MeterRegistry.class).get("dokene.webhook.overloaded").counter().count())
+                    .isEqualTo(1.0);
         });
     }
 

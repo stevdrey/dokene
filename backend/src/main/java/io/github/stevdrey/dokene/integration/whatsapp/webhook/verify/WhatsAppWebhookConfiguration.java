@@ -1,10 +1,11 @@
-// ABOUTME: Wires the webhook verifier, challenge check, bounded reader and telemetry as plain beans (spec 0007 AC-10).
-// ABOUTME: Validates the two refs and the body bound at startup, naming only the property; a blank ref means refuse.
+// ABOUTME: Wires webhook verifiers, bounded reader, admission, rejection log and telemetry as plain beans (spec 0007).
+// ABOUTME: Validates the two refs and both bounds at startup, naming only the property; a blank ref means refuse.
 package io.github.stevdrey.dokene.integration.whatsapp.webhook.verify;
 
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver;
 import io.github.stevdrey.dokene.integration.application.IntegrationSecretResolver.SecretReference;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +24,10 @@ public class WhatsAppWebhookConfiguration {
     static final long DEFAULT_MAX_BODY_BYTES = 4_194_304L;
     static final long MIN_MAX_BODY_BYTES = 1L;
     static final long MAX_MAX_BODY_BYTES = 16_777_216L;
+    static final String MAX_CONCURRENT_REQUESTS = "dokene.integration.whatsapp.webhook.max-concurrent-requests";
+    static final int DEFAULT_MAX_CONCURRENT_REQUESTS = 8;
+    static final int MIN_MAX_CONCURRENT_REQUESTS = 1;
+    static final int MAX_MAX_CONCURRENT_REQUESTS = 64;
 
     @Bean
     WebhookTelemetry webhookTelemetry(ObjectProvider<MeterRegistry> registry) {
@@ -31,23 +36,33 @@ public class WhatsAppWebhookConfiguration {
     }
 
     @Bean
+    WebhookRejectionLog webhookRejectionLog(ObjectProvider<Clock> clock) {
+        return new WebhookRejectionLog(clock.getIfAvailable(Clock::systemUTC));
+    }
+
+    @Bean
     WebhookSignatureVerifier webhookSignatureVerifier(IntegrationSecretResolver resolver,
-            WhatsAppWebhookProperties properties, WebhookTelemetry telemetry) {
+            WhatsAppWebhookProperties properties, WebhookTelemetry telemetry, WebhookRejectionLog rejectionLog) {
         return new WebhookSignatureVerifier(resolver, reference(APP_SECRET_REF, properties.appSecretRef()),
-                telemetry);
+                telemetry, rejectionLog);
     }
 
     @Bean
     WebhookChallengeVerifier webhookChallengeVerifier(IntegrationSecretResolver resolver,
-            WhatsAppWebhookProperties properties, WebhookTelemetry telemetry) {
+            WhatsAppWebhookProperties properties, WebhookTelemetry telemetry, WebhookRejectionLog rejectionLog) {
         return new WebhookChallengeVerifier(resolver, reference(VERIFY_TOKEN_REF, properties.verifyTokenRef()),
-                telemetry);
+                telemetry, rejectionLog);
     }
 
     @Bean
     BoundedWebhookBodyReader boundedWebhookBodyReader(WhatsAppWebhookProperties properties,
-            WebhookTelemetry telemetry) {
-        return new BoundedWebhookBodyReader(bound(properties.webhook().maxBodyBytes()), telemetry);
+            WebhookTelemetry telemetry, WebhookRejectionLog rejectionLog) {
+        return new BoundedWebhookBodyReader(bound(properties.webhook().maxBodyBytes()), telemetry, rejectionLog);
+    }
+
+    @Bean
+    WebhookAdmission webhookAdmission(WhatsAppWebhookProperties properties) {
+        return new WebhookAdmission(concurrency(properties.webhook().maxConcurrentRequests()));
     }
 
     /** Blank is the refusing state, warned once here; a set value must match the grammar untrimmed (AC-6). */
@@ -70,5 +85,14 @@ public class WhatsAppWebhookConfiguration {
                     + MAX_MAX_BODY_BYTES);
         }
         return (int) value;
+    }
+
+    private static int concurrency(Integer raw) {
+        int value = raw == null ? DEFAULT_MAX_CONCURRENT_REQUESTS : raw;
+        if (value < MIN_MAX_CONCURRENT_REQUESTS || value > MAX_MAX_CONCURRENT_REQUESTS) {
+            throw new IllegalStateException(MAX_CONCURRENT_REQUESTS + " must be between "
+                    + MIN_MAX_CONCURRENT_REQUESTS + " and " + MAX_MAX_CONCURRENT_REQUESTS);
+        }
+        return value;
     }
 }

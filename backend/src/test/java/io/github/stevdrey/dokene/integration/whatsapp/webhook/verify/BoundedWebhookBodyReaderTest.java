@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -25,7 +26,7 @@ class BoundedWebhookBodyReaderTest {
     private static final int BOUND = 16;
 
     private final List<Reason> rejected = new ArrayList<>();
-    private final BoundedWebhookBodyReader reader = new BoundedWebhookBodyReader(BOUND, rejected::add);
+    private final BoundedWebhookBodyReader reader = new BoundedWebhookBodyReader(BOUND, rejected::add, freshLog());
     private LogCapture logs;
 
     @BeforeEach
@@ -118,14 +119,32 @@ class BoundedWebhookBodyReaderTest {
         assertThat(reasonOf(() -> reader.read(new CountingStream(oversized), oversized.length)))
                 .isEqualTo(Reason.BODY_TOO_LARGE);
 
-        assertThat(logs.warningsFrom(BoundedWebhookBodyReader.class)).hasSize(2);
+        assertThat(rejected).containsExactly(Reason.BODY_TOO_LARGE, Reason.BODY_TOO_LARGE);
+        assertThat(logs.warningsFrom(BoundedWebhookBodyReader.class)).hasSize(1);
         assertThat(containsAny(logs.text(), List.of(canary, canary.substring(0, BOUND)))).isFalse();
     }
 
     @Test
+    void theDeclaredLengthCheckAloneRefusesOnlyALengthOverTheBound() {
+        reader.checkDeclaredLength(-1);
+        reader.checkDeclaredLength(0);
+        reader.checkDeclaredLength(BOUND);
+        assertThat(rejected).isEmpty();
+
+        assertThat(reasonOf(() -> reader.checkDeclaredLength(BOUND + 1L))).isEqualTo(Reason.BODY_TOO_LARGE);
+        assertThat(reasonOf(() -> reader.checkDeclaredLength(Long.MAX_VALUE))).isEqualTo(Reason.BODY_TOO_LARGE);
+        assertThat(rejected).containsExactly(Reason.BODY_TOO_LARGE, Reason.BODY_TOO_LARGE);
+    }
+
+    @Test
     void theBoundMustBeAtLeastOneByte() {
-        assertThatThrownBy(() -> new BoundedWebhookBodyReader(0, rejected::add))
+        assertThatThrownBy(() -> new BoundedWebhookBodyReader(0, rejected::add, freshLog()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** A new throttle per component, so each refusal reason logs its first line in every test. */
+    private static WebhookRejectionLog freshLog() {
+        return new WebhookRejectionLog(Clock.systemUTC());
     }
 
     private static Reason reasonOf(Runnable call) {

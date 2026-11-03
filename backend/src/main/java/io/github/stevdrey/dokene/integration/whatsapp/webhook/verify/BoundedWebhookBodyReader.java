@@ -16,14 +16,26 @@ public final class BoundedWebhookBodyReader {
 
     private final int maxBodyBytes;
     private final WebhookTelemetry telemetry;
+    private final WebhookRejectionLog rejectionLog;
 
     /** {@code maxBodyBytes} is validated against the property's range by the configuration before it reaches here. */
-    public BoundedWebhookBodyReader(int maxBodyBytes, WebhookTelemetry telemetry) {
+    public BoundedWebhookBodyReader(int maxBodyBytes, WebhookTelemetry telemetry, WebhookRejectionLog rejectionLog) {
         if (maxBodyBytes < 1) {
             throw new IllegalArgumentException("The body bound must be at least 1 byte");
         }
         this.maxBodyBytes = maxBodyBytes;
         this.telemetry = Objects.requireNonNull(telemetry, "Telemetry is required");
+        this.rejectionLog = Objects.requireNonNull(rejectionLog, "Rejection log is required");
+    }
+
+    /**
+     * Refuses a {@code declaredLength} above the bound without touching the stream, so the route can refuse before it
+     * admits the request (issue 306). A negative length means unknown and passes; {@link #read} still bounds it.
+     */
+    public void checkDeclaredLength(long declaredLength) {
+        if (declaredLength > maxBodyBytes) {
+            throw refuse(Reason.BODY_TOO_LARGE);
+        }
     }
 
     /**
@@ -33,9 +45,7 @@ public final class BoundedWebhookBodyReader {
      */
     public byte[] read(InputStream body, long declaredLength) {
         Objects.requireNonNull(body, "Body stream is required");
-        if (declaredLength > maxBodyBytes) {
-            throw refuse(Reason.BODY_TOO_LARGE);
-        }
+        checkDeclaredLength(declaredLength);
         byte[] bytes;
         try {
             bytes = body.readNBytes(maxBodyBytes + 1);
@@ -49,7 +59,7 @@ public final class BoundedWebhookBodyReader {
     }
 
     private WebhookVerificationException refuse(Reason reason) {
-        log.warn("Webhook rejected reason={}", reason);
+        rejectionLog.rejected(log, reason);
         telemetry.rejected(reason);
         return new WebhookVerificationException(reason);
     }

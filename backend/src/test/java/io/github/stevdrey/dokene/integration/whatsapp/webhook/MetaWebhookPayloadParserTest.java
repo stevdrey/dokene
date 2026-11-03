@@ -14,11 +14,13 @@ import io.github.stevdrey.dokene.integration.whatsapp.webhook.ParsedWebhook.Stat
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Level;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.WebhookPayloadException.Reason;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.VerifiedWebhookBody;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookRejectionLog;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier;
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatus;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -35,7 +37,7 @@ class MetaWebhookPayloadParserTest {
 
     private final WebhookSignatureVerifier verifier = new WebhookSignatureVerifier(new RecordingSecretResolver()
             .holding(SecretPurpose.APP_SECRET, SECRET_REF, FIXTURES.get("signingKey").stringValue()),
-            Optional.of(new SecretReference(SECRET_REF)), reason -> { });
+            Optional.of(new SecretReference(SECRET_REF)), reason -> { }, new WebhookRejectionLog(Clock.systemUTC()));
     private final MetaWebhookPayloadParser parser = new MetaWebhookPayloadParser();
 
     @Test
