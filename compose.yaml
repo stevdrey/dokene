@@ -213,7 +213,9 @@ services:
       - "127.0.0.1:5173:8080"
     read_only: true
     tmpfs:
-      - /tmp
+      # nginx buffers request bodies here (issue 306). The cap keeps a flood from growing the container past it; the
+      # /webhooks limit_conn keeps webhook bodies to 64 MiB of it.
+      - /tmp:size=128m
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 

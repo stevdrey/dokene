@@ -18,7 +18,9 @@ This record is sanitized: it gives limits, outcomes and test names only. It cont
 | `dokene.integration.whatsapp.webhook.max-body-bytes` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_BODY_BYTES`) | 4194304 | 1 to 16777216 | Largest body read. A larger declared `Content-Length` is refused before any read; an unknown or understated length is refused after at most one byte past the bound |
 | `dokene.integration.whatsapp.webhook.max-concurrent-requests` (`DOKENE_INTEGRATION_WHATSAPP_WEBHOOK_MAX_CONCURRENT_REQUESTS`) | 8 | 1 to 64 | Callbacks read, verified and recorded at once. One more is answered `503` with `Retry-After: 5`, unread |
 | Rejection log interval (`WebhookRejectionLog.INTERVAL`, fixed) | 1 minute | — | First `WARN` line per reason, then one per reason per minute with ` suppressed=<n>` |
-| nginx `client_max_body_size` on `/webhooks` (unchanged) | 4m | — | Edge cap in front of the backend; no edge connection or rate limit ships by default |
+| nginx `client_max_body_size` on `/webhooks` (unchanged) | 4m | — | Edge cap on one body |
+| nginx `limit_conn` on `/webhooks` | 16 in total, 8 per client address | — | Further webhook requests get `503` from nginx before their body is read; refusals log at `info` |
+| Frontend `/tmp` tmpfs (`compose.yaml`) | 128 MiB | — | Where nginx buffers request bodies; webhook bodies stay under 16 × 4 MiB = 64 MiB of it |
 
 Worst case webhook body heap is about `max-concurrent-requests × max-body-bytes`, 32 MiB with the defaults, whatever the request rate. In the audit run the same route grew the backend from 714 MiB to 4.25 GiB.
 
@@ -90,10 +92,37 @@ Neither build was OOM-killed or restarted under a cgroup limit. The difference i
 - **Patched growth:** the patched container still grows across bursts, but less each time. This is consistent with G1 committing heap toward its cap, not with a live set, which admission bounds to about 8 bodies.
 - **Secrets:** no canary appeared in any backend log.
 
+## Edge (nginx) evidence
+
+This answers the review finding that the earlier runs bypassed nginx, and that nginx buffered webhook bodies on an uncapped tmpfs with no connection limit.
+
+**Setup:** the same isolated stack plus the frontend image, built once with `main`'s `nginx.conf` (and its uncapped `/tmp` tmpfs) and once with this branch's.
+- All traffic went through nginx; the backend was the patched build at a 1 GiB limit.
+- Legitimate signed callbacks, static-page probes and the host bursts came from the host, which nginx sees as one address.
+- The attackers ran in throwaway containers on the stack's network, one address each.
+- Buffered-body size is the tmpfs usage inside the frontend container, sampled every 50 ms.
+
+| Scenario | `main` nginx | This branch's nginx |
+| --- | --- | --- |
+| Forged burst from the host, 600 × 4 000 000 B, 150 concurrent (two bursts) | peak **182 / 204 MiB** buffered in `/tmp` (tmpfs capped only at ~7.5 GiB); 170–212 × `403`, the rest `503` from the backend | peak **30 / 25 MiB**; 111–113 × `403`, 487–489 × `503` (nginx and backend) |
+| nginx `warn`/`error` lines over those bursts | 1200 (one per buffered body) | 0 |
+| 6 attacker addresses × 120 forged 4 000 000 B uploads, 30 at a time each | — | static page `200` and signed callbacks `200` throughout |
+| 1 attacker address, 40 slow uploads (1 KiB every 5 s) for 40 s | — | static page `200`, signed callbacks `200` throughout |
+| 5 attacker addresses × 4 slow uploads (20, above the 16 total) | — | static page `200`; signed callbacks `503` while it lasted, `200` after |
+| 200 signed callbacks from the host, 50 at a time | — | 136–159 × `200`, 41–64 × `503` (four runs) |
+| After all scenarios: signed callback, handshake, wrong token | — | `200`, `200` with the challenge echoed, `403` |
+
+**Other observations:**
+- The frontend container used 13–20 MiB of memory, and neither container restarted.
+- No canary appeared in any log.
+- Proxy resource exhaustion itself was not reproduced on `main` (the earlier runs showed the backend side). The 182–204 MiB peaks show the unbounded growth that this change caps.
+- A per-address limit of 4 was also tried. It accepted only 40–46 % of the same 200-callback burst, so 8 ships.
+
 ## Residual risk
 
 - A forged but well formed request still costs one secret resolve and one HMAC over at most `max-body-bytes`, now bounded by the admission permits.
-- An attacker who keeps every permit busy delays legitimate callbacks, which get `503` and are retried by Meta (up to 36 hours or 7 days, per Meta's conflicting pages). An edge `limit_conn`/`limit_req` zone can be added per deployment; a per-IP one can throttle Meta's own bursts.
+- An attacker who keeps every permit or edge slot busy delays legitimate callbacks, which get `503` and are retried by Meta (up to 36 hours or 7 days, per Meta's conflicting pages). Through the shipped nginx this takes slow uploads from 2 or more addresses; it does not affect the rest of the site.
+- The per-address edge limit also defers legitimate bursts: from one address, 200 signed callbacks sent 50 at a time saw 68–80 % accepted and the rest `503`. Behind another proxy or tunnel, every client has one address unless `real_ip` restores it.
 - The bound is per backend instance.
 - A sustained flood can still make G1 commit heap toward `MaxRAMPercentage`: with a 1 GiB container the patched build stayed up at 0.79 GiB after three bursts. Production limits should leave headroom above the JVM heap cap.
 - The bounds assume a body-buffering proxy in front of `/webhooks`, as the shipped nginx is configured (`proxy_request_buffering on`, `client_body_timeout 10s`). Exposed directly, a client that drips bodies slowly can hold the admission permits (Meta gets `503`) or, after a pre-admission refusal, Tomcat workers while Tomcat discards up to `server.tomcat.max-swallow-size` of the unread body. That pool is shared with every route.
