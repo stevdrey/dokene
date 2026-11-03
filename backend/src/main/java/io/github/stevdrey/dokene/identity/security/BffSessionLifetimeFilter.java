@@ -85,31 +85,45 @@ public final class BffSessionLifetimeFilter extends OncePerRequestFilter {
     private Revocation check(HttpSession session, OAuth2AuthenticationToken token, HttpServletRequest request,
             HttpServletResponse response) {
         Instant now = clock.instant();
-        Instant authenticatedAt = instant(session, AUTHENTICATED_AT);
-        if (authenticatedAt == null || !now.isBefore(authenticatedAt.plus(properties.maxLifetime()))) {
+        if (lifetimeExceeded(session, now)) {
             return Revocation.MAX_LIFETIME;
         }
         if (isFresh(session, now)) {
             return null;
         }
         synchronized (WebUtils.getSessionMutex(session)) {
-            // Another request may have revalidated while this one waited.
-            if (isFresh(session, now)) {
+            // Waiting for the lock can outlast several revalidation calls: every deadline is judged on the clock as it
+            // is now, not as it was when the request arrived. Another request may also have revalidated meanwhile.
+            Instant started = clock.instant();
+            if (lifetimeExceeded(session, started)) {
+                return Revocation.MAX_LIFETIME;
+            }
+            if (isFresh(session, started)) {
                 return null;
             }
             // A session without a revalidation record gets no grace.
             Instant lastRevalidatedAt = Objects.requireNonNullElse(instant(session, LAST_REVALIDATED_AT), Instant.EPOCH);
-            return switch (refresh(token, request, response)) {
+            Refresh outcome = refresh(token, request, response);
+            Instant finished = clock.instant();
+            if (lifetimeExceeded(session, finished)) {
+                return Revocation.MAX_LIFETIME;
+            }
+            return switch (outcome) {
                 case REFRESHED -> {
-                    session.setAttribute(LAST_REVALIDATED_AT, now);
+                    session.setAttribute(LAST_REVALIDATED_AT, started);
                     yield null;
                 }
                 case REJECTED -> Revocation.PROVIDER_REJECTED;
-                case UNAVAILABLE -> now.isBefore(lastRevalidatedAt.plus(properties.revalidationGrace()))
+                case UNAVAILABLE -> finished.isBefore(lastRevalidatedAt.plus(properties.revalidationGrace()))
                         ? null
                         : Revocation.REVALIDATION_GRACE_EXCEEDED;
             };
         }
+    }
+
+    private boolean lifetimeExceeded(HttpSession session, Instant now) {
+        Instant authenticatedAt = instant(session, AUTHENTICATED_AT);
+        return authenticatedAt == null || !now.isBefore(authenticatedAt.plus(properties.maxLifetime()));
     }
 
     private boolean isFresh(HttpSession session, Instant now) {

@@ -36,13 +36,14 @@ Startup fails unless all durations are positive, the grace is longer than the in
 | An active session is `200` one minute before the lifetime and `401` at it; a new login starts a new lifetime | `OidcBrowserSessionIntegrationTest.activeSessionEndsAtTheAbsoluteLifetime`; `BffSessionLifetimeFilterTest.endsAnActiveSessionAtTheAbsoluteLifetime` (a request every interval for 8 h) |
 | An unreachable provider keeps the session within the grace and ends it after; recovery inside the grace restarts the grace | `OidcBrowserSessionIntegrationTest.unreachableProviderKeepsTheSessionOnlyWithinTheGrace`; `BffSessionLifetimeFilterTest.keepsTheSessionWhileTheProviderIsUnavailableWithinTheGrace`, `recoversWhenTheProviderReturnsWithinTheGrace` |
 | A provider that accepts the refresh call and then stalls (10 s) does not hang the request: with a 1 s timeout the request answers `200` inside the grace and `401` after it, each in under 3 s | `OidcBrowserSessionIntegrationTest.stalledProviderTimesOutIntoTheGraceInsteadOfHangingTheRequest` |
+| Deadlines are judged on the clock after waiting for the session lock and after the refresh call, not at arrival: a queued request past the lifetime is revoked without calling the provider; a slow refresh that ends past the grace or the lifetime revokes; a successful slow refresh records its start time | `BffSessionLifetimeFilterTest.rechecksTheLifetimeAfterWaitingForTheSessionLock`, `judgesTheGraceOnTheClockAfterASlowRefreshCall`, `judgesTheLifetimeOnTheClockAfterASlowRefreshCall`, `recordsTheRevalidationAtTheStartOfTheRefreshCall` |
 | An OIDC session without a login time or without a refresh token fails closed; non-OIDC sessions are untouched | `BffSessionLifetimeFilterTest.revokesAnOidcSessionWithoutALifetimeRecord`, `revokesWhenTheSessionHasNoRefreshToken`, `ignoresSessionsThatWereNotEstablishedByOidcLogin` |
 | Revocation logs carry the reason only, never tokens | `BffSessionLifetimeFilterTest.revokesWhenTheProviderRejectsTheRefreshToken`; `OidcBrowserSessionIntegrationTest.oauthClientSecretAndTokensAreNeverLogged` |
 | Inconsistent bounds fail startup | `BffSessionLifetimeFilterTest.rejectsInconsistentProperties` |
 | Login, session fixation, CSRF, idle expiry, local and provider logout are unchanged | the existing `OidcBrowserSessionIntegrationTest` cases |
 | Membership revocation still ends tenant access | `TenantProvisioningIntegrationTest.revokedOrSuspendedMembershipCannotEstablishTenantContext`, `MembershipManagementIntegrationTest` |
 
-**Full run:** `./gradlew check` passed: 2350 tests, 0 failures, 0 skipped.
+**Full run:** `./gradlew check` passed: 2354 tests, 0 failures, 0 skipped.
 
 **Known framework behavior:** Spring Security 7.1.2 answers `500` instead of `400` to a signed logout token that has no `events` claim (its validator throws on the null claim). The token is still refused and no session is affected; the test asserts that outcome.
 

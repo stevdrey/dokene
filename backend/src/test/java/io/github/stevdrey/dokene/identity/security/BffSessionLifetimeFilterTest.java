@@ -10,6 +10,8 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +51,8 @@ class BffSessionLifetimeFilterTest {
             new HttpSessionOAuth2AuthorizedClientRepository();
     private final AtomicReference<RefreshBehavior> refresh = new AtomicReference<>(RefreshBehavior.SUCCEED);
     private final AtomicInteger refreshCalls = new AtomicInteger();
+    /** How long the provider takes to answer a refresh call. */
+    private final AtomicReference<Duration> refreshDuration = new AtomicReference<>(Duration.ZERO);
     private final BffSessionLifetimeFilter filter = new BffSessionLifetimeFilter(
             new BffSessionProperties(MAX_LIFETIME, INTERVAL, GRACE, null), authorizedClients, this::respond, clock);
     private final ClientRegistration registration = ClientRegistration.withRegistrationId("dokene")
@@ -188,6 +192,61 @@ class BffSessionLifetimeFilterTest {
     }
 
     @Test
+    void judgesTheGraceOnTheClockAfterASlowRefreshCall() throws Exception {
+        refresh.set(RefreshBehavior.UNAVAILABLE);
+        refreshDuration.set(Duration.ofSeconds(2));
+        clock.advance(GRACE.minusSeconds(1));
+
+        assertThat(run()).isFalse();
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    @Test
+    void judgesTheLifetimeOnTheClockAfterASlowRefreshCall() throws Exception {
+        refreshDuration.set(Duration.ofSeconds(2));
+        clock.advance(MAX_LIFETIME.minusSeconds(1));
+
+        assertThat(run()).isFalse();
+        assertThat(refreshCalls).hasValue(1);
+    }
+
+    @Test
+    void recordsTheRevalidationAtTheStartOfTheRefreshCall() throws Exception {
+        refreshDuration.set(Duration.ofSeconds(2));
+        clock.advance(INTERVAL);
+        Instant started = clock.instant();
+
+        assertThat(run()).isTrue();
+        assertThat(session.getAttribute(BffSessionLifetimeFilter.LAST_REVALIDATED_AT)).isEqualTo(started);
+    }
+
+    @Test
+    void rechecksTheLifetimeAfterWaitingForTheSessionLock() throws Exception {
+        clock.advance(INTERVAL);
+        CompletableFuture<Boolean> queued;
+        // Another request holds the session's revalidation lock while this one queues behind it.
+        synchronized (session) {
+            AtomicReference<Thread> worker = new AtomicReference<>();
+            queued = CompletableFuture.supplyAsync(() -> {
+                worker.set(Thread.currentThread());
+                try {
+                    return run();
+                } catch (Exception exception) {
+                    throw new IllegalStateException(exception);
+                }
+            });
+            while (worker.get() == null || worker.get().getState() != Thread.State.BLOCKED) {
+                Thread.onSpinWait();
+            }
+            clock.advance(MAX_LIFETIME);
+        }
+
+        assertThat(queued.get(5, TimeUnit.SECONDS)).isFalse();
+        assertThat(refreshCalls).hasValue(0);
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    @Test
     void rejectsInconsistentProperties() {
         assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, INTERVAL, INTERVAL, null))
                 .isInstanceOf(IllegalStateException.class)
@@ -227,6 +286,7 @@ class BffSessionLifetimeFilterTest {
 
     private OAuth2AccessTokenResponse respond(OAuth2RefreshTokenGrantRequest grant) {
         refreshCalls.incrementAndGet();
+        clock.advance(refreshDuration.get());
         assertThat(grant.getRefreshToken().getTokenValue()).isIn("initial-refresh", "refreshed-refresh");
         return switch (refresh.get()) {
             case SUCCEED -> OAuth2AccessTokenResponse.withToken("refreshed-access")
@@ -250,7 +310,7 @@ class BffSessionLifetimeFilterTest {
 
     private static final class MutableClock extends Clock {
 
-        private Instant now;
+        private volatile Instant now;
 
         MutableClock(Instant now) {
             this.now = now;
