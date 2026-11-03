@@ -13,6 +13,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.Scheduled;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(WhatsAppWebhookProperties.class)
@@ -38,6 +39,11 @@ public class WhatsAppWebhookConfiguration {
     @Bean
     WebhookRejectionLog webhookRejectionLog(ObjectProvider<Clock> clock) {
         return new WebhookRejectionLog(clock.getIfAvailable(Clock::systemUTC));
+    }
+
+    @Bean
+    RejectionLogFlush webhookRejectionLogFlush(WebhookRejectionLog rejectionLog) {
+        return new RejectionLogFlush(rejectionLog);
     }
 
     @Bean
@@ -85,6 +91,20 @@ public class WhatsAppWebhookConfiguration {
                     + MAX_MAX_BODY_BYTES);
         }
         return (int) value;
+    }
+
+    /** Reports refusals held back by a flood that has stopped; scheduling is enabled by the application class. */
+    static final class RejectionLogFlush {
+        private final WebhookRejectionLog rejectionLog;
+
+        RejectionLogFlush(WebhookRejectionLog rejectionLog) {
+            this.rejectionLog = rejectionLog;
+        }
+
+        @Scheduled(fixedDelayString = "PT1M", initialDelayString = "PT1M")
+        void flush() {
+            rejectionLog.flush();
+        }
     }
 
     private static int concurrency(Integer raw) {

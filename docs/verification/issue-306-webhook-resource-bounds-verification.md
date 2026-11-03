@@ -46,6 +46,8 @@ Worst case webhook body heap is about `max-concurrent-requests × max-body-bytes
 | `./gradlew test --tests 'io.github.stevdrey.dokene.integration.whatsapp.webhook.*'` | 71 tests, 0 failures |
 | `./gradlew test --tests '*WhatsAppWebhookIntegrationTest' --tests '*WebhookChainStatelessIntegrationTest' --tests '*EnglishTemplateSendJourneyIntegrationTest' --tests '*ApprovedSendJourneyIntegrationTest' --tests '*Phase3ErrorPageFilterTest'` | 27 tests, 0 failures |
 | `./gradlew check` | passed: 2329 tests, 0 failures |
+| After the code review follow-ups: `./gradlew test --tests 'io.github.stevdrey.dokene.integration.whatsapp.webhook.*'` and `./gradlew check` | 75 webhook unit tests; `check` passed: 2333 tests, 0 failures |
+| `nginx -t` on the shipped `nginx.conf` (frontend image) | syntax ok |
 
 ## Dynamic load evidence
 
@@ -91,4 +93,5 @@ Neither build was OOM-killed or restarted under a cgroup limit. The difference i
 - A forged but well formed request still costs one secret resolve and one HMAC over at most `max-body-bytes`, now bounded by the admission permits.
 - An attacker who keeps every permit busy delays legitimate callbacks, which get `503` and are retried by Meta (up to 36 hours or 7 days, per Meta's conflicting pages). An edge `limit_conn`/`limit_req` zone can be added per deployment; a per-IP one can throttle Meta's own bursts.
 - The bound is per backend instance.
-- Each admitted request still allocates the body more than once (the reader's growing buffer, then the verified copy), so a sustained flood keeps G1 committing heap toward `MaxRAMPercentage`. With a 1 GiB container the patched build stayed up but used 0.96 GiB after three bursts, so production limits should leave headroom above the JVM heap cap.
+- The load figures above were measured on the first commit. Code review follow-ups then cut the per-request allocation: a known `Content-Length` is read into one exactly sized array, and the route's verified body is no longer copied. The load test was not repeated after that change. A sustained flood can still make G1 commit heap toward `MaxRAMPercentage`; with a 1 GiB container the measured build stayed up at 0.96 GiB after three bursts, so production limits should leave headroom above the JVM heap cap.
+- The bounds assume a body-buffering proxy in front of `/webhooks`, as the shipped nginx is configured (`proxy_request_buffering on`, `client_body_timeout 10s`). Exposed directly, a client that drips bodies slowly can hold the admission permits (Meta gets `503`) or, after a pre-admission refusal, Tomcat workers while Tomcat discards up to `server.tomcat.max-swallow-size` of the unread body. That pool is shared with every route.

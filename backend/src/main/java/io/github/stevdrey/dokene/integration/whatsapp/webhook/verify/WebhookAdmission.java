@@ -22,10 +22,6 @@ public final class WebhookAdmission {
         return permits.tryAcquire() ? Optional.of(new Permit()) : Optional.empty();
     }
 
-    int available() {
-        return permits.availablePermits();
-    }
-
     /** Returns its permit on the first close only, so a double close can never raise the bound. */
     public final class Permit implements AutoCloseable {
         private final AtomicBoolean open = new AtomicBoolean(true);

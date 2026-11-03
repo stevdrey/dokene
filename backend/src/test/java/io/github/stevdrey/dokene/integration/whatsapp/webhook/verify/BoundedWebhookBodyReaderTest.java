@@ -62,12 +62,22 @@ class BoundedWebhookBodyReaderTest {
     }
 
     @Test
-    void aLyingDeclaredLengthStillCostsAtMostOneBytePastTheBound() {
+    void aLyingDeclaredLengthCostsAtMostOneBytePastWhatItDeclared() {
         CountingStream stream = new CountingStream(new byte[BOUND * 4]);
 
         assertThat(reasonOf(() -> reader.read(stream, 1))).isEqualTo(Reason.BODY_TOO_LARGE);
 
-        assertThat(stream.bytesRead).isEqualTo(BOUND + 1);
+        assertThat(stream.bytesRead).isEqualTo(2);
+    }
+
+    /** covers: issue 306, a known length is read into one array of that size; a shorter stream is returned as is. */
+    @Test
+    void aKnownLengthIsReadIntoAnArrayOfThatSize() {
+        CountingStream shorter = new CountingStream(new byte[4]);
+
+        assertThat(reader.read(new CountingStream(new byte[BOUND - 1]), BOUND - 1)).hasSize(BOUND - 1);
+        assertThat(reader.read(shorter, 8)).hasSize(4);
+        assertThat(rejected).isEmpty();
     }
 
     @Test

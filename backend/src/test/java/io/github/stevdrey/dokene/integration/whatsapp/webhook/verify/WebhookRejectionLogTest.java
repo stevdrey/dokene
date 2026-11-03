@@ -6,12 +6,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookRejectionLog.Line;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookVerificationException.Reason;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,11 +65,61 @@ class WebhookRejectionLogTest {
         for (int index = 0; index < 3; index++) {
             rejectionLog.rejected(log, Reason.MISSING_SIGNATURE);
             rejectionLog.rejected(log, Reason.BODY_TOO_LARGE);
-            rejectionLog.warn(log, "Webhook body could not be read");
+            rejectionLog.warn(log, Line.UNREADABLE);
         }
 
         assertThat(lines()).containsExactly("Webhook rejected reason=MISSING_SIGNATURE",
                 "Webhook rejected reason=BODY_TOO_LARGE", "Webhook body could not be read");
+    }
+
+    @Test
+    void theSameReasonFromTwoClassesIsThrottledPerClass() {
+        Logger other = LoggerFactory.getLogger(WebhookSignatureVerifier.class);
+        rejectionLog.rejected(log, Reason.SECRET_UNAVAILABLE);
+        rejectionLog.rejected(other, Reason.SECRET_UNAVAILABLE);
+        rejectionLog.rejected(other, Reason.SECRET_UNAVAILABLE);
+
+        assertThat(lines()).containsExactly("Webhook rejected reason=SECRET_UNAVAILABLE");
+        assertThat(logs.warningsFrom(WebhookSignatureVerifier.class)).hasSize(1);
+    }
+
+    @Test
+    void flushReportsAStoppedFloodOnceAndOnlyAfterItsInterval() {
+        for (int index = 0; index < 5; index++) {
+            rejectionLog.rejected(log, Reason.MISSING_SIGNATURE);
+        }
+        rejectionLog.flush();
+        assertThat(lines()).hasSize(1);
+
+        clock.advance(WebhookRejectionLog.INTERVAL);
+        rejectionLog.flush();
+        rejectionLog.flush();
+
+        assertThat(lines()).containsExactly("Webhook rejected reason=MISSING_SIGNATURE",
+                "Webhook rejected reason=MISSING_SIGNATURE suppressed=4");
+    }
+
+    @Test
+    void concurrentRefusalsWriteOneLineAndCountTheRest() throws Exception {
+        int threads = 16;
+        CountDownLatch start = new CountDownLatch(1);
+        try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+            for (int thread = 0; thread < threads; thread++) {
+                pool.submit(() -> {
+                    start.await();
+                    for (int index = 0; index < 100; index++) {
+                        rejectionLog.rejected(log, Reason.SIGNATURE_MISMATCH);
+                    }
+                    return null;
+                });
+            }
+            start.countDown();
+        }
+        assertThat(lines()).hasSize(1);
+
+        clock.advance(WebhookRejectionLog.INTERVAL);
+        rejectionLog.flush();
+        assertThat(lines()).last().isEqualTo("Webhook rejected reason=SIGNATURE_MISMATCH suppressed=1599");
     }
 
     private List<String> lines() {

@@ -42,7 +42,7 @@ class WebhookAdmissionTest {
         permit.close();
         permit.close();
 
-        assertThat(admission.available()).isEqualTo(BOUND);
+        assertThat(availablePermits()).isEqualTo(BOUND);
     }
 
     @Test
@@ -79,7 +79,17 @@ class WebhookAdmissionTest {
 
         assertThat(peak.get()).isEqualTo(BOUND);
         assertThat(refused.get()).isEqualTo(threads - BOUND);
-        assertThat(admission.available()).isEqualTo(BOUND);
+        assertThat(availablePermits()).isEqualTo(BOUND);
+    }
+
+    /** Counts free permits through the public API only, and returns every one it took. */
+    private int availablePermits() {
+        List<Permit> taken = new ArrayList<>();
+        for (Optional<Permit> next = admission.tryAdmit(); next.isPresent(); next = admission.tryAdmit()) {
+            taken.add(next.get());
+        }
+        taken.forEach(Permit::close);
+        return taken.size();
     }
 
     @Test

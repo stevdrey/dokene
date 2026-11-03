@@ -44,7 +44,9 @@ public final class WebhookSignatureVerifier {
      */
     public VerifiedWebhookBody verify(byte[] body, List<String> signatureHeaderValues) {
         Objects.requireNonNull(body, "Body is required");
-        return prepare(signatureHeaderValues).verify(body);
+        SignatureCheck check = prepare(signatureHeaderValues);
+        // Copied here, so a caller mutating its array after the call cannot change what was verified.
+        return check.verify(body.clone());
     }
 
     /**
@@ -68,18 +70,17 @@ public final class WebhookSignatureVerifier {
         }
 
         /**
-         * One resolve and one HMAC over {@code body}. The input array is copied before anything is hashed and the
-         * copy becomes the verified body, so a caller mutating its array after the call cannot change what was
-         * verified.
+         * One resolve and one HMAC over {@code body}, which this call takes ownership of: the array is hashed and
+         * becomes the verified body without a copy (issue 306), so the caller must not touch it afterwards. The route
+         * passes the array the reader just allocated and keeps no other reference to it.
          */
         public VerifiedWebhookBody verify(byte[] body) {
             Objects.requireNonNull(body, "Body is required");
-            byte[] copy = body.clone();
-            byte[] actual = hmac(reference, copy);
+            byte[] actual = hmac(reference, body);
             if (!MessageDigest.isEqual(actual, expected)) {
                 throw refuse(Reason.SIGNATURE_MISMATCH);
             }
-            return new VerifiedWebhookBody(copy);
+            return new VerifiedWebhookBody(body);
         }
     }
 

@@ -111,12 +111,13 @@ class WhatsAppWebhookControllerTest {
     @Test
     void aLyingOrUnknownLengthStillCostsAtMostOneBytePastTheBoundAndNoHmac() {
         byte[] oversized = new byte[MAX_BODY_BYTES * 4];
-        for (long declared : new long[] {-1, 1}) {
+        for (long declared : new long[] {-1, 1, MAX_BODY_BYTES}) {
             CountingRequest request = new CountingRequest(oversized, declared, sign(oversized));
 
             assertThat(controller(Optional.of(new SecretReference(SECRET_REF))).receive(request).getStatusCode())
                     .isEqualTo(HttpStatus.FORBIDDEN);
-            assertThat(request.bytesRead).isEqualTo(MAX_BODY_BYTES + 1);
+            // One byte past the declared length when it is known, past the bound when it is not.
+            assertThat(request.bytesRead).isEqualTo(declared < 0 ? MAX_BODY_BYTES + 1 : declared + 1);
         }
         assertThat(resolver.calls()).isEmpty();
         assertThat(allPermitsReturned()).isTrue();

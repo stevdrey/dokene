@@ -203,7 +203,11 @@ class WhatsAppWebhookConfigurationTest {
         });
         runner.withPropertyValues(local()).run(context -> {
             assertThat(context).hasSingleBean(WebhookRejectionLog.class);
-            assertThat(context.getBean(WebhookAdmission.class).available()).isEqualTo(8);
+            WebhookAdmission admission = context.getBean(WebhookAdmission.class);
+            for (int index = 0; index < 8; index++) {
+                assertThat(admission.tryAdmit()).isPresent();
+            }
+            assertThat(admission.tryAdmit()).isEmpty();
         });
     }
 

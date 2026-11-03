@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookAdmi
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookAdmission.Permit;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookChallengeVerifier;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookRejectionLog;
+import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookRejectionLog.Line;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookSignatureVerifier.SignatureCheck;
 import io.github.stevdrey.dokene.integration.whatsapp.webhook.verify.WebhookTelemetry;
@@ -44,8 +45,6 @@ class WhatsAppWebhookController {
     static final String PATH = "/webhooks/whatsapp";
     static final String SIGNATURE_HEADER = "X-Hub-Signature-256";
     static final String RETRY_AFTER_SECONDS = "5";
-    static final String UNREADABLE = "Webhook body could not be read";
-    static final String OVERLOADED = "Webhook rejected: every admission permit is taken";
     private static final Logger log = LoggerFactory.getLogger(WhatsAppWebhookController.class);
 
     private final BoundedWebhookBodyReader reader;
@@ -95,7 +94,7 @@ class WhatsAppWebhookController {
         }
         Optional<Permit> admitted = admission.tryAdmit();
         if (admitted.isEmpty()) {
-            rejectionLog.warn(log, OVERLOADED);
+            rejectionLog.warn(log, Line.OVERLOADED);
             telemetry.overloaded();
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS).build();
@@ -114,7 +113,7 @@ class WhatsAppWebhookController {
         } catch (WebhookVerificationException refused) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (IOException | UncheckedIOException unreadable) {
-            rejectionLog.warn(log, UNREADABLE);
+            rejectionLog.warn(log, Line.UNREADABLE);
             return ResponseEntity.badRequest().build();
         }
         ParsedWebhook parsed;
