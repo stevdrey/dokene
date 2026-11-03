@@ -51,12 +51,12 @@ Worst case webhook body heap is about `max-concurrent-requests × max-body-bytes
 
 ## Dynamic load evidence
 
-**Setup.** Run on 2026-11-03 on one workstation (16 cores, 15 GiB RAM, other local stacks running).
+**Setup.** Final run on 2026-11-03 on one workstation (16 cores, 15 GiB RAM). Before it, every other local test environment (the two QA Compose stacks) was brought down and no other test was running.
 - **Project:** an isolated Compose project with its own loopback ports, built from `compose.yaml` plus an override kept outside the repository.
 - **Backend:** settings as in the audit: AI provider blank, and a local secret source with synthetic canary `APP_SECRET` and `WEBHOOK_VERIFY_TOKEN` entries.
 - **Images:** two backend images, run one after the other on the same stack:
   - **baseline:** `main` at `6d04547`;
-  - **patched:** the tested revision above.
+  - **patched:** commit `a9fbf03`, the code review follow-up. Later commits on this branch change only this record.
 - **Traffic:** requests went straight to the backend port, with no nginx in front.
 - **Attack shape:** the audit's, 600 POSTs of 4 000 000 bytes with an all-zero well-formed signature from 150 concurrent clients. Bursts ran back to back on a freshly started backend.
 
@@ -64,28 +64,30 @@ Memory is the container memory reported by `docker stats` (the audit's metric), 
 
 | Container limit | Build | Idle | After burst 1 | After burst 2 | After burst 3 | Outcomes per burst | Burst time |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| none | baseline | 0.77 GiB | **4.11 GiB** | run stopped: the host ran out of memory during burst 2 (41 s) | — | 600 × `403` | 8.0 s, then 41.3 s |
-| 2 GiB | baseline | 0.93 GiB | 1.92 GiB | 1.93 GiB | 1.93 GiB (at the limit) | 600 × `403` | 3.4–4.0 s |
-| 2 GiB | patched | 0.88 GiB | 1.01 GiB | 0.94 GiB | 1.36 GiB | 107–178 × `403`, 419–493 × `503` + `Retry-After: 5`, ≤ 3 `closed` | 1.3–1.4 s |
-| 1 GiB | baseline | 0.35 GiB | 1.00 GiB (peak at the limit) | — | — | 600 × `403` | 7.1 s |
-| 1 GiB | patched | 0.35 GiB | 0.66 GiB | 0.85 GiB | 0.96 GiB | 42–108 × `403`, 492–558 × `503` | 1.3–2.5 s |
+| 1 GiB | baseline | 361 MiB | 968 MiB | 1000 MiB | 1003 MiB (peak 1016, at the limit) | 600 × `403` | 6.5–7.2 s |
+| 1 GiB | patched | 349 MiB | 643 MiB | 736 MiB | 794 MiB | 62–148 × `403`, 452–538 × `503` + `Retry-After: 5` | 1.0–1.1 s |
+| 2 GiB | baseline | 792 MiB | 1.95 GiB | 1.95 GiB | 1.96 GiB (at the limit) | 600 × `403` | 3.2–3.9 s |
+| 2 GiB | patched | 643 MiB | 920 MiB | 1.30 GiB | 1.35 GiB | 163–230 × `403`, 370–437 × `503`, ≤ 2 `closed` | 1.2–1.3 s |
 
-The unlimited run was not repeated for the patched build, so that the host would not be exhausted again.
+Without a container limit only the baseline was run, in an earlier run the same day: it grew from 0.77 GiB to **4.11 GiB** in one burst, and the second burst (41 s) exhausted the host's memory. It was not repeated with either build, so the host would not be exhausted again.
 
-Other scenarios against the patched build at 1 GiB, 150 concurrent clients:
+Other scenarios at 1 GiB, 150 concurrent clients, one run per build:
 
-| Scenario | Requests | Outcomes |
-| --- | --- | --- |
-| No signature header, 4 000 000 B | 600 | 404 × `403`, 196 `closed` (refused before reading) |
-| Declared length 5 000 000 B, over the bound | 300 | 149 × `403`, 151 `closed` |
-| Unknown length (chunked) 8 000 000 B | 300 | 3 × `403`, 297 `closed` (refused at bound + 1) |
-| Valid signed callback, before and after all bursts | 1 + 1 | `200` both times |
-| `GET` handshake with the right token, then a wrong one | 2 + 2 | `200` with the challenge echoed, then `403` |
+| Scenario | Requests | Baseline | Patched |
+| --- | --- | --- | --- |
+| No signature header, 4 000 000 B | 600 | 600 × `403` after reading each body (3.8 s) | 600 × `403` before reading (0.7 s) |
+| Declared length 5 000 000 B, over the bound | 300 | 267 × `403`, 33 `closed` | 267 × `403`, 33 `closed` |
+| Unknown length (chunked) 8 000 000 B | 300 | 245 × `403`, 55 `closed` | 4 × `403`, 296 `closed` (refused at bound + 1) |
+| Valid signed callback, before and after all bursts | 1 + 1 | `200` both times | `200` both times |
+| `GET` handshake with the right token, then a wrong one | 2 + 2 | `200` with the challenge echoed, then `403` | same |
+| Container memory after all scenarios | — | 910 MiB (peak 1024 MiB) | 706 MiB (peak 708 MiB) |
+| Rejection `WARN` lines in the whole run | — | 1802 | 5 |
 
 Neither build was OOM-killed or restarted under a cgroup limit. The difference is what the memory goes to:
-- **Baseline:** fills the limit at once, reads and HMACs every forged body, and writes one `WARN` line per refusal (1801 to 1802 lines per run).
-- **Patched:** reads at most 8 bodies at a time, refuses the rest unread, and wrote 3 to 5 rejection lines per run in total.
-- **Patched growth:** the patched container still grows across bursts, but not in proportion to requests (burst 2 under 2 GiB came out lower than burst 1). This is consistent with G1 committing heap toward its cap. It is not a live set, which admission bounds to about 8 bodies plus their copies.
+- **Baseline:** fills the limit in the first burst, reads and HMACs every forged body, takes 3 to 7 times longer per burst, and writes one `WARN` line per refusal (1801 to 1802 per run).
+- **Patched:** reads at most 8 bodies at a time and refuses the rest unread. It stayed 200 to 600 MiB below the limit and wrote 3 to 5 rejection lines per run in total.
+- **Compared with the first commit:** the review follow-ups (exactly sized reads, no copy of the route's body) lowered the 1 GiB patched figures from 0.66 / 0.85 / 0.96 GiB to 0.64 / 0.74 / 0.79 GiB.
+- **Patched growth:** the patched container still grows across bursts, but less each time. This is consistent with G1 committing heap toward its cap, not with a live set, which admission bounds to about 8 bodies.
 - **Secrets:** no canary appeared in any backend log.
 
 ## Residual risk
@@ -93,5 +95,5 @@ Neither build was OOM-killed or restarted under a cgroup limit. The difference i
 - A forged but well formed request still costs one secret resolve and one HMAC over at most `max-body-bytes`, now bounded by the admission permits.
 - An attacker who keeps every permit busy delays legitimate callbacks, which get `503` and are retried by Meta (up to 36 hours or 7 days, per Meta's conflicting pages). An edge `limit_conn`/`limit_req` zone can be added per deployment; a per-IP one can throttle Meta's own bursts.
 - The bound is per backend instance.
-- The load figures above were measured on the first commit. Code review follow-ups then cut the per-request allocation: a known `Content-Length` is read into one exactly sized array, and the route's verified body is no longer copied. The load test was not repeated after that change. A sustained flood can still make G1 commit heap toward `MaxRAMPercentage`; with a 1 GiB container the measured build stayed up at 0.96 GiB after three bursts, so production limits should leave headroom above the JVM heap cap.
+- A sustained flood can still make G1 commit heap toward `MaxRAMPercentage`: with a 1 GiB container the patched build stayed up at 0.79 GiB after three bursts. Production limits should leave headroom above the JVM heap cap.
 - The bounds assume a body-buffering proxy in front of `/webhooks`, as the shipped nginx is configured (`proxy_request_buffering on`, `client_body_timeout 10s`). Exposed directly, a client that drips bodies slowly can hold the admission permits (Meta gets `503`) or, after a pre-admission refusal, Tomcat workers while Tomcat discards up to `server.tomcat.max-swallow-size` of the unread body. That pool is shared with every route.
