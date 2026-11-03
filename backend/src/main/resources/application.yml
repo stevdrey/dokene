@@ -130,6 +130,8 @@ dokene:
       max-lifetime: ${DOKENE_SESSION_MAX_LIFETIME:8h}
       revalidation-interval: ${DOKENE_SESSION_REVALIDATION_INTERVAL:5m}
       revalidation-grace: ${DOKENE_SESSION_REVALIDATION_GRACE:15m}
+      # Connect and response deadline of one revalidation call; a timeout counts as "provider unreachable".
+      revalidation-timeout: ${DOKENE_SESSION_REVALIDATION_TIMEOUT:5s}
     oidc:
       # Where the back-channel logout handler replays each session's logout. Loopback by default; set it when the
       # provider reaches Dokene through a proxy whose port differs from the one the backend listens on.

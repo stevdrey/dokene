@@ -18,11 +18,12 @@ This record is sanitized: it gives bounds, outcomes and test names only. It cont
 | `dokene.security.session.max-lifetime` (`DOKENE_SESSION_MAX_LIFETIME`) | 8h | Every session ends this long after its login, however active |
 | `dokene.security.session.revalidation-interval` (`DOKENE_SESSION_REVALIDATION_INTERVAL`) | 5m | The refresh token is redeemed at the provider once per interval; `invalid_grant` ends the session |
 | `dokene.security.session.revalidation-grace` (`DOKENE_SESSION_REVALIDATION_GRACE`) | 15m | While the provider is unreachable the session survives until this long after its last successful revalidation |
+| `dokene.security.session.revalidation-timeout` (`DOKENE_SESSION_REVALIDATION_TIMEOUT`) | 5s | Connect and response deadline of one revalidation call; a timeout is handled like an unreachable provider |
 | `dokene.security.oidc.back-channel-logout-uri` (`DOKENE_BACK_CHANNEL_LOGOUT_URI`) | loopback on the called port | Where the back-channel handler replays the logout for each matching session |
 | Realm `ssoSessionMaxLifespan` | 28800 s (8 h) | Provider lifetime aligned with the Dokene lifetime |
 | Realm client `backchannel.logout.url` | `http://oidc-bridge:8080/logout/connect/back-channel/dokene` | Keycloak delivers logout tokens to the backend's network namespace |
 
-Startup fails unless all three durations are positive, the grace is longer than the interval, and the grace does not exceed the lifetime.
+Startup fails unless all durations are positive, the grace is longer than the interval, the timeout is shorter than the interval, and the grace does not exceed the lifetime.
 
 ## Automated coverage
 
@@ -34,13 +35,14 @@ Startup fails unless all three durations are positive, the grace is longer than 
 | A successful revalidation calls the token endpoint once per interval, keeps the session and exposes no token | `OidcBrowserSessionIntegrationTest.revalidationRefreshesTheProviderSessionAndKeepsTheBrowserSession`; `BffSessionLifetimeFilterTest.revalidatesAfterTheIntervalAndStoresTheRotatedTokens` |
 | An active session is `200` one minute before the lifetime and `401` at it; a new login starts a new lifetime | `OidcBrowserSessionIntegrationTest.activeSessionEndsAtTheAbsoluteLifetime`; `BffSessionLifetimeFilterTest.endsAnActiveSessionAtTheAbsoluteLifetime` (a request every interval for 8 h) |
 | An unreachable provider keeps the session within the grace and ends it after; recovery inside the grace restarts the grace | `OidcBrowserSessionIntegrationTest.unreachableProviderKeepsTheSessionOnlyWithinTheGrace`; `BffSessionLifetimeFilterTest.keepsTheSessionWhileTheProviderIsUnavailableWithinTheGrace`, `recoversWhenTheProviderReturnsWithinTheGrace` |
+| A provider that accepts the refresh call and then stalls (10 s) does not hang the request: with a 1 s timeout the request answers `200` inside the grace and `401` after it, each in under 3 s | `OidcBrowserSessionIntegrationTest.stalledProviderTimesOutIntoTheGraceInsteadOfHangingTheRequest` |
 | An OIDC session without a login time or without a refresh token fails closed; non-OIDC sessions are untouched | `BffSessionLifetimeFilterTest.revokesAnOidcSessionWithoutALifetimeRecord`, `revokesWhenTheSessionHasNoRefreshToken`, `ignoresSessionsThatWereNotEstablishedByOidcLogin` |
 | Revocation logs carry the reason only, never tokens | `BffSessionLifetimeFilterTest.revokesWhenTheProviderRejectsTheRefreshToken`; `OidcBrowserSessionIntegrationTest.oauthClientSecretAndTokensAreNeverLogged` |
 | Inconsistent bounds fail startup | `BffSessionLifetimeFilterTest.rejectsInconsistentProperties` |
 | Login, session fixation, CSRF, idle expiry, local and provider logout are unchanged | the existing `OidcBrowserSessionIntegrationTest` cases |
 | Membership revocation still ends tenant access | `TenantProvisioningIntegrationTest.revokedOrSuspendedMembershipCannotEstablishTenantContext`, `MembershipManagementIntegrationTest` |
 
-**Full run:** `./gradlew check` passed: 2349 tests, 0 failures, 0 skipped.
+**Full run:** `./gradlew check` passed: 2350 tests, 0 failures, 0 skipped.
 
 **Known framework behavior:** Spring Security 7.1.2 answers `500` instead of `400` to a signed logout token that has no `events` claim (its validator throws on the null claim). The token is still refused and no session is affected; the test asserts that outcome.
 

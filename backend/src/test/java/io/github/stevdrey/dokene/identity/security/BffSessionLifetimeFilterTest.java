@@ -50,7 +50,7 @@ class BffSessionLifetimeFilterTest {
     private final AtomicReference<RefreshBehavior> refresh = new AtomicReference<>(RefreshBehavior.SUCCEED);
     private final AtomicInteger refreshCalls = new AtomicInteger();
     private final BffSessionLifetimeFilter filter = new BffSessionLifetimeFilter(
-            new BffSessionProperties(MAX_LIFETIME, INTERVAL, GRACE), authorizedClients, this::respond, clock);
+            new BffSessionProperties(MAX_LIFETIME, INTERVAL, GRACE, null), authorizedClients, this::respond, clock);
     private final ClientRegistration registration = ClientRegistration.withRegistrationId("dokene")
             .clientId("dokene-bff")
             .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
@@ -189,18 +189,23 @@ class BffSessionLifetimeFilterTest {
 
     @Test
     void rejectsInconsistentProperties() {
-        assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, INTERVAL, INTERVAL))
+        assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, INTERVAL, INTERVAL, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("revalidation-grace");
-        assertThatThrownBy(() -> new BffSessionProperties(Duration.ofMinutes(10), INTERVAL, GRACE))
+        assertThatThrownBy(() -> new BffSessionProperties(Duration.ofMinutes(10), INTERVAL, GRACE, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("max-lifetime");
-        assertThatThrownBy(() -> new BffSessionProperties(Duration.ZERO, INTERVAL, GRACE))
+        assertThatThrownBy(() -> new BffSessionProperties(Duration.ZERO, INTERVAL, GRACE, null))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, Duration.ZERO, GRACE))
+        assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, Duration.ZERO, GRACE, null))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(new BffSessionProperties(null, null, null))
-                .isEqualTo(new BffSessionProperties(Duration.ofHours(8), Duration.ofMinutes(5), Duration.ofMinutes(15)));
+        assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, INTERVAL, GRACE, INTERVAL))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("revalidation-timeout");
+        assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, INTERVAL, GRACE, Duration.ZERO))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(new BffSessionProperties(null, null, null, null)).isEqualTo(new BffSessionProperties(
+                Duration.ofHours(8), Duration.ofMinutes(5), Duration.ofMinutes(15), Duration.ofSeconds(5)));
     }
 
     /** Runs one request through the filter and reports whether it reached the chain authenticated. */

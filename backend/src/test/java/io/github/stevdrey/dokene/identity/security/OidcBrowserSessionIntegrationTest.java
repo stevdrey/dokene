@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -87,6 +88,7 @@ class OidcBrowserSessionIntegrationTest {
         registry.add("spring.security.oauth2.client.registration.dokene.redirect-uri",
                 () -> "{baseUrl}/login/oauth2/code/{registrationId}");
         registry.add("spring.security.oauth2.client.provider.dokene.issuer-uri", OIDC::issuer);
+        registry.add("dokene.security.session.revalidation-timeout", () -> "1s");
     }
 
     @AfterAll
@@ -97,6 +99,7 @@ class OidcBrowserSessionIntegrationTest {
     @AfterEach
     void restoreOidcProvider() {
         OIDC.unavailable.set(false);
+        OIDC.stalled.set(false);
     }
 
     @LocalServerPort
@@ -434,6 +437,24 @@ class OidcBrowserSessionIntegrationTest {
         assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
     }
 
+    @Test
+    void stalledProviderTimesOutIntoTheGraceInsteadOfHangingTheRequest() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        String csrf = csrf(authenticated);
+        OIDC.stalled.set(true);
+
+        backdate(authenticated, csrf, Duration.ZERO, Duration.ofMinutes(5));
+        Instant start = Instant.now();
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+        assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(3));
+
+        backdate(authenticated, csrf, Duration.ZERO, Duration.ofMinutes(15));
+        start = Instant.now();
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+        assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(3));
+    }
+
     private String csrf(Browser browser) throws Exception {
         return objectMapper.readTree(get(browser, "/api/session").body()).path("csrfToken").asText();
     }
@@ -626,6 +647,8 @@ class OidcBrowserSessionIntegrationTest {
         private final Set<String> disabledSids = ConcurrentHashMap.newKeySet();
         private final AtomicReference<String> lastSid = new AtomicReference<>();
         private final AtomicBoolean unavailable = new AtomicBoolean();
+        /** Accepts the refresh request and answers only after far longer than the revalidation timeout. */
+        private final AtomicBoolean stalled = new AtomicBoolean();
         private final AtomicReference<HttpServer> server = new AtomicReference<>();
         private RSAKey rsaKey;
         private String issuer;
@@ -648,6 +671,8 @@ class OidcBrowserSessionIntegrationTest {
             created.createContext("/token", this::token);
             created.createContext("/jwks", this::jwks);
             created.createContext("/logout", this::logout);
+            // A stalled refresh must not block the provider's other endpoints.
+            created.setExecutor(Executors.newCachedThreadPool());
             created.start();
             server.set(created);
         }
@@ -768,6 +793,13 @@ class OidcBrowserSessionIntegrationTest {
         }
 
         private void refresh(HttpExchange exchange, String refreshToken) throws IOException {
+            if (stalled.get()) {
+                try {
+                    Thread.sleep(Duration.ofSeconds(10));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             if (unavailable.get()) {
                 json(exchange, 503, "{\"error\":\"temporarily_unavailable\"}");
                 return;

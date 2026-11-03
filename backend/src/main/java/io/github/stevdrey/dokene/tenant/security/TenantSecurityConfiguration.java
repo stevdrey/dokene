@@ -7,7 +7,9 @@ import io.github.stevdrey.dokene.identity.security.BffSessionProperties;
 import io.github.stevdrey.dokene.identity.security.InternalOidcUserService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
+import java.net.http.HttpClient;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,17 +20,21 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.endpoint.RestClientRefreshTokenTokenResponseClient;
+import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -48,6 +54,7 @@ import org.springframework.security.web.authentication.AnonymousAuthenticationFi
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -99,8 +106,26 @@ class TenantSecurityConfiguration {
             OAuth2AuthorizedClientRepository authorizedClients,
             Clock clock
     ) {
-        return new BffSessionLifetimeFilter(
-                properties, authorizedClients, new RestClientRefreshTokenTokenResponseClient(), clock);
+        RestClientRefreshTokenTokenResponseClient refreshTokenClient = new RestClientRefreshTokenTokenResponseClient();
+        refreshTokenClient.setRestClient(createTokenEndpointRestClient(properties.revalidationTimeout()));
+        return new BffSessionLifetimeFilter(properties, authorizedClients, refreshTokenClient, clock);
+    }
+
+    /**
+     * Spring Security's token endpoint client (same converters and OAuth2 error handling) with finite deadlines: a
+     * revalidation holds the session's lock, so a stalled provider must turn into the grace path, not a hung request.
+     */
+    static RestClient createTokenEndpointRestClient(Duration timeout) {
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder().connectTimeout(timeout).build());
+        requestFactory.setReadTimeout(timeout);
+        return RestClient.builder()
+                .requestFactory(requestFactory)
+                .configureMessageConverters(converters -> converters
+                        .addCustomConverter(new FormHttpMessageConverter())
+                        .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
+                .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
+                .build();
     }
 
     /** Lets the OIDC session registry follow session id changes and forget destroyed sessions. */

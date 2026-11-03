@@ -72,8 +72,11 @@ user, nor live forever while it stays active. The contract, with the default bou
 
 - **Settings**: `dokene.security.session.max-lifetime` (`DOKENE_SESSION_MAX_LIFETIME`, `8h`),
   `revalidation-interval` (`DOKENE_SESSION_REVALIDATION_INTERVAL`, `5m`) and `revalidation-grace`
-  (`DOKENE_SESSION_REVALIDATION_GRACE`, `15m`). Startup fails unless all are positive, the grace is longer than the
-  interval and the grace does not exceed the lifetime.
+  (`DOKENE_SESSION_REVALIDATION_GRACE`, `15m`), and `revalidation-timeout` (`DOKENE_SESSION_REVALIDATION_TIMEOUT`,
+  `5s`), the connect and response deadline of one revalidation call. A revalidation holds the session's lock, so a
+  timeout counts as "provider unreachable" and never hangs the session's requests. Startup fails unless all are
+  positive, the grace is longer than the interval, the timeout is shorter than the interval and the grace does not
+  exceed the lifetime.
 - **Fail closed**: a revoked or expired session is invalidated and the request continues unauthenticated, so
   `/api/**` answers `401 Unauthorized` exactly as for idle expiry. An OIDC session without a recorded login time, without
   an authorized client or without a refresh token is revoked at its first check. Provider error descriptions and tokens
