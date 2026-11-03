@@ -120,6 +120,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### M3. A Dokene session outlives the identity provider: a user disabled or logged out in Keycloak keeps working, with no absolute lifetime — Confirmed
 
+- **Status:** fixed by [#307](https://github.com/stevdrey/dokene/issues/307); see [the verification record](../verification/issue-307-session-revocation-verification.md). The SPA local-logout residual (item 4 of the fix) remains documented in ADR 0007.
+
 - **Where:**
   - `TenantSecurityConfiguration.java:138-142`: no `oidcLogout().backChannel()`.
   - The realm sets `backchannel.logout.session.required`, but no back-channel URL is registered.

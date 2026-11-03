@@ -38,10 +38,14 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +58,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
@@ -87,6 +92,11 @@ class OidcBrowserSessionIntegrationTest {
     @AfterAll
     static void stopOidcProvider() {
         OIDC.stop();
+    }
+
+    @AfterEach
+    void restoreOidcProvider() {
+        OIDC.unavailable.set(false);
     }
 
     @LocalServerPort
@@ -330,6 +340,121 @@ class OidcBrowserSessionIntegrationTest {
     }
 
     @Test
+    void backChannelLogoutEndsOnlyTheMatchingSession() throws Exception {
+        Browser loggedOut = browser();
+        authenticate(loggedOut, TokenMode.VALID);
+        String sid = OIDC.lastSid();
+        Browser other = browser();
+        authenticate(other, TokenMode.VALID);
+
+        HttpResponse<String> response = backChannelLogout(OIDC.logoutToken(sid, LogoutTokenMode.VALID));
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().allValues("Set-Cookie")).noneMatch(cookie -> cookie.startsWith("JSESSIONID="));
+        assertThat(get(loggedOut, "/api/session").statusCode()).isEqualTo(401);
+        assertThat(get(other, "/api/session").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void backChannelLogoutRejectsUntrustedLogoutTokens() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        String sid = OIDC.lastSid();
+
+        for (LogoutTokenMode mode : List.of(LogoutTokenMode.FOREIGN_KEY, LogoutTokenMode.WRONG_AUDIENCE,
+                LogoutTokenMode.WITH_NONCE)) {
+            assertThat(backChannelLogout(OIDC.logoutToken(sid, mode)).statusCode()).as(mode.name()).isEqualTo(400);
+        }
+        // Spring Security 7.1 answers 500 here (its validator throws on a null events claim); the token is still refused.
+        assertThat(backChannelLogout(OIDC.logoutToken(sid, LogoutTokenMode.MISSING_EVENT)).statusCode())
+                .isNotEqualTo(200);
+        assertThat(backChannelLogout("not-a-jwt").statusCode()).isEqualTo(400);
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void disabledProviderUserIsDeniedOnceTheRevalidationIntervalHasPassed() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        String csrf = csrf(authenticated);
+        OIDC.disable(OIDC.lastSid());
+
+        // Inside the interval the provider is not asked again.
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+
+        backdate(authenticated, csrf, Duration.ZERO, Duration.ofMinutes(5));
+        assertThat(post(authenticated, "/api/account/expire-session", csrf).statusCode()).isEqualTo(401);
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void revalidationRefreshesTheProviderSessionAndKeepsTheBrowserSession() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        String sid = OIDC.lastSid();
+        backdate(authenticated, csrf(authenticated), Duration.ZERO, Duration.ofMinutes(5));
+        int refreshesBefore = OIDC.refreshes(sid);
+
+        HttpResponse<String> session = get(authenticated, "/api/session");
+        assertThat(session.statusCode()).isEqualTo(200);
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+
+        assertThat(OIDC.refreshes(sid)).isEqualTo(refreshesBefore + 1);
+        assertThat(session.body()).doesNotContain("refresh-", "server-side-access-token");
+    }
+
+    @Test
+    void activeSessionEndsAtTheAbsoluteLifetime() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        String csrf = csrf(authenticated);
+
+        backdate(authenticated, csrf, Duration.ofHours(8).minusMinutes(1), Duration.ZERO);
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+
+        backdate(authenticated, csrf, Duration.ofHours(8), Duration.ZERO);
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+
+        // A new login starts a new lifetime.
+        authenticate(authenticated, TokenMode.VALID);
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void unreachableProviderKeepsTheSessionOnlyWithinTheGrace() throws Exception {
+        Browser authenticated = browser();
+        authenticate(authenticated, TokenMode.VALID);
+        String csrf = csrf(authenticated);
+        OIDC.unavailable.set(true);
+
+        backdate(authenticated, csrf, Duration.ZERO, Duration.ofMinutes(14));
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(200);
+
+        backdate(authenticated, csrf, Duration.ZERO, Duration.ofMinutes(15));
+        assertThat(get(authenticated, "/api/session").statusCode()).isEqualTo(401);
+    }
+
+    private String csrf(Browser browser) throws Exception {
+        return objectMapper.readTree(get(browser, "/api/session").body()).path("csrfToken").asText();
+    }
+
+    /** Moves the session's login and last revalidation into the past, as if that much time had elapsed. */
+    private void backdate(Browser browser, String csrf, Duration sinceLogin, Duration sinceRevalidation)
+            throws Exception {
+        HttpResponse<String> response = post(browser, "/api/account/backdate-session?sinceLogin=" + sinceLogin
+                + "&sinceRevalidation=" + sinceRevalidation, csrf);
+        assertThat(response.statusCode()).isEqualTo(204);
+    }
+
+    private HttpResponse<String> backChannelLogout(String logoutToken) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/logout/connect/back-channel/dokene"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString("logout_token=" + encode(logoutToken)))
+                .build();
+        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void defaultConfigurationDoesNotTrustForwardedHeadersFromUntrustedClients() throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/oauth2/authorization/dokene"))
                 .header("X-Forwarded-Proto", "https")
@@ -467,6 +592,10 @@ class OidcBrowserSessionIntegrationTest {
         VALID, INVALID_ISSUER, EXPIRED
     }
 
+    private enum LogoutTokenMode {
+        VALID, FOREIGN_KEY, WRONG_AUDIENCE, MISSING_EVENT, WITH_NONCE
+    }
+
     @RestController
     static final class SessionExpirationController {
 
@@ -475,13 +604,28 @@ class OidcBrowserSessionIntegrationTest {
         void expire(HttpSession session) {
             session.setMaxInactiveInterval(1);
         }
+
+        @PostMapping("/api/account/backdate-session")
+        @ResponseStatus(HttpStatus.NO_CONTENT)
+        void backdate(HttpSession session, @RequestParam Duration sinceLogin, @RequestParam Duration sinceRevalidation) {
+            Instant now = Instant.now();
+            session.setAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT, now.minus(sinceLogin));
+            session.setAttribute(BffSessionLifetimeFilter.LAST_REVALIDATED_AT, now.minus(sinceRevalidation));
+        }
     }
 
     private static final class OidcStub {
 
         private static final String KEY_ID = "dokene-test-key";
 
+        private static final String BACK_CHANNEL_LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
+
         private final Map<String, AuthorizationCode> codes = new ConcurrentHashMap<>();
+        private final Map<String, AtomicInteger> refreshesBySid = new ConcurrentHashMap<>();
+        private final Set<String> issuedSids = ConcurrentHashMap.newKeySet();
+        private final Set<String> disabledSids = ConcurrentHashMap.newKeySet();
+        private final AtomicReference<String> lastSid = new AtomicReference<>();
+        private final AtomicBoolean unavailable = new AtomicBoolean();
         private final AtomicReference<HttpServer> server = new AtomicReference<>();
         private RSAKey rsaKey;
         private String issuer;
@@ -519,12 +663,55 @@ class OidcBrowserSessionIntegrationTest {
             return issuer;
         }
 
+        String lastSid() {
+            return lastSid.get();
+        }
+
+        /** The provider no longer honours this session's refresh token, as for a disabled user. */
+        void disable(String sid) {
+            disabledSids.add(sid);
+        }
+
+        int refreshes(String sid) {
+            return refreshesBySid.getOrDefault(sid, new AtomicInteger()).get();
+        }
+
+        String logoutToken(String sid, LogoutTokenMode mode) throws Exception {
+            JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
+                    .issuer(issuer)
+                    .subject(SUBJECT)
+                    .audience(List.of(mode == LogoutTokenMode.WRONG_AUDIENCE ? "another-client" : CLIENT_ID))
+                    .issueTime(new Date())
+                    .jwtID(UUID.randomUUID().toString())
+                    .claim("sid", sid);
+            if (mode != LogoutTokenMode.MISSING_EVENT) {
+                claims.claim("events", Map.of(BACK_CHANNEL_LOGOUT_EVENT, Map.of()));
+            }
+            if (mode == LogoutTokenMode.WITH_NONCE) {
+                claims.claim("nonce", "replayed-id-token");
+            }
+            RSAKey signingKey = rsaKey;
+            if (mode == LogoutTokenMode.FOREIGN_KEY) {
+                var generator = KeyPairGenerator.getInstance("RSA");
+                generator.initialize(2048);
+                var pair = generator.generateKeyPair();
+                signingKey = new RSAKey.Builder((RSAPublicKey) pair.getPublic())
+                        .privateKey((RSAPrivateKey) pair.getPrivate()).keyID(KEY_ID).build();
+            }
+            SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                    .keyID(KEY_ID).type(new JOSEObjectType("logout+jwt")).build(), claims.build());
+            jwt.sign(new RSASSASigner(signingKey.toRSAPrivateKey()));
+            return jwt.serialize();
+        }
+
         private void discovery(HttpExchange exchange) throws IOException {
             json(exchange, 200, """
                     {"issuer":"%s","authorization_endpoint":"%s/authorize","token_endpoint":"%s/token",
                     "end_session_endpoint":"%s/logout",
                     "jwks_uri":"%s/jwks","response_types_supported":["code"],"subject_types_supported":["public"],
-                    "id_token_signing_alg_values_supported":["RS256"],"grant_types_supported":["authorization_code"],
+                    "id_token_signing_alg_values_supported":["RS256"],
+                    "grant_types_supported":["authorization_code","refresh_token"],
+                    "backchannel_logout_supported":true,"backchannel_logout_session_supported":true,
                     "token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post"],
                     "scopes_supported":["openid","profile"]}
                     """.formatted(issuer, issuer, issuer, issuer, issuer));
@@ -556,6 +743,10 @@ class OidcBrowserSessionIntegrationTest {
 
         private void token(HttpExchange exchange) throws IOException {
             Map<String, String> form = parameters(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            if ("refresh_token".equals(form.get("grant_type"))) {
+                refresh(exchange, form.getOrDefault("refresh_token", ""));
+                return;
+            }
             AuthorizationCode authorization = codes.remove(form.get("code"));
             String verifier = form.get("code_verifier");
             if (authorization == null || verifier == null || verifier.isBlank() || !validVerifier(authorization.codeChallenge(), verifier)) {
@@ -563,21 +754,41 @@ class OidcBrowserSessionIntegrationTest {
                 return;
             }
             try {
-                String idToken = idToken(authorization);
+                String sid = UUID.randomUUID().toString();
+                issuedSids.add(sid);
+                lastSid.set(sid);
+                String idToken = idToken(authorization, sid);
                 json(exchange, 200, """
                         {"access_token":"server-side-access-token","token_type":"Bearer","expires_in":300,
-                        "scope":"openid","id_token":"%s"}
-                        """.formatted(idToken));
+                        "refresh_token":"refresh-%s","scope":"openid","id_token":"%s"}
+                        """.formatted(sid, idToken));
             } catch (Exception exception) {
                 throw new IOException(exception);
             }
+        }
+
+        private void refresh(HttpExchange exchange, String refreshToken) throws IOException {
+            if (unavailable.get()) {
+                json(exchange, 503, "{\"error\":\"temporarily_unavailable\"}");
+                return;
+            }
+            String sid = refreshToken.startsWith("refresh-") ? refreshToken.substring("refresh-".length()) : "";
+            if (!issuedSids.contains(sid) || disabledSids.contains(sid)) {
+                json(exchange, 400, "{\"error\":\"invalid_grant\"}");
+                return;
+            }
+            refreshesBySid.computeIfAbsent(sid, ignored -> new AtomicInteger()).incrementAndGet();
+            json(exchange, 200, """
+                    {"access_token":"server-side-access-token","token_type":"Bearer","expires_in":300,
+                    "refresh_token":"refresh-%s","scope":"openid"}
+                    """.formatted(sid));
         }
 
         private void jwks(HttpExchange exchange) throws IOException {
             json(exchange, 200, "{\"keys\":[" + rsaKey.toPublicJWK() + "]}");
         }
 
-        private String idToken(AuthorizationCode authorization) throws Exception {
+        private String idToken(AuthorizationCode authorization, String sid) throws Exception {
             Instant now = Instant.now();
             Instant expiresAt = authorization.mode() == TokenMode.EXPIRED
                     ? now.minusSeconds(60)
@@ -590,6 +801,7 @@ class OidcBrowserSessionIntegrationTest {
                     .issueTime(Date.from(now.minusSeconds(1)))
                     .expirationTime(Date.from(expiresAt))
                     .claim("nonce", authorization.nonce())
+                    .claim("sid", sid)
                     .build();
             SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256)
                     .keyID(KEY_ID).type(JOSEObjectType.JWT).build(), claims);
