@@ -122,12 +122,32 @@ Key outcomes:
 
 Exit condition: automated actions remain bounded by deterministic policy and can never bypass consent or authorization.
 
+## Phase 5.5 — Customer insights and assisted onboarding
+
+Goal: help small businesses build trustworthy customer and purchase histories, understand demand by product and time, and identify customers interested in particular products.
+
+Key outcomes:
+
+- tenant-owned products, categories and flexible attributes such as purpose, type and dimensions, linked to purchases; preserve original descriptions and support review and correction of historical and uncategorized purchases;
+- customer filters by purchased product, category, attributes and date, with drill-down to matching customers;
+- purchase trends and distinct customer counts by product and time, with explicit periods, timezones, incomplete data and void-purchase handling; do not claim units or revenue without capturing the necessary quantity and monetary data;
+- evaluated projections only when sufficient data exists, with assumptions and uncertainty visible and an insufficient-data fallback;
+- guided CSV and Excel imports with column mapping, preview, phone and date validation, duplicate handling, row-level errors and explicit confirmation; support multiple purchases per customer, optional next-contact dates and safe repeat imports;
+- investigate imports from both WhatsApp and WhatsApp Business on Android and iPhone, starting with user-selected conversation exports without media; validate actual supported formats, app versions, device behavior and privacy restrictions. Allow a manual data-entry alternative where export is unavailable;
+- let users identify customer-related conversations and select relevant messages or date ranges, including within mixed personal/business chats, before third-party AI processing. Provide preview and exclusion, human review of extracted facts and an option to correct, skip or mark uncertain candidates; never infer consent or invent missing contact or purchase data;
+- separately evaluate official WhatsApp Business app coexistence and history synchronization, including eligibility, terms, onboarding effects, cost and limitations. Meta documents up to 180 days of history and excludes group chats ([history reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/history/)). This route can deliver history before individual selection: disclose that fact and define isolated staging, access limits, retention and deletion of unselected content. It does not establish an integration for personal WhatsApp;
+- optional, bounded AI extraction and explainable next-contact suggestions, with user notice and choice, minimal data, provider controls and an insufficient-data fallback; deterministic eligibility, consent, do-not-contact and authorization remain authoritative, and importing or accepting a suggestion never sends a message.
+
+WhatsApp documents per-chat export on [Android](https://faq.whatsapp.com/1180414079177245/?cms_platform=android) and [iPhone](https://faq.whatsapp.com/1180414079177245/?cms_platform=iphone); [advanced chat privacy](https://faq.whatsapp.com/715385484388016/) can prevent export. Business-app behavior, completeness, available phone numbers and bulk-export possibilities require validation; do not bypass privacy restrictions or promise complete history. Validate with synthetic examples covering mixed conversations, date formats, missing data, duplicate imports and tenant isolation before supporting real data.
+
+Exit condition: an operator can review and import a representative customer/purchase file, classify purchases, find matching customers and inspect accurate purchase and distinct-customer trends over time. Supported conversation and AI-assisted paths must be separately validated, reviewable and subject to the same privacy and contact controls; unresolved feasibility or insufficient data must be disclosed.
+
 ## Phase 6 — Product expansion
 
 Potential directions, driven by validated demand:
 
 - additional messaging channels;
-- CRM/e-commerce imports;
+- external CRM/e-commerce integrations;
 - product recommendation relationships;
 - campaign-like workflows with stronger consent/frequency controls;
 - analytics on follow-up outcomes;
