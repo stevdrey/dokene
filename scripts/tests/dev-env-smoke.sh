@@ -174,7 +174,17 @@ ENV
     sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/shared|" "$work/.env"
     ! refresh_secret_files || exit 1
     [ "$(stat -c %a "$work/shared" 2>/dev/null || stat -f %Lp "$work/shared")" = "1777" ] || exit 1
-    [ ! -e "$work/shared/DOKENE_DB_MIGRATION_PASSWORD" ]
+    [ ! -e "$work/shared/DOKENE_DB_MIGRATION_PASSWORD" ] || exit 1
+    # So is a readable 0755 directory of the user's own: others could read the 0444 files through it.
+    mkdir -p "$work/readable" && chmod 755 "$work/readable"
+    sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/readable|" "$work/.env"
+    ! refresh_secret_files || exit 1
+    [ "$(stat -c %a "$work/readable" 2>/dev/null || stat -f %Lp "$work/readable")" = "755" ] || exit 1
+    [ ! -e "$work/readable/DOKENE_TENANT_CONTEXT_SIGNING_KEY" ] || exit 1
+    # A dedicated 0700 directory is accepted.
+    mkdir -p "$work/private" && chmod 700 "$work/private"
+    sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/private|" "$work/.env"
+    refresh_secret_files && [ -f "$work/private/DOKENE_TENANT_CONTEXT_SIGNING_KEY" ]
   ) && rc=0
   rm -rf "$work"
   return "$rc"

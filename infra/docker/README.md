@@ -15,7 +15,7 @@
 
 The migration credential reaches only `migrate`. The tenant-context signing key and the migration password are
 Compose secrets that `./scripts/dev-env.sh up` writes from `.env` into the git-ignored `.secrets/` directory (created
-with mode 0700; `DOKENE_SECRETS_DIR` may name another directory of your own that others cannot write to) and Compose
+with mode 0700; `DOKENE_SECRETS_DIR` may name another directory of your own with mode 0700) and Compose
 mounts under `/run/secrets/dokene/` (read through Spring's `configtree` import, which reads only that directory), so
 they are not in any container's environment. When a secret changes, `up` recreates `migrate` and `backend`. On an upgrade, `up` runs `migrate` again before the new backend; a
 backend that finds a pending migration refuses to start and points at `./scripts/dev-env.sh logs migrate`.

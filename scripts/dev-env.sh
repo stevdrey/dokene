@@ -357,7 +357,8 @@ preflight() {
 # files always match what PostgreSQL and compose.yaml (DOKENE_SECRETS_DIR, default ./.secrets) see.
 #
 # resolve_secret_files: sets SECRETS_DIR and SECRETS_ENVIRONMENT; creates the directory (mode 0700) when missing and
-# refuses an existing one that is not the user's own or that others can write to (for example /tmp), never chmod-ing it.
+# refuses an existing one that is not the user's own or that grants group or other users any access (for example /tmp,
+# or a 0755 directory, through which others could read the 0444 files), never chmod-ing it.
 resolve_secret_files() {
   local mode owner
   SECRETS_ENVIRONMENT="$(compose config --environment)" \
@@ -371,8 +372,8 @@ resolve_secret_files() {
   fi
   mode="$(stat -c %a "$SECRETS_DIR" 2>/dev/null || stat -f %Lp "$SECRETS_DIR" 2>/dev/null)"
   owner="$(stat -c %u "$SECRETS_DIR" 2>/dev/null || stat -f %u "$SECRETS_DIR" 2>/dev/null)"
-  if [ ! -d "$SECRETS_DIR" ] || [ "$owner" != "$(id -u)" ] || [ $(( 8#${mode:-777} & 8#022 )) -ne 0 ]; then
-    fail "DOKENE_SECRETS_DIR ($SECRETS_DIR) must be a directory of your own that others cannot write to; use a dedicated one."
+  if [ ! -d "$SECRETS_DIR" ] || [ "$owner" != "$(id -u)" ] || [ $(( 8#${mode:-777} & 8#077 )) -ne 0 ]; then
+    fail "DOKENE_SECRETS_DIR ($SECRETS_DIR) must be a directory of your own with mode 0700 (no group or other access); use a dedicated one."
     return 1
   fi
 }
