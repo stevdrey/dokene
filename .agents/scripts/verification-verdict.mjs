@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_BASE_REF = 'origin/main';
@@ -51,24 +51,16 @@ function candidateIdentity(cwd, baseRef = DEFAULT_BASE_REF) {
 
   const scratch = mkdtempSync(join(tmpdir(), 'dokene-candidate-'));
   try {
-    const index = join(scratch, 'index');
-    const env = { ...process.env, GIT_INDEX_FILE: index };
-    // A copy of the real index keeps Git's file-change cache, so only changed files are re-hashed. Assume-unchanged
-    // entries would hide their edits from `git add`, so such an index is replaced by a fresh one read from HEAD.
-    const realIndex = resolve(root, git(root, 'rev-parse', '--git-path', 'index').toString('utf8').trim());
-    if (existsSync(realIndex) && !hasAssumeUnchanged(root)) copyFileSync(realIndex, index);
-    else gitWith(root, env, 'read-tree', 'HEAD');
+    // A fresh index from HEAD on purpose: a copy of the real one would carry its stat cache, assume-unchanged and
+    // skip-worktree bits, and racy-clean timestamps, each of which can make `git add` skip a real worktree edit.
+    const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') };
+    gitWith(root, env, 'read-tree', 'HEAD');
     gitWith(root, env, 'add', '--all', '--', '.');
     const tree = gitWith(root, env, 'write-tree').toString('utf8').trim();
     return { base, head, tree };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
-}
-
-function hasAssumeUnchanged(root) {
-  // `ls-files -v` tags assume-unchanged entries with a lowercase letter.
-  return git(root, 'ls-files', '-v', '-z').toString('utf8').split('\0').some(entry => /^[a-z] /.test(entry));
 }
 
 /**

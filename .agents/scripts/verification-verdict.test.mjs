@@ -391,6 +391,28 @@ test('a verdict path may start with a dash', t => {
   }
 });
 
+test('identity covers a same-size edit made right after staging', t => {
+  const cwd = repository(t);
+  writeFileSync(join(cwd, 'racy.txt'), 'aaaa\n');
+  git(cwd, 'add', 'racy.txt');
+  writeFileSync(join(cwd, 'racy.txt'), 'bbbb\n');
+  // A later timestamp tick, so an index rewritten now would no longer see the entry as racily clean.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_200);
+  const tree = identity(cwd).tree;
+  assert.equal(git(cwd, 'rev-parse', `${tree}:racy.txt`), git(cwd, 'hash-object', 'racy.txt'));
+});
+
+test('identity covers edits hidden by skip-worktree', t => {
+  const cwd = repository(t);
+  const clean = identity(cwd).tree;
+  git(cwd, 'update-index', '--skip-worktree', 'feature.txt');
+  writeFileSync(join(cwd, 'feature.txt'), 'hidden edit\n');
+  assert.equal(git(cwd, 'status', '--porcelain'), '');
+  const tree = identity(cwd).tree;
+  assert.notEqual(tree, clean);
+  assert.equal(git(cwd, 'rev-parse', `${tree}:feature.txt`), git(cwd, 'hash-object', 'feature.txt'));
+});
+
 test('identity covers staged changes and edits hidden by assume-unchanged', t => {
   const cwd = repository(t);
   const clean = identity(cwd).tree;
