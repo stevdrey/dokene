@@ -91,6 +91,16 @@ class OpenAiConfigurationTest {
     }
 
     @Test
+    void anEmptyOutputTokenCeilingFallsBackToTheDefault() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key",
+                "dokene.ai.openai.max-output-tokens="
+        ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+    }
+
+    @Test
     void bindsAConfiguredOutputTokenCeiling() {
         runner.withPropertyValues(
                 "dokene.ai.provider=openai",

@@ -16,6 +16,8 @@ This record is sanitized: it gives limits, outcomes and test names only. It cont
 | --- | --- | --- | --- |
 | `dokene.ai.openai.max-output-tokens` (`DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS`) | 4096 | 256 to 16384, startup fails outside it | Sent as `max_output_tokens` on both the recommendation and the draft request. Reasoning tokens count toward it |
 
+The default lives only in `OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS`. `application.yml` and `compose.yaml` pass the variable through with an empty fallback, and an unset or empty value binds to that default.
+
 ### Why 4096 and not the schema maximum
 
 The audit suggested the schema's maximum size plus headroom. That maximum is about 17.6k characters for a draft (body 1000, 20 variables of up to 550 characters, 20 evidence and warning items of up to 200, rationale 500) and about 12.3k for a recommendation, roughly 5k and 3.5k tokens of Spanish text. The ceiling was chosen from use instead:
@@ -41,7 +43,7 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 | The same for a draft | `OpenAiResponsesApiAdapterTest.draftTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry` |
 | A provider `400` about the ceiling maps to `REJECTED_REQUEST` with one call and no provider text in the message | `OpenAiResponsesApiAdapterTest.draftProviderRejectionOfTheCeilingFailsAsRejectedRequest` |
 | Existing representative outputs, refusals, status mapping and error mapping are unchanged | the other 36 tests of `OpenAiResponsesApiAdapterTest`, all at the default ceiling |
-| Default 4096 when unset; a configured value binds; 255, 16385, 0 and -1 fail startup naming only the property; 256 and 16384 are accepted; the 5-argument constructor keeps the default | `OpenAiConfigurationTest.defaultsTheOutputTokenCeilingWhenUnset`, `bindsAConfiguredOutputTokenCeiling`, `failsStartupWhenTheOutputTokenCeilingIsOutOfRange`, `acceptsTheOutputTokenCeilingBounds` |
+| Default 4096 when unset or empty; a configured value binds; 255, 16385, 0 and -1 fail startup naming only the property; 256 and 16384 are accepted; the 5-argument constructor keeps the default | `OpenAiConfigurationTest.defaultsTheOutputTokenCeilingWhenUnset`, `anEmptyOutputTokenCeilingFallsBackToTheDefault`, `bindsAConfiguredOutputTokenCeiling`, `failsStartupWhenTheOutputTokenCeilingIsOutOfRange`, `acceptsTheOutputTokenCeilingBounds` |
 | An invalid structured response is not retried, is audited with its category, and degrades the request with no outcome delivered | existing `AiFailureHandlingIntegrationTest.malformedStructuredOutputIsNotRetriedAndIsAuditedWithItsCategory` and the non-retryable categories case of `ResilientAiProviderTest` (unchanged; the truncation tests above show a cut-off response takes this path) |
 | The deterministic evaluation report still matches its committed baseline | `AiEvalDeterministicIntegrationTest` |
 
@@ -54,6 +56,7 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 | After the code review follow-ups: the same command | 42 + 9 tests, 0 failures |
 | `./gradlew check` | passed: 2374 tests, 0 failures, 0 skipped |
 | After the code review follow-ups: `./gradlew check` | passed: 2375 tests, 0 failures, 0 skipped |
+| After moving the default into the code only: `./gradlew test --tests '*OpenAiConfigurationTest' --tests '*OpenAiResponsesApiAdapterTest'` and `./gradlew check` | 10 + 42 tests; `check` passed: 2376 tests, 0 failures, 0 skipped |
 | `./gradlew spikeTest --tests '*OpenAiCallCancellationSpikeTest'` (opt-in, the other caller of the properties constructor) | 10 tests, 0 failures |
 
 Both compile tasks print a pre-existing `deprecated API` note, which also appears on `263ad4b`. The test run prints a JDK warning about Spring reflectively mutating `CsrfFilter.tokenRepository`; it is unrelated to this change.
