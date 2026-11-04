@@ -567,6 +567,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .instructions(draftSystemInstructions(draftLocale(context)))
                 .input(input)
                 .text(textConfig)
+                .maxOutputTokens(properties.maxOutputTokens())
                 .store(false);
         correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
         return builder.build();
@@ -657,6 +658,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .instructions(systemInstructions(OPERATOR_LOCALE))
                 .input(input)
                 .text(textConfig)
+                .maxOutputTokens(properties.maxOutputTokens())
                 .store(false);
         correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
         return builder.build();

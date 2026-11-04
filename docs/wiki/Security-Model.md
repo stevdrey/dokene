@@ -260,6 +260,8 @@ Protect at minimum:
 
 Implemented today: AI recommendation calls (`dokene.ai.rate-limit`, ADR 0019) and rejected WhatsApp phone-number ownership proofs (`dokene.integration.whatsapp.mapping-rejection-limit`, issues 208 and 210), both per tenant and per actor, held in memory per instance.
 
+The AI rate limit bounds how many provider calls run, not what each costs. Each OpenAI request carries `max_output_tokens` (`dokene.ai.openai.max-output-tokens`, default 4096, issue 316), so one user action costs at most `dokene.ai.retry.max-attempts` × that many output tokens, even when the client times out and the provider keeps generating. There is no per-tenant token or spend budget yet; it is tracked in issue 346.
+
 Outbound policy should detect or prevent anomalous bursts and repeated recipient contact.
 
 ## Supply chain

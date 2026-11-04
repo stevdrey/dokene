@@ -79,4 +79,47 @@ class OpenAiConfigurationTest {
         ).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("dokene.ai.openai.max-retries must be 0");
     }
+
+    @Test
+    void defaultsTheOutputTokenCeilingWhenUnset() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key"
+        ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS)
+                .isEqualTo(4096));
+    }
+
+    @Test
+    void bindsAConfiguredOutputTokenCeiling() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key",
+                "dokene.ai.openai.max-output-tokens=2048"
+        ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(2048));
+    }
+
+    @Test
+    void failsStartupWhenTheOutputTokenCeilingIsOutOfRange() {
+        for (String value : new String[] {"255", "16385", "0", "-1"}) {
+            runner.withPropertyValues(
+                    "dokene.ai.provider=openai",
+                    "dokene.ai.openai.api-key=test-api-key",
+                    "dokene.ai.openai.max-output-tokens=" + value
+            ).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                        .hasRootCauseMessage("dokene.ai.openai.max-output-tokens must be between 256 and 16384");
+            });
+        }
+    }
+
+    @Test
+    void acceptsTheOutputTokenCeilingBounds() {
+        assertThat(new OpenAiProviderProperties("key", null, null, null, 0, 256).maxOutputTokens()).isEqualTo(256);
+        assertThat(new OpenAiProviderProperties("key", null, null, null, 0, 16384).maxOutputTokens()).isEqualTo(16384);
+        assertThat(new OpenAiProviderProperties("key", null, null, null, 0).maxOutputTokens()).isEqualTo(4096);
+    }
 }

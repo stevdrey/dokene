@@ -58,7 +58,7 @@ All SDK and HTTP exceptions are mapped into application-controlled `AiFailureCat
 - **`InternalServerException` (5xx) & Conflict (409)**: Mapped to `AiFailureCategory.UNAVAILABLE`.
 - **Client Errors (400, 401, 403, 404, 422)**: Mapped to `AiFailureCategory.REJECTED_REQUEST`.
 - **I/O, HTTP 408 & Socket Timeouts**: Mapped to `AiFailureCategory.TIMEOUT`.
-- **Schema Violations / Missing Status / Disallowed Actions / Missing Root Envelope**: Mapped to `AiFailureCategory.INVALID_STRUCTURED_RESPONSE`.
+- **Schema Violations / Missing Status / Incomplete Responses / Disallowed Actions / Missing Root Envelope**: Mapped to `AiFailureCategory.INVALID_STRUCTURED_RESPONSE`. An `incomplete` response, including one cut off at `max-output-tokens` (issue 316), returns no outcome and is not retried; its reported token usage is kept.
 - **Thread Interruption / Cancelled Responses**: Mapped to `AiFailureCategory.CANCELLED`, restoring the thread's interrupt status.
 - **Model Refusal Content Part** *(ADR 0019)*: A response whose only output is a refusal part is mapped to `AiFailureCategory.REFUSED`; the refusal text is never read or retained. A disabled provider or unsupported operation maps to `AiFailureCategory.NOT_AVAILABLE`, and is no longer reported as `UNAVAILABLE`.
 
@@ -72,6 +72,7 @@ Configuration is externalized through `OpenAiProviderProperties` (`@Configuratio
 - `dokene.ai.openai.model`: Configurable model name (default: `gpt-6-luna`), avoiding domain coupling to a single model.
 - `dokene.ai.openai.base-url`: Sourced from `DOKENE_AI_OPENAI_BASE_URL` to support proxies or local gateways.
 - `dokene.ai.openai.timeout`: Configurable timeout (default: `15s`).
+- `dokene.ai.openai.max-output-tokens` *(issue 316)*: Output ceiling sent as `max_output_tokens` on both structured requests (recommendation and draft), reasoning tokens included. Default `4096` (`DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS`); startup fails outside `256` to `16384`. The schema `maxLength`s are checked only after generation, and a non-streamed request keeps generating and billing after the client timeout; the ceiling bounds what one provider attempt can cost. Observed output averages about 390 tokens per call, and the 15 s timeout lets a client receive far less than 4096; a draft at the schema's maximum size (about 5k tokens) is cut off and fails safely.
 - `dokene.ai.openai.max-retries`: Configurable retries (default: `0`, restricted strictly to `0`). Client-level SDK retries stay disabled so the request timeout remains a deterministic deadline. **Amended by [ADR 0019](0019-ai-failure-handling-telemetry-and-audit.md):** bounded retry now exists above the adapter in `ResilientAiProvider` (`dokene.ai.retry.*`), with the requested timeout as the total deadline; the adapter itself still performs a single attempt.
 
 A shared singleton `OpenAIClient` is reused across all requests.
