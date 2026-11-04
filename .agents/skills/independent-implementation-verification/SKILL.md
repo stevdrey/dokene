@@ -105,7 +105,7 @@ The verifier returns JSON in this shape (schema version 1):
   "candidate": { "base": "<commit id>", "head": "<commit id>", "tree": "<tree id>" },
   "verifier": { "independent": true, "kind": "subagent" },
   "criteria": [
-    { "id": "AC1", "text": "…", "result": "pass", "evidence": ["C1"] }
+    { "id": "AC1", "text": "…", "result": "fail", "evidence": ["C1"] }
   ],
   "findings": [
     { "id": "F1", "severity": "blocker", "status": "open", "criteria": ["AC1"],
@@ -113,7 +113,8 @@ The verifier returns JSON in this shape (schema version 1):
   ],
   "checks": [
     { "id": "C1", "kind": "automated", "required": true, "command": "./gradlew test --tests …",
-      "result": "passed", "environment": "local, JDK 26", "summary": "…" }
+      "result": "passed", "environment": "local, JDK 26", "summary": "…",
+      "candidate": { "base": "<commit id>", "head": "<commit id>", "tree": "<tree id>" } }
   ],
   "limitations": ["…"],
   "remainingActions": ["…"],
@@ -121,7 +122,7 @@ The verifier returns JSON in this shape (schema version 1):
 }
 ```
 
-A check may carry `candidate` when it ran on a different candidate, and must then carry `reusedBecause` (see re-verification).
+Every check records the `candidate` it actually ran on; a check without one is invalid. A check whose `candidate` differs from the verdict's must also carry `reusedBecause` (see re-verification), or it is stale. A criterion's `evidence` lists check ids only.
 
 ### Gating rules
 

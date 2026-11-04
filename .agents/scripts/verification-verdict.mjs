@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_BASE_REF = 'origin/main';
@@ -51,14 +51,24 @@ function candidateIdentity(cwd, baseRef = DEFAULT_BASE_REF) {
 
   const scratch = mkdtempSync(join(tmpdir(), 'dokene-candidate-'));
   try {
-    const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') };
-    gitWith(root, env, 'read-tree', 'HEAD');
+    const index = join(scratch, 'index');
+    const env = { ...process.env, GIT_INDEX_FILE: index };
+    // A copy of the real index keeps Git's file-change cache, so only changed files are re-hashed. Assume-unchanged
+    // entries would hide their edits from `git add`, so such an index is replaced by a fresh one read from HEAD.
+    const realIndex = resolve(root, git(root, 'rev-parse', '--git-path', 'index').toString('utf8').trim());
+    if (existsSync(realIndex) && !hasAssumeUnchanged(root)) copyFileSync(realIndex, index);
+    else gitWith(root, env, 'read-tree', 'HEAD');
     gitWith(root, env, 'add', '--all', '--', '.');
     const tree = gitWith(root, env, 'write-tree').toString('utf8').trim();
     return { base, head, tree };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+function hasAssumeUnchanged(root) {
+  // `ls-files -v` tags assume-unchanged entries with a lowercase letter.
+  return git(root, 'ls-files', '-v', '-z').toString('utf8').split('\0').some(entry => /^[a-z] /.test(entry));
 }
 
 /**
@@ -138,7 +148,9 @@ function validateVerdict(verdict) {
     const where = `criteria[${index}]`;
     if (!isText(criterion.text)) errors.push(`${where}.text is required`);
     if (!CRITERION_RESULTS.has(criterion.result)) errors.push(`${where}.result must be pass, fail or blocked`);
-    if (!Array.isArray(criterion.evidence)) errors.push(`${where}.evidence must be an array of check ids`);
+    if (!Array.isArray(criterion.evidence) || !criterion.evidence.every(isText)) {
+      errors.push(`${where}.evidence must be an array of check ids`);
+    }
   });
   verdict.findings.forEach((finding, index) => {
     const where = `findings[${index}]`;
@@ -157,7 +169,8 @@ function validateVerdict(verdict) {
     if (!CHECK_RESULTS.has(check.result)) errors.push(`${where}.result must be passed, failed or not-run`);
     if (typeof check.required !== 'boolean') errors.push(`${where}.required must be true or false`);
     if (!isText(check.command)) errors.push(`${where}.command must state what was run or done`);
-    if (check.candidate !== undefined) validateCandidate(check.candidate, `${where}.candidate`, errors);
+    // Required, so evidence carried over from another candidate can never pass as fresh by omitting where it ran.
+    validateCandidate(check.candidate, `${where}.candidate`, errors);
     if (check.reusedBecause !== undefined && !isText(check.reusedBecause)) {
       errors.push(`${where}.reusedBecause must explain why older evidence still applies`);
     }
@@ -173,9 +186,7 @@ function computeVerdict(verdict) {
   const failures = [];
   const blockers = [];
   const checks = new Map(verdict.checks.map(check => [check.id, check]));
-  const stale = check => check.candidate !== undefined
-    && !sameCandidate(check.candidate, verdict.candidate)
-    && !isText(check.reusedBecause);
+  const stale = check => !sameCandidate(check.candidate, verdict.candidate) && !isText(check.reusedBecause);
 
   if (verdict.verifier.independent !== true) blockers.push('the verifier was not an independent subagent');
   if (verdict.criteria.length === 0) blockers.push('no acceptance criteria were mapped');
@@ -234,7 +245,9 @@ function parseArgs(args) {
       continue;
     }
     const value = inline ?? args[++i];
-    if (!value || value.startsWith('-')) throw new UsageError(`${name} requires a value`);
+    if (!value) throw new UsageError(`${name} requires a value`);
+    // Refs are passed on to Git, which would read a leading '-' as an option; a verdict path is only read as a file.
+    if (name !== '--verdict' && value.startsWith('-')) throw new UsageError(`${name} value may not start with '-'`);
     options.set(name, value);
   }
 
@@ -277,7 +290,7 @@ function main() {
   // Always compared, so exit 0 means the verdict is about this worktree, or with --commit about that commit.
   const commit = options.get('--commit');
   const current = commit ? commitIdentity(process.cwd(), commit, baseRef) : candidateIdentity(process.cwd(), baseRef);
-  const checked = commit ? `commit ${commit}` : 'the worktree';
+  const checked = commit ? `commit ${commit} (${current.head.slice(0, 12)})` : 'the worktree';
   if (!sameCandidate(current, verdict.candidate)) {
     console.error(`STALE: verdict is for ${describe(verdict.candidate)}, but ${checked} is ${describe(current)}. Run a fresh independent verification.`);
     process.exitCode = 2;

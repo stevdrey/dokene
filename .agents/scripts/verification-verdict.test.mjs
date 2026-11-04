@@ -65,8 +65,8 @@ function passingVerdict(candidate) {
       { id: 'F1', severity: 'optional', status: 'open', summary: 'Naming could be clearer', evidence: 'feature.txt:1' },
     ],
     checks: [
-      { id: 'C1', kind: 'automated', required: true, command: 'node --test', result: 'passed', environment: 'local' },
-      { id: 'C2', kind: 'manual', required: false, command: 'submit an empty form', result: 'passed', environment: 'local dev stack' },
+      { id: 'C1', kind: 'automated', required: true, command: 'node --test', result: 'passed', environment: 'local', candidate },
+      { id: 'C2', kind: 'manual', required: false, command: 'submit an empty form', result: 'passed', environment: 'local dev stack', candidate },
     ],
     limitations: [],
     remainingActions: [],
@@ -95,7 +95,7 @@ test('uncommitted and untracked changes each change the identity, without touchi
 
   writeFileSync(join(cwd, 'new file é.txt'), 'changed\n');
   assert.notEqual(identity(cwd).tree, withUntracked);
-  assert.equal(git(cwd, 'status', '--porcelain'), 'M feature.txt\n?? "new file \\303\\251.txt"');
+  assert.equal(git(cwd, '-c', 'core.quotePath=true', 'status', '--porcelain'), 'M feature.txt\n?? "new file \\303\\251.txt"');
 });
 
 test('committing the verified content keeps the candidate identity', t => {
@@ -148,7 +148,7 @@ test('publication mode checks the commit, not a verified change left out of it',
 
   const unstaged = check(t, cwd, verdict, ['--commit', 'HEAD']);
   assert.equal(unstaged.status, 2);
-  assert.match(unstaged.stderr, /STALE: verdict is for .* but commit HEAD is tree /);
+  assert.match(unstaged.stderr, /STALE: verdict is for .* but commit HEAD \([0-9a-f]{12}\) is tree /);
 
   git(cwd, 'add', 'feature.txt');
   git(cwd, 'commit', '-qm', 'partial commit');
@@ -190,13 +190,14 @@ test('publication mode cannot be bypassed by another spelling of its options', t
 
   const inline = check(t, cwd, verdict, ['--commit=HEAD']);
   assert.equal(inline.status, 2);
-  assert.match(inline.stderr, /STALE: verdict is for .* but commit HEAD is tree /);
+  assert.match(inline.stderr, /STALE: verdict is for .* but commit HEAD \([0-9a-f]{12}\) is tree /);
 
   for (const [options, message] of [
     [['--comit', 'HEAD'], /unknown argument --comit/],
     [['-c', 'HEAD'], /unknown argument -c/],
     [['--commit', 'HEAD', '--commit', 'HEAD~1'], /--commit given more than once/],
-    [['--commit', '-h'], /--commit requires a value/],
+    [['--commit', '-h'], /--commit value may not start with '-'/],
+    [['--commit=-x'], /--commit value may not start with '-'/],
     [['--commit='], /--commit requires a value/],
     [['--identity'], /Usage:/],
   ]) {
@@ -209,7 +210,7 @@ test('publication mode cannot be bypassed by another spelling of its options', t
   git(cwd, 'commit', '-qm', 'rest of the verified change');
   const published = check(t, cwd, verdict, ['--base=origin/main', '--commit=HEAD']);
   assert.equal(published.status, 0, published.stderr);
-  assert.match(published.stdout, /checked against commit HEAD\./);
+  assert.match(published.stdout, new RegExp(`checked against commit HEAD \\(${git(cwd, 'rev-parse', 'HEAD').slice(0, 12)}\\)\\.`));
   assert.match(check(t, cwd, verdict).stdout, /checked against the worktree\./);
 });
 
@@ -217,8 +218,9 @@ test('identity mode rejects publication options and option-like base refs', t =>
   const cwd = repository(t);
   for (const [options, message] of [
     [['--commit', 'HEAD'], /--commit cannot be used with --identity/],
-    [['--base', '-h'], /--base requires a value/],
-    [['--base=--all'], /--base requires a value/],
+    [['--base', '-h'], /--base value may not start with '-'/],
+    [['--base=--all'], /--base value may not start with '-'/],
+    [['--base='], /--base requires a value/],
   ]) {
     const result = command(process.execPath, [SCRIPT, '--identity', ...options], cwd);
     assert.equal(result.status, 2, `${options.join(' ')}: ${result.stdout}`);
@@ -293,7 +295,7 @@ test('scenario: an unavailable test environment blocks the verdict', t => {
   const cwd = repository(t);
   const verdict = passingVerdict(identity(cwd));
   verdict.checks.push({
-    id: 'C3', kind: 'live', required: true, command: './gradlew integrationTest', result: 'not-run',
+    id: 'C3', kind: 'live', required: true, command: './gradlew integrationTest', result: 'not-run', candidate: verdict.candidate,
     environment: 'Docker unavailable in the sandbox',
   });
   verdict.criteria.push({ id: 'AC3', text: 'Data survives a restart', result: 'blocked', evidence: [] });
@@ -365,6 +367,49 @@ test('scenario: a corrected candidate needs a fresh verdict, reusing only justif
   assert.match(reverified.stdout, /PASS: Issue #1/);
 });
 
+test('every check must record the candidate it ran on', t => {
+  const cwd = repository(t);
+  const verdict = passingVerdict(identity(cwd));
+  delete verdict.checks[0].candidate;
+  const result = check(t, cwd, verdict);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /checks\[0\]\.candidate must be an object with base, head and tree/);
+});
+
+test('a verdict path may start with a dash', t => {
+  const cwd = repository(t);
+  const dir = mkdtempSync(join(tmpdir(), 'dokene-verdict-file-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, '-verdict.json'), JSON.stringify(passingVerdict(identity(cwd))));
+  for (const options of [['--verdict', '-verdict.json'], ['--verdict=-verdict.json']]) {
+    const result = command(process.execPath, [SCRIPT, ...options], cwd);
+    assert.match(result.stderr, /cannot read verdict -verdict\.json/);
+    const inDir = spawnSync(process.execPath, [SCRIPT, ...options, '--base', 'origin/main'], {
+      cwd: dir, encoding: 'utf8', timeout: 15_000, env: { ...process.env, GIT_DIR: join(cwd, '.git'), GIT_WORK_TREE: cwd },
+    });
+    assert.equal(inDir.status, 0, inDir.stderr);
+  }
+});
+
+test('identity covers staged changes and edits hidden by assume-unchanged', t => {
+  const cwd = repository(t);
+  const clean = identity(cwd).tree;
+  git(cwd, 'update-index', '--assume-unchanged', 'feature.txt');
+  writeFileSync(join(cwd, 'feature.txt'), 'hidden edit\n');
+  assert.equal(git(cwd, 'status', '--porcelain'), '');
+  const hidden = identity(cwd).tree;
+  assert.notEqual(hidden, clean);
+
+  git(cwd, 'update-index', '--no-assume-unchanged', 'feature.txt');
+  assert.equal(identity(cwd).tree, hidden);
+  writeFileSync(join(cwd, 'staged.txt'), 'staged\n');
+  git(cwd, 'add', 'staged.txt');
+  writeFileSync(join(cwd, 'staged.txt'), 'staged, then edited\n');
+  const staged = identity(cwd).tree;
+  git(cwd, 'add', '.');
+  assert.equal(staged, git(cwd, 'write-tree'));
+});
+
 test('malformed or incomplete verdicts are invalid', t => {
   const cwd = repository(t);
   const malformed = check(t, cwd, '{not json');
@@ -391,6 +436,12 @@ test('malformed or incomplete verdicts are invalid', t => {
   const unknownCriterion = check(t, cwd, unmapped);
   assert.equal(unknownCriterion.status, 2);
   assert.match(unknownCriterion.stderr, /findings\[0\]\.criteria must list ids of mapped criteria/);
+
+  const nested = passingVerdict(identity(cwd));
+  nested.criteria[0].evidence = [{ id: 'C1' }];
+  const nestedEvidence = check(t, cwd, nested);
+  assert.equal(nestedEvidence.status, 2);
+  assert.match(nestedEvidence.stderr, /criteria\[0\]\.evidence must be an array of check ids/);
 
   const withNull = passingVerdict(identity(cwd));
   withNull.criteria.push(null);
