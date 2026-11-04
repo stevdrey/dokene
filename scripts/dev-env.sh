@@ -342,8 +342,11 @@ preflight() {
 # world-readable because the containers run as uid 10001; the directory mode keeps other host users out.
 # Values and the directory come from Compose's own interpolation environment (shell over .env, quotes resolved), so the
 # files always match what PostgreSQL and compose.yaml (DOKENE_SECRETS_DIR, default ./.secrets) see.
+# Sets SECRETS_CHANGED=true when a file's content changed: Compose does not recreate a container for that (secret contents
+# are not part of its configuration hash, and a running container keeps the replaced file's old inode).
 write_secret_files() {
   local environment dir name value
+  SECRETS_CHANGED=false
   environment="$(compose config --environment)" || { check_fail "docker compose could not resolve .env."; return 1; }
   dir="$(compose_variable "$environment" DOKENE_SECRETS_DIR)"
   dir="${dir:-./.secrets}"
@@ -352,10 +355,22 @@ write_secret_files() {
   chmod 700 "$dir"
   for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
     value="$(compose_variable "$environment" "$name")"
+    # Comparing through files keeps the value off the command line; a missing file counts as unchanged (first start).
+    if [ -f "$dir/$name" ] && ! printf '%s' "$value" | cmp -s - "$dir/$name"; then
+      SECRETS_CHANGED=true
+    fi
     rm -f "$dir/$name"
     printf '%s' "$value" > "$dir/$name"
     chmod 444 "$dir/$name"
   done
+}
+
+# recreate_after_secret_change: drops migrate and backend after a secret changed so the next `up` recreates both with
+# the new files; otherwise the job would re-provision a signing key the running backend no longer uses, or vice versa.
+recreate_after_secret_change() {
+  [ "${SECRETS_CHANGED:-false}" = "true" ] || return 0
+  warn "A secret changed in .env since the last start."
+  drop_services migrate backend
 }
 
 # compose_variable ENVIRONMENT NAME: the value of NAME in `docker compose config --environment` output (KEY=VALUE lines).
@@ -496,6 +511,7 @@ cmd_up() {
   done
 
   preflight || exit 1
+  recreate_after_secret_change
 
   [ "$INFRA_ONLY" = "true" ] || repair_networkless_bridge
 
