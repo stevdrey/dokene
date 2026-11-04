@@ -22,6 +22,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -44,8 +45,6 @@ class TenantMembershipPrivilegeIntegrationTest {
 
     private static final String INSUFFICIENT_PRIVILEGE = "42501";
     private static final Instant CREATED_AT = Instant.parse("2026-11-01T00:00:00Z");
-    private static final List<String> UPDATABLE_COLUMNS = List.of("role", "status", "updated_at", "version");
-    private static final List<String> IMMUTABLE_COLUMNS = List.of("id", "tenant_id", "identity_id", "created_at");
 
     @Autowired private TenantRepository tenants;
     @Autowired private TenantMembershipRepository memberships;
@@ -79,12 +78,7 @@ class TenantMembershipPrivilegeIntegrationTest {
             assertThat(tablePrivilege(connection, "UPDATE")).isFalse();
             assertThat(tablePrivilege(connection, "DELETE")).isFalse();
             assertThat(tablePrivilege(connection, "TRUNCATE")).isFalse();
-            for (String column : UPDATABLE_COLUMNS) {
-                assertThat(columnUpdatePrivilege(connection, column)).as(column).isTrue();
-            }
-            for (String column : IMMUTABLE_COLUMNS) {
-                assertThat(columnUpdatePrivilege(connection, column)).as(column).isFalse();
-            }
+            assertThat(updatableColumns(connection)).containsExactlyInAnyOrder("role", "status", "updated_at", "version");
             assertThat(queryInt(connection, """
                     SELECT count(*) FROM pg_policies
                     WHERE schemaname = 'dokene' AND tablename = 'tenant_memberships' AND cmd = 'DELETE'
@@ -182,11 +176,19 @@ class TenantMembershipPrivilegeIntegrationTest {
                 privilege) == 1;
     }
 
-    private static boolean columnUpdatePrivilege(Connection connection, String column) throws SQLException {
-        return queryInt(connection, """
-                SELECT CASE WHEN has_column_privilege('dokene_runtime', 'dokene.tenant_memberships', ?, 'UPDATE')
-                    THEN 1 ELSE 0 END
-                """, column) == 1;
+    private static List<String> updatableColumns(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                        SELECT column_name FROM information_schema.column_privileges
+                        WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene'
+                            AND table_name = 'tenant_memberships' AND privilege_type = 'UPDATE'
+                        """);
+                ResultSet resultSet = statement.executeQuery()) {
+            List<String> columns = new ArrayList<>();
+            while (resultSet.next()) {
+                columns.add(resultSet.getString(1));
+            }
+            return columns;
+        }
     }
 
     private static void assertPermissionDenied(SqlAction action) {

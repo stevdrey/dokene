@@ -141,10 +141,7 @@ class TenantIsolationSecurityIntegrationTest {
                     + membershipB.id().value() + "'"))).isEmpty();
             assertThat(statement.executeUpdate("UPDATE dokene.tenant_memberships SET role = 'VIEWER' WHERE id = '"
                     + membershipB.id().value() + "'")).isZero();
-            assertThatThrownBy(() -> statement.executeUpdate("DELETE FROM dokene.tenant_memberships WHERE id = '"
-                    + membershipB.id().value() + "'"))
-                    .isInstanceOf(SQLException.class)
-                    .hasMessageContaining("permission denied");
+            // Runtime DELETE is refused by the grant before RLS applies (TenantMembershipPrivilegeIntegrationTest).
             assertThatThrownBy(() -> statement.executeUpdate("""
                     INSERT INTO dokene.tenant_memberships
                         (id, tenant_id, identity_id, role, status, created_at, updated_at, version)
