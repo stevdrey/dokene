@@ -23,6 +23,8 @@ import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -55,9 +57,11 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
             """;
 
     private final JdbcTemplate jdbc;
+    private final DatabaseContextSigner signer;
 
-    public JdbcOutboundMessageRepository(JdbcTemplate jdbc) {
+    public JdbcOutboundMessageRepository(JdbcTemplate jdbc, DatabaseContextSigner signer) {
         this.jdbc = jdbc;
+        this.signer = signer;
     }
 
     @Override
@@ -301,12 +305,15 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
 
     @Override
     public List<ExpiredClaimRef> findExpiredClaims(Instant startedBefore, Optional<UUID> afterAttemptId, int limit) {
+        // The function returns nothing without a maintenance capability (issue 313).
+        SignedDatabaseContext capability = signer.issueMaintenanceContext();
         return jdbc.query("""
                 SELECT tenant_id, message_id, attempt_id
-                FROM dokene.find_expired_dispatch_claims(?, ?::uuid, ?)
+                FROM dokene.find_expired_dispatch_claims(?, ?, ?, ?::uuid, ?)
                 """, (row, index) -> new ExpiredClaimRef(row.getObject("tenant_id", UUID.class),
                         row.getObject("message_id", UUID.class), row.getObject("attempt_id", UUID.class)),
-                Timestamp.from(startedBefore), afterAttemptId.orElse(null), limit);
+                capability.payload(), capability.signature(), Timestamp.from(startedBefore),
+                afterAttemptId.orElse(null), limit);
     }
 
     @Override

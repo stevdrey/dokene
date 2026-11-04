@@ -4,6 +4,8 @@ import io.github.stevdrey.dokene.integration.application.VerifiedWebhookEvent.Pr
 import io.github.stevdrey.dokene.integration.application.WebhookInboxRepository;
 import io.github.stevdrey.dokene.messaging.domain.DeliveryStatus;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -23,14 +25,17 @@ import org.springframework.stereotype.Repository;
 /**
  * Tenant-scoped statements still name the tenant explicitly, so a wrong tenant scope finds nothing rather than relying
  * on RLS alone. The dedup insert uses ON CONFLICT DO NOTHING: a key held by another tenant reads exactly like a
- * duplicate and reveals nothing about that tenant.
+ * duplicate and reveals nothing about that tenant. The two cross-tenant functions take a fresh maintenance capability,
+ * without which PostgreSQL returns nothing (issue 313).
  */
 @Repository
 public class JdbcWebhookInboxRepository implements WebhookInboxRepository {
     private final JdbcTemplate jdbc;
+    private final DatabaseContextSigner signer;
 
-    public JdbcWebhookInboxRepository(JdbcTemplate jdbc) {
+    public JdbcWebhookInboxRepository(JdbcTemplate jdbc, DatabaseContextSigner signer) {
         this.jdbc = jdbc;
+        this.signer = signer;
     }
 
     @Override
@@ -104,15 +109,18 @@ public class JdbcWebhookInboxRepository implements WebhookInboxRepository {
 
     @Override
     public List<DueEvent> findDue(Instant dueAt, int limit) {
-        return jdbc.query("SELECT tenant_id, event_id FROM dokene.find_due_webhook_events(?, ?)",
+        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        return jdbc.query("SELECT tenant_id, event_id FROM dokene.find_due_webhook_events(?, ?, ?, ?)",
                 (rs, row) -> new DueEvent(new TenantId(rs.getObject("tenant_id", UUID.class)),
-                        rs.getObject("event_id", UUID.class)), Timestamp.from(dueAt), limit);
+                        rs.getObject("event_id", UUID.class)), capability.payload(), capability.signature(),
+                Timestamp.from(dueAt), limit);
     }
 
     @Override
     public int purgeProcessedBefore(Instant processedBefore, int limit) {
-        Integer purged = jdbc.queryForObject("SELECT dokene.purge_webhook_events(?, ?)", Integer.class,
-                Timestamp.from(processedBefore), limit);
+        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        Integer purged = jdbc.queryForObject("SELECT dokene.purge_webhook_events(?, ?, ?, ?)", Integer.class,
+                capability.payload(), capability.signature(), Timestamp.from(processedBefore), limit);
         return purged == null ? 0 : purged;
     }
 

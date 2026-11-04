@@ -108,6 +108,11 @@ public class HmacDatabaseContextSigner implements DatabaseContextSigner {
         return new SignedDatabaseContext(payload, sign(payload), expiresAt);
     }
 
+    @Override
+    public SignedDatabaseContext issueMaintenanceContext() {
+        return issue("maintenance", NIL_UUID);
+    }
+
     public String keyId() {
         return keyId;
     }

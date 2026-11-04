@@ -245,7 +245,7 @@ A database or audit failure while recording answers `503` (ADR 0029), and Meta r
 
 A row that keeps failing past the abandon window becomes `ABANDONED` with its provider message id cleared.
 
-The request applies up to the inline limit of what it stored. A scheduled sweeper (single instance via an advisory lock) resumes the rest, including after a restart or an audit outage, and purges terminal rows after the retention period.
+The request applies up to the inline limit of what it stored. A scheduled sweeper (single instance via an advisory lock) resumes the rest, including after a restart or an audit outage, and purges terminal rows after the retention period. The sweeper and the dispatch recovery processor reach rows across tenants only through database functions that need a short-lived signed maintenance capability and bound their cutoffs to the database clock: rows are listed only once due (claims only once a minute old), and nothing processed within the last 8 days is purged, whatever the configuration or caller passes (issue 313).
 
 **Counters.** `dokene.webhook.dropped{reason}` counts acknowledged events that changed nothing: `UNKNOWN_PHONE_NUMBER`, `DUPLICATE`, `UNMATCHED_MESSAGE`, `UNSUPPORTED_EVENT` and `PROCESSING_ABANDONED`. `dokene.webhook.overloaded` counts callbacks refused with `503` because every admission permit was taken.
 

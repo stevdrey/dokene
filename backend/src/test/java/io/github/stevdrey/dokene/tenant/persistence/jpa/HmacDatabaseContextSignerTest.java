@@ -66,6 +66,21 @@ class HmacDatabaseContextSignerTest {
     }
 
     @Test
+    void issuesMaintenanceContextWithNilSubjectAndFreshNonce() {
+        HmacDatabaseContextSigner signer = new HmacDatabaseContextSigner(signingKey, "k1", clock, secureRandom);
+
+        SignedDatabaseContext first = signer.issueMaintenanceContext();
+        SignedDatabaseContext second = signer.issueMaintenanceContext();
+
+        assertThat(first.payload()).startsWith("maintenance|k1|" + new UUID(0L, 0L) + "|1788134460|");
+        assertThat(first.payload().split("\\|")).hasSize(5);
+        assertThat(first.signature()).matches("^[0-9a-f]{64}$");
+        assertThat(first.expiresAt()).isEqualTo(Instant.parse("2026-08-31T00:01:00Z"));
+        assertThat(second.payload()).isNotEqualTo(first.payload());
+        assertThat(second.signature()).isNotEqualTo(first.signature());
+    }
+
+    @Test
     void rejectsInvalidKeyIdOrSigningKey() {
         assertThatThrownBy(() -> new HmacDatabaseContextSigner("invalid", "k1", clock, secureRandom))
                 .isInstanceOf(IllegalArgumentException.class)

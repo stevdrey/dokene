@@ -1,8 +1,9 @@
-// ABOUTME: Dispatch recovery against PostgreSQL (issue 138, ADR 0028 §5): an abandoned claim becomes an unknown outcome
-// ABOUTME: exactly once, never with a provider call, and only while its authorizing membership may still send.
+// ABOUTME: Dispatch recovery against PostgreSQL (issue 138, ADR 0028 §5, issue 313): an abandoned claim becomes an
+// ABOUTME: unknown outcome once, with no provider call, while its member may send; the finder needs a capability.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.context;
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.executeUpdate;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryInt;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryUuids;
@@ -50,6 +51,8 @@ import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
@@ -123,6 +126,7 @@ class DispatchRecoveryIntegrationTest {
     @Autowired MessagingDispatchProperties dispatchProperties;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired Clock clock;
+    @Autowired DatabaseContextSigner signer;
     @Autowired ScheduledTaskHolder scheduledTasks;
     @MockitoSpyBean AuditRecorder auditRecorder;
     @MockitoSpyBean TenantContextResolver resolver;
@@ -343,40 +347,89 @@ class DispatchRecoveryIntegrationTest {
         SendAttempt claim = attempts(halted).getFirst();
         Timestamp afterClaim = Timestamp.from(claim.startedAt().plusSeconds(1));
         Timestamp beforeClaim = Timestamp.from(claim.startedAt().minusSeconds(1));
-        String finder = "SELECT message_id FROM dokene.find_expired_dispatch_claims(?::timestamptz, ?::uuid, "
+        String finder = "SELECT message_id FROM dokene.find_expired_dispatch_claims(?, ?, ?::timestamptz, ?::uuid, "
                 + "?::integer)";
-        String attemptIds = "SELECT attempt_id FROM dokene.find_expired_dispatch_claims(?::timestamptz, ?::uuid, "
-                + "?::integer)";
+        String attemptIds = "SELECT attempt_id FROM dokene.find_expired_dispatch_claims(?, ?, ?::timestamptz, "
+                + "?::uuid, ?::integer)";
+        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        String payload = capability.payload();
+        String signature = capability.signature();
 
         try (Connection runtime = runtimeConnectionWithoutContext()) {
             // Tenant RLS hides the attempt itself; the definer function returns only its ids, by attempt id.
             assertThat(queryInt(runtime, "SELECT count(*) FROM dokene.outbound_send_attempts")).isZero();
-            assertThat(queryUuids(runtime, finder, afterClaim, null, 500)).contains(halted.id());
-            assertThat(queryUuids(runtime, finder, beforeClaim, null, 500)).doesNotContain(halted.id());
-            assertThat(queryUuids(runtime, finder, afterClaim, null, 1)).hasSizeLessThanOrEqualTo(1);
-            assertThat(queryUuids(runtime, finder, afterClaim, null, 0)).isEmpty();
-            assertThat(queryUuids(runtime, finder, null, null, 500)).isEmpty();
+            assertThat(queryUuids(runtime, finder, payload, signature, afterClaim, null, 500)).contains(halted.id());
+            assertThat(queryUuids(runtime, finder, payload, signature, beforeClaim, null, 500))
+                    .doesNotContain(halted.id());
+            assertThat(queryUuids(runtime, finder, payload, signature, afterClaim, null, 1))
+                    .hasSizeLessThanOrEqualTo(1);
+            assertThat(queryUuids(runtime, finder, payload, signature, afterClaim, null, 0)).isEmpty();
+            assertThat(queryUuids(runtime, finder, payload, signature, null, null, 500)).isEmpty();
             // The cursor resumes strictly after the given attempt id, in PostgreSQL's byte order (the canonical
             // text order); java.util.UUID compares signed halves, so it cannot be used here.
-            assertThat(queryUuids(runtime, attemptIds, afterClaim, claim.id(), 500)).doesNotContain(claim.id())
+            assertThat(queryUuids(runtime, attemptIds, payload, signature, afterClaim, claim.id(), 500))
+                    .doesNotContain(claim.id())
                     .allSatisfy(id -> assertThat(id.toString()).isGreaterThan(claim.id().toString()));
-            assertThat(queryUuids(runtime, attemptIds, afterClaim, new UUID(0, 0), 500)).contains(claim.id());
+            assertThat(queryUuids(runtime, attemptIds, payload, signature, afterClaim, new UUID(0, 0), 500))
+                    .contains(claim.id());
         }
+    }
+
+    @Test
+    void theExpiredClaimFinderNeedsAMaintenanceCapabilityAndNeverListsInFlightClaims() throws Exception {
+        OutboundMessage halted = haltedClaim(ownerA);
+        String finder = "SELECT message_id FROM dokene.find_expired_dispatch_claims(?::text, ?::text, "
+                + "'infinity'::timestamptz, NULL::uuid, 500)";
+        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        SignedDatabaseContext tenantScope = signer.issueTenantContext(tenantA.id());
+        String forged = "0".repeat(64);
+
+        try (Connection runtime = runtimeConnectionWithoutContext()) {
+            assertThat(queryUuids(runtime, finder, capability.payload(), capability.signature()))
+                    .contains(halted.id());
+            // No capability, a forged signature, a tampered payload or another scope's capability: nothing.
+            assertThat(queryUuids(runtime, finder, null, null)).isEmpty();
+            assertThat(queryUuids(runtime, finder, capability.payload(), forged)).isEmpty();
+            assertThat(queryUuids(runtime, finder, capability.payload().replaceFirst("\\|[0-9]{10}\\|",
+                    "|" + (capability.expiresAt().getEpochSecond() - 1) + "|"), capability.signature())).isEmpty();
+            assertThat(queryUuids(runtime, finder, tenantScope.payload(), tenantScope.signature())).isEmpty();
+        }
+
+        // A claim started within the last minute may still be in flight, so even 'infinity' does not list it.
+        backdateClaim(halted, "10 seconds");
+        try (Connection runtime = runtimeConnectionWithoutContext()) {
+            assertThat(queryUuids(runtime, finder, capability.payload(), capability.signature()))
+                    .doesNotContain(halted.id());
+        }
+        recovery.recoverExpiredClaims();
+        assertThat(current(halted).outcomeUnknown()).isFalse();
+    }
+
+    @Test
+    void theMaintenanceFunctionsAreOnlyExecutableByTheRuntimeRole() throws Exception {
         try (Connection migration = migrationConnection()) {
-            assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? AND prosecdef",
-                    "find_expired_dispatch_claims")).isEqualTo(1);
-            assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
-                    + "AND has_function_privilege('public', p.oid, 'EXECUTE')",
-                    "find_expired_dispatch_claims")).isZero();
-            assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
-                    + "AND has_function_privilege('dokene_runtime', p.oid, 'EXECUTE')",
-                    "find_expired_dispatch_claims")).isEqualTo(1);
+            for (String function : List.of("find_expired_dispatch_claims", "find_due_webhook_events",
+                    "purge_webhook_events")) {
+                // One definer function per name: the V26/V29 signatures without a capability are gone.
+                assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? AND prosecdef",
+                        function)).isEqualTo(1);
+                assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? "
+                        + "AND proargnames[1:2] = ARRAY['capability_payload', 'capability_signature']", function))
+                        .isEqualTo(1);
+                assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
+                        + "AND has_function_privilege('public', p.oid, 'EXECUTE')", function)).isZero();
+                assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
+                        + "AND has_function_privilege('dokene_runtime', p.oid, 'EXECUTE')", function)).isEqualTo(1);
+            }
+            for (String verifier : List.of("signed_context_subject", "has_maintenance_capability")) {
+                assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
+                        + "AND has_function_privilege('dokene_runtime', p.oid, 'EXECUTE')", verifier)).isZero();
+            }
             // The result shape is (tenant_id, message_id, attempt_id) and nothing else.
-            assertThat(queryInt(migration, "SELECT cardinality(proargnames) FROM pg_proc WHERE proname = ?",
-                    "find_expired_dispatch_claims")).isEqualTo(6);
             assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? AND proargnames = "
-                    + "ARRAY['started_before', 'after_attempt_id', 'max_rows', 'tenant_id', 'message_id', "
-                    + "'attempt_id']", "find_expired_dispatch_claims")).isEqualTo(1);
+                    + "ARRAY['capability_payload', 'capability_signature', 'started_before', 'after_attempt_id', "
+                    + "'max_rows', 'tenant_id', 'message_id', 'attempt_id']", "find_expired_dispatch_claims"))
+                    .isEqualTo(1);
         }
     }
 
@@ -418,7 +471,17 @@ class DispatchRecoveryIntegrationTest {
         assertThat(halted.status()).isEqualTo(MessageStatus.SENDING);
         assertThat(attempts(halted)).singleElement()
                 .satisfies(attempt -> assertThat(attempt.outcome()).isEqualTo(SendAttemptOutcome.STARTED));
+        // The finder never returns a claim started less than a minute ago (V35), whatever the claim timeout.
+        backdateClaim(halted, "2 minutes");
         return halted;
+    }
+
+    private void backdateClaim(OutboundMessage message, String age) throws Exception {
+        try (Connection migration = migrationConnection()) {
+            executeUpdate(migration, "UPDATE dokene.outbound_send_attempts SET started_at = now() - ?::interval "
+                    + "WHERE tenant_id = ? AND message_id = ? AND outcome = 'STARTED'", age,
+                    message.tenantId(), message.id());
+        }
     }
 
     private OutboundMessage approvedMessage(TenantContext member) throws Exception {
