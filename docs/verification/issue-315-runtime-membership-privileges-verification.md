@@ -6,7 +6,7 @@ This record is sanitized: it gives grants, outcomes and test names only. It cont
 
 ## Environment
 
-- **Run:** 2026-11-04, branch `315-securityl5-narrow-runtime-membership-database-privileges`, based on `main` at `6cdc000` (the audit's tree `c4b62d1` plus the fixes for #306, #307, #308 and #313). The code was rechecked on that base before the change: L5 still applied as reported, since no migration after V1 touched the membership grants. **Tested revision:** `TESTED_REVISION`, the first commit of this branch. Every result in the Results table below was run on that tree. Later commits change only this record.
+- **Run:** 2026-11-04, branch `315-securityl5-narrow-runtime-membership-database-privileges`, based on `main` at `6cdc000` (the audit's tree `c4b62d1` plus the fixes for #306, #307, #308 and #313). The code was rechecked on that base before the change: L5 still applied as reported, since no migration after V1 touched the membership grants. **Tested revision:** `39d0973`, the first commit of this branch. Every result in the Results table below was run on that tree. Later commits change only this record.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build.
 - **Database:** Testcontainers PostgreSQL 17, migrated by Flyway through V36.
 - **Data:** synthetic tenants and members only.
@@ -41,11 +41,11 @@ Residual risk: `role` stays updatable because role changes are a supported workf
 
 ## Results
 
-Runs on `TESTED_REVISION`:
+Runs on `39d0973`:
 
 | Command | Result |
 | --- | --- |
 | `./gradlew test --tests '*TenantMembershipPrivilegeIntegrationTest' --tests '*TenantPersistenceIntegrationTest' --tests '*TenantIsolationSecurityIntegrationTest' --tests '*AuditIntegrationTest' --tests '*TenantRootRowLevelSecurityIntegrationTest'` | passed: 3, 37, 7, 25 and 4 tests, no failures or skips |
-| `./gradlew check` (backend) | FULL_CHECK_RESULT |
+| `./gradlew check` (backend) | passed: 2372 tests in 197 classes, no failures, errors or skips |
 
 The frontend is unchanged and was not rerun.
