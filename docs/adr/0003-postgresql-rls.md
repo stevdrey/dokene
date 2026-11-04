@@ -27,20 +27,44 @@ RLS policies on protected tables restrict visible rows to that tenant and reject
   - `DELETE`: `USING (tenant_id = dokene.current_verified_tenant_id())`
 - A missing, expired, malformed, or incorrectly signed capability evaluates to `NULL`, failing closed (zero read access and rejection of writes).
 - Application runtime role (`dokene_runtime`) must have `NOBYPASSRLS` and must not own protected tables.
-- Migration credentials (`dokene_migration`) are strictly separated from runtime credentials. Tables with `FORCE ROW LEVEL SECURITY` define an explicit migration policy `FOR ALL TO dokene_migration USING (true) WITH CHECK (true)` to permit Flyway schema and data transformations.
+- Migration credentials (`dokene_migration`) are strictly separated from runtime credentials, and the separation is enforced by deployment, not only by roles (see [Migration job and secret delivery](#migration-job-and-secret-delivery)). Tables with `FORCE ROW LEVEL SECURITY` define an explicit migration policy `FOR ALL TO dokene_migration USING (true) WITH CHECK (true)` to permit Flyway schema and data transformations; that policy is why the migration credential must never reach the long-running backend.
 - Cross-tenant isolation integration tests against PostgreSQL are mandatory for all tenant-scoped resources.
 - `TenantAwareDataSource` rejects transaction-control SQL (`BEGIN`, `COMMIT`, `ROLLBACK`, savepoints, and related commands). Callers must use the corresponding `Connection` APIs so tenant-context lifecycle remains observable and fail-closed.
 - JDBC decorators never unwrap to vendor objects: `unwrap` returns only the decorator when it satisfies the requested type, and `isWrapperFor` follows the same rule. A `ResultSet` is bound to the tenant active at creation and rejects access if that context changes or disappears; it may still be closed safely.
 - Global tenant-membership discovery uses a separate identity-scoped signed capability (`identity|<key_id>|<uuid>|<expiry>|<nonce>`) and the narrowly granted `dokene.discover_active_tenant_memberships` function. It returns only active memberships of the authenticated identity and is not a public tenant-listing endpoint.
 - RLS does not replace authorization checks in application code; both layers are mandatory.
 
+## Migration job and secret delivery
+
+Since issue 308 (audit M4) the migration credential exists only in a one-shot job:
+
+- `DokeneMigrationApplication` (same image, profile `migration`) loads only Flyway and
+  `TenantContextSigningKeyCallback`, connects as `dokene_migration`, applies the migrations, provisions the active
+  signing key, and exits. It starts no web server, OIDC client or runtime datasource. In Compose it is the `migrate`
+  service, and the backend starts only after it completed successfully.
+- The long-running backend never activates that profile and holds no `DOKENE_DB_MIGRATION_*` value. Its Flyway connects
+  as `dokene_runtime` and only validates the schema (`RuntimeSchemaValidationConfiguration`): a pending, failed or
+  changed migration stops startup and points at the job. V34 grants the runtime role `SELECT` on the Flyway history for
+  this; it holds no tenant data. `dokene.database.migrate-on-startup` exists only for integration tests, which also
+  supply the migration credentials.
+- The signing key and the migration password are delivered as files (`/run/secrets/<NAME>`, read through Spring's
+  `configtree` import), so they are absent from the process environment, `/proc/<pid>/environ` and `docker inspect`.
+  Host-run backends may still use environment variables.
+
+Threat model and residual risk: a compromise of the backend process yields only `dokene_runtime` (no DDL, no RLS
+bypass, no audit modification, no read of `tenant_context_signing_keys`). The backend must still hold the signing key to
+sign capabilities, so such a compromise can forge tenant contexts while it lasts; recovery is the key rotation lifecycle
+above (provision `k2` through the job, switch signing, retire `k1`). The migration job, the database administrator and
+the secret store remain trusted.
+
 ## Append-only audit exception
 
 ADR 0006 specializes this policy model for `audit_events`: runtime gets only
 `SELECT`/`INSERT`, with no UPDATE/DELETE policies or privileges. Tenant rows retain
 signed-capability isolation. A narrowly constrained global denial INSERT without
-a verified tenant capability is allowed; global rows have no runtime SELECT policy.
-See [ADR 0006](0006-durable-append-only-audit.md) for attribution and failure semantics.
+a verified tenant capability is allowed; global rows have no runtime SELECT policy. Since V34 (issue 308) triggers refuse `UPDATE`, `DELETE` and
+`TRUNCATE` on `audit_events` for every role, the owning `dokene_migration` included.
+See [ADR 0006](0006-durable-append-only-audit.md) for attribution, failure semantics and the break-glass procedure.
 
 ## Tenant root and provisioning records
 

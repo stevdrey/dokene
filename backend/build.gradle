@@ -123,6 +123,14 @@ tasks.register('aiEvalCompare', JavaExec) {
         args file(project.property('baseline')).absolutePath, file(project.property('candidate')).absolutePath
     }
 }
+// The one-shot migration job for a host-run backend (issue 308): export the .env variables, then run it before bootRun.
+tasks.register('migrateDb', JavaExec) {
+    description = 'Applies the Flyway migrations as the migration role (DokeneMigrationApplication) and exits.'
+    group = 'application'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.stevdrey.dokene.migration.DokeneMigrationApplication'
+}
+
 def nvdApiKey = (System.getenv('DOKENE_NVD_API_KEY') ?: System.getenv('NVD_API_KEY'))?.trim()
 
 dependencyCheck {

@@ -85,6 +85,26 @@ assert backend["depends_on"]["oidc-bridge"]["condition"] == "service_healthy", "
 }
 check "compose: backend joins the oidc-bridge namespace (topology from #155)" topology_is_inverted
 
+migration_credentials_stay_in_migrate() {
+  local json=""
+  json="$(compose_config_json)" || return 1
+  python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)["services"]
+migrate, backend = s["migrate"], s["backend"]
+names = lambda svc: [x["source"] for x in svc.get("secrets", [])]
+assert not [k for k in backend.get("environment", {}) if "MIGRATION" in k or k.endswith("SIGNING_KEY")], \
+    "backend environment must hold no migration credential or signing key"
+assert names(backend) == ["DOKENE_TENANT_CONTEXT_SIGNING_KEY"], "backend gets only the signing key secret"
+assert sorted(names(migrate)) == ["DOKENE_DB_MIGRATION_PASSWORD", "DOKENE_TENANT_CONTEXT_SIGNING_KEY"]
+assert not [k for k in migrate.get("environment", {}) if k.endswith(("PASSWORD", "SIGNING_KEY"))], \
+    "migrate reads its secrets from files, not the environment"
+assert backend["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+assert migrate["read_only"] and migrate["restart"] == "no"
+' <<<"$json"
+}
+check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
+
 # Runs the real healthcheck command in a container whose resolver has a search domain. Needs a Docker daemon.
 healthcheck_survives_search_domain() {
   local json image probe net="dokene-smoke-$$" ctr="dokene-smoke-$$-bridge" rc=1

@@ -1,0 +1,6 @@
+# Profile of the one-shot migration job (DokeneMigrationApplication, issue 308). The long-running backend never
+# activates it, so the migration credentials are referenced only here.
+spring:
+  flyway:
+    user: ${DOKENE_DB_MIGRATION_USERNAME}
+    password: ${DOKENE_DB_MIGRATION_PASSWORD}

@@ -104,12 +104,13 @@ class TenantPersistenceIntegrationTest {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
+        registry.add("dokene.database.migrate-on-startup", () -> "true");
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
     }
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("34");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -130,7 +131,8 @@ class TenantPersistenceIntegrationTest {
         )).containsExactly("audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
-                "follow_up_dismissals", "manual_follow_up_completions",
+                // Read-only since V34 (issue 308): the backend validates the schema history at startup.
+                "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
                 "outbound_message_idempotency_keys", "outbound_message_resolutions", "outbound_messages",
                 "outbound_send_attempts",

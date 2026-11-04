@@ -10,7 +10,7 @@
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
 #   ./scripts/dev-env.sh down
 #   ./scripts/dev-env.sh restart [--seed]
-#   ./scripts/dev-env.sh restart-backend [--no-build] [--yes]   (recreates backend + oidc-bridge only)
+#   ./scripts/dev-env.sh restart-backend [--no-build] [--yes]   (runs migrate, recreates backend + oidc-bridge)
 #   ./scripts/dev-env.sh status
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
@@ -332,7 +332,23 @@ preflight() {
     fail "$CHECK_FAILURES preflight check(s) failed; nothing was started."
     return 1
   fi
+  write_secret_files
   return 0
+}
+
+# Compose mounts these .env values as files under /run/secrets (issue 308): only the migrate job gets the migration
+# password, and neither it nor the signing key is in any container's environment. Compose refuses environment-sourced
+# secrets for read-only services, so they are written to a git-ignored directory only the owner can list. The files are
+# world-readable because the containers run as uid 10001; the directory mode keeps other host users out.
+write_secret_files() {
+  local dir="$ROOT_DIR/.secrets" name
+  ( umask 077 && mkdir -p "$dir" )
+  chmod 700 "$dir"
+  for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
+    rm -f "$dir/$name"
+    printf '%s' "$(env_get "$name")" > "$dir/$name"
+    chmod 444 "$dir/$name"
+  done
 }
 
 # ------------------------------------------------------------------------------
@@ -349,7 +365,7 @@ print_summary() {
     info "  PostgreSQL:  localhost:${db_port:-5432}"
     info "  Keycloak:    http://localhost:$kc_port  (admin console; realm: dokene)"
     info "  Backend and frontend were NOT started (--infra-only); run them from the host:"
-    info "    set -a; . ./.env; set +a; (cd backend && ./gradlew bootRun)    # JDK 26"
+    info "    set -a; . ./.env; set +a; (cd backend && ./gradlew migrateDb bootRun)    # JDK 26"
     info "    (cd frontend && npm ci && npm run dev)                         # Node 24"
   else
     info "  Application: http://localhost:$FRONTEND_PORT"
@@ -376,9 +392,12 @@ report_failure() {
     warn "Last log lines of '$svc':"
     compose logs --no-color --tail 25 "$svc" 2>&1 | sed 's/^/    /'
   done
-  if compose logs --no-color --tail 200 backend 2>/dev/null | grep -q 'password authentication failed'; then
-    warn "The backend cannot authenticate against PostgreSQL: the data volume was created with different passwords"
+  if compose logs --no-color --tail 200 migrate backend 2>/dev/null | grep -q 'password authentication failed'; then
+    warn "The backend or migrate job cannot authenticate against PostgreSQL: the data volume was created with different passwords"
     warn "than the current .env. Restore the original .env, or run './scripts/dev-env.sh reset' (deletes local data)."
+  fi
+  if compose logs --no-color --tail 200 backend 2>/dev/null | grep -q 'Run the migration job'; then
+    warn "The backend refused an outdated schema; check './scripts/dev-env.sh logs migrate' (issue 308)."
   fi
   info "Full logs: ./scripts/dev-env.sh logs <service>"
   info "Fix the cause and rerun './scripts/dev-env.sh up'; if the stack still misbehaves, run 'down' and then 'up'."
@@ -508,9 +527,10 @@ cmd_restart_backend() {
 
   preflight || exit 1
 
-  info "Recreating backend and oidc-bridge..."
-  compose_up_services "$NO_BUILD" "--force-recreate --no-deps" oidc-bridge backend
-  ok "Backend and oidc-bridge are healthy"
+  # The one-shot migrate job (issue 308) runs first so a rebuilt backend never starts against an older schema.
+  info "Running migrations and recreating backend and oidc-bridge..."
+  compose_up_services "$NO_BUILD" "--force-recreate --no-deps" migrate oidc-bridge backend
+  ok "Migrations applied; backend and oidc-bridge are healthy"
   compose ps backend oidc-bridge
 }
 
