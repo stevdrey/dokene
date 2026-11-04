@@ -123,6 +123,19 @@ dokene:
   security:
     post-login-redirect-url: ${DOKENE_POST_LOGIN_REDIRECT_URL:/}
     post-login-failure-redirect-url: ${DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL:}
+    session:
+      # Revocation contract (ADR 0007, issue 307): every session ends max-lifetime after login however active; every
+      # revalidation-interval its refresh token is redeemed at the provider, so a disabled user or ended provider
+      # session is denied within that interval; while the provider is unreachable it survives revalidation-grace.
+      max-lifetime: ${DOKENE_SESSION_MAX_LIFETIME:8h}
+      revalidation-interval: ${DOKENE_SESSION_REVALIDATION_INTERVAL:5m}
+      revalidation-grace: ${DOKENE_SESSION_REVALIDATION_GRACE:15m}
+      # Connect and response deadline of one revalidation call; a timeout counts as "provider unreachable".
+      revalidation-timeout: ${DOKENE_SESSION_REVALIDATION_TIMEOUT:5s}
+    oidc:
+      # Where the back-channel logout handler replays each session's logout. Loopback by default; set it when the
+      # provider reaches Dokene through a proxy whose port differs from the one the backend listens on.
+      back-channel-logout-uri: ${DOKENE_BACK_CHANNEL_LOGOUT_URI:{baseScheme}://localhost{basePort}/logout/connect/back-channel/{registrationId}}
     cors:
       allowed-origins: ${DOKENE_CORS_ALLOWED_ORIGINS:}
 

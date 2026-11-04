@@ -2,26 +2,39 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.identity.application.OidcIdentityResolver;
+import io.github.stevdrey.dokene.identity.security.BffSessionLifetimeFilter;
+import io.github.stevdrey.dokene.identity.security.BffSessionProperties;
 import io.github.stevdrey.dokene.identity.security.InternalOidcUserService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
+import java.net.http.HttpClient;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.client.endpoint.RestClientRefreshTokenTokenResponseClient;
+import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -31,13 +44,17 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -45,6 +62,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @Configuration
 @ConditionalOnWebApplication(type = Type.SERVLET)
+@EnableConfigurationProperties(BffSessionProperties.class)
 class TenantSecurityConfiguration {
 
     @Bean
@@ -76,6 +94,46 @@ class TenantSecurityConfiguration {
         return new InternalOidcUserService(identityResolver);
     }
 
+    /** Provider tokens live in the session they belong to and are discarded with it (ADR 0007). */
+    @Bean
+    OAuth2AuthorizedClientRepository authorizedClientRepository() {
+        return new HttpSessionOAuth2AuthorizedClientRepository();
+    }
+
+    @Bean
+    BffSessionLifetimeFilter bffSessionLifetimeFilter(
+            BffSessionProperties properties,
+            OAuth2AuthorizedClientRepository authorizedClients,
+            Clock clock
+    ) {
+        RestClientRefreshTokenTokenResponseClient refreshTokenClient = new RestClientRefreshTokenTokenResponseClient();
+        refreshTokenClient.setRestClient(createTokenEndpointRestClient(properties.revalidationTimeout()));
+        return new BffSessionLifetimeFilter(properties, authorizedClients, refreshTokenClient, clock);
+    }
+
+    /**
+     * Spring Security's token endpoint client (same converters and OAuth2 error handling) with finite deadlines: a
+     * revalidation holds the session's lock, so a stalled provider must turn into the grace path, not a hung request.
+     */
+    static RestClient createTokenEndpointRestClient(Duration timeout) {
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder().connectTimeout(timeout).build());
+        requestFactory.setReadTimeout(timeout);
+        return RestClient.builder()
+                .requestFactory(requestFactory)
+                .configureMessageConverters(converters -> converters
+                        .addCustomConverter(new FormHttpMessageConverter())
+                        .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
+                .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
+                .build();
+    }
+
+    /** Lets the OIDC session registry follow session id changes and forget destroyed sessions. */
+    @Bean
+    HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
+    }
+
     @Bean
     CorsConfigurationSource corsConfigurationSource(
             @Value("${dokene.security.cors.allowed-origins:}") List<String> allowedOrigins
@@ -102,6 +160,9 @@ class TenantSecurityConfiguration {
     /** BFF responses are JSON, redirects or plain errors: they never need to load or embed anything. */
     static final String API_CONTENT_SECURITY_POLICY =
             "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    /** Loopback on the port the provider called: never a host taken from the request. */
+    static final String DEFAULT_BACK_CHANNEL_LOGOUT_URI =
+            "{baseScheme}://localhost{basePort}/logout/connect/back-channel/{registrationId}";
     static final String PERMISSIONS_POLICY =
             "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 
@@ -109,10 +170,13 @@ class TenantSecurityConfiguration {
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             TenantContextRequestFilter tenantContextRequestFilter,
+            BffSessionLifetimeFilter bffSessionLifetimeFilter,
             OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService,
             ObjectProvider<ClientRegistrationRepository> clientRegistrations,
             @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl,
-            @Value("${dokene.security.post-login-failure-redirect-url:}") String postLoginFailureRedirectUrl
+            @Value("${dokene.security.post-login-failure-redirect-url:}") String postLoginFailureRedirectUrl,
+            @Value("${dokene.security.oidc.back-channel-logout-uri:" + DEFAULT_BACK_CHANNEL_LOGOUT_URI + "}")
+            String backChannelLogoutUri
     )
             throws Exception {
         LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
@@ -140,6 +204,7 @@ class TenantSecurityConfiguration {
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")
                         .logoutSuccessHandler(logoutSuccessHandler))
+                .addFilterBefore(bffSessionLifetimeFilter, AnonymousAuthenticationFilter.class)
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
 
         if (clientRegistrations.getIfAvailable() != null) {
@@ -147,10 +212,26 @@ class TenantSecurityConfiguration {
             http.oauth2Login(oauth -> oauth
                     .loginPage("/oauth2/authorization/dokene")
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
-                    .defaultSuccessUrl(postLoginRedirectUrl, true)
+                    .successHandler(createAuthenticationSuccessHandler(postLoginRedirectUrl, bffSessionLifetimeFilter))
                     .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl)));
+            // The provider's logout token ends the matching sessions: the handler replays the logout token to this
+            // endpoint once per session, with that session's cookie, so the URI must reach this instance directly.
+            http.oidcLogout(logout -> logout.backChannel(backChannel -> backChannel.logoutUri(backChannelLogoutUri)));
         }
         return http.build();
+    }
+
+    private AuthenticationSuccessHandler createAuthenticationSuccessHandler(
+            String postLoginRedirectUrl,
+            BffSessionLifetimeFilter bffSessionLifetimeFilter
+    ) {
+        SimpleUrlAuthenticationSuccessHandler redirect = new SimpleUrlAuthenticationSuccessHandler(postLoginRedirectUrl);
+        redirect.setAlwaysUseDefaultTargetUrl(true);
+        return (request, response, authentication) -> {
+            // Runs after session fixation protection, so the clocks start on the authenticated session.
+            bffSessionLifetimeFilter.startSession(request.getSession());
+            redirect.onAuthenticationSuccess(request, response, authentication);
+        };
     }
 
     static String resolvePostLoginFailureRedirectUrl(String configuredFailureUrl, String postLoginRedirectUrl) {

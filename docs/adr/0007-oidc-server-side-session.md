@@ -45,6 +45,8 @@ logs, or audit events.
   and pre-authentication sessions are rendered invalid.
 - **Session Expiration**: Sessions expire after 30 minutes of inactivity by default (`server.servlet.session.timeout=30m`)
   and fail closed, returning `401 Unauthorized` for `/api/**` endpoints.
+- **Absolute Lifetime and Provider Revalidation**: Every session also ends at an absolute lifetime and is revalidated
+  against the provider; see [Session Revocation and Absolute Lifetime](#session-revocation-and-absolute-lifetime).
 - **Invalid Session Handling**: Requests presenting invalid, expired, or tampered session cookies to `/api/**` fail
   closed with `401 Unauthorized` rather than redirecting to an HTML login page or creating redirect loops.
 - **Cookie Security**: The session cookie is configured with `HttpOnly=true`, `SameSite=Lax`, and `Secure=true`
@@ -54,6 +56,55 @@ logs, or audit events.
   or ingress controller with TLS offloading, operators explicitly configure `SERVER_FORWARD_HEADERS_STRATEGY=framework`.
   The edge proxy/load balancer MUST strip and overwrite inbound `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`,
   and `X-Forwarded-Port` headers from untrusted clients before proxying traffic to Dokene.
+
+### Session Revocation and Absolute Lifetime
+
+Added by issue #307 (audit finding M3). A Dokene session must not outlive the identity provider's decision about the
+user, nor live forever while it stays active. The contract, with the default bounds:
+
+| Event | Mechanism | Bound |
+|---|---|---|
+| Provider logout of the user or session (user, admin or SSO max lifespan) | OIDC Back-Channel Logout: the provider posts a logout token to `POST /logout/connect/back-channel/{registrationId}`; matching sessions are invalidated | immediate on delivery; otherwise caught by revalidation |
+| User disabled at the provider, or provider session ended without a delivered logout token | Revalidation: every `revalidation-interval` the session's refresh token is redeemed at the token endpoint; `invalid_grant` invalidates the session | `revalidation-interval`, 5 min |
+| Any session, however active | Absolute lifetime measured from the login that created it | `max-lifetime`, 8 h |
+| Provider unreachable during revalidation (network failure, 5xx, malformed response) | The session survives and every request retries; it is invalidated once the last successful revalidation is older than the grace | `revalidation-grace`, 15 min |
+| Tenant membership revoked in Dokene | Unchanged: membership is resolved on every tenant-scoped request | immediate |
+
+- **Settings**: `dokene.security.session.max-lifetime` (`DOKENE_SESSION_MAX_LIFETIME`, `8h`),
+  `revalidation-interval` (`DOKENE_SESSION_REVALIDATION_INTERVAL`, `5m`) and `revalidation-grace`
+  (`DOKENE_SESSION_REVALIDATION_GRACE`, `15m`), and `revalidation-timeout` (`DOKENE_SESSION_REVALIDATION_TIMEOUT`,
+  `5s`), the connect and response deadline of one revalidation call. A revalidation holds the session's lock, so a
+  timeout counts as "provider unreachable" and never hangs the session's requests. Startup fails unless all are
+  positive, the grace is longer than the interval, the timeout is shorter than the interval and the grace does not
+  exceed the lifetime.
+- **Fail closed**: a revoked or expired session is invalidated and the request continues unauthenticated, so
+  `/api/**` answers `401 Unauthorized` exactly as for idle expiry. An OIDC session without a recorded login time, without
+  an authorized client or without a refresh token is revoked at its first check. Provider error descriptions and tokens
+  are never logged; only the revocation reason or the OAuth error code is.
+- **Token storage**: the authorized client (access and refresh token) is stored in the `HttpSession`
+  (`HttpSessionOAuth2AuthorizedClientRepository`), so it is discarded with the session instead of living in an
+  application-wide map.
+- **Back-channel logout**: the endpoint is anonymous, CSRF-exempt and creates no session; Spring Security validates
+  the logout token signature against the provider JWKS, `iss`, `aud`, `iat`, the back-channel `events` claim, `sid` or
+  `sub`, and the absence of `nonce`. It then replays the logout once per matching session to
+  `dokene.security.oidc.back-channel-logout-uri` (`DOKENE_BACK_CHANNEL_LOGOUT_URI`), which defaults to loopback on the
+  port the provider called; override it when the provider reaches Dokene through a proxy on another port. The provider
+  client must register the back-channel URL (local realm: `http://oidc-bridge:8080/logout/connect/back-channel/dokene`)
+  with `backchannel.logout.session.required=true`. Back-channel logout is an accelerator: when the provider cannot reach
+  Dokene (for example a backend run on the host), revalidation still bounds the delay.
+- **Provider alignment**: the local realm sets `ssoSessionMaxLifespan` to 8 h so that the provider and Dokene lifetimes
+  agree. Revalidation keeps the provider SSO session active while the Dokene session is in use; the provider's idle
+  timeout must not be shorter than `revalidation-interval`.
+- **Upgrading an existing realm**: Keycloak's `--import-realm` skips a realm that already exists, so the realm import
+  file configures new realms only. An existing realm receives the back-channel URL, its session and offline-token
+  attributes and the SSO max lifespan from `scripts/keycloak-apply-session-revocation.sh`, which is idempotent,
+  changes only those four values and has a `--check` mode that exits non-zero on drift. `scripts/dev-env.sh up` runs
+  it after every start. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
+  Console or `kcadm.sh`) when they deploy this change. Until then IdP logout is bounded by revalidation instead of
+  being immediate.
+- **Residual: local logout**: the SPA logout is local (`POST /logout` without `provider=true`); it ends the Dokene
+  session but not the provider SSO session, so on a shared device the next login can be silent. Provider logout remains
+  available through `POST /logout?provider=true` and is not the SPA default.
 
 ### Frontend BFF Contract & CSRF Protection
 
@@ -111,7 +162,10 @@ JavaScript memory):
 
 - Tokens and client secrets remain entirely on the backend and are never exposed to client-side code.
 - Horizontal multi-node deployments require sticky sessions or an external session store (e.g., Spring Session with
-  Redis or PostgreSQL) when scaled beyond a single instance.
+  Redis or PostgreSQL) when scaled beyond a single instance. The OIDC session registry used by back-channel logout is
+  in memory as well and needs the same treatment; until then revalidation still bounds revocation on every node.
+- Each active session redeems its refresh token at the provider once per `revalidation-interval`, which adds one token
+  endpoint call per active session per interval.
 - Single-page frontend architecture remains simple, issuing standard same-origin cookie-authenticated `fetch()` calls
   with `X-CSRF-TOKEN` headers.
 - Compliance with Security Invariants #14 and #15 is structurally enforced at the framework boundary.

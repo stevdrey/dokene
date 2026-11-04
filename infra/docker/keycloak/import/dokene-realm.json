@@ -10,6 +10,7 @@
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
   "bruteForceProtected": true,
+  "ssoSessionMaxLifespan": 28800,
   "clients": [
     {
       "clientId": "dokene-bff",
@@ -37,6 +38,8 @@
       "attributes": {
         "oidc.ciba.grant.enabled": "false",
         "backchannel.logout.session.required": "true",
+        "backchannel.logout.url": "http://oidc-bridge:8080/logout/connect/back-channel/dokene",
+        "backchannel.logout.revoke.offline.tokens": "false",
         "post.logout.redirect.uris": "http://localhost:8080/##http://127.0.0.1:8080/##http://localhost:5173/##http://127.0.0.1:5173/"
       },
       "defaultClientScopes": [
