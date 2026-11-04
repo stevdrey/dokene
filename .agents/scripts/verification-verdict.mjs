@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_BASE_REF = 'origin/main';
@@ -220,28 +221,40 @@ const MODES = {
 
 const KNOWN_OPTIONS = new Set([...Object.keys(MODES), ...Object.values(MODES).flatMap(names => [...names])]);
 
-/** Strict options: `--name value` or `--name=value`, each at most once, and only those the mode accepts. */
-function parseArgs(args) {
+/**
+ * Strict options: `--name value` or `--name=value`, each at most once, and only names in `flags` (no value) or
+ * `values`. Values reach Git as refs, which would read a leading '-' as an option, except those named in `rawValues`.
+ */
+function parseOptions(args, { flags = [], values, rawValues = [] }, usage) {
   const options = new Map();
   for (let i = 0; i < args.length; i++) {
     const [name, inline] = args[i].startsWith('--') && args[i].includes('=')
       ? [args[i].slice(0, args[i].indexOf('=')), args[i].slice(args[i].indexOf('=') + 1)]
       : [args[i], undefined];
-    if (!KNOWN_OPTIONS.has(name)) {
-      throw new UsageError(`unknown argument ${args[i]}\n${USAGE}`);
+    if (!flags.includes(name) && !values.includes(name)) {
+      throw new UsageError(`unknown argument ${args[i]}\n${usage}`);
     }
     if (options.has(name)) throw new UsageError(`${name} given more than once`);
-    if (name === '--identity') {
-      if (inline !== undefined) throw new UsageError('--identity takes no value');
+    if (flags.includes(name)) {
+      if (inline !== undefined) throw new UsageError(`${name} takes no value`);
       options.set(name, true);
       continue;
     }
     const value = inline ?? args[++i];
     if (!value) throw new UsageError(`${name} requires a value`);
-    // Refs are passed on to Git, which would read a leading '-' as an option; a verdict path is only read as a file.
-    if (name !== '--verdict' && value.startsWith('-')) throw new UsageError(`${name} value may not start with '-'`);
+    if (!rawValues.includes(name) && value.startsWith('-')) throw new UsageError(`${name} value may not start with '-'`);
     options.set(name, value);
   }
+  return options;
+}
+
+function parseArgs(args) {
+  const options = parseOptions(args, {
+    flags: ['--identity'],
+    values: [...KNOWN_OPTIONS].filter(name => name !== '--identity'),
+    // A verdict path is only read as a file.
+    rawValues: ['--verdict'],
+  }, USAGE);
 
   const modes = Object.keys(MODES).filter(mode => options.has(mode));
   if (modes.length !== 1) throw new UsageError(USAGE);
@@ -306,9 +319,26 @@ function main() {
   process.exitCode = 1;
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof UsageError ? error.message : `INVALID: ${error.message}.`);
-  process.exitCode = 2;
+export {
+  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, isObject, isText,
+  parseOptions, sameCandidate, validateVerdict,
+};
+
+// Run only as a command, so other agent scripts can import the identity and gating rules without side effects.
+function invokedDirectly() {
+  try {
+    // Both sides resolved, so neither a symlinked path nor --preserve-symlinks-main skips the checks with exit 0.
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (process.argv[1] && invokedDirectly()) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof UsageError ? error.message : `INVALID: ${error.message}.`);
+    process.exitCode = 2;
+  }
 }

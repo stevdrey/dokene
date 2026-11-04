@@ -39,7 +39,8 @@ Keep a loop state file **outside the worktree** (a scratch or temporary director
   "issue": 350,
   "maxRounds": 3,
   "questions": [
-    { "id": "Q1", "text": "…", "material": true, "status": "open" }
+    { "id": "Q1", "text": "…", "material": true, "status": "answered", "answeredAfterRound": 0 },
+    { "id": "Q2", "text": "…", "material": true, "status": "open" }
   ],
   "rounds": [
     { "verdict": "verdict-1.json" }
@@ -53,18 +54,18 @@ Keep a loop state file **outside the worktree** (a scratch or temporary director
 node .agents/scripts/issue-loop.mjs --state <state file> --base <ref> [--commit <rev to push>]
 ```
 
-It prints `{ "action", "reason", "rounds", "maxRounds" }`. Verdict gating is delegated to `verification-verdict.mjs`, so the helper only decides what the loop does next:
+It prints `{ "action", "reason", "rounds", "maxRounds" }`. Verdict gating reuses the rules of `verification-verdict.mjs`, so the helper only decides what the loop does next:
 
 | Action | Exit | When | Next step |
 | --- | --- | --- | --- |
 | `ask` | 1 | A material question is open. | Ask the human and wait; continue independent work meanwhile. |
-| `verify` | 1 | No round yet, or the candidate changed after the last verdict (`STALE`). | Start a fresh independent verifier. |
-| `fix` | 1 | The latest verdict is `fail` for the current candidate and rounds remain. | Fix the blockers, then verify. |
-| `commit` | 1 | With `--commit`: the verified content is in the worktree but not in that commit. | Commit exactly the verified content, then ask again. |
-| `publish` | 0 | The latest verdict passes for the current candidate (with `--commit`, for that commit). | Publish. |
-| `stop` | 3 | The verdict is `blocked` (including a non-independent verifier), invalid, inconsistent, or for another Issue; a round re-verified an unchanged failed candidate; or the round budget is spent. | Report; do not publish as verified. After a `blocked` stop, the same candidate may be re-verified once the missing capability is legitimately obtained. |
+| `verify` | 1 | No round yet, the candidate changed after the last verdict (`STALE`), or a material question was answered after the last round. | Start a fresh independent verifier. |
+| `fix` | 1 | The latest verdict is `fail` for the current candidate, or the worktree is identical to an earlier failed candidate, and rounds remain. | Fix the blockers, then verify. |
+| `commit` | 1 | The latest verdict passes for the worktree: run without `--commit`, or the `--commit` revision does not hold the verified content. | Commit exactly the verified content, then ask again with `--commit`. |
+| `publish` | 0 | With `--commit` only: the latest verdict passes for that commit. | Publish. |
+| `stop` | 3 | The verdict is `blocked` (including a non-independent verifier), invalid, or inconsistent; any round's verdict is invalid or for another Issue; a round re-verified an unchanged failed candidate; or the round budget is spent or exceeded. | Report; do not publish as verified. After a `blocked` stop, the same candidate may be re-verified once the missing capability is legitimately obtained. |
 
-Exit `2` is an unreadable state file or a usage error: fix the input, do not treat it as a decision.
+Exit `2` is an unreadable state or verdict file, a usage error, or a Git error such as an unknown `--base` or `--commit` ref: fix the input, do not treat it as a decision.
 
 ## Procedure
 
@@ -80,7 +81,7 @@ Exit `2` is an unreadable state file or a usage error: fix the input, do not tre
 
 Record every material gap or ambiguity as a question in the loop state. A question is material when its answer could change behavior, contracts, security, data, or the acceptance criteria; ask the human and wait for the answer before publishing. Non-material questions are recorded with `material: false` and resolved by repository convention, noted in the PR.
 
-Never invent requirements. While a question is open, continue work it does not affect. Mark a question `answered` only with the human's answer, and update the criteria it changes.
+Never invent requirements. While a question is open, continue work it does not affect. Mark a question `answered` only with the human's answer, record `answeredAfterRound` as the number of rounds in the state at that moment, and update the criteria it changes. A material answer after a round requires a fresh verification.
 
 ### 3. Implement
 
@@ -100,10 +101,10 @@ On `fix`, correct only the blockers: failed criteria, open blocker findings, and
 
 ### 6. Publish
 
-Only after `publish` for the final candidate:
+Only after the helper returns `commit` for a passing worktree candidate:
 
 1. Stage and commit exactly the verified content (the identity is content-addressed, so the commit keeps the candidate).
-2. Run `node .agents/scripts/issue-loop.mjs --state <file> --base <ref> --commit HEAD` and continue only on `publish`. On `commit`, commit the missing content; on `verify`, the commit holds another candidate and needs a fresh verdict.
+2. Run `node .agents/scripts/issue-loop.mjs --state <file> --base <ref> --commit HEAD` and continue only on `publish`. On `commit`, the commit lacks some of the verified content: commit it and check again. On `verify`, the commit holds another candidate and needs a fresh verdict.
 3. Push once to the branch.
 4. Create the PR with `create-pull-request`. In addition to its template, include:
    - the Issue reference (`Closes #<n>` only when the PR fully closes it; `Part of #<epic>` for an epic);

@@ -87,13 +87,13 @@ function expectAction(outcome, action, status) {
   assert.equal(outcome.decision.action, action, outcome.decision.reason);
 }
 
-test('scenario: success — a pass for the committed candidate allows publication', t => {
+test('scenario: success — a worktree pass is committed, and a pass for that commit allows publication', t => {
   const cwd = repository(t);
   const run = loop(t, cwd);
   expectAction(run.next(), 'verify', 1);
 
   run.addRound(verdict(identity(cwd)));
-  expectAction(run.next(), 'publish', 0);
+  expectAction(run.next(), 'commit', 1);
 
   git(cwd, 'add', '.');
   git(cwd, 'commit', '-qm', 'implement');
@@ -123,7 +123,13 @@ test('scenario: clarification — an open material question blocks verification 
   assert.doesNotMatch(asked.decision.reason, /Q2/);
 
   run.state.questions[0].status = 'answered';
-  expectAction(run.next(), 'publish', 0);
+  run.state.questions[0].answeredAfterRound = 1;
+  const answered = run.next();
+  expectAction(answered, 'verify', 1);
+  assert.match(answered.decision.reason, /Q1 were answered after round 1/);
+
+  run.addRound(verdict(identity(cwd)));
+  expectAction(run.next(), 'commit', 1);
 });
 
 test('scenario: fix and re-review — a failed candidate is fixed and freshly verified', t => {
@@ -136,7 +142,7 @@ test('scenario: fix and re-review — a failed candidate is fixed and freshly ve
   expectAction(run.next(), 'verify', 1);
 
   run.addRound(verdict(identity(cwd)));
-  expectAction(run.next(), 'publish', 0);
+  expectAction(run.next(), 'commit', 1);
 });
 
 test('scenario: stale verdict — an edit after a pass requires a fresh verification', t => {
@@ -186,7 +192,7 @@ test('a blocked candidate may be re-verified once the missing capability is obta
   const candidate = identity(cwd);
   run.addRound(verdict(candidate, 'blocked'));
   run.addRound(verdict(candidate, 'pass'));
-  expectAction(run.next(), 'publish', 0);
+  expectAction(run.next(), 'commit', 1);
 });
 
 test('a passing verdict for another Issue cannot publish', t => {
@@ -219,10 +225,10 @@ test('optional findings do not trigger another round', t => {
   run.addRound(verdict(identity(cwd), 'pass', {
     findings: [{ id: 'F1', severity: 'optional', status: 'open', summary: 'Naming could be clearer', evidence: 'feature.txt:1' }],
   }));
-  expectAction(run.next(), 'publish', 0);
+  expectAction(run.next(), 'commit', 1);
 });
 
-test('an unreadable verdict stops the loop', t => {
+test('a schema-invalid verdict stops the loop', t => {
   const cwd = repository(t);
   const run = loop(t, cwd);
   run.addRound(verdict(identity(cwd), 'pass', { checks: [] }));
@@ -239,6 +245,8 @@ test('malformed state and options are rejected', t => {
     JSON.stringify({ schemaVersion: 1, issue: 1, maxRounds: 0, questions: [], rounds: [] }),
     JSON.stringify({ schemaVersion: 1, issue: 1, questions: [{ id: 'Q1', text: 'x', material: 'yes', status: 'open' }], rounds: [] }),
     JSON.stringify({ schemaVersion: 1, issue: 1, questions: [], rounds: [{}] }),
+    JSON.stringify({ schemaVersion: 1, issue: 1, questions: [{ id: 'Q1', text: 'x', material: true, status: 'answered' }], rounds: [] }),
+    JSON.stringify({ schemaVersion: 1, issue: 1, questions: [{ id: 'Q1', text: 'x', material: true, status: 'answered', answeredAfterRound: 1 }], rounds: [] }),
   ]) {
     assert.equal(run.write(raw).status, 2, raw);
   }
@@ -248,4 +256,72 @@ test('malformed state and options are rejected', t => {
     assert.equal(run.next(options).status, 2, options.join(' '));
   }
   assert.equal(command(process.execPath, [SCRIPT], cwd).status, 2);
+});
+
+test('bad refs are usage errors, not verdict decisions', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  run.addRound(verdict(identity(cwd)));
+  for (const options of [['--commit', 'HEADD'], ['--base', 'origin/nope']]) {
+    const outcome = run.next(options);
+    assert.equal(outcome.status, 2, options.join(' '));
+    assert.match(outcome.stderr, /^ERROR: /);
+  }
+});
+
+test('every round must be a valid verdict for the loop Issue', t => {
+  const cwd = repository(t);
+  const malformed = loop(t, cwd);
+  malformed.addRound(verdict(identity(cwd), 'pass', { issue: '1' }));
+  const invalid = malformed.next();
+  expectAction(invalid, 'stop', 3);
+  assert.match(invalid.decision.reason, /round 1 verdict is invalid/);
+
+  const mixed = loop(t, cwd);
+  mixed.addRound(verdict(identity(cwd), 'fail', { issue: 2 }));
+  writeFileSync(join(cwd, 'feature.txt'), 'corrected\n');
+  mixed.addRound(verdict(identity(cwd)));
+  const other = mixed.next();
+  expectAction(other, 'stop', 3);
+  assert.match(other.decision.reason, /round 1 verdict is for Issue #2, not Issue #1/);
+});
+
+test('rounds beyond the budget stop even when blocked rounds end in a pass', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  const candidate = identity(cwd);
+  for (let i = 0; i < 3; i++) run.addRound(verdict(candidate, 'blocked'));
+  run.addRound(verdict(candidate, 'pass'));
+  const stopped = run.next();
+  expectAction(stopped, 'stop', 3);
+  assert.match(stopped.decision.reason, /4 rounds exceed the round budget of 3/);
+});
+
+test('a worktree reverted to a failed candidate must be fixed, not re-verified', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  run.addRound(verdict(identity(cwd), 'fail'));
+  writeFileSync(join(cwd, 'feature.txt'), 'corrected\n');
+  run.addRound(verdict(identity(cwd)));
+  writeFileSync(join(cwd, 'feature.txt'), 'implementation\n');
+  const reverted = run.next();
+  expectAction(reverted, 'fix', 1);
+  assert.match(reverted.decision.reason, /identical to failed round 1/);
+});
+
+test('a failed uncommitted candidate is fixed, also when checked with --commit', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  run.addRound(verdict(identity(cwd), 'fail'));
+  expectAction(run.next(['--commit', 'HEAD']), 'fix', 1);
+});
+
+test('a material answer after a failed round allows verifying the unchanged candidate again', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  run.state.questions.push({ id: 'Q1', text: 'Which roles may call it?', material: true, status: 'answered', answeredAfterRound: 1 });
+  run.addRound(verdict(identity(cwd), 'fail'));
+  expectAction(run.next(), 'verify', 1);
+  run.addRound(verdict(identity(cwd)));
+  expectAction(run.next(), 'commit', 1);
 });
