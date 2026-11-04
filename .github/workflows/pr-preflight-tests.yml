@@ -6,6 +6,8 @@ on:
     paths:
       - '.agents/scripts/pr-size-preflight.mjs'
       - '.agents/scripts/pr-size-preflight.test.mjs'
+      - '.agents/scripts/verification-verdict.mjs'
+      - '.agents/scripts/verification-verdict.test.mjs'
       - '.claude/settings.json'
       - '.codex/hooks.json'
       - '.github/workflows/pr-preflight-tests.yml'
@@ -24,3 +26,4 @@ jobs:
         with:
           node-version: '22'
       - run: node --test .agents/scripts/pr-size-preflight.test.mjs
+      - run: node --test .agents/scripts/verification-verdict.test.mjs

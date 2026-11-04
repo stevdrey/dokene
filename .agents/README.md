@@ -77,6 +77,8 @@ Every behavioral change requires appropriate tests. Run the narrowest relevant c
 
 For cross-cutting changes, verify both backend and frontend contracts when relevant.
 
+Before publishing an Issue implementation, obtain an independent verdict for the exact candidate with `.agents/skills/independent-implementation-verification/SKILL.md`.
+
 A successful check remains valid until relevant source, tests, build configuration, dependencies, environment, or external state changes. Do not repeat it merely for reassurance.
 
 When a check requires network, Docker, credentials, or host-level access, first determine whether that capability is actually necessary. Batch checks that require the same capability and diagnose failures before retrying.
