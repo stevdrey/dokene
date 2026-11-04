@@ -43,7 +43,7 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 | The same for a draft | `OpenAiResponsesApiAdapterTest.draftTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry` |
 | A provider `400` about the ceiling maps to `REJECTED_REQUEST` with one call and no provider text in the message | `OpenAiResponsesApiAdapterTest.draftProviderRejectionOfTheCeilingFailsAsRejectedRequest` |
 | Existing representative outputs, refusals, status mapping and error mapping are unchanged | the other 36 tests of `OpenAiResponsesApiAdapterTest`, all at the default ceiling |
-| Default 4096 when unset or empty; a configured value binds; 255, 16385, 0 and -1 fail startup naming only the property; 256 and 16384 are accepted; the 5-argument constructor keeps the default | `OpenAiConfigurationTest.defaultsTheOutputTokenCeilingWhenUnset`, `anEmptyOutputTokenCeilingFallsBackToTheDefault`, `bindsAConfiguredOutputTokenCeiling`, `failsStartupWhenTheOutputTokenCeilingIsOutOfRange`, `acceptsTheOutputTokenCeilingBounds` |
+| Default 4096 when unset or empty; a configured value binds; 255, 16385, 0 and -1 fail startup naming only the property; 256 and 16384 are accepted; the 5-argument constructor keeps the default | `OpenAiConfigurationTest.defaultsTheOutputTokenCeilingWhenUnset`, `anEmptyOutputTokenCeilingFallsBackToTheDefault`, `theShippedApplicationYamlGivesTheDefaultWhetherTheVariableIsUnsetOrEmpty` (loads the real `application.yml`: unset and empty give 4096, `2048` gives 2048), `bindsAConfiguredOutputTokenCeiling`, `failsStartupWhenTheOutputTokenCeilingIsOutOfRange`, `acceptsTheOutputTokenCeilingBounds` |
 | An invalid structured response is not retried, is audited with its category, and degrades the request with no outcome delivered | existing `AiFailureHandlingIntegrationTest.malformedStructuredOutputIsNotRetriedAndIsAuditedWithItsCategory` and the non-retryable categories case of `ResilientAiProviderTest` (unchanged; the truncation tests above show a cut-off response takes this path) |
 | The deterministic evaluation report still matches its committed baseline | `AiEvalDeterministicIntegrationTest` |
 
@@ -56,6 +56,8 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 | After the code review follow-ups: the same command | 42 + 9 tests, 0 failures |
 | `./gradlew check` | passed: 2374 tests, 0 failures, 0 skipped |
 | After the code review follow-ups: `./gradlew check` | passed: 2375 tests, 0 failures, 0 skipped |
+| `docker compose config backend` with the variable unset (read only, no container started) | the backend receives `DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS: ""`, which the test above binds to 4096 |
+| After adding the shipped `application.yml` test: `./gradlew test --tests '*OpenAiConfigurationTest'` | 11 tests, 0 failures |
 | After moving the default into the code only: `./gradlew test --tests '*OpenAiConfigurationTest' --tests '*OpenAiResponsesApiAdapterTest'` and `./gradlew check` | 10 + 42 tests; `check` passed: 2376 tests, 0 failures, 0 skipped |
 | `./gradlew spikeTest --tests '*OpenAiCallCancellationSpikeTest'` (opt-in, the other caller of the properties constructor) | 10 tests, 0 failures |
 

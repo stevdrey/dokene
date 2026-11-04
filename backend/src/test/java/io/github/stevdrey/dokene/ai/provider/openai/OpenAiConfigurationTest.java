@@ -4,6 +4,7 @@ import com.openai.client.OpenAIClient;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -98,6 +99,23 @@ class OpenAiConfigurationTest {
                 "dokene.ai.openai.max-output-tokens="
         ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
                 .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+    }
+
+    @Test
+    void theShippedApplicationYamlGivesTheDefaultWhetherTheVariableIsUnsetOrEmpty() {
+        ApplicationContextRunner shipped = runner
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues("dokene.ai.provider=openai", "dokene.ai.openai.api-key=test-api-key");
+
+        shipped.run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+        // compose.yaml passes the variable as an empty string when it is not set
+        shipped.withSystemProperties("DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS=")
+                .run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                        .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+        shipped.withSystemProperties("DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS=2048")
+                .run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                        .isEqualTo(2048));
     }
 
     @Test
