@@ -110,7 +110,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("35");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("36");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -194,9 +194,9 @@ class TenantPersistenceIntegrationTest {
                 WHERE schemaname = 'dokene' AND tablename = 'tenant_memberships'
                 ORDER BY policyname
                 """);
-        assertThat(policies).hasSize(5);
+        // V36 (issue 315) dropped the delete policy together with the runtime DELETE grant.
+        assertThat(policies).hasSize(4);
         assertThat(policies).extracting("policyname").containsExactly(
-                "tenant_memberships_delete_policy",
                 "tenant_memberships_insert_policy",
                 "tenant_memberships_migration_policy",
                 "tenant_memberships_select_policy",
@@ -703,9 +703,11 @@ class TenantPersistenceIntegrationTest {
             int updatedRows = jdbcTemplate.update("UPDATE tenant_memberships SET role = 'VIEWER'");
             assertThat(updatedRows).isEqualTo(1);
 
-            // 4. Unscoped DELETE affects only Tenant A rows
-            int deletedRows = jdbcTemplate.update("DELETE FROM tenant_memberships");
-            assertThat(deletedRows).isEqualTo(1);
+            // 4. The runtime role cannot delete memberships at all; revocation is a status change (issue 315)
+            assertThatThrownBy(() -> jdbcTemplate.update("DELETE FROM tenant_memberships"))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause()
+                    .hasMessageContaining("permission denied");
         });
 
         // Within Tenant B context: verify Tenant B membership was completely unaffected by Tenant A's operations
@@ -742,14 +744,14 @@ class TenantPersistenceIntegrationTest {
                     .rootCause()
                     .hasMessageContaining("row-level security policy");
 
-            // Attempt to reassign Tenant A membership to Tenant B fails closed via RLS WITH CHECK
+            // Attempt to reassign Tenant A membership to Tenant B fails closed: tenant_id is not updatable (issue 315)
             assertThatThrownBy(() -> jdbcTemplate.update(
                     "UPDATE tenant_memberships SET tenant_id = ? WHERE id = ?",
                     tenantB.id().value(), membershipA.id().value()
             ))
                     .isInstanceOf(org.springframework.dao.DataAccessException.class)
                     .rootCause()
-                    .hasMessageContaining("row-level security policy");
+                    .hasMessageContaining("permission denied");
         });
     }
 

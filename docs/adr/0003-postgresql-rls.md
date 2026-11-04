@@ -20,7 +20,7 @@ RLS policies on protected tables restrict visible rows to that tenant and reject
 
 ## Rules
 - Protected tenant-scoped tables must enable RLS with `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` to prevent accidental owner bypass.
-- Explicit policies must be defined for `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rather than relying on permissive defaults (the tenant root and workspace provisioning records are deliberate exceptions; see [Tenant root and provisioning records](#tenant-root-and-provisioning-records) and do not add the missing policies or privileges there):
+- Explicit policies must be defined for `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rather than relying on permissive defaults (the tenant root, tenant memberships and workspace provisioning records are deliberate exceptions; see [Tenant root and provisioning records](#tenant-root-and-provisioning-records) and do not add the missing policies or privileges there):
   - `SELECT`: `USING (tenant_id = dokene.current_verified_tenant_id())`
   - `INSERT`: `WITH CHECK (tenant_id = dokene.current_verified_tenant_id())`
   - `UPDATE`: `USING (tenant_id = dokene.current_verified_tenant_id()) WITH CHECK (tenant_id = dokene.current_verified_tenant_id())`
@@ -86,3 +86,8 @@ not a global table for the runtime role. Since V16/V17 (issue #183):
     cannot record a mapping for another identity. Rejections raise `insufficient_privilege`.
 - Membership discovery and the default follow-up-policy trigger keep working through their
   `SECURITY DEFINER` functions and the explicit `dokene_migration` policies.
+- Since V36 (issue #315, audit L5) `tenant_memberships` follows the tenant root: the runtime role
+  keeps `SELECT` and `INSERT` (invitation and the initial owner), has no `DELETE` privilege or
+  delete policy, and may update only `role`, `status`, `updated_at`, and `version`. Revocation and
+  suspension are status changes, so a membership's id, tenant, identity and creation time never
+  change after insert.
