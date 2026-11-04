@@ -3,9 +3,10 @@ spring:
     name: dokene
   config:
     # Secrets mounted as files (Compose secrets, issue 308): each file name is a property name, so
-    # /run/secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY resolves ${DOKENE_TENANT_CONTEXT_SIGNING_KEY} without exposing the
-    # value in the process environment. Host-run backends keep using environment variables.
-    import: optional:configtree:/run/secrets/
+    # /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY resolves ${DOKENE_TENANT_CONTEXT_SIGNING_KEY} without exposing
+    # the value in the process environment. A directory of its own, so unrelated mounted secrets (for example a
+    # Kubernetes service-account token) never become properties. Host-run backends keep using environment variables.
+    import: optional:configtree:/run/secrets/dokene/
   datasource:
     url: ${DOKENE_DB_URL}
     username: ${DOKENE_DB_USERNAME}

@@ -20,6 +20,7 @@ import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.exception.FlywayValidateException;
+import org.flywaydb.core.internal.exception.FlywaySqlException;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -86,8 +87,9 @@ class MigrationJobSeparationIntegrationTest {
                 .target(PREVIOUS_RELEASE_VERSION)
                 .load().migrate();
 
-        // V33 predates the schema-history grant, so even validation is refused until the job runs.
-        assertThatThrownBy(() -> runtimeFlyway(url).validate()).isInstanceOf(RuntimeException.class);
+        // V33 predates the schema-history grant, so even validation is refused until the job runs. It is a SQL
+        // failure, not a validation failure: RuntimeSchemaValidationConfiguration must wrap both with its hint.
+        assertThatThrownBy(() -> runtimeFlyway(url).validate()).isInstanceOf(FlywaySqlException.class);
         assertThatThrownBy(() -> runtimeFlyway(url).migrate()).isInstanceOf(RuntimeException.class);
         assertThat(runJob(url)).isZero();
         runtimeFlyway(url).validate();
@@ -129,8 +131,8 @@ class MigrationJobSeparationIntegrationTest {
                 InputStream job = getClass().getResourceAsStream("/application-migration.yml")) {
             String runtimeConfiguration = new String(runtime.readAllBytes(), StandardCharsets.UTF_8);
             assertThat(runtimeConfiguration).doesNotContain("DOKENE_DB_MIGRATION");
-            // Compose mounts the signing key under /run/secrets; the configtree import resolves it from there.
-            assertThat(runtimeConfiguration).contains("import: optional:configtree:/run/secrets/");
+            // Compose mounts the signing key under /run/secrets/dokene; only that directory becomes properties.
+            assertThat(runtimeConfiguration).contains("import: optional:configtree:/run/secrets/dokene/");
             assertThat(new String(job.readAllBytes(), StandardCharsets.UTF_8)).contains("DOKENE_DB_MIGRATION_PASSWORD");
         }
     }

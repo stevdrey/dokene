@@ -57,7 +57,7 @@ echo -n "Checking Keycloak OIDC discovery... "
 DISCOVERY_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "$KEYCLOAK_URL/realms/dokene/.well-known/openid-configuration" || true)"
 if [ "$DISCOVERY_STATUS" != "200" ]; then
     echo "FAILED (HTTP $DISCOVERY_STATUS)"
-    echo "Error: Keycloak is unreachable at $KEYCLOAK_URL. Run 'docker compose up -d'." >&2
+    echo "Error: Keycloak is unreachable at $KEYCLOAK_URL. Run './scripts/dev-env.sh up'." >&2
     exit 1
 fi
 echo "OK"
@@ -201,7 +201,7 @@ if echo "$MEMBERSHIPS_JSON" | jq -e ".[] | select(.identityId == \"$OPERATOR_IDE
     CURRENT_OP_STATUS="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\") | .status")"
     if [ "$CURRENT_OP_STATUS" = "REVOKED" ]; then
         echo "Error: Membership for 'testoperator' in workspace '$WORKSPACE_NAME' is in REVOKED status." >&2
-        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. 'docker compose down -v && docker compose up -d') to run QA seeding afresh." >&2
+        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. './scripts/dev-env.sh reset' and then './scripts/dev-env.sh up --seed') to run QA seeding afresh." >&2
         exit 1
     fi
     CURRENT_OP_ROLE="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\") | .role")"
@@ -231,7 +231,7 @@ if echo "$MEMBERSHIPS_JSON" | jq -e ".[] | select(.identityId == \"$VIEWER_IDENT
     CURRENT_VI_STATUS="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\") | .status")"
     if [ "$CURRENT_VI_STATUS" = "REVOKED" ]; then
         echo "Error: Membership for 'testviewer' in workspace '$WORKSPACE_NAME' is in REVOKED status." >&2
-        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. 'docker compose down -v && docker compose up -d') to run QA seeding afresh." >&2
+        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. './scripts/dev-env.sh reset' and then './scripts/dev-env.sh up --seed') to run QA seeding afresh." >&2
         exit 1
     fi
     CURRENT_VI_ROLE="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\") | .role")"

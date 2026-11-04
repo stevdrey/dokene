@@ -47,9 +47,10 @@ Since issue 308 (audit M4) the migration credential exists only in a one-shot jo
   changed migration stops startup and points at the job. V34 grants the runtime role `SELECT` on the Flyway history for
   this; it holds no tenant data. `dokene.database.migrate-on-startup` exists only for integration tests, which also
   supply the migration credentials.
-- The signing key and the migration password are delivered as files (`/run/secrets/<NAME>`, read through Spring's
-  `configtree` import), so they are absent from the process environment, `/proc/<pid>/environ` and `docker inspect`.
-  Host-run backends may still use environment variables.
+- The signing key and the migration password are delivered as files (`/run/secrets/dokene/<NAME>`, read through
+  Spring's `configtree` import, which reads only that directory so other mounted secrets never become properties), so
+  they are absent from the process environment, `/proc/<pid>/environ` and `docker inspect`. Host-run backends may
+  still use environment variables.
 
 Threat model and residual risk: a compromise of the backend process yields only `dokene_runtime` (no DDL, no RLS
 bypass, no audit modification, no read of `tenant_context_signing_keys`). The backend must still hold the signing key to

@@ -117,7 +117,9 @@ check "compose minimum is 2.27.2, patch included (#308 review)" \
 doctor_does_not_write_secret_files() {
   # shellcheck source=../dev-env.sh
   source "$SCRIPT" || return 1
-  # shellcheck disable=SC2329  # a stub the sourced cmd_doctor must not reach
+  # shellcheck disable=SC2329  # stubs the sourced cmd_doctor must not reach
+  resolve_secret_files() { echo called; }
+  # shellcheck disable=SC2329
   write_secret_files() { echo called; }
   check_docker() { :; }; check_tools() { :; }; check_env() { :; }; check_ports() { :; }; ok() { :; }
   [ -z "$(cmd_doctor)" ]
@@ -147,25 +149,37 @@ ENV
     # shellcheck source=../dev-env.sh
     source "$SCRIPT" || exit 1
     ROOT_DIR="$work"
-    write_secret_files || exit 1
+    CALLS=""; RM_FAILS=false
+    warn() { :; }; fail() { :; }
+    compose() {
+      if [ "$1" = "rm" ]; then CALLS="$CALLS|$*"; [ "$RM_FAILS" = "false" ]; else (cd "$ROOT_DIR" && docker compose "$@"); fi
+    }
+    refresh_secret_files || exit 1
     [ "$(cat "$work/custom-secrets/DOKENE_DB_MIGRATION_PASSWORD")" = "quoted pass" ] || exit 1
     [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" = "$key" ] || exit 1
     [ ! -e "$work/.secrets" ] || exit 1
-    # Unchanged values recreate nothing; a changed signing key drops migrate and backend for recreation.
-    CALLS=""
-    warn() { :; }
-    compose() { if [ "$1" = "rm" ]; then CALLS="$CALLS|$*"; else (cd "$ROOT_DIR" && docker compose "$@"); fi; }
-    write_secret_files && recreate_after_secret_change || exit 1
-    [ "$SECRETS_CHANGED" = "false" ] && [ -z "$CALLS" ] || exit 1
+    [ "$(stat -c %a "$work/custom-secrets" 2>/dev/null || stat -f %Lp "$work/custom-secrets")" = "700" ] || exit 1
+    # Unchanged values remove nothing.
+    refresh_secret_files && [ -z "$CALLS" ] || exit 1
+    # A changed key whose container removal fails keeps the old file, so the next run detects the change again.
     sed -i.bak "s/^DOKENE_TENANT_CONTEXT_SIGNING_KEY=.*/DOKENE_TENANT_CONTEXT_SIGNING_KEY=$(printf 'fedcba9876543210%.0s' 1 2 3 4)/" "$work/.env"
-    write_secret_files && recreate_after_secret_change || exit 1
-    [ "$SECRETS_CHANGED" = "true" ] && [ "$CALLS" = "|rm -f -s migrate backend" ] || exit 1
-    [ "$(stat -c %a "$work/custom-secrets" 2>/dev/null || stat -f %Lp "$work/custom-secrets")" = "700" ]
+    RM_FAILS=true
+    ! refresh_secret_files || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" = "$key" ] || exit 1
+    RM_FAILS=false; CALLS=""
+    refresh_secret_files && [ "$CALLS" = "|rm -f -s migrate backend" ] || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" != "$key" ] || exit 1
+    # A shared, world-writable directory is refused and left as it was.
+    mkdir -p "$work/shared" && chmod 1777 "$work/shared"
+    sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/shared|" "$work/.env"
+    ! refresh_secret_files || exit 1
+    [ "$(stat -c %a "$work/shared" 2>/dev/null || stat -f %Lp "$work/shared")" = "1777" ] || exit 1
+    [ ! -e "$work/shared/DOKENE_DB_MIGRATION_PASSWORD" ]
   ) && rc=0
   rm -rf "$work"
   return "$rc"
 }
-check "secret files use Compose-resolved values and DOKENE_SECRETS_DIR, and a change recreates migrate and backend (#308)" secret_files_follow_compose_interpolation
+check "secret files: Compose-resolved values, safe DOKENE_SECRETS_DIR, recreation survives a failed removal (#308)" secret_files_follow_compose_interpolation
 
 # Runs the real healthcheck command in a container whose resolver has a search domain. Needs a Docker daemon.
 healthcheck_survives_search_domain() {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.exception.FlywayValidateException;
+import org.flywaydb.core.internal.exception.FlywaySqlException;
 import org.junit.jupiter.api.Test;
 
 class RuntimeSchemaValidationConfigurationTest {
@@ -35,6 +36,17 @@ class RuntimeSchemaValidationConfigurationTest {
                 .hasMessageContaining("Run the migration job")
                 .hasCauseInstanceOf(FlywayValidateException.class);
         verify(flyway, never()).migrate();
+    }
+
+    @Test
+    void pointsAtTheMigrationJobWhenTheRuntimeRoleCannotReadTheHistory() {
+        Flyway flyway = mock(Flyway.class);
+        doThrow(FlywaySqlException.class).when(flyway).validate();
+
+        assertThatThrownBy(() -> configuration.runtimeFlywayMigrationStrategy(false).migrate(flyway))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Run the migration job")
+                .hasCauseInstanceOf(FlywaySqlException.class);
     }
 
     @Test

@@ -28,7 +28,9 @@ ENV_FILE="$ROOT_DIR/.env"
 ENV_EXAMPLE="$ROOT_DIR/.env.example"
 MIN_COMPOSE_MAJOR=2
 MIN_COMPOSE_MINOR=27
-# 2.27.2 added `docker compose config --environment`, which write_secret_files relies on (issue 308).
+# 2.27.2 added `docker compose config --environment`, which resolve_secret_files relies on (issue 308). Its `up --wait`
+# already waits for a service that another one depends on with service_completed_successfully (`migrate`) to complete
+# rather than to stay running (getDependencyCondition in pkg/compose/start.go at v2.27.2).
 MIN_COMPOSE_PATCH=2
 WAIT_TIMEOUT="${DOKENE_WAIT_TIMEOUT:-300}"
 
@@ -347,41 +349,66 @@ preflight() {
   return 0
 }
 
-# Compose mounts these .env values as files under /run/secrets (issue 308): only the migrate job gets the migration
-# password, and neither it nor the signing key is in any container's environment. Compose refuses environment-sourced
-# secrets for read-only services, so they are written to a directory only the owner can list. The files are
-# world-readable because the containers run as uid 10001; the directory mode keeps other host users out.
+# Compose mounts these .env values as files under /run/secrets/dokene (issue 308): only the migrate job gets the
+# migration password, and neither it nor the signing key is in any container's environment. Compose refuses
+# environment-sourced secrets for read-only services, so they are written to a directory only the owner can list. The
+# files are world-readable because the containers run as uid 10001; the directory mode keeps other host users out.
 # Values and the directory come from Compose's own interpolation environment (shell over .env, quotes resolved), so the
 # files always match what PostgreSQL and compose.yaml (DOKENE_SECRETS_DIR, default ./.secrets) see.
-# Sets SECRETS_CHANGED=true when a file's content changed: Compose does not recreate a container for that (secret contents
-# are not part of its configuration hash, and a running container keeps the replaced file's old inode).
-write_secret_files() {
-  local environment dir name value
-  SECRETS_CHANGED=false
-  environment="$(compose config --environment)" || { fail "docker compose could not resolve .env for the secret files."; return 1; }
-  dir="$(compose_variable "$environment" DOKENE_SECRETS_DIR)"
-  dir="${dir:-./.secrets}"
-  case "$dir" in /*) ;; *) dir="$ROOT_DIR/${dir#./}" ;; esac
-  ( umask 077 && mkdir -p "$dir" )
-  chmod 700 "$dir"
+#
+# resolve_secret_files: sets SECRETS_DIR and SECRETS_ENVIRONMENT; creates the directory (mode 0700) when missing and
+# refuses an existing one that is not the user's own or that others can write to (for example /tmp), never chmod-ing it.
+resolve_secret_files() {
+  local mode owner
+  SECRETS_ENVIRONMENT="$(compose config --environment)" \
+    || { fail "docker compose could not resolve .env for the secret files."; return 1; }
+  SECRETS_DIR="$(compose_variable "$SECRETS_ENVIRONMENT" DOKENE_SECRETS_DIR)"
+  SECRETS_DIR="${SECRETS_DIR:-./.secrets}"
+  case "$SECRETS_DIR" in /*) ;; *) SECRETS_DIR="$ROOT_DIR/${SECRETS_DIR#./}" ;; esac
+  if [ ! -e "$SECRETS_DIR" ]; then
+    ( umask 077 && mkdir -p "$SECRETS_DIR" ) || { fail "Cannot create $SECRETS_DIR."; return 1; }
+    return 0
+  fi
+  mode="$(stat -c %a "$SECRETS_DIR" 2>/dev/null || stat -f %Lp "$SECRETS_DIR" 2>/dev/null)"
+  owner="$(stat -c %u "$SECRETS_DIR" 2>/dev/null || stat -f %u "$SECRETS_DIR" 2>/dev/null)"
+  if [ ! -d "$SECRETS_DIR" ] || [ "$owner" != "$(id -u)" ] || [ $(( 8#${mode:-777} & 8#022 )) -ne 0 ]; then
+    fail "DOKENE_SECRETS_DIR ($SECRETS_DIR) must be a directory of your own that others cannot write to; use a dedicated one."
+    return 1
+  fi
+}
+
+# secret_files_changed: true when a value differs from its existing file. Compose does not recreate a container for that
+# (secret contents are not part of its configuration hash). A missing file is not a change (first start). Values are
+# compared through stdin, never on the command line.
+secret_files_changed() {
+  local name
   for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
-    value="$(compose_variable "$environment" "$name")"
-    # Comparing through files keeps the value off the command line; a missing file counts as unchanged (first start).
-    if [ -f "$dir/$name" ] && ! printf '%s' "$value" | cmp -s - "$dir/$name"; then
-      SECRETS_CHANGED=true
-    fi
-    rm -f "$dir/$name"
-    printf '%s' "$value" > "$dir/$name"
-    chmod 444 "$dir/$name"
+    [ -f "$SECRETS_DIR/$name" ] || continue
+    printf '%s' "$(compose_variable "$SECRETS_ENVIRONMENT" "$name")" | cmp -s - "$SECRETS_DIR/$name" || return 0
+  done
+  return 1
+}
+
+write_secret_files() {
+  local name
+  for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
+    rm -f "$SECRETS_DIR/$name"
+    printf '%s' "$(compose_variable "$SECRETS_ENVIRONMENT" "$name")" > "$SECRETS_DIR/$name"
+    chmod 444 "$SECRETS_DIR/$name"
   done
 }
 
-# recreate_after_secret_change: drops migrate and backend after a secret changed so the next `up` recreates both with
-# the new files; otherwise the job would re-provision a signing key the running backend no longer uses, or vice versa.
-recreate_after_secret_change() {
-  [ "${SECRETS_CHANGED:-false}" = "true" ] || return 0
-  warn "A secret changed in .env since the last start."
-  drop_services migrate backend
+# refresh_secret_files: resolves, and when a secret changed removes migrate and backend first so the next `up` recreates
+# both with the new files; otherwise the job would re-provision a signing key the running backend no longer uses. The
+# files are rewritten only after that removal succeeded, so a failed removal is detected again on the next run.
+refresh_secret_files() {
+  resolve_secret_files || return 1
+  if secret_files_changed; then
+    warn "A secret changed in .env since the last start; recreating migrate and backend."
+    compose rm -f -s migrate backend >/dev/null \
+      || { fail "Could not remove the migrate and backend containers; the secret files were left unchanged."; return 1; }
+  fi
+  write_secret_files
 }
 
 # compose_variable ENVIRONMENT NAME: the value of NAME in `docker compose config --environment` output (KEY=VALUE lines).
@@ -523,8 +550,7 @@ cmd_up() {
 
   preflight || exit 1
   # Written only by the commands that start containers, so `doctor` cannot consume a change before `up` acts on it.
-  write_secret_files || exit 1
-  recreate_after_secret_change
+  refresh_secret_files || exit 1
 
   [ "$INFRA_ONLY" = "true" ] || repair_networkless_bridge
 
@@ -568,7 +594,7 @@ cmd_restart_backend() {
 
   preflight || exit 1
   # --force-recreate below already picks up changed secret files.
-  write_secret_files || exit 1
+  { resolve_secret_files && write_secret_files; } || exit 1
 
   # The one-shot migrate job (issue 308) runs first so a rebuilt backend never starts against an older schema.
   info "Running migrations and recreating backend and oidc-bridge..."

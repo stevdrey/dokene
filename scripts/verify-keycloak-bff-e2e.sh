@@ -58,7 +58,7 @@ DISCOVERY_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "$KEYCLOAK_URL/realms
 if [ "$DISCOVERY_STATUS" != "200" ]; then
     echo "FAILED (HTTP $DISCOVERY_STATUS)"
     echo "Keycloak is not running or unreachable at $KEYCLOAK_URL."
-    echo "Please start local infrastructure: docker compose up -d"
+    echo "Please start local infrastructure: ./scripts/dev-env.sh up"
     exit 1
 fi
 echo "OK (HTTP 200)"

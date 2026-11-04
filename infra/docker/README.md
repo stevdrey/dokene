@@ -14,9 +14,10 @@
 | `frontend` | `infra/docker/frontend` (unprivileged nginx) | `127.0.0.1:5173` | static build + same-origin proxy of `/api`, `/oauth2`, `/login`, `/logout`, `/webhooks` |
 
 The migration credential reaches only `migrate`. The tenant-context signing key and the migration password are
-Compose secrets that `./scripts/dev-env.sh` writes from `.env` into the git-ignored `.secrets/` directory (mode 0700)
-and Compose mounts under `/run/secrets/` (read through Spring's `configtree` import), so
-they are not in any container's environment. On an upgrade, `up` runs `migrate` again before the new backend; a
+Compose secrets that `./scripts/dev-env.sh up` writes from `.env` into the git-ignored `.secrets/` directory (created
+with mode 0700; `DOKENE_SECRETS_DIR` may name another directory of your own that others cannot write to) and Compose
+mounts under `/run/secrets/dokene/` (read through Spring's `configtree` import, which reads only that directory), so
+they are not in any container's environment. When a secret changes, `up` recreates `migrate` and `backend`. On an upgrade, `up` runs `migrate` again before the new backend; a
 backend that finds a pending migration refuses to start and points at `./scripts/dev-env.sh logs migrate`.
 
 All published ports are bound to loopback. The images drop all Linux capabilities, use `no-new-privileges` and

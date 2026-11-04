@@ -130,6 +130,12 @@ services:
   # it applies the Flyway migrations as dokene_migration, provisions the tenant-context signing key, and exits. The
   # backend starts only after it completed successfully and connects as dokene_runtime, which can merely validate.
   migrate:
+    # Same build as `backend` (one image, cached), so `migrate` can be started or run on its own on a fresh clone.
+    build:
+      context: ./backend
+      dockerfile: ../infra/docker/backend/Dockerfile
+      additional_contexts:
+        entrypoint: ./infra/docker/backend
     image: dokene-backend:local
     depends_on:
       postgres:
@@ -144,10 +150,13 @@ services:
       DOKENE_DB_URL: jdbc:postgresql://postgres:5432/${DOKENE_DB_NAME:?Set DOKENE_DB_NAME in .env}
       DOKENE_DB_MIGRATION_USERNAME: ${DOKENE_DB_MIGRATION_USERNAME:-dokene_migration}
       DOKENE_TENANT_CONTEXT_KEY_ID: ${DOKENE_TENANT_CONTEXT_KEY_ID:-default}
-    # Mounted as files under /run/secrets and read through Spring's configtree import, never as environment variables.
+    # Mounted as files under /run/secrets/dokene and read through Spring's configtree import, never as environment
+    # variables.
     secrets:
-      - DOKENE_DB_MIGRATION_PASSWORD
-      - DOKENE_TENANT_CONTEXT_SIGNING_KEY
+      - source: DOKENE_DB_MIGRATION_PASSWORD
+        target: /run/secrets/dokene/DOKENE_DB_MIGRATION_PASSWORD
+      - source: DOKENE_TENANT_CONTEXT_SIGNING_KEY
+        target: /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY
     read_only: true
     tmpfs:
       - /tmp
@@ -229,7 +238,8 @@ services:
       # Writing en-US messages (issue 268): off unless set to true; enable only once every instance runs this release.
       DOKENE_MESSAGING_ENGLISH_ENABLED: ${DOKENE_MESSAGING_ENGLISH_ENABLED:-false}
     secrets:
-      - DOKENE_TENANT_CONTEXT_SIGNING_KEY
+      - source: DOKENE_TENANT_CONTEXT_SIGNING_KEY
+        target: /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY
     read_only: true
     tmpfs:
       - /tmp
@@ -260,7 +270,7 @@ services:
 volumes:
   dokene-postgres:
 
-# File-mounted secrets (issue 308). A secret's name is its file name under /run/secrets and therefore the property name
+# File-mounted secrets (issue 308). Each is mounted as /run/secrets/dokene/<name>, so its name is the property name
 # Spring's configtree import resolves. ./scripts/dev-env.sh writes these files from .env into the git-ignored .secrets
 # directory before every start (Compose refuses environment-sourced secrets for read-only services).
 secrets:

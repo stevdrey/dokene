@@ -3,7 +3,7 @@
 package io.github.stevdrey.dokene.migration;
 
 import org.flywaydb.core.Flyway;
-import org.flywaydb.core.api.exception.FlywayValidateException;
+import org.flywaydb.core.api.FlywayException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy;
 import org.springframework.context.annotation.Bean;
@@ -24,10 +24,14 @@ class RuntimeSchemaValidationConfiguration {
         return migrateOnStartup ? Flyway::migrate : RuntimeSchemaValidationConfiguration::validate;
     }
 
+    /**
+     * Any Flyway failure gets the same hint: a pending migration fails validation, while a schema older than V34 refuses
+     * the runtime role read access to the history table before validation can even start.
+     */
     private static void validate(Flyway flyway) {
         try {
             flyway.validate();
-        } catch (FlywayValidateException exception) {
+        } catch (FlywayException exception) {
             throw new IllegalStateException(
                     "The database schema does not match this release. Run the migration job (Compose service "
                             + "'migrate') before starting the backend.",
