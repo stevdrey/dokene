@@ -154,7 +154,10 @@ public final class InvariantChecker {
                     schemaInvalid = true;
                 }
                 for (var reason : call.rejections()) {
-                    if (reason == io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT) {
+                    // Cut off at the output ceiling: an incomplete response, not something the model chose to say.
+                    if (reason == io.github.stevdrey.dokene.ai.application.AiOutputRejection.OUTPUT_TOKEN_LIMIT) {
+                        schemaInvalid = true;
+                    } else if (reason == io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT) {
                         unsafe = true;
                     } else {
                         allowlist = true;

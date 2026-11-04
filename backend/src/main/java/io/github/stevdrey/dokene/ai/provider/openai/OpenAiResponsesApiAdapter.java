@@ -187,19 +187,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                                 latency, extractUsage(response), AiFailureCategory.CANCELLED));
             }
 
-            ResponseStatus status = response != null && response.status().isPresent()
-                    ? response.status().get()
-                    : null;
-            if (!ResponseStatus.COMPLETED.equals(status)) {
-                AiFailureCategory category = ResponseStatus.CANCELLED.equals(status)
-                        ? AiFailureCategory.CANCELLED
-                        : (status == null || ResponseStatus.INCOMPLETE.equals(status))
-                        ? AiFailureCategory.INVALID_STRUCTURED_RESPONSE
-                        : AiFailureCategory.UNAVAILABLE;
-                throw new AiProviderException(category,
-                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                latency, extractUsage(response), category));
-            }
+            requireCompleted(response, modelId, latency);
 
             String outputText = extractOutputText(response);
             if (outputText.isBlank() && hasRefusal(response)) {
@@ -379,19 +367,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                                 latency, extractUsage(response), AiFailureCategory.CANCELLED));
             }
 
-            ResponseStatus status = response != null && response.status().isPresent()
-                    ? response.status().get()
-                    : null;
-            if (!ResponseStatus.COMPLETED.equals(status)) {
-                AiFailureCategory category = ResponseStatus.CANCELLED.equals(status)
-                        ? AiFailureCategory.CANCELLED
-                        : (status == null || ResponseStatus.INCOMPLETE.equals(status))
-                        ? AiFailureCategory.INVALID_STRUCTURED_RESPONSE
-                        : AiFailureCategory.UNAVAILABLE;
-                throw new AiProviderException(category,
-                        failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
-                                latency, extractUsage(response), category));
-            }
+            requireCompleted(response, modelId, latency);
 
             String outputText = extractOutputText(response);
             if (outputText.isBlank() && hasRefusal(response)) {
@@ -567,6 +543,7 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                 .instructions(draftSystemInstructions(draftLocale(context)))
                 .input(input)
                 .text(textConfig)
+                // The ceiling, not the schema maxLengths, is the effective draft size limit: a schema-maximum draft is larger.
                 .maxOutputTokens(properties.maxOutputTokens())
                 .store(false);
         correlation.current().ifPresent(id -> builder.putAdditionalHeader(CORRELATION_HEADER, id.toString()));
@@ -818,6 +795,33 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
             return response.id();
         }
         return null;
+    }
+
+    private void requireCompleted(Response response, String modelId, Duration latency) {
+        ResponseStatus status = response != null && response.status().isPresent()
+                ? response.status().get()
+                : null;
+        if (ResponseStatus.COMPLETED.equals(status)) {
+            return;
+        }
+        AiFailureCategory category = ResponseStatus.CANCELLED.equals(status)
+                ? AiFailureCategory.CANCELLED
+                : (status == null || ResponseStatus.INCOMPLETE.equals(status))
+                ? AiFailureCategory.INVALID_STRUCTURED_RESPONSE
+                : AiFailureCategory.UNAVAILABLE;
+        AiInvocationMetadata metadata = failureMetadata(resolveModelId(response, modelId), resolveRequestId(response),
+                latency, extractUsage(response), category);
+        if (ResponseStatus.INCOMPLETE.equals(status) && stoppedAtOutputCeiling(response)) {
+            throw new AiProviderException(category, metadata, AiOutputRejection.OUTPUT_TOKEN_LIMIT);
+        }
+        throw new AiProviderException(category, metadata);
+    }
+
+    private boolean stoppedAtOutputCeiling(Response response) {
+        return response.incompleteDetails()
+                .flatMap(Response.IncompleteDetails::reason)
+                .filter(Response.IncompleteDetails.Reason.MAX_OUTPUT_TOKENS::equals)
+                .isPresent();
     }
 
     private AiInvocationMetadata failureMetadata(String modelId, String requestId, Duration latency,

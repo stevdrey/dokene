@@ -2,7 +2,6 @@ package io.github.stevdrey.dokene.ai.provider.openai;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * Externalized configuration for OpenAI Responses API integration.
@@ -23,16 +22,16 @@ public record OpenAiProviderProperties(
 
     /**
      * Per-request output ceiling (reasoning tokens included) for both structured operations. About ten times the
-     * observed average output (about 390 tokens in a median 6.8 s, issue 124 baseline), and well above the roughly
-     * 850 tokens that rate yields in the 15 s timeout; the provider stops and bills at this point instead of
-     * generating after the client has given up. A response cut off here is incomplete and
-     * fails as an invalid structured response, which is never retried.
+     * observed average output (about 390 tokens in a median 6.8 s, issue 124 baseline). It caps what one attempt can
+     * generate and bill; it does not stop generation after the client times out. At that rate the 15 s timeout
+     * delivers roughly 850 tokens, so an abandoned attempt can still bill about 3.2k more. A response cut off here is
+     * incomplete and fails as an invalid structured response with reason {@code OUTPUT_TOKEN_LIMIT}, which is never
+     * retried. It is also the effective draft size limit: the draft schema allows more (about 5k tokens).
      */
     public static final int DEFAULT_MAX_OUTPUT_TOKENS = 4096;
     public static final int MAX_OUTPUT_TOKENS_FLOOR = 256;
     public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
 
-    @ConstructorBinding
     public OpenAiProviderProperties {
         if (model == null || model.isBlank()) {
             model = DEFAULT_MODEL;
@@ -53,9 +52,5 @@ public record OpenAiProviderProperties(
             throw new IllegalArgumentException("dokene.ai.openai.max-output-tokens must be between "
                     + MAX_OUTPUT_TOKENS_FLOOR + " and " + MAX_OUTPUT_TOKENS_CEILING);
         }
-    }
-
-    public OpenAiProviderProperties(String apiKey, String model, String baseUrl, Duration timeout, Integer maxRetries) {
-        this(apiKey, model, baseUrl, timeout, maxRetries, null);
     }
 }

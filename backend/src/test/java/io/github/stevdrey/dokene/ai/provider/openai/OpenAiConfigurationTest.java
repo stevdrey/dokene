@@ -72,11 +72,11 @@ class OpenAiConfigurationTest {
 
     @Test
     void validatesMaxRetriesInPropertiesConstructor() {
-        OpenAiProviderProperties defaultProps = new OpenAiProviderProperties("key", null, null, null, null);
+        OpenAiProviderProperties defaultProps = new OpenAiProviderProperties("key", null, null, null, null, null);
         assertThat(defaultProps.maxRetries()).isEqualTo(0);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new OpenAiProviderProperties("key", null, null, null, 1)
+                new OpenAiProviderProperties("key", null, null, null, 1, null)
         ).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("dokene.ai.openai.max-retries must be 0");
     }
@@ -148,6 +148,5 @@ class OpenAiConfigurationTest {
     void acceptsTheOutputTokenCeilingBounds() {
         assertThat(new OpenAiProviderProperties("key", null, null, null, 0, 256).maxOutputTokens()).isEqualTo(256);
         assertThat(new OpenAiProviderProperties("key", null, null, null, 0, 16384).maxOutputTokens()).isEqualTo(16384);
-        assertThat(new OpenAiProviderProperties("key", null, null, null, 0).maxOutputTokens()).isEqualTo(4096);
     }
 }
