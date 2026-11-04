@@ -126,6 +126,44 @@ services:
       keycloak:
         condition: service_healthy
 
+  # One-shot schema migration job (issue 308, audit M4). It is the only container holding the migration credentials;
+  # it applies the Flyway migrations as dokene_migration, provisions the tenant-context signing key, and exits. The
+  # backend starts only after it completed successfully and connects as dokene_runtime, which can merely validate.
+  migrate:
+    # Same build as `backend` (one image, cached), so `migrate` can be started or run on its own on a fresh clone.
+    build:
+      context: ./backend
+      dockerfile: ../infra/docker/backend/Dockerfile
+      additional_contexts:
+        entrypoint: ./infra/docker/backend
+    image: dokene-backend:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - java
+      - -Dloader.main=io.github.stevdrey.dokene.migration.DokeneMigrationApplication
+      - -cp
+      - /app/dokene.jar
+      - org.springframework.boot.loader.launch.PropertiesLauncher
+    environment:
+      DOKENE_DB_URL: jdbc:postgresql://postgres:5432/${DOKENE_DB_NAME:?Set DOKENE_DB_NAME in .env}
+      DOKENE_DB_MIGRATION_USERNAME: ${DOKENE_DB_MIGRATION_USERNAME:-dokene_migration}
+      DOKENE_TENANT_CONTEXT_KEY_ID: ${DOKENE_TENANT_CONTEXT_KEY_ID:-default}
+    # Mounted as files under /run/secrets/dokene and read through Spring's configtree import, never as environment
+    # variables.
+    secrets:
+      - source: DOKENE_DB_MIGRATION_PASSWORD
+        target: /run/secrets/dokene/DOKENE_DB_MIGRATION_PASSWORD
+      - source: DOKENE_TENANT_CONTEXT_SIGNING_KEY
+        target: /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -141,18 +179,19 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       # Inside Compose the database is `postgres:5432`; DOKENE_DB_URL in .env (localhost) is for host-run backends.
       DOKENE_DB_URL: jdbc:postgresql://postgres:5432/${DOKENE_DB_NAME:?Set DOKENE_DB_NAME in .env}
       DOKENE_DB_USERNAME: ${DOKENE_DB_USERNAME:-dokene_runtime}
       DOKENE_DB_PASSWORD: ${DOKENE_DB_PASSWORD:?Set DOKENE_DB_PASSWORD in .env}
-      DOKENE_DB_MIGRATION_USERNAME: ${DOKENE_DB_MIGRATION_USERNAME:-dokene_migration}
-      DOKENE_DB_MIGRATION_PASSWORD: ${DOKENE_DB_MIGRATION_PASSWORD:?Set DOKENE_DB_MIGRATION_PASSWORD in .env}
+      # No DOKENE_DB_MIGRATION_* here (issue 308): the backend only validates the schema the `migrate` job applied.
       DOKENE_DB_CONNECTION_TIMEOUT_MS: ${DOKENE_DB_CONNECTION_TIMEOUT_MS:-3000}
       DOKENE_DB_UNAVAILABLE_RETRY_AFTER: ${DOKENE_DB_UNAVAILABLE_RETRY_AFTER:-5s}
       DOKENE_DB_SOCKET_TIMEOUT: ${DOKENE_DB_SOCKET_TIMEOUT:-30s}
       DOKENE_DB_STATEMENT_TIMEOUT: ${DOKENE_DB_STATEMENT_TIMEOUT:-25s}
-      DOKENE_TENANT_CONTEXT_SIGNING_KEY: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY:?Set DOKENE_TENANT_CONTEXT_SIGNING_KEY in .env}
+      # The signing key itself arrives as the DOKENE_TENANT_CONTEXT_SIGNING_KEY secret file, not in the environment.
       DOKENE_TENANT_CONTEXT_KEY_ID: ${DOKENE_TENANT_CONTEXT_KEY_ID:-default}
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_PROVIDER: dokene
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_ID: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_ID:-dokene-bff}
@@ -198,6 +237,9 @@ services:
       DOKENE_MESSAGING_OUTBOUND_ENABLED: ${DOKENE_MESSAGING_OUTBOUND_ENABLED:-false}
       # Writing en-US messages (issue 268): off unless set to true; enable only once every instance runs this release.
       DOKENE_MESSAGING_ENGLISH_ENABLED: ${DOKENE_MESSAGING_ENGLISH_ENABLED:-false}
+    secrets:
+      - source: DOKENE_TENANT_CONTEXT_SIGNING_KEY
+        target: /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY
     read_only: true
     tmpfs:
       - /tmp
@@ -227,3 +269,12 @@ services:
 
 volumes:
   dokene-postgres:
+
+# File-mounted secrets (issue 308). Each is mounted as /run/secrets/dokene/<name>, so its name is the property name
+# Spring's configtree import resolves. ./scripts/dev-env.sh writes these files from .env into the git-ignored .secrets
+# directory before every start (Compose refuses environment-sourced secrets for read-only services).
+secrets:
+  DOKENE_DB_MIGRATION_PASSWORD:
+    file: ${DOKENE_SECRETS_DIR:-./.secrets}/DOKENE_DB_MIGRATION_PASSWORD
+  DOKENE_TENANT_CONTEXT_SIGNING_KEY:
+    file: ${DOKENE_SECRETS_DIR:-./.secrets}/DOKENE_TENANT_CONTEXT_SIGNING_KEY

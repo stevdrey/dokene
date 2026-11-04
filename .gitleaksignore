@@ -8,3 +8,5 @@
 # Issue 140 live-send helpers: KEY is the fixed idempotency-key prefix of the guarded send (dokene-live-140-...), not a secret.
 fb905f197b954cd3ec82e17556f3925ac25b2682:docs/verification/phase-3-evidence/scripts/send140.py:generic-api-key:14
 fb905f197b954cd3ec82e17556f3925ac25b2682:docs/verification/phase-3-evidence/scripts/send140en.py:generic-api-key:14
+# Synthetic all-hex signing key in a dev-env smoke test from an earlier commit of PR #345 (now built at run time); no real secret.
+c492962f8a47a4268e6ca1da2c9218eb8dce4a74:scripts/tests/dev-env-smoke.sh:generic-api-key:120

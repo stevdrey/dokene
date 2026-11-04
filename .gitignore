@@ -23,6 +23,8 @@
 .env
 .env.*
 !.env.example
+# File-mounted Compose secrets written from .env by scripts/dev-env.sh (issue 308).
+.secrets/
 *.pem
 *.key
 

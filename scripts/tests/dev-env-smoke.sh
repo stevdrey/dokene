@@ -85,6 +85,112 @@ assert backend["depends_on"]["oidc-bridge"]["condition"] == "service_healthy", "
 }
 check "compose: backend joins the oidc-bridge namespace (topology from #155)" topology_is_inverted
 
+migration_credentials_stay_in_migrate() {
+  local json=""
+  json="$(compose_config_json)" || return 1
+  python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)["services"]
+migrate, backend = s["migrate"], s["backend"]
+names = lambda svc: [x["source"] for x in svc.get("secrets", [])]
+assert not [k for k in backend.get("environment", {}) if "MIGRATION" in k or k.endswith("SIGNING_KEY")], \
+    "backend environment must hold no migration credential or signing key"
+assert names(backend) == ["DOKENE_TENANT_CONTEXT_SIGNING_KEY"], "backend gets only the signing key secret"
+assert sorted(names(migrate)) == ["DOKENE_DB_MIGRATION_PASSWORD", "DOKENE_TENANT_CONTEXT_SIGNING_KEY"]
+assert not [k for k in migrate.get("environment", {}) if k.endswith(("PASSWORD", "SIGNING_KEY"))], \
+    "migrate reads its secrets from files, not the environment"
+assert backend["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+assert migrate["read_only"] and migrate["restart"] == "no"
+' <<<"$json"
+}
+check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
+
+compose_minimum_includes_patch() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  compose_version_supported 2 27 2 && compose_version_supported 2 28 0 && compose_version_supported 5 6 1 \
+    && ! compose_version_supported 2 27 1 && ! compose_version_supported 2 17 0 && ! compose_version_supported 1 99 9
+}
+check "compose minimum is 2.27.2, patch included (#308 review)" \
+  bash -c "$(declare -f compose_minimum_includes_patch) ; SCRIPT='$SCRIPT'; compose_minimum_includes_patch"
+
+doctor_does_not_write_secret_files() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  # shellcheck disable=SC2329  # stubs the sourced cmd_doctor must not reach
+  resolve_secret_files() { echo called; }
+  # shellcheck disable=SC2329
+  write_secret_files() { echo called; }
+  check_docker() { :; }; check_tools() { :; }; check_env() { :; }; check_ports() { :; }; ok() { :; }
+  [ -z "$(cmd_doctor)" ]
+}
+check "doctor leaves secret files to the start commands (#308 review)" \
+  bash -c "$(declare -f doctor_does_not_write_secret_files) ; SCRIPT='$SCRIPT'; doctor_does_not_write_secret_files"
+
+# Runs the real `docker compose config --environment` against a copy of compose.yaml and a quoted .env (#308 review).
+secret_files_follow_compose_interpolation() {
+  local work key rc=1
+  work="$(mktemp -d)" || return 1
+  # Built at run time: a synthetic 64-hex value, kept out of the source so secret scanners have nothing to match.
+  key="$(printf '0123456789abcdef%.0s' 1 2 3 4)"
+  cp "$ROOT_DIR/compose.yaml" "$work/"
+  cat > "$work/.env" <<ENV
+DOKENE_DB_NAME=dokene
+DOKENE_DB_BOOTSTRAP_USERNAME=admin
+DOKENE_DB_BOOTSTRAP_PASSWORD=unused
+DOKENE_DB_PASSWORD=unused
+DOKENE_DB_RUNTIME_PASSWORD=unused
+DOKENE_DB_MIGRATION_PASSWORD="quoted pass"
+DOKENE_TENANT_CONTEXT_SIGNING_KEY='$key'
+SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET=unused
+DOKENE_SECRETS_DIR=./custom-secrets
+ENV
+  (
+    # shellcheck source=../dev-env.sh
+    source "$SCRIPT" || exit 1
+    ROOT_DIR="$work"
+    CALLS=""; RM_FAILS=false
+    warn() { :; }; fail() { :; }
+    compose() {
+      if [ "$1" = "rm" ]; then CALLS="$CALLS|$*"; [ "$RM_FAILS" = "false" ]; else (cd "$ROOT_DIR" && docker compose "$@"); fi
+    }
+    refresh_secret_files || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_DB_MIGRATION_PASSWORD")" = "quoted pass" ] || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" = "$key" ] || exit 1
+    [ ! -e "$work/.secrets" ] || exit 1
+    [ "$(stat -c %a "$work/custom-secrets" 2>/dev/null || stat -f %Lp "$work/custom-secrets")" = "700" ] || exit 1
+    # Unchanged values remove nothing.
+    refresh_secret_files && [ -z "$CALLS" ] || exit 1
+    # A changed key whose container removal fails keeps the old file, so the next run detects the change again.
+    sed -i.bak "s/^DOKENE_TENANT_CONTEXT_SIGNING_KEY=.*/DOKENE_TENANT_CONTEXT_SIGNING_KEY=$(printf 'fedcba9876543210%.0s' 1 2 3 4)/" "$work/.env"
+    RM_FAILS=true
+    ! refresh_secret_files || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" = "$key" ] || exit 1
+    RM_FAILS=false; CALLS=""
+    refresh_secret_files && [ "$CALLS" = "|rm -f -s migrate backend" ] || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" != "$key" ] || exit 1
+    # A shared, world-writable directory is refused and left as it was.
+    mkdir -p "$work/shared" && chmod 1777 "$work/shared"
+    sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/shared|" "$work/.env"
+    ! refresh_secret_files || exit 1
+    [ "$(stat -c %a "$work/shared" 2>/dev/null || stat -f %Lp "$work/shared")" = "1777" ] || exit 1
+    [ ! -e "$work/shared/DOKENE_DB_MIGRATION_PASSWORD" ] || exit 1
+    # So is a readable 0755 directory of the user's own: others could read the 0444 files through it.
+    mkdir -p "$work/readable" && chmod 755 "$work/readable"
+    sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/readable|" "$work/.env"
+    ! refresh_secret_files || exit 1
+    [ "$(stat -c %a "$work/readable" 2>/dev/null || stat -f %Lp "$work/readable")" = "755" ] || exit 1
+    [ ! -e "$work/readable/DOKENE_TENANT_CONTEXT_SIGNING_KEY" ] || exit 1
+    # A dedicated 0700 directory is accepted.
+    mkdir -p "$work/private" && chmod 700 "$work/private"
+    sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/private|" "$work/.env"
+    refresh_secret_files && [ -f "$work/private/DOKENE_TENANT_CONTEXT_SIGNING_KEY" ]
+  ) && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "secret files: Compose-resolved values, safe DOKENE_SECRETS_DIR, recreation survives a failed removal (#308)" secret_files_follow_compose_interpolation
+
 # Runs the real healthcheck command in a container whose resolver has a search domain. Needs a Docker daemon.
 healthcheck_survives_search_domain() {
   local json image probe net="dokene-smoke-$$" ctr="dokene-smoke-$$-bridge" rc=1

@@ -57,6 +57,7 @@ public final class TenantSecurityIntegrationFixture {
         registry.add("spring.flyway.url", database::getJdbcUrl);
         registry.add("spring.flyway.user", () -> MIGRATION_ROLE);
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
+        registry.add("dokene.database.migrate-on-startup", () -> "true");
         registry.add("dokene.tenant-context.signing-key", () -> TENANT_CONTEXT_SIGNING_KEY);
     }
 

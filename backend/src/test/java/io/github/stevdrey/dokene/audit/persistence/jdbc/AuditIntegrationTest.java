@@ -106,6 +106,7 @@ class AuditIntegrationTest {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", () -> "dokene_migration");
         registry.add("spring.flyway.password", () -> MIGRATION_PASSWORD);
+        registry.add("dokene.database.migrate-on-startup", () -> "true");
         registry.add("dokene.tenant-context.signing-key", () -> SIGNING_KEY);
     }
 
@@ -231,6 +232,56 @@ class AuditIntegrationTest {
         });
         scoped(tenant(TenantRole.VIEWER), () -> assertThatThrownBy(reader::read).isInstanceOf(TenantAccessDeniedException.class));
         scoped(tenant(TenantRole.OPERATOR), () -> assertThatThrownBy(reader::read).isInstanceOf(TenantAccessDeniedException.class));
+    }
+
+    @Test
+    void ownerCannotRewriteOrEraseAuditEvents() throws SQLException {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        migrationInsertDenial(context.tenantId(), "UNSPECIFIED", "AUDIT_READ");
+        try (Connection connection = migration(); Statement statement = connection.createStatement()) {
+            for (String sql : List.of("UPDATE dokene.audit_events SET outcome = 'SUCCESS'",
+                    "DELETE FROM dokene.audit_events", "TRUNCATE dokene.audit_events")) {
+                assertThatThrownBy(() -> statement.execute(sql))
+                        .isInstanceOfSatisfying(SQLException.class, exception -> {
+                            assertThat(exception.getSQLState()).isEqualTo("42501");
+                            assertThat(exception.getMessage()).contains("audit_events is append-only");
+                        });
+            }
+            assertThat(auditCount(statement, context.tenantId())).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void breakGlassDisablesImmutabilityOnlyInsideTheOwnersTransaction() throws SQLException {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        migrationInsertDenial(context.tenantId(), "UNSPECIFIED", "AUDIT_READ");
+        try (Connection connection = migration(); Statement statement = connection.createStatement()) {
+            connection.setAutoCommit(false);
+            statement.execute("ALTER TABLE dokene.audit_events DISABLE TRIGGER audit_events_immutable");
+            statement.execute("DELETE FROM dokene.audit_events WHERE tenant_id = '" + context.tenantId().value() + "'");
+            assertThat(auditCount(statement, context.tenantId())).isZero();
+            connection.rollback();
+            connection.setAutoCommit(true);
+
+            assertThat(auditCount(statement, context.tenantId())).isEqualTo(1);
+            try (var rows = statement.executeQuery("""
+                    SELECT tgname, tgenabled FROM pg_trigger
+                    WHERE tgrelid = 'dokene.audit_events'::regclass AND NOT tgisinternal ORDER BY tgname
+                    """)) {
+                List<String> triggers = new ArrayList<>();
+                while (rows.next()) {
+                    triggers.add(rows.getString("tgname") + "=" + rows.getString("tgenabled"));
+                }
+                assertThat(triggers).containsExactly("audit_events_immutable=O", "audit_events_no_truncate=O");
+            }
+            assertThatThrownBy(() -> statement.execute("DELETE FROM dokene.audit_events")).isInstanceOf(SQLException.class);
+        }
+        try (Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), "dokene_runtime", RUNTIME_PASSWORD);
+                Statement statement = connection.createStatement()) {
+            assertThatThrownBy(() -> statement.execute("ALTER TABLE dokene.audit_events DISABLE TRIGGER audit_events_immutable"))
+                    .isInstanceOfSatisfying(SQLException.class,
+                            exception -> assertThat(exception.getSQLState()).isEqualTo("42501"));
+        }
     }
 
     @Test
@@ -653,6 +704,14 @@ class AuditIntegrationTest {
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new RuntimeException(exception);
+        }
+    }
+
+    private static int auditCount(Statement statement, TenantId tenant) throws SQLException {
+        try (var rows = statement.executeQuery(
+                "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = '" + tenant.value() + "'")) {
+            rows.next();
+            return rows.getInt(1);
         }
     }
 

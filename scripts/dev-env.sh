@@ -10,7 +10,7 @@
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
 #   ./scripts/dev-env.sh down
 #   ./scripts/dev-env.sh restart [--seed]
-#   ./scripts/dev-env.sh restart-backend [--no-build] [--yes]   (recreates backend + oidc-bridge only)
+#   ./scripts/dev-env.sh restart-backend [--no-build] [--yes]   (runs migrate, recreates backend + oidc-bridge)
 #   ./scripts/dev-env.sh status
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
@@ -27,7 +27,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
 ENV_EXAMPLE="$ROOT_DIR/.env.example"
 MIN_COMPOSE_MAJOR=2
-MIN_COMPOSE_MINOR=17
+MIN_COMPOSE_MINOR=27
+# 2.27.2 added `docker compose config --environment`, which resolve_secret_files relies on (issue 308). Its `up --wait`
+# already waits for a service that another one depends on with service_completed_successfully (`migrate`) to complete
+# rather than to stay running (getDependencyCondition in pkg/compose/start.go at v2.27.2).
+MIN_COMPOSE_PATCH=2
 WAIT_TIMEOUT="${DOKENE_WAIT_TIMEOUT:-300}"
 
 FRONTEND_PORT=5173
@@ -195,7 +199,7 @@ check_docker() {
   fi
   ok "Docker daemon reachable ($(docker version --format '{{.Server.Version}}' 2>/dev/null))"
 
-  local version major minor
+  local version major minor patch
   version="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
   if [ -z "$version" ]; then
     check_fail "Docker Compose v2 is not available ('docker compose'). Update Docker or install the compose plugin."
@@ -203,12 +207,22 @@ check_docker() {
   fi
   major="${version%%.*}"
   minor="${version#*.}"; minor="${minor%%.*}"
-  if [ "$major" -lt "$MIN_COMPOSE_MAJOR" ] 2>/dev/null \
-     || { [ "$major" -eq "$MIN_COMPOSE_MAJOR" ] && [ "$minor" -lt "$MIN_COMPOSE_MINOR" ]; } 2>/dev/null; then
-    check_fail "Docker Compose $version is too old; $MIN_COMPOSE_MAJOR.$MIN_COMPOSE_MINOR or newer is required (build additional_contexts)."
+  patch=0
+  case "$version" in *.*.*) patch="${version#*.*.}"; patch="${patch%%[!0-9]*}" ;; esac
+  if ! compose_version_supported "$major" "$minor" "$patch"; then
+    check_fail "Docker Compose $version is too old; $MIN_COMPOSE_MAJOR.$MIN_COMPOSE_MINOR.$MIN_COMPOSE_PATCH or newer is required (build additional_contexts, config --environment)."
     return
   fi
   ok "Docker Compose $version"
+}
+
+# compose_version_supported MAJOR MINOR PATCH: true when the version is at least the minimum (non-numeric parts fail).
+compose_version_supported() {
+  [ "$1" -gt "$MIN_COMPOSE_MAJOR" ] 2>/dev/null && return 0
+  [ "$1" -eq "$MIN_COMPOSE_MAJOR" ] 2>/dev/null || return 1
+  [ "$2" -gt "$MIN_COMPOSE_MINOR" ] 2>/dev/null && return 0
+  [ "$2" -eq "$MIN_COMPOSE_MINOR" ] 2>/dev/null || return 1
+  [ "$3" -ge "$MIN_COMPOSE_PATCH" ] 2>/dev/null
 }
 
 check_tools() {
@@ -335,6 +349,74 @@ preflight() {
   return 0
 }
 
+# Compose mounts these .env values as files under /run/secrets/dokene (issue 308): only the migrate job gets the
+# migration password, and neither it nor the signing key is in any container's environment. Compose refuses
+# environment-sourced secrets for read-only services, so they are written to a directory only the owner can list. The
+# files are world-readable because the containers run as uid 10001; the directory mode keeps other host users out.
+# Values and the directory come from Compose's own interpolation environment (shell over .env, quotes resolved), so the
+# files always match what PostgreSQL and compose.yaml (DOKENE_SECRETS_DIR, default ./.secrets) see.
+#
+# resolve_secret_files: sets SECRETS_DIR and SECRETS_ENVIRONMENT; creates the directory (mode 0700) when missing and
+# refuses an existing one that is not the user's own or that grants group or other users any access (for example /tmp,
+# or a 0755 directory, through which others could read the 0444 files), never chmod-ing it.
+resolve_secret_files() {
+  local mode owner
+  SECRETS_ENVIRONMENT="$(compose config --environment)" \
+    || { fail "docker compose could not resolve .env for the secret files."; return 1; }
+  SECRETS_DIR="$(compose_variable "$SECRETS_ENVIRONMENT" DOKENE_SECRETS_DIR)"
+  SECRETS_DIR="${SECRETS_DIR:-./.secrets}"
+  case "$SECRETS_DIR" in /*) ;; *) SECRETS_DIR="$ROOT_DIR/${SECRETS_DIR#./}" ;; esac
+  if [ ! -e "$SECRETS_DIR" ]; then
+    ( umask 077 && mkdir -p "$SECRETS_DIR" ) || { fail "Cannot create $SECRETS_DIR."; return 1; }
+    return 0
+  fi
+  mode="$(stat -c %a "$SECRETS_DIR" 2>/dev/null || stat -f %Lp "$SECRETS_DIR" 2>/dev/null)"
+  owner="$(stat -c %u "$SECRETS_DIR" 2>/dev/null || stat -f %u "$SECRETS_DIR" 2>/dev/null)"
+  if [ ! -d "$SECRETS_DIR" ] || [ "$owner" != "$(id -u)" ] || [ $(( 8#${mode:-777} & 8#077 )) -ne 0 ]; then
+    fail "DOKENE_SECRETS_DIR ($SECRETS_DIR) must be a directory of your own with mode 0700 (no group or other access); use a dedicated one."
+    return 1
+  fi
+}
+
+# secret_files_changed: true when a value differs from its existing file. Compose does not recreate a container for that
+# (secret contents are not part of its configuration hash). A missing file is not a change (first start). Values are
+# compared through stdin, never on the command line.
+secret_files_changed() {
+  local name
+  for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
+    [ -f "$SECRETS_DIR/$name" ] || continue
+    printf '%s' "$(compose_variable "$SECRETS_ENVIRONMENT" "$name")" | cmp -s - "$SECRETS_DIR/$name" || return 0
+  done
+  return 1
+}
+
+write_secret_files() {
+  local name
+  for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
+    rm -f "$SECRETS_DIR/$name"
+    printf '%s' "$(compose_variable "$SECRETS_ENVIRONMENT" "$name")" > "$SECRETS_DIR/$name"
+    chmod 444 "$SECRETS_DIR/$name"
+  done
+}
+
+# refresh_secret_files: resolves, and when a secret changed removes migrate and backend first so the next `up` recreates
+# both with the new files; otherwise the job would re-provision a signing key the running backend no longer uses. The
+# files are rewritten only after that removal succeeded, so a failed removal is detected again on the next run.
+refresh_secret_files() {
+  resolve_secret_files || return 1
+  if secret_files_changed; then
+    warn "A secret changed in .env since the last start; recreating migrate and backend."
+    compose rm -f -s migrate backend >/dev/null \
+      || { fail "Could not remove the migrate and backend containers; the secret files were left unchanged."; return 1; }
+  fi
+  write_secret_files
+}
+
+# compose_variable ENVIRONMENT NAME: the value of NAME in `docker compose config --environment` output (KEY=VALUE lines).
+compose_variable() {
+  printf '%s\n' "$1" | grep -m 1 "^$2=" | cut -d= -f2-
+}
+
 # ------------------------------------------------------------------------------
 # Commands
 # ------------------------------------------------------------------------------
@@ -349,7 +431,7 @@ print_summary() {
     info "  PostgreSQL:  localhost:${db_port:-5432}"
     info "  Keycloak:    http://localhost:$kc_port  (admin console; realm: dokene)"
     info "  Backend and frontend were NOT started (--infra-only); run them from the host:"
-    info "    set -a; . ./.env; set +a; (cd backend && ./gradlew bootRun)    # JDK 26"
+    info "    set -a; . ./.env; set +a; (cd backend && ./gradlew migrateDb bootRun)    # JDK 26"
     info "    (cd frontend && npm ci && npm run dev)                         # Node 24"
   else
     info "  Application: http://localhost:$FRONTEND_PORT"
@@ -376,9 +458,12 @@ report_failure() {
     warn "Last log lines of '$svc':"
     compose logs --no-color --tail 25 "$svc" 2>&1 | sed 's/^/    /'
   done
-  if compose logs --no-color --tail 200 backend 2>/dev/null | grep -q 'password authentication failed'; then
-    warn "The backend cannot authenticate against PostgreSQL: the data volume was created with different passwords"
+  if compose logs --no-color --tail 200 migrate backend 2>/dev/null | grep -q 'password authentication failed'; then
+    warn "The backend or migrate job cannot authenticate against PostgreSQL: the data volume was created with different passwords"
     warn "than the current .env. Restore the original .env, or run './scripts/dev-env.sh reset' (deletes local data)."
+  fi
+  if compose logs --no-color --tail 200 backend 2>/dev/null | grep -q 'Run the migration job'; then
+    warn "The backend refused an outdated schema; check './scripts/dev-env.sh logs migrate' (issue 308)."
   fi
   info "Full logs: ./scripts/dev-env.sh logs <service>"
   info "Fix the cause and rerun './scripts/dev-env.sh up'; if the stack still misbehaves, run 'down' and then 'up'."
@@ -465,6 +550,8 @@ cmd_up() {
   done
 
   preflight || exit 1
+  # Written only by the commands that start containers, so `doctor` cannot consume a change before `up` acts on it.
+  refresh_secret_files || exit 1
 
   [ "$INFRA_ONLY" = "true" ] || repair_networkless_bridge
 
@@ -507,10 +594,13 @@ cmd_restart_backend() {
   done
 
   preflight || exit 1
+  # --force-recreate below already picks up changed secret files.
+  { resolve_secret_files && write_secret_files; } || exit 1
 
-  info "Recreating backend and oidc-bridge..."
-  compose_up_services "$NO_BUILD" "--force-recreate --no-deps" oidc-bridge backend
-  ok "Backend and oidc-bridge are healthy"
+  # The one-shot migrate job (issue 308) runs first so a rebuilt backend never starts against an older schema.
+  info "Running migrations and recreating backend and oidc-bridge..."
+  compose_up_services "$NO_BUILD" "--force-recreate --no-deps" migrate oidc-bridge backend
+  ok "Migrations applied; backend and oidc-bridge are healthy"
   compose ps backend oidc-bridge
 }
 

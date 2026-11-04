@@ -1,6 +1,12 @@
 spring:
   application:
     name: dokene
+  config:
+    # Secrets mounted as files (Compose secrets, issue 308): each file name is a property name, so
+    # /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY resolves ${DOKENE_TENANT_CONTEXT_SIGNING_KEY} without exposing
+    # the value in the process environment. A directory of its own, so unrelated mounted secrets (for example a
+    # Kubernetes service-account token) never become properties. Host-run backends keep using environment variables.
+    import: optional:configtree:/run/secrets/dokene/
   datasource:
     url: ${DOKENE_DB_URL}
     username: ${DOKENE_DB_USERNAME}
@@ -21,10 +27,12 @@ spring:
       hibernate:
         default_schema: dokene
   flyway:
+    # The backend connects as the runtime role and only validates the schema (RuntimeSchemaValidationConfiguration);
+    # the one-shot migration job (DokeneMigrationApplication, profile `migration`) applies it (issue 308).
     enabled: true
     url: ${DOKENE_DB_URL}
-    user: ${DOKENE_DB_MIGRATION_USERNAME}
-    password: ${DOKENE_DB_MIGRATION_PASSWORD}
+    user: ${DOKENE_DB_USERNAME}
+    password: ${DOKENE_DB_PASSWORD}
     schemas: dokene
     default-schema: dokene
     create-schemas: true

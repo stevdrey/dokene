@@ -143,6 +143,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### M4. The runtime process holds the migration credentials and the tenant-context signing key — Confirmed
 
+- **Status:** fixed by [#308](https://github.com/stevdrey/dokene/issues/308); see [the verification record](../verification/issue-308-migration-credential-separation-verification.md). The backend still needs the signing key to sign capabilities; that residual risk is documented in ADR 0003.
+
 - **Where:**
   - `application.yml:23-27` (`spring.flyway.user/password` from `DOKENE_DB_MIGRATION_*`).
   - `compose.yaml` backend environment (`DOKENE_DB_MIGRATION_PASSWORD`, `DOKENE_TENANT_CONTEXT_SIGNING_KEY`).

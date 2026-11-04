@@ -8,9 +8,17 @@
 | --- | --- | --- | --- |
 | `postgres` | `postgres:17-alpine` | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
 | `keycloak` | `infra/docker/keycloak` | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm |
-| `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | Flyway runs at startup |
+| `migrate` | backend image, one-shot | none | applies Flyway migrations as `dokene_migration`, then exits (issue 308) |
+| `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | starts after `migrate` succeeded; validates the schema as `dokene_runtime` |
 | `oidc-bridge` | `alpine/socat` | `127.0.0.1:8080` (published for the backend) | owns the network namespace the backend joins, see below |
 | `frontend` | `infra/docker/frontend` (unprivileged nginx) | `127.0.0.1:5173` | static build + same-origin proxy of `/api`, `/oauth2`, `/login`, `/logout`, `/webhooks` |
+
+The migration credential reaches only `migrate`. The tenant-context signing key and the migration password are
+Compose secrets that `./scripts/dev-env.sh up` writes from `.env` into the git-ignored `.secrets/` directory (created
+with mode 0700; `DOKENE_SECRETS_DIR` may name another directory of your own with mode 0700) and Compose
+mounts under `/run/secrets/dokene/` (read through Spring's `configtree` import, which reads only that directory), so
+they are not in any container's environment. When a secret changes, `up` recreates `migrate` and `backend`. On an upgrade, `up` runs `migrate` again before the new backend; a
+backend that finds a pending migration refuses to start and points at `./scripts/dev-env.sh logs migrate`.
 
 All published ports are bound to loopback. The images drop all Linux capabilities, use `no-new-privileges` and
 read-only root filesystems (`/tmp` is a tmpfs).
@@ -105,19 +113,19 @@ Copy `.env.example` from the repository root to `.env`, fill every blank value w
 
 The PostgreSQL initialization script creates two non-superuser roles:
 
-- `dokene_migration` owns the `dokene` schema and can run Flyway DDL.
+- `dokene_migration` owns the `dokene` schema and can run Flyway DDL. Only the migration job uses it.
 - `dokene_runtime` has only `USAGE` plus required table DML privileges. It owns no application tables and has `NOBYPASSRLS`.
 
-For a clean local verification, remove only the disposable Compose volume, start PostgreSQL, then launch the backend with the variables from `.env` exported (host-run backend; the containerized backend is started by `./scripts/dev-env.sh up`):
+For a clean local verification, remove only the disposable Compose volume, start PostgreSQL, run the migration job, then launch the backend with the variables from `.env` exported (host-run backend; the containerized stack is started by `./scripts/dev-env.sh up`):
 
 ```bash
 docker compose down --volumes --remove-orphans
 docker compose up --wait postgres
 set -a; . ./.env; set +a
-(cd backend && ./gradlew bootRun)
+(cd backend && ./gradlew migrateDb && ./gradlew bootRun)
 ```
 
-Flyway must report applying `V1__create_tenant_foundation.sql`; Hibernate then validates the resulting schema. Stop `bootRun` after startup. Future migrations use `V<version>__<snake_case_description>.sql`, are immutable once shared, and must include deliberate ownership, grant, and RLS-policy review.
+`migrateDb` must report applying `V1__create_tenant_foundation.sql` and the later migrations; the backend then validates the Flyway history and Hibernate validates the resulting schema. The backend never migrates: without `migrateDb` it refuses to start. Stop `bootRun` after startup. Future migrations use `V<version>__<snake_case_description>.sql`, are immutable once shared, and must include deliberate ownership, grant, and RLS-policy review.
 
 ## Local Keycloak OIDC provider
 

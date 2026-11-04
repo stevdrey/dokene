@@ -16,8 +16,28 @@ The runtime role can append and select authorized tenant rows, but cannot update
 delete, truncate, alter the table, or bypass RLS. Direct table INSERT is revoked from
 dokene_runtime; all appends must go through a migration-owned SECURITY DEFINER function
 (dokene.append_audit_event) that cryptographically verifies server-derived audit capabilities
-so runtime SQL cannot fabricate actor or membership attribution. Migration/database administrators
-remain trusted; this is not cryptographic tamper evidence against administrators.
+so runtime SQL cannot fabricate actor or membership attribution. Since V34 (issue 308) the
+`audit_events_immutable` (row, `UPDATE`/`DELETE`) and `audit_events_no_truncate` (statement) triggers refuse
+modification for every role, including the owner `dokene_migration`, with SQLSTATE `42501`. Migration/database
+administrators remain trusted; this is not cryptographic tamper evidence against administrators.
+
+## Immutability and break-glass
+Grants alone made the table append-only only for `dokene_runtime`. The triggers also stop the migration role and a
+future migration from rewriting history by accident. No migration may modify audit rows; a schema change that has to
+(for example a backfill) must be reviewed as a break-glass action.
+
+Break-glass, for a court order or a legally required erasure only, approved and recorded outside the application:
+
+1. Connect as the table owner (`dokene_migration`, credentials from the secret store; never from the backend).
+2. In one explicit transaction: `BEGIN; ALTER TABLE dokene.audit_events DISABLE TRIGGER audit_events_immutable;`
+   run the approved statement; `ALTER TABLE dokene.audit_events ENABLE TRIGGER audit_events_immutable; COMMIT;`
+   (`audit_events_no_truncate` stays enabled; truncation is never part of break-glass).
+3. Record who ran it, why, the statement and the affected row count in the operations log.
+
+`ALTER TABLE` is transactional and takes an exclusive lock, so a rollback or a dropped connection re-enables the
+trigger and no concurrent session sees it disabled. Limits: the owner or a superuser can always disable the trigger or
+drop the table, so the protection holds against the backend process and accidental migrations, not against a malicious
+database administrator. The runtime role can neither disable the trigger nor modify rows.
 
 ## Attribution and correlation
 The recorder obtains tenant, actor, and membership from `TenantContextProvider` at
