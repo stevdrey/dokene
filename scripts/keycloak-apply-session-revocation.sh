@@ -51,15 +51,20 @@ kcadm() {
     ' kcadm "$@" </dev/null 2> >(sed '/^$/d' >&2))  # kcadm writes a bare newline to stderr on every call
 }
 
-client_uuid="$(kcadm get clients -r "$REALM" -q "clientId=$CLIENT_ID" --fields id | jq -r '.[0].id // empty')"
+client_uuid="$(kcadm get clients -r "$REALM" -q "clientId=$CLIENT_ID" --fields id | jq -r '.[0].id // empty')" \
+    || { echo "Error: could not look up client $CLIENT_ID in realm $REALM." >&2; exit 1; }
 [ -n "$client_uuid" ] || { echo "Error: client $CLIENT_ID not found in realm $REALM." >&2; exit 1; }
 
-# name|current|wanted|kcadm path|kcadm assignment
+# Prints one line per setting: name|current|wanted|kcadm path|kcadm assignment. Fails, printing nothing usable, when
+# any read fails or returns something that is not the expected JSON; errexit does not reach into command
+# substitutions, so every step checks its own status.
 current_state() {
-    local attributes realm_lifespan
+    local client attributes realm_lifespan
     # The whole client: --fields drops attribute keys.
-    attributes="$(kcadm get "clients/$client_uuid" -r "$REALM" | jq -c '.attributes // {}')"
-    realm_lifespan="$(kcadm get "realms/$REALM" --fields ssoSessionMaxLifespan | jq -r '.ssoSessionMaxLifespan // 0')"
+    client="$(kcadm get "clients/$client_uuid" -r "$REALM")" || return 1
+    attributes="$(jq -ec '.attributes // {} | objects' <<<"$client")" || return 1
+    realm_lifespan="$(kcadm get "realms/$REALM" --fields ssoSessionMaxLifespan \
+        | jq -er '.ssoSessionMaxLifespan // 0 | numbers')" || return 1
     attr() { jq -r --arg key "$1" '.[$key] // ""' <<<"$attributes"; }
     printf '%s|%s|%s|%s|%s\n' \
         "client backchannel.logout.url" "$(attr backchannel.logout.url)" "$LOGOUT_URL" \
@@ -72,6 +77,12 @@ current_state() {
             "realms/$REALM" "ssoSessionMaxLifespan=$MAX_LIFESPAN"
 }
 
+# Captured before parsing: a loop reading a failed command's output would see no settings and report success.
+read_state() {
+    state="$(current_state)" || { echo "Error: could not read the $1 state of realm $REALM." >&2; exit 1; }
+}
+
+read_state current
 drift=0
 while IFS='|' read -r name current wanted path assignment; do
     if [ "$current" = "$wanted" ]; then
@@ -83,20 +94,22 @@ while IFS='|' read -r name current wanted path assignment; do
         echo "drift    $name = ${current:-<unset>} (expected $wanted)"
     else
         if [ "$path" = "realms/$REALM" ]; then
-            kcadm update "$path" -s "$assignment" >/dev/null
+            kcadm update "$path" -s "$assignment" >/dev/null || { echo "Error: could not update $name." >&2; exit 1; }
         else
-            kcadm update "$path" -r "$REALM" -s "$assignment" >/dev/null
+            kcadm update "$path" -r "$REALM" -s "$assignment" >/dev/null \
+                || { echo "Error: could not update $name." >&2; exit 1; }
         fi
         echo "updated  $name: ${current:-<unset>} -> $wanted"
     fi
-done < <(current_state)
+done <<<"$state"
 
 if [ "$CHECK_ONLY" = "true" ]; then
     [ "$drift" -eq 0 ] || exit 1
 elif [ "$drift" -gt 0 ]; then
     # Read back so the run proves what Keycloak now holds.
+    read_state updated
     while IFS='|' read -r name current wanted _ _; do
         [ "$current" = "$wanted" ] || { echo "Error: $name is still ${current:-<unset>}." >&2; exit 1; }
-    done < <(current_state)
+    done <<<"$state"
     echo "Session revocation settings applied to realm $REALM."
 fi

@@ -74,6 +74,8 @@ Keycloak imports the realm file only when the realm does not exist yet, so the s
 
 `scripts/dev-env.sh up` runs the script after every start, so local stacks converge without a reset. `./scripts/tests/dev-env-smoke.sh` passed, including ShellCheck on the new script.
 
+`./scripts/tests/keycloak-apply-session-revocation-test.sh` (run by the `Script tests` workflow) drives the script against a stubbed `docker`: drift reporting, one-run convergence and idempotence, and that a failed client lookup, a failed initial or read-back client or realm read (for apply and `--check`), a failed update, or values that do not stick each make the run exit non-zero with an error instead of reporting success. It passed; against the previous version of the script, which read the state through process substitution, eight of its eleven checks failed.
+
 ## Residuals
 
 - The SPA logout stays local (`POST /logout`), so the Keycloak SSO session survives it and the next login on a shared device can be silent. `POST /logout?provider=true` remains available. Recorded in ADR 0007.

@@ -1,0 +1,25 @@
+name: Script tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/keycloak-apply-session-revocation.sh'
+      - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
+      - '.github/workflows/scripts.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/keycloak-apply-session-revocation.sh'
+      - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
+      - '.github/workflows/scripts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  keycloak-session-revocation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./scripts/tests/keycloak-apply-session-revocation-test.sh
