@@ -95,6 +95,13 @@ user, nor live forever while it stays active. The contract, with the default bou
 - **Provider alignment**: the local realm sets `ssoSessionMaxLifespan` to 8 h so that the provider and Dokene lifetimes
   agree. Revalidation keeps the provider SSO session active while the Dokene session is in use; the provider's idle
   timeout must not be shorter than `revalidation-interval`.
+- **Upgrading an existing realm**: Keycloak's `--import-realm` skips a realm that already exists, so the realm import
+  file configures new realms only. An existing realm receives the back-channel URL, its session and offline-token
+  attributes and the SSO max lifespan from `scripts/keycloak-apply-session-revocation.sh`, which is idempotent,
+  changes only those four values and has a `--check` mode that exits non-zero on drift. `scripts/dev-env.sh up` runs
+  it after every start. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
+  Console or `kcadm.sh`) when they deploy this change. Until then IdP logout is bounded by revalidation instead of
+  being immediate.
 - **Residual: local logout**: the SPA logout is local (`POST /logout` without `provider=true`); it ends the Dokene
   session but not the provider SSO session, so on a shared device the next login can be silent. Provider logout remains
   available through `POST /logout?provider=true` and is not the SPA default.

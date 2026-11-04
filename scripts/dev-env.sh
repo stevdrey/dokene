@@ -477,6 +477,10 @@ cmd_up() {
   ok "All requested containers are healthy"
   compose ps
 
+  # --import-realm skips a realm Keycloak already holds; bring its session revocation settings (issue 307) up to date.
+  "$ROOT_DIR/scripts/keycloak-apply-session-revocation.sh" \
+    || warn "Keycloak session revocation settings not applied; run scripts/keycloak-apply-session-revocation.sh."
+
   if [ "$WANT_SEED" = "true" ]; then
     if [ "$INFRA_ONLY" = "true" ]; then
       warn "--seed needs the backend; skipping because --infra-only was given."

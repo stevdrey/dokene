@@ -59,6 +59,21 @@ Startup fails unless all durations are positive, the grace is longer than the in
 
 The backend logs of the live run contain no access, refresh or ID token. Keycloak did not end the user's sessions when the user was disabled; revalidation, not back-channel logout, is what bounds the disablement case.
 
+## Upgrade of an existing realm
+
+Keycloak imports the realm file only when the realm does not exist yet, so the settings above would not reach a Keycloak whose realm predates this PR. `scripts/keycloak-apply-session-revocation.sh` reconciles such a realm. It was verified against a realm imported from `main` at `6068295`, in a separate Compose project so that no other local stack was touched:
+
+| Step | Outcome |
+| --- | --- |
+| Restart Keycloak with the new realm file in place, as an upgrade does | Keycloak logs `Realm 'dokene' already exists. Import skipped`; `--check` exits `1` and reports `backchannel.logout.url` and `backchannel.logout.revoke.offline.tokens` unset and `ssoSessionMaxLifespan` 36000 |
+| IdP logout of a user with two sessions, before reconciliation | Both sessions still `200`: no back-channel logout is delivered |
+| Run the script | The three drifting values are updated in one run and read back; `backchannel.logout.session.required` was already `true` and is left alone |
+| Run it again; then `--check` | Every value reported `ok`, nothing updated; `--check` exits `0` |
+| Compare the `dokene-bff` client before and after, excluding the two added attributes | Identical: redirect URIs, post-logout URIs, scopes and every other attribute are preserved |
+| IdP logout of a user with two sessions, after reconciliation | Both sessions `401` within 2 s |
+
+`scripts/dev-env.sh up` runs the script after every start, so local stacks converge without a reset. `./scripts/tests/dev-env-smoke.sh` passed, including ShellCheck on the new script.
+
 ## Residuals
 
 - The SPA logout stays local (`POST /logout`), so the Keycloak SSO session survives it and the next login on a shared device can be silent. `POST /logout?provider=true` remains available. Recorded in ADR 0007.
