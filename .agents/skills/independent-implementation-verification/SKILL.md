@@ -140,7 +140,7 @@ node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref> --co
 
 The validator always compares the verdict's candidate with an actual candidate: by default the current worktree, including uncommitted changes, which suits verification before the commit; with `--commit` the tree of that commit alone, which is what a push publishes. Exit `0` is a pass for that candidate, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, or one about another candidate (`STALE`).
 
-Gate publication only on the `--commit` form: a verified change that is left unstaged or out of a partial commit passes the worktree form but not the commit form.
+Gate publication only on the `--commit` form: a verified change that is left unstaged or out of a partial commit passes the worktree form but not the commit form. The validator rejects unknown, misspelled, or repeated options instead of ignoring them, and its `PASS` line names what it checked (`the worktree` or `commit <rev>`), so a log shows which form ran.
 
 ## Acting on the verdict
 

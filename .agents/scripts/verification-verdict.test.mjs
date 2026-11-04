@@ -180,6 +180,52 @@ test('a stacked branch is verified and published against the base carried throug
   assert.equal(published.status, 0, published.stderr);
 });
 
+test('publication mode cannot be bypassed by another spelling of its options', t => {
+  const cwd = repository(t);
+  writeFileSync(join(cwd, 'feature.txt'), 'corrected\n');
+  writeFileSync(join(cwd, 'tests.txt'), 'regression test\n');
+  const verdict = passingVerdict(identity(cwd));
+  git(cwd, 'add', 'feature.txt');
+  git(cwd, 'commit', '-qm', 'partial commit');
+
+  const inline = check(t, cwd, verdict, ['--commit=HEAD']);
+  assert.equal(inline.status, 2);
+  assert.match(inline.stderr, /STALE: verdict is for .* but commit HEAD is tree /);
+
+  for (const [options, message] of [
+    [['--comit', 'HEAD'], /unknown argument --comit/],
+    [['-c', 'HEAD'], /unknown argument -c/],
+    [['--commit', 'HEAD', '--commit', 'HEAD~1'], /--commit given more than once/],
+    [['--commit', '-h'], /--commit requires a value/],
+    [['--commit='], /--commit requires a value/],
+    [['--identity'], /Usage:/],
+  ]) {
+    const result = check(t, cwd, verdict, options);
+    assert.equal(result.status, 2, `${options.join(' ')}: ${result.stdout}`);
+    assert.match(result.stderr, message);
+  }
+
+  git(cwd, 'add', 'tests.txt');
+  git(cwd, 'commit', '-qm', 'rest of the verified change');
+  const published = check(t, cwd, verdict, ['--base=origin/main', '--commit=HEAD']);
+  assert.equal(published.status, 0, published.stderr);
+  assert.match(published.stdout, /checked against commit HEAD\./);
+  assert.match(check(t, cwd, verdict).stdout, /checked against the worktree\./);
+});
+
+test('identity mode rejects publication options and option-like base refs', t => {
+  const cwd = repository(t);
+  for (const [options, message] of [
+    [['--commit', 'HEAD'], /--commit cannot be used with --identity/],
+    [['--base', '-h'], /--base requires a value/],
+    [['--base=--all'], /--base requires a value/],
+  ]) {
+    const result = command(process.execPath, [SCRIPT, '--identity', ...options], cwd);
+    assert.equal(result.status, 2, `${options.join(' ')}: ${result.stdout}`);
+    assert.match(result.stderr, message);
+  }
+});
+
 test('publication mode rejects a revision that is not a commit', t => {
   const cwd = repository(t);
   const result = check(t, cwd, passingVerdict(identity(cwd)), ['--commit', 'no-such-ref']);

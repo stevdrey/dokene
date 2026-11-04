@@ -74,7 +74,7 @@ function commitIdentity(cwd, rev, baseRef = DEFAULT_BASE_REF) {
 
 function mergeBase(root, baseRef, head) {
   try {
-    return git(root, 'merge-base', baseRef, head).toString('utf8').trim();
+    return git(root, 'merge-base', '--end-of-options', baseRef, head).toString('utf8').trim();
   } catch (error) {
     throw new Error(`${error.message}. Fetch the base ref and retry, or pass --base`);
   }
@@ -208,27 +208,57 @@ function computeVerdict(verdict) {
   return { result, reasons: [...failures, ...blockers] };
 }
 
-function option(args, name) {
-  const index = args.indexOf(name);
-  if (index === -1) return null;
-  const value = args[index + 1];
-  if (!value || value.startsWith('--')) throw new UsageError(`${name} requires a value`);
-  return value;
+// Every option each mode accepts. Anything else is rejected, so a misspelled --commit can never silently fall back
+// to checking the worktree, which would let the publication gate pass a commit that lacks the verified change.
+const MODES = {
+  '--identity': new Set(['--base']),
+  '--verdict': new Set(['--base', '--commit']),
+};
+
+const KNOWN_OPTIONS = new Set([...Object.keys(MODES), ...Object.values(MODES).flatMap(names => [...names])]);
+
+/** Strict options: `--name value` or `--name=value`, each at most once, and only those the mode accepts. */
+function parseArgs(args) {
+  const options = new Map();
+  for (let i = 0; i < args.length; i++) {
+    const [name, inline] = args[i].startsWith('--') && args[i].includes('=')
+      ? [args[i].slice(0, args[i].indexOf('=')), args[i].slice(args[i].indexOf('=') + 1)]
+      : [args[i], undefined];
+    if (!KNOWN_OPTIONS.has(name)) {
+      throw new UsageError(`unknown argument ${args[i]}\n${USAGE}`);
+    }
+    if (options.has(name)) throw new UsageError(`${name} given more than once`);
+    if (name === '--identity') {
+      if (inline !== undefined) throw new UsageError('--identity takes no value');
+      options.set(name, true);
+      continue;
+    }
+    const value = inline ?? args[++i];
+    if (!value || value.startsWith('-')) throw new UsageError(`${name} requires a value`);
+    options.set(name, value);
+  }
+
+  const modes = Object.keys(MODES).filter(mode => options.has(mode));
+  if (modes.length !== 1) throw new UsageError(USAGE);
+  const [mode] = modes;
+  for (const name of options.keys()) {
+    if (name !== mode && !MODES[mode].has(name)) throw new UsageError(`${name} cannot be used with ${mode}`);
+  }
+  return options;
 }
 
 class UsageError extends Error {}
 
 function main() {
-  const args = process.argv.slice(2);
-  const baseRef = option(args, '--base') ?? DEFAULT_BASE_REF;
+  const options = parseArgs(process.argv.slice(2));
+  const baseRef = options.get('--base') ?? DEFAULT_BASE_REF;
 
-  if (args.includes('--identity')) {
+  if (options.has('--identity')) {
     console.log(JSON.stringify(candidateIdentity(process.cwd(), baseRef), null, 2));
     return;
   }
 
-  const file = option(args, '--verdict');
-  if (!file) throw new UsageError(USAGE);
+  const file = options.get('--verdict');
   let verdict;
   try {
     verdict = JSON.parse(readFileSync(file, 'utf8'));
@@ -245,11 +275,11 @@ function main() {
   }
 
   // Always compared, so exit 0 means the verdict is about this worktree, or with --commit about that commit.
-  const commit = option(args, '--commit');
+  const commit = options.get('--commit');
   const current = commit ? commitIdentity(process.cwd(), commit, baseRef) : candidateIdentity(process.cwd(), baseRef);
+  const checked = commit ? `commit ${commit}` : 'the worktree';
   if (!sameCandidate(current, verdict.candidate)) {
-    const subject = commit ? `commit ${commit}` : 'the worktree';
-    console.error(`STALE: verdict is for ${describe(verdict.candidate)}, but ${subject} is ${describe(current)}. Run a fresh independent verification.`);
+    console.error(`STALE: verdict is for ${describe(verdict.candidate)}, but ${checked} is ${describe(current)}. Run a fresh independent verification.`);
     process.exitCode = 2;
     return;
   }
@@ -263,7 +293,7 @@ function main() {
     return;
   }
   if (result === 'pass') {
-    console.log(`PASS: ${subject}: ${verdict.criteria.length} criteria verified.`);
+    console.log(`PASS: ${subject}: ${verdict.criteria.length} criteria verified; checked against ${checked}.`);
     return;
   }
   console.error(`${result.toUpperCase()}: ${subject}:`);
