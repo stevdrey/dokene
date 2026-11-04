@@ -34,8 +34,8 @@ function repository(t) {
   return cwd;
 }
 
-function identity(cwd, env = {}) {
-  const result = spawnSync(process.execPath, [SCRIPT, '--identity'], {
+function identity(cwd, env = {}, options = []) {
+  const result = spawnSync(process.execPath, [SCRIPT, '--identity', ...options], {
     cwd, encoding: 'utf8', timeout: 15_000, env: { ...process.env, ...env },
   });
   assert.equal(result.status, 0, result.stderr);
@@ -137,6 +137,54 @@ test('identity ignores diff configuration and hashes symlinks and nested reposit
   rmSync(join(cwd, 'dangling'));
   symlinkSync('other-target', join(cwd, 'dangling'));
   assert.notEqual(identity(cwd).tree, plain);
+});
+
+test('publication mode checks the commit, not a verified change left out of it', t => {
+  const cwd = repository(t);
+  writeFileSync(join(cwd, 'feature.txt'), 'corrected\n');
+  writeFileSync(join(cwd, 'tests.txt'), 'regression test\n');
+  const verdict = passingVerdict(identity(cwd));
+  assert.equal(check(t, cwd, verdict).status, 0);
+
+  const unstaged = check(t, cwd, verdict, ['--commit', 'HEAD']);
+  assert.equal(unstaged.status, 2);
+  assert.match(unstaged.stderr, /STALE: verdict is for .* but commit HEAD is tree /);
+
+  git(cwd, 'add', 'feature.txt');
+  git(cwd, 'commit', '-qm', 'partial commit');
+  assert.equal(check(t, cwd, verdict, ['--commit', 'HEAD']).status, 2);
+
+  git(cwd, 'add', 'tests.txt');
+  git(cwd, 'commit', '-qm', 'rest of the verified change');
+  const published = check(t, cwd, verdict, ['--commit', 'HEAD']);
+  assert.equal(published.status, 0, published.stderr);
+  assert.match(published.stdout, /PASS: Issue #1/);
+});
+
+test('a stacked branch is verified and published against the base carried through the handoff', t => {
+  const cwd = repository(t);
+  git(cwd, 'switch', '-qc', 'feature/stacked');
+  writeFileSync(join(cwd, 'stacked.txt'), 'stacked change\n');
+  const parent = ['--base', 'feature/issue-1'];
+  const verdict = passingVerdict(identity(cwd, {}, parent));
+  assert.equal(verdict.candidate.base, git(cwd, 'rev-parse', 'feature/issue-1'));
+
+  const withoutBase = check(t, cwd, verdict);
+  assert.equal(withoutBase.status, 2);
+  assert.match(withoutBase.stderr, /STALE/);
+  assert.equal(check(t, cwd, verdict, parent).status, 0);
+
+  git(cwd, 'add', '.');
+  git(cwd, 'commit', '-qm', 'stacked');
+  const published = check(t, cwd, verdict, [...parent, '--commit', 'HEAD']);
+  assert.equal(published.status, 0, published.stderr);
+});
+
+test('publication mode rejects a revision that is not a commit', t => {
+  const cwd = repository(t);
+  const result = check(t, cwd, passingVerdict(identity(cwd)), ['--commit', 'no-such-ref']);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /INVALID: git rev-parse failed/);
 });
 
 test('a verdict about another candidate is stale even when it would pass', t => {

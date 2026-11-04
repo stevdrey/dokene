@@ -17,7 +17,7 @@ const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 const USAGE = `Usage:
   verification-verdict.mjs --identity [--base <ref>]
-  verification-verdict.mjs --verdict <file> [--base <ref>]`;
+  verification-verdict.mjs --verdict <file> [--commit <rev>] [--base <ref>]`;
 
 function git(cwd, ...args) {
   return gitWith(cwd, process.env, ...args);
@@ -47,12 +47,7 @@ function gitWith(cwd, env, ...args) {
 function candidateIdentity(cwd, baseRef = DEFAULT_BASE_REF) {
   const root = git(cwd, 'rev-parse', '--show-toplevel').toString('utf8').trim();
   const head = git(root, 'rev-parse', 'HEAD').toString('utf8').trim();
-  let base;
-  try {
-    base = git(root, 'merge-base', baseRef, 'HEAD').toString('utf8').trim();
-  } catch (error) {
-    throw new Error(`${error.message}. Fetch the base ref and retry, or pass --base`);
-  }
+  const base = mergeBase(root, baseRef, head);
 
   const scratch = mkdtempSync(join(tmpdir(), 'dokene-candidate-'));
   try {
@@ -63,6 +58,25 @@ function candidateIdentity(cwd, baseRef = DEFAULT_BASE_REF) {
     return { base, head, tree };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The candidate a commit holds, ignoring the worktree: what is actually published when that commit is pushed. A
+ * verified change left unstaged or out of a partial commit therefore makes the commit a different candidate.
+ */
+function commitIdentity(cwd, rev, baseRef = DEFAULT_BASE_REF) {
+  const root = git(cwd, 'rev-parse', '--show-toplevel').toString('utf8').trim();
+  const head = git(root, 'rev-parse', '--verify', '--end-of-options', `${rev}^{commit}`).toString('utf8').trim();
+  const tree = git(root, 'rev-parse', `${head}^{tree}`).toString('utf8').trim();
+  return { base: mergeBase(root, baseRef, head), head, tree };
+}
+
+function mergeBase(root, baseRef, head) {
+  try {
+    return git(root, 'merge-base', baseRef, head).toString('utf8').trim();
+  } catch (error) {
+    throw new Error(`${error.message}. Fetch the base ref and retry, or pass --base`);
   }
 }
 
@@ -230,10 +244,12 @@ function main() {
     return;
   }
 
-  // Always compared, so exit 0 can gate publication: a pass is only ever about the content in this worktree.
-  const current = candidateIdentity(process.cwd(), baseRef);
+  // Always compared, so exit 0 means the verdict is about this worktree, or with --commit about that commit.
+  const commit = option(args, '--commit');
+  const current = commit ? commitIdentity(process.cwd(), commit, baseRef) : candidateIdentity(process.cwd(), baseRef);
   if (!sameCandidate(current, verdict.candidate)) {
-    console.error(`STALE: verdict is for ${describe(verdict.candidate)}, but the worktree is ${describe(current)}. Run a fresh independent verification.`);
+    const subject = commit ? `commit ${commit}` : 'the worktree';
+    console.error(`STALE: verdict is for ${describe(verdict.candidate)}, but ${subject} is ${describe(current)}. Run a fresh independent verification.`);
     process.exitCode = 2;
     return;
   }

@@ -42,16 +42,16 @@ The implementing agent provides:
 
 1. **Issue context:** the Issue number, its body, and relevant linked Issues or epics.
 2. **Acceptance criteria:** one stable id per criterion (`AC1`, `AC2`, …), taken from the Issue. Do not invent criteria; flag missing or ambiguous ones instead.
-3. **Candidate identity:** the output of the command below, run in the candidate worktree. `tree` is the Git tree of the candidate's content, including staged, unstaged, and untracked changes that are not ignored; `head` is recorded for traceability. Two candidates are the same when `base` and `tree` match, so a commit of identical content is the same candidate and any edit is a new one.
+3. **Base ref:** the ref the PR will target, `origin/main` by default or the parent branch of a stacked branch. Every identity and validation command in this skill takes it as `--base <ref>`; a command run without it measures against `origin/main` and reports another candidate for a stacked branch.
+4. **Candidate identity:** the output of the command below, run in the candidate worktree. `tree` is the Git tree of the candidate's content, including staged, unstaged, and untracked changes that are not ignored; `head` is recorded for traceability. Two candidates are the same when `base` and `tree` match, so a commit of identical content is the same candidate and any edit is a new one.
 
    ```bash
-   node .agents/scripts/verification-verdict.mjs --identity
+   node .agents/scripts/verification-verdict.mjs --identity --base <ref>
    ```
 
-   Pass `--base <ref>` for a stacked branch.
-4. **Implementer's evidence:** commands run and their results. These are claims for the verifier to check, not facts.
-5. **Applicable rules:** `AGENTS.md`, `.agents/README.md`, relevant ADRs, security invariants, and the skills that apply to the change.
-6. **For a re-verification:** the previous verdict and what was changed since.
+5. **Implementer's evidence:** commands run and their results. These are claims for the verifier to check, not facts.
+6. **Applicable rules:** `AGENTS.md`, `.agents/README.md`, relevant ADRs, security invariants, and the skills that apply to the change.
+7. **For a re-verification:** the previous verdict and what was changed since.
 
 ### Handoff prompt template
 
@@ -59,7 +59,8 @@ The implementing agent provides:
 You are an independent verifier for Issue #<n> in <repository path>. Follow
 .agents/skills/independent-implementation-verification/SKILL.md, verifier role.
 
-Candidate identity (must match `node .agents/scripts/verification-verdict.mjs --identity`):
+Base ref: <ref>
+Candidate identity (must match `node .agents/scripts/verification-verdict.mjs --identity --base <ref>`):
 <identity JSON>
 
 Acceptance criteria:
@@ -72,13 +73,13 @@ Previous verdict and changes since (re-verification only): <verdict path or "non
 
 Do not modify the worktree, publish, merge, or send messages. Write your verdict JSON to
 <path outside the worktree>, validate it with
-`node .agents/scripts/verification-verdict.mjs --verdict <path>`,
+`node .agents/scripts/verification-verdict.mjs --verdict <path> --base <ref>`,
 and return the verdict and the validator output.
 ```
 
 ## Verifier procedure
 
-1. **Confirm the candidate.** Recompute the identity. If it differs from the handoff, stop and return `blocked`: the evidence would describe another candidate.
+1. **Confirm the candidate.** Recompute the identity with the handoff's `--base <ref>`. If it differs from the handoff, stop and return `blocked`: the evidence would describe another candidate.
 2. **Read independently.** Inspect the diff against the base (`git diff <base>` plus untracked files), the changed code, its callers, and related tests. Read the Issue and linked rules yourself.
 3. **Map every criterion.** For each criterion, decide `pass`, `fail`, or `blocked`, citing check ids. A criterion passes only when cited evidence that passed on this candidate shows it.
 4. **Hunt for defects.** As applicable to the change, probe boundary values, empty and malformed input, error and failure paths, retries and idempotency, concurrency, backward compatibility of APIs, data and migrations, authorization, tenant isolation, and secret or PII exposure. Prefer realistic cases to speculation.
@@ -133,14 +134,17 @@ The validator computes the verdict and rejects a declared verdict that the evide
 `fail` takes precedence over `blocked`, because it is actionable now. Optional findings never block a pass; report them separately so the implementer can decide.
 
 ```bash
-node .agents/scripts/verification-verdict.mjs --verdict <file>
+node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref>
+node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref> --commit <commit to push>
 ```
 
-The validator always compares the verdict's candidate with the current worktree. Exit `0` is a pass for the current worktree, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, or one about another candidate (`STALE`). Because of that comparison, exit `0` can gate publication on its own.
+The validator always compares the verdict's candidate with an actual candidate: by default the current worktree, including uncommitted changes, which suits verification before the commit; with `--commit` the tree of that commit alone, which is what a push publishes. Exit `0` is a pass for that candidate, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, or one about another candidate (`STALE`).
+
+Gate publication only on the `--commit` form: a verified change that is left unstaged or out of a partial commit passes the worktree form but not the commit form.
 
 ## Acting on the verdict
 
-- **pass:** the implementing agent may proceed to publication under `create-pull-request`, citing the candidate identity, checks, and limitations in *How to test / verify*. Commit exactly the verified content and rerun the validator on the commit to be pushed; any content change voids the pass.
+- **pass:** the implementing agent may proceed to publication under `create-pull-request`, citing the candidate identity, checks, and limitations in *How to test / verify*. Commit exactly the verified content, then run the validator with `--commit <commit to push> --base <ref>` and publish as verified only on exit `0`; any content change voids the pass.
 - **fail:** fix the blockers, then re-verify.
 - **blocked:** obtain the missing capability legitimately (or ask the human), or stop and report exactly what could not be verified. Do not publish as verified.
 
