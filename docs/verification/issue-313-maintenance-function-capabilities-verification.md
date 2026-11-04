@@ -6,7 +6,7 @@ This record is sanitized: it gives bounds, outcomes and test names only. It cont
 
 ## Environment
 
-- **Run:** 2026-11-04, branch `313-securityl4-restrict-cross-tenant-maintenance-functions`, based on `main` at `263ad4b` (the audit's tree `c4b62d1` plus the fixes for #306, #307 and #308). The code was rechecked on that base before the change: L4 still applied as reported, with the same three functions granted to `dokene_runtime` and no capability argument. **Tested revision:** the working tree that became the first commit of this branch on top of `263ad4b` (the commit that adds this record; a commit cannot name its own hash). Every check below used that tree.
+- **Run:** 2026-11-04, branch `313-securityl4-restrict-cross-tenant-maintenance-functions`, based on `main` at `263ad4b` (the audit's tree `c4b62d1` plus the fixes for #306, #307 and #308). The code was rechecked on that base before the change: L4 still applied as reported, with the same three functions granted to `dokene_runtime` and no capability argument. **Tested revision:** `5781eb4`, the second commit of this branch, which adds the code review fixes. Every result in the Results table below was run on that tree. Later commits change only this record. Earlier runs on the first commit, `6955fa6`, are listed separately and do not cover the per-task capabilities or the deprecated no-op signatures.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build.
 - **Database:** Testcontainers PostgreSQL, migrated by Flyway through V35.
 - **Data:** synthetic tenants, members and callbacks only; no live Meta call.
@@ -45,9 +45,18 @@ Residual risk: a live compromise of the backend holds the signing key and can si
 
 ## Results
 
+Runs on `5781eb4`:
+
 | Command | Result |
 | --- | --- |
 | `./gradlew test --tests '*HmacDatabaseContextSignerTest' --tests '*DispatchRecoveryIntegrationTest' --tests '*WhatsAppWebhookIntegrationTest' --tests '*TenantPersistenceIntegrationTest'` | passed: 6, 13, 13 and 37 tests, no failures or skips |
 | `./gradlew check` (backend) | passed: 2369 tests in 196 classes, no failures, errors or skips |
+
+Earlier runs on `6955fa6`, before the code review fixes:
+
+| Command | Result |
+| --- | --- |
+| `./gradlew test --tests '*HmacDatabaseContextSignerTest' --tests '*DispatchRecoveryIntegrationTest' --tests '*WhatsAppWebhookIntegrationTest' --tests '*ModuleDependencyArchitectureTest'` | passed: 6, 13, 13 and 21 tests |
+| `./gradlew check` (backend) | passed: 2369 tests in 196 classes |
 
 The code review of PR #351 led to: per-task capabilities, the deprecated no-op signatures, fresh capabilities before each positive use in the inbox test, a 1-second in-flight claim, reuse of the `runtimeConnection` fixture, and a purge assertion that counts recent rows. The frontend is unchanged and was not rerun.
