@@ -52,6 +52,7 @@ import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.tenant.application.CurrentMembershipAuthorizer;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.MaintenanceTask;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -351,7 +352,7 @@ class DispatchRecoveryIntegrationTest {
                 + "?::integer)";
         String attemptIds = "SELECT attempt_id FROM dokene.find_expired_dispatch_claims(?, ?, ?::timestamptz, "
                 + "?::uuid, ?::integer)";
-        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        SignedDatabaseContext capability = signer.issueMaintenanceContext(MaintenanceTask.DISPATCH_RECOVERY);
         String payload = capability.payload();
         String signature = capability.signature();
 
@@ -380,26 +381,31 @@ class DispatchRecoveryIntegrationTest {
         OutboundMessage halted = haltedClaim(ownerA);
         String finder = "SELECT message_id FROM dokene.find_expired_dispatch_claims(?::text, ?::text, "
                 + "'infinity'::timestamptz, NULL::uuid, 500)";
-        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        SignedDatabaseContext capability = signer.issueMaintenanceContext(MaintenanceTask.DISPATCH_RECOVERY);
+        SignedDatabaseContext otherTask = signer.issueMaintenanceContext(MaintenanceTask.INBOX_DUE);
         SignedDatabaseContext tenantScope = signer.issueTenantContext(tenantA.id());
         String forged = "0".repeat(64);
 
         try (Connection runtime = runtimeConnectionWithoutContext()) {
             assertThat(queryUuids(runtime, finder, capability.payload(), capability.signature()))
                     .contains(halted.id());
-            // No capability, a forged signature, a tampered payload or another scope's capability: nothing.
+            // No capability, a forged signature, a tampered payload, another task's or another scope's capability,
+            // or the deprecated V26 signature: nothing.
             assertThat(queryUuids(runtime, finder, null, null)).isEmpty();
             assertThat(queryUuids(runtime, finder, capability.payload(), forged)).isEmpty();
             assertThat(queryUuids(runtime, finder, capability.payload().replaceFirst("\\|[0-9]{10}\\|",
                     "|" + (capability.expiresAt().getEpochSecond() - 1) + "|"), capability.signature())).isEmpty();
+            assertThat(queryUuids(runtime, finder, otherTask.payload(), otherTask.signature())).isEmpty();
             assertThat(queryUuids(runtime, finder, tenantScope.payload(), tenantScope.signature())).isEmpty();
+            assertThat(queryUuids(runtime, "SELECT message_id FROM dokene.find_expired_dispatch_claims("
+                    + "'infinity'::timestamptz, NULL::uuid, 500)")).isEmpty();
         }
 
         // A claim started within the last minute may still be in flight, so even 'infinity' does not list it.
-        backdateClaim(halted, "10 seconds");
+        backdateClaim(halted, "1 second");
+        SignedDatabaseContext fresh = signer.issueMaintenanceContext(MaintenanceTask.DISPATCH_RECOVERY);
         try (Connection runtime = runtimeConnectionWithoutContext()) {
-            assertThat(queryUuids(runtime, finder, capability.payload(), capability.signature()))
-                    .doesNotContain(halted.id());
+            assertThat(queryUuids(runtime, finder, fresh.payload(), fresh.signature())).doesNotContain(halted.id());
         }
         recovery.recoverExpiredClaims();
         assertThat(current(halted).outcomeUnknown()).isFalse();
@@ -410,16 +416,17 @@ class DispatchRecoveryIntegrationTest {
         try (Connection migration = migrationConnection()) {
             for (String function : List.of("find_expired_dispatch_claims", "find_due_webhook_events",
                     "purge_webhook_events")) {
-                // One definer function per name: the V26/V29 signatures without a capability are gone.
+                // Two definer functions per name: the capability one and the deprecated V26/V29 no-op kept so V35
+                // stays expand-only (its no-op behavior is asserted with the finders).
                 assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? AND prosecdef",
-                        function)).isEqualTo(1);
+                        function)).isEqualTo(2);
                 assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc WHERE proname = ? "
                         + "AND proargnames[1:2] = ARRAY['capability_payload', 'capability_signature']", function))
                         .isEqualTo(1);
                 assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
                         + "AND has_function_privilege('public', p.oid, 'EXECUTE')", function)).isZero();
                 assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "
-                        + "AND has_function_privilege('dokene_runtime', p.oid, 'EXECUTE')", function)).isEqualTo(1);
+                        + "AND has_function_privilege('dokene_runtime', p.oid, 'EXECUTE')", function)).isEqualTo(2);
             }
             for (String verifier : List.of("signed_context_subject", "has_maintenance_capability")) {
                 assertThat(queryInt(migration, "SELECT count(*) FROM pg_proc p WHERE p.proname = ? "

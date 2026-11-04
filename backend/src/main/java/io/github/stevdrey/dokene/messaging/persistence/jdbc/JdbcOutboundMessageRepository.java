@@ -24,6 +24,7 @@ import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.SendAttemptOutcome;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.MaintenanceTask;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -306,7 +307,7 @@ public class JdbcOutboundMessageRepository implements OutboundMessageRepository 
     @Override
     public List<ExpiredClaimRef> findExpiredClaims(Instant startedBefore, Optional<UUID> afterAttemptId, int limit) {
         // The function returns nothing without a maintenance capability (issue 313).
-        SignedDatabaseContext capability = signer.issueMaintenanceContext();
+        SignedDatabaseContext capability = signer.issueMaintenanceContext(MaintenanceTask.DISPATCH_RECOVERY);
         return jdbc.query("""
                 SELECT tenant_id, message_id, attempt_id
                 FROM dokene.find_expired_dispatch_claims(?, ?, ?, ?::uuid, ?)

@@ -26,8 +26,8 @@ public interface DatabaseContextSigner {
     SignedDatabaseContext issueProviderAuditContext(TenantId tenantId);
 
     /**
-     * System-scope capability for the cross-tenant maintenance functions (inbox sweep, retention purge, dispatch
-     * recovery). It names no tenant or identity, so it never satisfies tenant RLS.
+     * System-scope capability for one cross-tenant maintenance function (inbox sweep, retention purge, dispatch
+     * recovery). It names the task, never a tenant or identity, so it never satisfies tenant RLS.
      */
-    SignedDatabaseContext issueMaintenanceContext();
+    SignedDatabaseContext issueMaintenanceContext(MaintenanceTask task);
 }

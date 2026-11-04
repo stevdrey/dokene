@@ -132,7 +132,7 @@ This settles the spec 0001 webhook race: a report that arrives before T8 commits
 - A scheduled sweeper (`dokene.integration.whatsapp.webhook.inbox.*`: `enabled`, `interval` default 30 s, `batch-size` default 100) resumes everything else, including rows left by a restart and rows beyond the inline limit.
   - Only one instance runs it, through a Postgres advisory lock.
   - It starts without a tenant scope and reads due rows through the security-definer function `dokene.find_due_webhook_events`, which returns `(tenant_id, event_id)` only.
-  - Since issue 313 (audit L4, migration V35) this function and the retention purge take a signed `maintenance` capability (`maintenance|<key_id>|<nil uuid>|<expiry>|<nonce>`, the tenant-context key and lifetime) as their first two arguments and do nothing without one. The due cutoff is clamped to the database clock, so no caller can list rows that are not yet due.
+  - Since issue 313 (audit L4, migration V35) this function and the retention purge take a signed `maintenance` capability (`maintenance|<key_id>|<task uuid>|<expiry>|<nonce>`, the tenant-context key and lifetime) as their first two arguments and do nothing without one. Each function accepts only its own task, so a capability for the due finder cannot drive the purge; the V29 signatures remain as no-ops for a backend of the previous release. The due cutoff is clamped to the database clock, so no caller can list rows that are not yet due.
 
 **No sends.** Nothing on this path can create, approve or send a message. `ModuleDependencyArchitectureTest` forbids the webhook package from depending on the command service, the dispatch service or `MessagingProvider`.
 

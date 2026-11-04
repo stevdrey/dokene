@@ -1,4 +1,4 @@
--- ABOUTME: Issue 313 (audit L4): the cross-tenant maintenance functions require a signed maintenance capability and
+-- ABOUTME: Issue 313 (audit L4): the cross-tenant maintenance functions require a signed per-task capability and
 -- ABOUTME: clamp their cutoffs to the database clock, so the runtime role alone can neither list ids early nor purge.
 
 -- The inbox sweeper, the retention purge and dispatch recovery run without a tenant context, so their functions bypass
@@ -71,8 +71,10 @@ BEGIN
 END;
 $$;
 
--- A maintenance capability names no tenant or identity: its subject is the nil UUID. Not callable by the runtime role.
-CREATE FUNCTION dokene.has_maintenance_capability(capability_payload TEXT, capability_signature TEXT)
+-- A maintenance capability names the one task it authorizes as its subject, so a capability issued for a read-only
+-- finder cannot drive the purge. Not callable by the runtime role.
+CREATE FUNCTION dokene.has_maintenance_capability(capability_payload TEXT, capability_signature TEXT,
+    expected_task UUID)
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
@@ -80,14 +82,50 @@ SECURITY DEFINER
 SET search_path = pg_catalog, dokene
 AS $$
     SELECT coalesce(dokene.signed_context_subject(capability_payload, capability_signature, 'maintenance')
-        = '00000000-0000-0000-0000-000000000000'::UUID, false);
+        = expected_task, false);
 $$;
 
-REVOKE ALL ON FUNCTION dokene.has_maintenance_capability(TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION dokene.has_maintenance_capability(TEXT, TEXT, UUID) FROM PUBLIC;
 
-DROP FUNCTION dokene.find_expired_dispatch_claims(TIMESTAMPTZ, UUID, INTEGER);
-DROP FUNCTION dokene.find_due_webhook_events(TIMESTAMPTZ, INTEGER);
-DROP FUNCTION dokene.purge_webhook_events(TIMESTAMPTZ, INTEGER);
+-- The V26/V29 signatures stay as deprecated no-ops so this migration is expand-only: a backend from the previous
+-- release that is still running after the migration job lists and purges nothing, without errors, until it restarts.
+-- A later migration may drop them once no such release runs.
+CREATE OR REPLACE FUNCTION dokene.find_expired_dispatch_claims(started_before TIMESTAMPTZ, after_attempt_id UUID,
+    max_rows INTEGER)
+RETURNS TABLE (tenant_id UUID, message_id UUID, attempt_id UUID)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, dokene
+AS $$
+BEGIN
+    RETURN;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION dokene.find_due_webhook_events(due_at TIMESTAMPTZ, max_rows INTEGER)
+RETURNS TABLE (tenant_id UUID, event_id UUID)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, dokene
+AS $$
+BEGIN
+    RETURN;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION dokene.purge_webhook_events(processed_before TIMESTAMPTZ, max_rows INTEGER)
+RETURNS INTEGER
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, dokene
+AS $$
+BEGIN
+    RETURN 0;
+END;
+$$;
 
 -- Dispatch recovery (ADR 0028 §5). Enabled recovery requires claim-timeout >= send-timeout + 1 minute, so a claim
 -- started less than a minute ago is never expired; the floor keeps in-flight claims out of the result.
@@ -103,7 +141,8 @@ DECLARE
     cutoff TIMESTAMPTZ;
 BEGIN
     IF started_before IS NULL OR max_rows IS NULL OR max_rows < 1
-            OR NOT dokene.has_maintenance_capability(capability_payload, capability_signature) THEN
+            OR NOT dokene.has_maintenance_capability(capability_payload, capability_signature,
+                '00000000-0000-0000-0000-000000000003') THEN
         RETURN;
     END IF;
     cutoff := LEAST(started_before, statement_timestamp() - INTERVAL '1 minute');
@@ -135,7 +174,8 @@ DECLARE
     cutoff TIMESTAMPTZ;
 BEGIN
     IF due_at IS NULL OR max_rows IS NULL OR max_rows < 1
-            OR NOT dokene.has_maintenance_capability(capability_payload, capability_signature) THEN
+            OR NOT dokene.has_maintenance_capability(capability_payload, capability_signature,
+                '00000000-0000-0000-0000-000000000001') THEN
         RETURN;
     END IF;
     cutoff := LEAST(due_at, statement_timestamp());
@@ -167,7 +207,8 @@ DECLARE
     purged INTEGER;
 BEGIN
     IF processed_before IS NULL OR max_rows IS NULL OR max_rows < 1
-            OR NOT dokene.has_maintenance_capability(capability_payload, capability_signature) THEN
+            OR NOT dokene.has_maintenance_capability(capability_payload, capability_signature,
+                '00000000-0000-0000-0000-000000000002') THEN
         RETURN 0;
     END IF;
     cutoff := LEAST(processed_before, statement_timestamp() - INTERVAL '8 days');
