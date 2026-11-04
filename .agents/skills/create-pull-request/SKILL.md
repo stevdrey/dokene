@@ -17,6 +17,7 @@ Use [PR #161](https://github.com/stevdrey/dokene/pull/161) as the writing-style 
 2. Compare the PR head against its intended base; inspect changed files and important commits. Never infer implementation solely from the Issue or branch name.
 3. Reuse task context and verification results already established. Check docs, ADRs, specs, security invariants, and migration details relevant to the diff.
 4. Record which checks actually ran, their outcomes, and meaningful outstanding checks or risks.
+   When an independent verdict exists (`independent-implementation-verification`), cite its candidate identity, checks, evidence kinds, and limitations; publish as verified only when `node .agents/scripts/verification-verdict.mjs --verdict <file>` passes on the commit being pushed.
 5. If no primary GitHub Issue is identifiable, do not invent a number. Ask for the Issue reference when feasible; otherwise explicitly flag the missing reference in the PR draft and do not fabricate a compliant title.
 
 ## PR title / summary
