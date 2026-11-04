@@ -24,4 +24,10 @@ public interface DatabaseContextSigner {
      * (ADR 0023 §4.5). PostgreSQL accepts it only for {@code MESSAGE_DELIVERY_UPDATED}.
      */
     SignedDatabaseContext issueProviderAuditContext(TenantId tenantId);
+
+    /**
+     * System-scope capability for one cross-tenant maintenance function (inbox sweep, retention purge, dispatch
+     * recovery). It names the task, never a tenant or identity, so it never satisfies tenant RLS.
+     */
+    SignedDatabaseContext issueMaintenanceContext(MaintenanceTask task);
 }

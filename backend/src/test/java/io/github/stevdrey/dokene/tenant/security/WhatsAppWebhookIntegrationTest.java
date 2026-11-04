@@ -6,6 +6,8 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.executeUpdate;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryInt;
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryUuids;
+import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.runtimeConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
@@ -50,6 +52,9 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
 import io.github.stevdrey.dokene.purchase.application.PurchaseService;
 import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
+import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.MaintenanceTask;
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -139,6 +144,7 @@ class WhatsAppWebhookIntegrationTest {
     @Autowired MeterRegistry meters;
     @Autowired JdbcTemplate jdbc;
     @Autowired Clock clock;
+    @Autowired DatabaseContextSigner signer;
     @MockitoSpyBean AuditRecorder auditRecorder;
 
     private MockMvc mvc;
@@ -495,6 +501,95 @@ class WhatsAppWebhookIntegrationTest {
         assertThat(inboxStates(a)).isEmpty();
     }
 
+    /** Issue 313: the sweeper's cross-tenant functions need a maintenance capability and clamp their cutoffs. */
+    @Test
+    void theInboxMaintenanceFunctionsNeedACapabilityAndNeverPurgeOrListEarly() throws Exception {
+        UUID messageId = sent(a, "wamid.A-" + UUID.randomUUID());
+        postSigned(statuses(a.phoneNumberId, report(wamid(a, messageId), "delivered", 0, null)))
+                .andExpect(status().isOk());
+        assertThat(inboxStates(a)).containsExactly("APPLIED");
+        // An unknown provider message id stays PENDING through the park window.
+        postSigned(statuses(b.phoneNumberId, report("wamid.UNKNOWN-" + UUID.randomUUID(), "delivered", 0, null)))
+                .andExpect(status().isOk());
+        assertThat(inboxStates(b)).containsExactly("PENDING");
+        String purge = "SELECT dokene.purge_webhook_events(?::text, ?::text, 'infinity'::timestamptz, 5000)";
+        String due = "SELECT event_id FROM dokene.find_due_webhook_events(?::text, ?::text, 'infinity'::timestamptz, "
+                + "500)";
+        String recent = "SELECT count(*) FROM dokene.provider_webhook_events WHERE state <> 'PENDING' "
+                + "AND processed_at > now() - interval '8 days'";
+        // Capabilities live 60 seconds, so each positive use below gets a fresh one.
+        SignedDatabaseContext dueCapability = signer.issueMaintenanceContext(MaintenanceTask.INBOX_DUE);
+        SignedDatabaseContext purgeCapability = signer.issueMaintenanceContext(MaintenanceTask.INBOX_PURGE);
+        SignedDatabaseContext tenantScope = signer.issueTenantContext(a.tenant.id());
+        SignedDatabaseContext identityScope = signer.issueIdentityContext(new IdentityId(new UUID(0L, 0L)));
+        UUID pending;
+        try (Connection migration = migrationConnection()) {
+            executeUpdate(migration, "UPDATE dokene.provider_webhook_events SET processed_at = now() - interval "
+                    + "'2 days' WHERE tenant_id = ?", a.tenant.id().value());
+            executeUpdate(migration, "UPDATE dokene.provider_webhook_events SET next_attempt_at = now() + interval "
+                    + "'1 hour' WHERE tenant_id = ?", b.tenant.id().value());
+            pending = queryUuids(migration, "SELECT id FROM dokene.provider_webhook_events WHERE tenant_id = ?",
+                    b.tenant.id().value()).getFirst();
+        }
+
+        try (Connection runtime = runtimeConnectionWithoutContext()) {
+            // Without the task's own maintenance capability nothing is purged or listed: none, a forged signature,
+            // another scope's capability, or the other task's capability.
+            for (String[] invalid : new String[][] {{null, null}, {purgeCapability.payload(), "0".repeat(64)},
+                    {tenantScope.payload(), tenantScope.signature()},
+                    {identityScope.payload(), identityScope.signature()}}) {
+                assertThat(queryInt(runtime, purge, invalid[0], invalid[1])).isZero();
+                assertThat(queryUuids(runtime, due, invalid[0], invalid[1])).isEmpty();
+            }
+            assertThat(queryInt(runtime, purge, dueCapability.payload(), dueCapability.signature())).isZero();
+            assertThat(queryUuids(runtime, due, purgeCapability.payload(), purgeCapability.signature())).isEmpty();
+        }
+        // With the right one, a row processed two days ago is still inside the deduplication window and a row due
+        // in an hour is not due, whatever cutoff the caller passes.
+        int recentBefore;
+        try (Connection migration = migrationConnection()) {
+            recentBefore = queryInt(migration, recent);
+        }
+        assertThat(recentBefore).isPositive();
+        try (Connection runtime = runtimeConnectionWithoutContext()) {
+            SignedDatabaseContext purging = signer.issueMaintenanceContext(MaintenanceTask.INBOX_PURGE);
+            queryInt(runtime, purge, purging.payload(), purging.signature());
+            SignedDatabaseContext listing = signer.issueMaintenanceContext(MaintenanceTask.INBOX_DUE);
+            assertThat(queryUuids(runtime, due, listing.payload(), listing.signature())).doesNotContain(pending);
+        }
+        try (Connection migration = migrationConnection()) {
+            assertThat(queryInt(migration, recent)).isEqualTo(recentBefore);
+        }
+        assertThat(inboxStates(a)).containsExactly("APPLIED");
+        assertThat(inboxStates(b)).containsExactly("PENDING");
+
+        // A maintenance capability names no tenant, so used as the tenant context it opens no tenant's rows, while
+        // tenant A's own capability set the same way does.
+        assertThat(rowsVisibleUnder(signer.issueMaintenanceContext(MaintenanceTask.INBOX_DUE))).isZero();
+        assertThat(rowsVisibleUnder(signer.issueTenantContext(a.tenant.id()))).isEqualTo(1);
+
+        try (Connection migration = migrationConnection()) {
+            executeUpdate(migration, "UPDATE dokene.provider_webhook_events SET processed_at = now() - interval "
+                    + "'9 days' WHERE tenant_id = ?", a.tenant.id().value());
+        }
+        makeDue(b);
+        try (Connection runtime = runtimeConnectionWithoutContext()) {
+            // The deprecated V29 signatures kept for an older backend do nothing.
+            assertThat(queryUuids(runtime, "SELECT event_id FROM dokene.find_due_webhook_events("
+                    + "'infinity'::timestamptz, 500)")).isEmpty();
+            assertThat(queryInt(runtime, "SELECT dokene.purge_webhook_events('infinity'::timestamptz, 5000)"))
+                    .isZero();
+            assertThat(inboxStates(a)).containsExactly("APPLIED");
+
+            SignedDatabaseContext listing = signer.issueMaintenanceContext(MaintenanceTask.INBOX_DUE);
+            assertThat(queryUuids(runtime, due, listing.payload(), listing.signature())).contains(pending);
+            SignedDatabaseContext purging = signer.issueMaintenanceContext(MaintenanceTask.INBOX_PURGE);
+            assertThat(queryInt(runtime, purge, purging.payload(), purging.signature())).isPositive();
+        }
+        assertThat(inboxStates(a)).isEmpty();
+        assertThat(inboxStates(b)).containsExactly("PENDING");
+    }
+
     private ResultActions postSigned(byte[] body) throws Exception {
         return mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body)
                 .header("X-Hub-Signature-256", WebhookSigning.sign(body, APP_SECRET)));
@@ -595,6 +690,12 @@ class WhatsAppWebhookIntegrationTest {
                 }
                 return states;
             }
+        }
+    }
+
+    private static int rowsVisibleUnder(SignedDatabaseContext tenantContext) throws Exception {
+        try (Connection runtime = runtimeConnection(tenantContext)) {
+            return queryInt(runtime, "SELECT count(*) FROM dokene.provider_webhook_events");
         }
     }
 

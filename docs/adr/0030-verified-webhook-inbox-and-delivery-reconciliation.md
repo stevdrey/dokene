@@ -132,6 +132,7 @@ This settles the spec 0001 webhook race: a report that arrives before T8 commits
 - A scheduled sweeper (`dokene.integration.whatsapp.webhook.inbox.*`: `enabled`, `interval` default 30 s, `batch-size` default 100) resumes everything else, including rows left by a restart and rows beyond the inline limit.
   - Only one instance runs it, through a Postgres advisory lock.
   - It starts without a tenant scope and reads due rows through the security-definer function `dokene.find_due_webhook_events`, which returns `(tenant_id, event_id)` only.
+  - Since issue 313 (audit L4, migration V35) this function and the retention purge take a signed `maintenance` capability (`maintenance|<key_id>|<task uuid>|<expiry>|<nonce>`, the tenant-context key and lifetime) as their first two arguments and do nothing without one. Each function accepts only its own task, so a capability for the due finder cannot drive the purge; the V29 signatures remain as no-ops for a backend of the previous release. The due cutoff is clamped to the database clock, so no caller can list rows that are not yet due.
 
 **No sends.** Nothing on this path can create, approve or send a message. `ModuleDependencyArchitectureTest` forbids the webhook package from depending on the command service, the dispatch service or `MessagingProvider`.
 
@@ -139,6 +140,7 @@ This settles the spec 0001 webhook race: a report that arrives before T8 commits
 
 - Terminal rows (`APPLIED`, `IGNORED`, `UNMATCHED`, `ABANDONED`) are kept for deduplication for `retention` (default 30 days, at least 8 days, beyond Meta's longest documented retry window of 7 days, and at least `abandon-after`).
 - The sweeper then deletes them through `dokene.purge_webhook_events`, at most 1000 per run. This is the only way a row leaves the table.
+- The purge clamps its cutoff to at most 8 days before the database clock (the minimum retention), so even a caller holding a maintenance capability cannot purge rows still inside the deduplication window (issue 313).
 - `PENDING` rows are never purged.
 - The table never holds raw provider JSON, error texts, recipient phones, conversation or pricing data. An `UNMATCHED` or `ABANDONED` row holds no provider message id either.
 

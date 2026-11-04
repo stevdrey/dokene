@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.tenant.persistence.jpa;
 
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.application.MaintenanceTask;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -106,6 +107,12 @@ public class HmacDatabaseContextSigner implements DatabaseContextSigner {
                 HexFormat.of().formatHex(nonce)
         );
         return new SignedDatabaseContext(payload, sign(payload), expiresAt);
+    }
+
+    @Override
+    public SignedDatabaseContext issueMaintenanceContext(MaintenanceTask task) {
+        Objects.requireNonNull(task, "Maintenance task is required");
+        return issue("maintenance", task.subjectId());
     }
 
     public String keyId() {

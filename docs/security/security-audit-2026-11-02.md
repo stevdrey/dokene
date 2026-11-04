@@ -219,6 +219,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L4. The runtime role can call cross-tenant maintenance functions without any capability — Confirmed (callable)
 
+- **Status:** fixed by [#313](https://github.com/stevdrey/dokene/issues/313); see [the verification record](../verification/issue-313-maintenance-function-capabilities-verification.md). The three sweeper and recovery functions now require a signed `maintenance` capability and clamp their cutoffs to the database clock (V35). `resolve_verified_whatsapp_tenant` is unchanged by design: it is a point lookup by an exact phone-number id, returns one tenant id, writes nothing, and serves the unauthenticated webhook before any tenant exists (ADR 0030 §3).
+
 - **Where:**
   - `V29__create_provider_webhook_events.sql`: `purge_webhook_events(processed_before, max_rows)` and `find_due_webhook_events`.
   - `V26__find_expired_dispatch_claims.sql`: `find_expired_dispatch_claims`.

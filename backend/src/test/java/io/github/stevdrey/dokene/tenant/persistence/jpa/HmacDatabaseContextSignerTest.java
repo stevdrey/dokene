@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.tenant.application.MaintenanceTask;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -63,6 +64,26 @@ class HmacDatabaseContextSignerTest {
         assertThat(context.payload().split("\\|")).hasSize(7);
         assertThat(context.signature()).matches("^[0-9a-f]{64}$");
         assertThat(context.expiresAt()).isEqualTo(Instant.parse("2026-08-31T00:01:00Z"));
+    }
+
+    @Test
+    void issuesMaintenanceContextNamingItsTaskWithAFreshNonce() {
+        HmacDatabaseContextSigner signer = new HmacDatabaseContextSigner(signingKey, "k1", clock, secureRandom);
+
+        SignedDatabaseContext first = signer.issueMaintenanceContext(MaintenanceTask.INBOX_PURGE);
+        SignedDatabaseContext second = signer.issueMaintenanceContext(MaintenanceTask.INBOX_PURGE);
+
+        // The subject ids are fixed by migration V35, one per task.
+        assertThat(first.payload()).startsWith("maintenance|k1|00000000-0000-0000-0000-000000000002|1788134460|");
+        assertThat(signer.issueMaintenanceContext(MaintenanceTask.INBOX_DUE).payload())
+                .startsWith("maintenance|k1|00000000-0000-0000-0000-000000000001|");
+        assertThat(signer.issueMaintenanceContext(MaintenanceTask.DISPATCH_RECOVERY).payload())
+                .startsWith("maintenance|k1|00000000-0000-0000-0000-000000000003|");
+        assertThat(first.payload().split("\\|")).hasSize(5);
+        assertThat(first.signature()).matches("^[0-9a-f]{64}$");
+        assertThat(first.expiresAt()).isEqualTo(Instant.parse("2026-08-31T00:01:00Z"));
+        assertThat(second.payload()).isNotEqualTo(first.payload());
+        assertThat(second.signature()).isNotEqualTo(first.signature());
     }
 
     @Test
