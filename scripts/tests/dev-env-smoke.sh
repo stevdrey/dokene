@@ -105,6 +105,37 @@ assert migrate["read_only"] and migrate["restart"] == "no"
 }
 check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
 
+# Runs the real `docker compose config --environment` against a copy of compose.yaml and a quoted .env (#308 review).
+secret_files_follow_compose_interpolation() {
+  local work rc=1
+  work="$(mktemp -d)" || return 1
+  cp "$ROOT_DIR/compose.yaml" "$work/"
+  cat > "$work/.env" <<'ENV'
+DOKENE_DB_NAME=dokene
+DOKENE_DB_BOOTSTRAP_USERNAME=admin
+DOKENE_DB_BOOTSTRAP_PASSWORD=unused
+DOKENE_DB_PASSWORD=unused
+DOKENE_DB_RUNTIME_PASSWORD=unused
+DOKENE_DB_MIGRATION_PASSWORD="quoted pass"
+DOKENE_TENANT_CONTEXT_SIGNING_KEY='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET=unused
+DOKENE_SECRETS_DIR=./custom-secrets
+ENV
+  (
+    # shellcheck source=../dev-env.sh
+    source "$SCRIPT" || exit 1
+    ROOT_DIR="$work"
+    write_secret_files || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_DB_MIGRATION_PASSWORD")" = "quoted pass" ] || exit 1
+    [ "$(cat "$work/custom-secrets/DOKENE_TENANT_CONTEXT_SIGNING_KEY")" = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ] || exit 1
+    [ ! -e "$work/.secrets" ] || exit 1
+    [ "$(stat -c %a "$work/custom-secrets" 2>/dev/null || stat -f %Lp "$work/custom-secrets")" = "700" ]
+  ) && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "secret files use Compose-resolved values and DOKENE_SECRETS_DIR (#308)" secret_files_follow_compose_interpolation
+
 # Runs the real healthcheck command in a container whose resolver has a search domain. Needs a Docker daemon.
 healthcheck_survives_search_domain() {
   local json image probe net="dokene-smoke-$$" ctr="dokene-smoke-$$-bridge" rc=1

@@ -332,23 +332,35 @@ preflight() {
     fail "$CHECK_FAILURES preflight check(s) failed; nothing was started."
     return 1
   fi
-  write_secret_files
+  write_secret_files || return 1
   return 0
 }
 
 # Compose mounts these .env values as files under /run/secrets (issue 308): only the migrate job gets the migration
 # password, and neither it nor the signing key is in any container's environment. Compose refuses environment-sourced
-# secrets for read-only services, so they are written to a git-ignored directory only the owner can list. The files are
+# secrets for read-only services, so they are written to a directory only the owner can list. The files are
 # world-readable because the containers run as uid 10001; the directory mode keeps other host users out.
+# Values and the directory come from Compose's own interpolation environment (shell over .env, quotes resolved), so the
+# files always match what PostgreSQL and compose.yaml (DOKENE_SECRETS_DIR, default ./.secrets) see.
 write_secret_files() {
-  local dir="$ROOT_DIR/.secrets" name
+  local environment dir name value
+  environment="$(compose config --environment)" || { check_fail "docker compose could not resolve .env."; return 1; }
+  dir="$(compose_variable "$environment" DOKENE_SECRETS_DIR)"
+  dir="${dir:-./.secrets}"
+  case "$dir" in /*) ;; *) dir="$ROOT_DIR/${dir#./}" ;; esac
   ( umask 077 && mkdir -p "$dir" )
   chmod 700 "$dir"
   for name in DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY; do
+    value="$(compose_variable "$environment" "$name")"
     rm -f "$dir/$name"
-    printf '%s' "$(env_get "$name")" > "$dir/$name"
+    printf '%s' "$value" > "$dir/$name"
     chmod 444 "$dir/$name"
   done
+}
+
+# compose_variable ENVIRONMENT NAME: the value of NAME in `docker compose config --environment` output (KEY=VALUE lines).
+compose_variable() {
+  printf '%s\n' "$1" | grep -m 1 "^$2=" | cut -d= -f2-
 }
 
 # ------------------------------------------------------------------------------
