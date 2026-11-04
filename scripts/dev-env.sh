@@ -27,7 +27,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
 ENV_EXAMPLE="$ROOT_DIR/.env.example"
 MIN_COMPOSE_MAJOR=2
-MIN_COMPOSE_MINOR=17
+MIN_COMPOSE_MINOR=27
+# 2.27.2 added `docker compose config --environment`, which write_secret_files relies on (issue 308).
+MIN_COMPOSE_PATCH=2
 WAIT_TIMEOUT="${DOKENE_WAIT_TIMEOUT:-300}"
 
 FRONTEND_PORT=5173
@@ -195,7 +197,7 @@ check_docker() {
   fi
   ok "Docker daemon reachable ($(docker version --format '{{.Server.Version}}' 2>/dev/null))"
 
-  local version major minor
+  local version major minor patch
   version="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
   if [ -z "$version" ]; then
     check_fail "Docker Compose v2 is not available ('docker compose'). Update Docker or install the compose plugin."
@@ -203,12 +205,22 @@ check_docker() {
   fi
   major="${version%%.*}"
   minor="${version#*.}"; minor="${minor%%.*}"
-  if [ "$major" -lt "$MIN_COMPOSE_MAJOR" ] 2>/dev/null \
-     || { [ "$major" -eq "$MIN_COMPOSE_MAJOR" ] && [ "$minor" -lt "$MIN_COMPOSE_MINOR" ]; } 2>/dev/null; then
-    check_fail "Docker Compose $version is too old; $MIN_COMPOSE_MAJOR.$MIN_COMPOSE_MINOR or newer is required (build additional_contexts)."
+  patch=0
+  case "$version" in *.*.*) patch="${version#*.*.}"; patch="${patch%%[!0-9]*}" ;; esac
+  if ! compose_version_supported "$major" "$minor" "$patch"; then
+    check_fail "Docker Compose $version is too old; $MIN_COMPOSE_MAJOR.$MIN_COMPOSE_MINOR.$MIN_COMPOSE_PATCH or newer is required (build additional_contexts, config --environment)."
     return
   fi
   ok "Docker Compose $version"
+}
+
+# compose_version_supported MAJOR MINOR PATCH: true when the version is at least the minimum (non-numeric parts fail).
+compose_version_supported() {
+  [ "$1" -gt "$MIN_COMPOSE_MAJOR" ] 2>/dev/null && return 0
+  [ "$1" -eq "$MIN_COMPOSE_MAJOR" ] 2>/dev/null || return 1
+  [ "$2" -gt "$MIN_COMPOSE_MINOR" ] 2>/dev/null && return 0
+  [ "$2" -eq "$MIN_COMPOSE_MINOR" ] 2>/dev/null || return 1
+  [ "$3" -ge "$MIN_COMPOSE_PATCH" ] 2>/dev/null
 }
 
 check_tools() {
@@ -332,7 +344,6 @@ preflight() {
     fail "$CHECK_FAILURES preflight check(s) failed; nothing was started."
     return 1
   fi
-  write_secret_files || return 1
   return 0
 }
 
@@ -347,7 +358,7 @@ preflight() {
 write_secret_files() {
   local environment dir name value
   SECRETS_CHANGED=false
-  environment="$(compose config --environment)" || { check_fail "docker compose could not resolve .env."; return 1; }
+  environment="$(compose config --environment)" || { fail "docker compose could not resolve .env for the secret files."; return 1; }
   dir="$(compose_variable "$environment" DOKENE_SECRETS_DIR)"
   dir="${dir:-./.secrets}"
   case "$dir" in /*) ;; *) dir="$ROOT_DIR/${dir#./}" ;; esac
@@ -511,6 +522,8 @@ cmd_up() {
   done
 
   preflight || exit 1
+  # Written only by the commands that start containers, so `doctor` cannot consume a change before `up` acts on it.
+  write_secret_files || exit 1
   recreate_after_secret_change
 
   [ "$INFRA_ONLY" = "true" ] || repair_networkless_bridge
@@ -554,6 +567,8 @@ cmd_restart_backend() {
   done
 
   preflight || exit 1
+  # --force-recreate below already picks up changed secret files.
+  write_secret_files || exit 1
 
   # The one-shot migrate job (issue 308) runs first so a rebuilt backend never starts against an older schema.
   info "Running migrations and recreating backend and oidc-bridge..."

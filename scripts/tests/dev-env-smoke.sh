@@ -105,6 +105,26 @@ assert migrate["read_only"] and migrate["restart"] == "no"
 }
 check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
 
+compose_minimum_includes_patch() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  compose_version_supported 2 27 2 && compose_version_supported 2 28 0 && compose_version_supported 5 6 1 \
+    && ! compose_version_supported 2 27 1 && ! compose_version_supported 2 17 0 && ! compose_version_supported 1 99 9
+}
+check "compose minimum is 2.27.2, patch included (#308 review)" \
+  bash -c "$(declare -f compose_minimum_includes_patch) ; SCRIPT='$SCRIPT'; compose_minimum_includes_patch"
+
+doctor_does_not_write_secret_files() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  # shellcheck disable=SC2329  # a stub the sourced cmd_doctor must not reach
+  write_secret_files() { echo called; }
+  check_docker() { :; }; check_tools() { :; }; check_env() { :; }; check_ports() { :; }; ok() { :; }
+  [ -z "$(cmd_doctor)" ]
+}
+check "doctor leaves secret files to the start commands (#308 review)" \
+  bash -c "$(declare -f doctor_does_not_write_secret_files) ; SCRIPT='$SCRIPT'; doctor_does_not_write_secret_files"
+
 # Runs the real `docker compose config --environment` against a copy of compose.yaml and a quoted .env (#308 review).
 secret_files_follow_compose_interpolation() {
   local work key rc=1
