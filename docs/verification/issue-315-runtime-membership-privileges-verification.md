@@ -6,7 +6,7 @@ This record is sanitized: it gives grants, outcomes and test names only. It cont
 
 ## Environment
 
-- **Run:** 2026-11-04, branch `315-securityl5-narrow-runtime-membership-database-privileges`, based on `main` at `6cdc000` (the audit's tree `c4b62d1` plus the fixes for #306, #307, #308 and #313). The code was rechecked on that base before the change: L5 still applied as reported, since no migration after V1 touched the membership grants. **Tested revision:** `39d0973`, the first commit of this branch. Every result in the Results table below was run on that tree. Later commits change only this record.
+- **Run:** 2026-11-04, branch `315-securityl5-narrow-runtime-membership-database-privileges`, based on `main` at `6cdc000` (the audit's tree `c4b62d1` plus the fixes for #306, #307, #308 and #313). The code was rechecked on that base before the change: L5 still applied as reported, since no migration after V1 touched the membership grants. **Tested revision:** `b5bd43d`, the third commit of this branch, which adds the code review fixes. Every result in the Results table below was run on that commit. Later commits change only this record. Earlier runs on the first commit, `39d0973`, are listed separately.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build.
 - **Database:** Testcontainers PostgreSQL 17, migrated by Flyway through V36.
 - **Data:** synthetic tenants and members only.
@@ -31,21 +31,30 @@ Residual risk: `role` stays updatable because role changes are a supported workf
 
 | Acceptance item | Test |
 | --- | --- |
-| The runtime role has `SELECT` and `INSERT`, no table-wide `UPDATE`, no `DELETE` or `TRUNCATE`, column `UPDATE` exactly on the four lifecycle columns, and no `DELETE` policy remains | `TenantMembershipPrivilegeIntegrationTest.runtimeRoleHoldsNoDeleteAndUpdatesOnlyTheLifecycleColumns` |
+| The runtime role has `SELECT` and `INSERT`, no table-wide `UPDATE`, no `DELETE` or `TRUNCATE`, column `UPDATE` on exactly the four lifecycle columns (read from `information_schema.column_privileges`, so any other granted column fails the test), and no `DELETE` policy remains | `TenantMembershipPrivilegeIntegrationTest.runtimeRoleHoldsNoDeleteAndUpdatesOnlyTheLifecycleColumns` |
 | With its own tenant's signed context, a runtime session cannot delete a membership (by id or unscoped), truncate the table, or update `identity_id`, `tenant_id`, `id` or `created_at` (all `42501` permission denied); the row is unchanged; updating `role`, `status`, `updated_at` and `version` still succeeds | `TenantMembershipPrivilegeIntegrationTest.runtimeRoleCannotDeleteOrRewriteImmutableColumnsOfItsOwnTenantsMemberships` |
 | Invitation (`addMembership`), role change and revocation run through `MembershipService` and persist; the revoked row still exists with status `REVOKED` and its original tenant, identity and creation time | `TenantMembershipPrivilegeIntegrationTest.invitationRoleChangeAndRevocationStillPersistThroughTheApplication` |
 | Unscoped runtime `DELETE` and the cross-tenant reassignment of `tenant_id` are refused with permission denied; Flyway reaches V36 with four membership policies | `TenantPersistenceIntegrationTest` (`enforcesTenantIsolationAtTheDatabaseLayerWithRowLevelSecurity`, `blocksCrossTenantInsertsAndReassignmentsAtTheDatabaseLayer`, `migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess`) |
-| A cross-tenant `DELETE` on a raw runtime connection is refused | `TenantIsolationSecurityIntegrationTest.enforcesRlsAgainstDirectRuntimeSqlWithoutApplicationPredicates` |
+| Cross-tenant reads, updates, inserts and reassignments on a raw runtime connection stay isolated; its `DELETE` assertion was removed because the grant refuses `DELETE` before RLS applies, which the privilege test above covers | `TenantIsolationSecurityIntegrationTest.enforcesRlsAgainstDirectRuntimeSqlWithoutApplicationPredicates` |
 | Role changes keep their audit attribution, conflicts and ownership guards | `AuditIntegrationTest` |
 | Repository-level role changes, revocations and stale-update rejection | `TenantPersistenceIntegrationTest` |
 
 ## Results
 
-Runs on `39d0973`:
+Runs on `b5bd43d`:
 
 | Command | Result |
 | --- | --- |
-| `./gradlew test --tests '*TenantMembershipPrivilegeIntegrationTest' --tests '*TenantPersistenceIntegrationTest' --tests '*TenantIsolationSecurityIntegrationTest' --tests '*AuditIntegrationTest' --tests '*TenantRootRowLevelSecurityIntegrationTest'` | passed: 3, 37, 7, 25 and 4 tests, no failures or skips |
+| `./gradlew test --tests '*TenantMembershipPrivilegeIntegrationTest' --tests '*TenantIsolationSecurityIntegrationTest' --tests '*TenantPersistenceIntegrationTest' --tests '*AuditIntegrationTest' --tests '*TenantRootRowLevelSecurityIntegrationTest'` | passed: 3, 7, 37, 25 and 4 tests, no failures or skips |
 | `./gradlew check` (backend) | passed: 2372 tests in 197 classes, no failures, errors or skips |
+
+Earlier runs, before the code review fixes:
+
+| Command | Result |
+| --- | --- |
+| The same targeted command, on the uncommitted working tree that was then committed unchanged as `39d0973` | passed: 3, 37, 7, 25 and 4 tests |
+| `./gradlew check` (backend) on `39d0973` | passed: 2372 tests in 197 classes |
+
+The code review of PR #353 led to: exact column names in invariant 10, a single catalog query for the column grants, and removing the membership `DELETE` assertion from the RLS suite.
 
 The frontend is unchanged and was not rerun.
