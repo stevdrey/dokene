@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - '.agents/scripts/issue-loop.mjs'
+      - '.agents/scripts/issue-loop.test.mjs'
       - '.agents/scripts/pr-size-preflight.mjs'
       - '.agents/scripts/pr-size-preflight.test.mjs'
       - '.agents/scripts/verification-verdict.mjs'
@@ -27,3 +29,4 @@ jobs:
           node-version: '22'
       - run: node --test .agents/scripts/pr-size-preflight.test.mjs
       - run: node --test .agents/scripts/verification-verdict.test.mjs
+      - run: node --test .agents/scripts/issue-loop.test.mjs
