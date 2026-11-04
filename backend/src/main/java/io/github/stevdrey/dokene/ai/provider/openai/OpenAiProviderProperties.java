@@ -23,13 +23,14 @@ public record OpenAiProviderProperties(
 
     /**
      * Per-request output ceiling (reasoning tokens included) for both structured operations. About ten times the
-     * observed average output, and above what the timeout lets a client receive; the provider stops and bills at
-     * this point instead of generating after the client has given up. A response cut off here is incomplete and
+     * observed average output (about 390 tokens in a median 6.8 s, issue 124 baseline), and well above the roughly
+     * 850 tokens that rate yields in the 15 s timeout; the provider stops and bills at this point instead of
+     * generating after the client has given up. A response cut off here is incomplete and
      * fails as an invalid structured response, which is never retried.
      */
     public static final int DEFAULT_MAX_OUTPUT_TOKENS = 4096;
-    public static final int MIN_MAX_OUTPUT_TOKENS = 256;
-    public static final int MAX_MAX_OUTPUT_TOKENS = 16384;
+    public static final int MAX_OUTPUT_TOKENS_FLOOR = 256;
+    public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
 
     @ConstructorBinding
     public OpenAiProviderProperties {
@@ -48,9 +49,9 @@ public record OpenAiProviderProperties(
         }
         if (maxOutputTokens == null) {
             maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS;
-        } else if (maxOutputTokens < MIN_MAX_OUTPUT_TOKENS || maxOutputTokens > MAX_MAX_OUTPUT_TOKENS) {
+        } else if (maxOutputTokens < MAX_OUTPUT_TOKENS_FLOOR || maxOutputTokens > MAX_OUTPUT_TOKENS_CEILING) {
             throw new IllegalArgumentException("dokene.ai.openai.max-output-tokens must be between "
-                    + MIN_MAX_OUTPUT_TOKENS + " and " + MAX_MAX_OUTPUT_TOKENS);
+                    + MAX_OUTPUT_TOKENS_FLOOR + " and " + MAX_OUTPUT_TOKENS_CEILING);
         }
     }
 

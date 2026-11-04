@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -994,8 +995,21 @@ class OpenAiResponsesApiAdapterTest {
     void recommendationRequestCarriesTheDefaultOutputTokenCeiling() {
         responseBody.set(buildWireResponse("resp_cap_rec", "gpt-6-luna", NO_RECOMMENDATION_JSON, 20, 10));
 
-        createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest);
+        AiRecommendationResponse response = createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest);
 
+        assertThat(response.outcome()).isInstanceOf(NoRecommendation.class);
+        assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+        assertThat(sentMaxOutputTokens()).isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    @Test
+    void draftRequestCarriesTheDefaultOutputTokenCeilingAndAValidDraftSucceeds() {
+        responseBody.set(buildWireResponse("resp_cap_draft_default", "gpt-6-luna", VALID_DRAFT_JSON, 50, 50));
+
+        AiDraftResponse response = createAdapter("gpt-6-luna", Duration.ofSeconds(15)).draft(sampleDraftRequest());
+
+        assertThat(response.outcome()).isInstanceOf(MessageDraft.class);
+        assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
         assertThat(sentMaxOutputTokens()).isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS);
     }
 
@@ -1085,7 +1099,7 @@ class OpenAiResponsesApiAdapterTest {
     }
 
     private int sentMaxOutputTokens() {
-        var node = tools.jackson.databind.json.JsonMapper.builder().build().readTree(capturedRequestBody.get());
+        var node = JsonMapper.builder().build().readTree(capturedRequestBody.get());
         assertThat(node.has("max_output_tokens")).as("request sets max_output_tokens").isTrue();
         return node.get("max_output_tokens").asInt();
     }

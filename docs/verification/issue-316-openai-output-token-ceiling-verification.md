@@ -21,7 +21,7 @@ This record is sanitized: it gives limits, outcomes and test names only. It cont
 The audit suggested the schema's maximum size plus headroom. That maximum is about 17.6k characters for a draft (body 1000, 20 variables of up to 550 characters, 20 evidence and warning items of up to 200, rationale 500) and about 12.3k for a recommendation, roughly 5k and 3.5k tokens of Spanish text. The ceiling was chosen from use instead:
 
 - The real-provider baseline of issue 124 (`docs/verification/issue-124-evidence/live-baseline-graded.json`) reported 17,455 output tokens over 45 provider calls, about 390 per call, with a p95 latency of about 9 s.
-- At the observed generation rate the 15 s timeout delivers far fewer than 4096 tokens to the client, so a larger ceiling would only pay for output the client has already abandoned.
+- That is about 57 tokens/s over the whole call (390 tokens in a median 6.8 s). At that rate the 15 s timeout delivers roughly 850 tokens to the client, so a larger ceiling would mostly pay for output the client has already abandoned. The rate includes input processing, so pure generation may be faster; it is an estimate from that baseline, not measured for this change.
 
 4096 is about ten times the observed average. A draft that fills every schema field to its maximum is cut off and fails safely (below); the deterministic workflows are unaffected.
 
@@ -35,12 +35,12 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 
 | Acceptance item | Test |
 | --- | --- |
-| The recommendation request sends `max_output_tokens` = 4096 by default | `OpenAiResponsesApiAdapterTest.recommendationRequestCarriesTheDefaultOutputTokenCeiling` |
-| The draft request sends a configured ceiling, and a representative valid draft still succeeds | `OpenAiResponsesApiAdapterTest.draftRequestCarriesTheConfiguredOutputTokenCeiling` |
+| The recommendation request sends `max_output_tokens` = 4096 by default, and a representative valid outcome succeeds | `OpenAiResponsesApiAdapterTest.recommendationRequestCarriesTheDefaultOutputTokenCeiling` |
+| A representative valid draft succeeds at the default ceiling, and a configured ceiling is sent | `OpenAiResponsesApiAdapterTest.draftRequestCarriesTheDefaultOutputTokenCeilingAndAValidDraftSucceeds`, `draftRequestCarriesTheConfiguredOutputTokenCeiling` |
 | A recommendation cut off at the ceiling (status `incomplete`, reason `max_output_tokens`, partial JSON) fails as non-retryable `INVALID_STRUCTURED_RESPONSE` with status `FAILED`, keeps the reported usage and request id, returns no outcome, makes exactly one provider call, and leaks no output text in the message | `OpenAiResponsesApiAdapterTest.recommendationTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry` |
 | The same for a draft | `OpenAiResponsesApiAdapterTest.draftTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry` |
 | A provider `400` about the ceiling maps to `REJECTED_REQUEST` with one call and no provider text in the message | `OpenAiResponsesApiAdapterTest.draftProviderRejectionOfTheCeilingFailsAsRejectedRequest` |
-| Existing representative outputs, refusals, status mapping and error mapping are unchanged | the other 36 tests of `OpenAiResponsesApiAdapterTest` |
+| Existing representative outputs, refusals, status mapping and error mapping are unchanged | the other 36 tests of `OpenAiResponsesApiAdapterTest`, all at the default ceiling |
 | Default 4096 when unset; a configured value binds; 255, 16385, 0 and -1 fail startup naming only the property; 256 and 16384 are accepted; the 5-argument constructor keeps the default | `OpenAiConfigurationTest.defaultsTheOutputTokenCeilingWhenUnset`, `bindsAConfiguredOutputTokenCeiling`, `failsStartupWhenTheOutputTokenCeilingIsOutOfRange`, `acceptsTheOutputTokenCeilingBounds` |
 | An invalid structured response is not retried, is audited with its category, and degrades the request with no outcome delivered | existing `AiFailureHandlingIntegrationTest.malformedStructuredOutputIsNotRetriedAndIsAuditedWithItsCategory` and the non-retryable categories case of `ResilientAiProviderTest` (unchanged; the truncation tests above show a cut-off response takes this path) |
 | The deterministic evaluation report still matches its committed baseline | `AiEvalDeterministicIntegrationTest` |
@@ -51,7 +51,10 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 | --- | --- |
 | `./gradlew test --tests '*OpenAiResponsesApiAdapterTest' --tests '*OpenAiConfigurationTest'` before the change | did not compile (the new property did not exist) |
 | The same after the change | 41 + 9 tests, 0 failures |
+| After the code review follow-ups: the same command | 42 + 9 tests, 0 failures |
 | `./gradlew check` | passed: 2374 tests, 0 failures, 0 skipped |
+| After the code review follow-ups: `./gradlew check` | passed: 2375 tests, 0 failures, 0 skipped |
+| `./gradlew spikeTest --tests '*OpenAiCallCancellationSpikeTest'` (opt-in, the other caller of the properties constructor) | 10 tests, 0 failures |
 
 Both compile tasks print a pre-existing `deprecated API` note, which also appears on `263ad4b`. The test run prints a JDK warning about Spring reflectively mutating `CsrfFilter.tokenRepository`; it is unrelated to this change.
 
