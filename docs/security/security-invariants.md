@@ -11,7 +11,7 @@ The following invariants are architectural requirements, not optional convention
 7. External providers, webhooks, imported data, and user-generated content are untrusted.
 8. Human approval is the default for outbound messaging until a tenant explicitly enables an allowed automation policy.
 9. Security-sensitive state transitions are explicit and validated.
-10. Runtime database credentials must not have schema-migration or RLS-bypass privileges, and the long-running backend never holds the migration credential: migrations run in a separate one-shot job, and the backend only validates the schema (issue 308, ADR 0003).
+10. Runtime database credentials must not have schema-migration or RLS-bypass privileges, and the long-running backend never holds the migration credential: migrations run in a separate one-shot job, and the backend only validates the schema (issue 308, ADR 0003). The runtime role never deletes a tenant or a membership and may update only the columns ADR 0003 lists for them (tenant `display_name`, `status`, `updated_at`, `version`; membership `role`, `status`, `updated_at`, `version`); a membership's tenant and identity are fixed at insert (issues 183 and 315).
 
 11. Runtime audit history is append-only; tenant reads require `AUDIT_READ` and signed-capability RLS. Audit rows cannot be updated, deleted or truncated by any role except through the documented owner break-glass (ADR 0006, issue 308).
 12. Successful security-sensitive database transitions commit atomically with audit records; denied actions require independent durable auditing. Audit persistence failures abort the operation explicitly. AI invocation outcomes (generated, refused, gate-rejected, failed) are audited with closed metadata only.

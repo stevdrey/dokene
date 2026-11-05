@@ -239,6 +239,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L5. The runtime role has full DML on `tenant_memberships` — Static
 
+- **Status:** fixed by [#315](https://github.com/stevdrey/dokene/issues/315); see [the verification record](../verification/issue-315-runtime-membership-privileges-verification.md). V36 revokes `DELETE` and table-wide `UPDATE`, grants `UPDATE` only on `(role, status, updated_at, version)` and drops the unused delete policy. `role` stays updatable because role changes are a supported workflow, so the `role='OWNER'` case remains limited to the caller's own tenant by RLS and to application authorization; `identity_id` can no longer be rewritten.
+
 - **Where:** `V1__*.sql:36` grants `SELECT, INSERT, UPDATE, DELETE ON dokene.tenants, dokene.tenant_memberships`. V16 later narrowed `tenants` to column-level UPDATE with no DELETE, but `tenant_memberships` was not narrowed.
 - **Impact:** defense in depth only. An SQL injection inside a member's request could set `role='OWNER'` or rewrite `identity_id` within that tenant at the database layer. The code never deletes memberships, since revocation is a status change.
 - **Fix:** `REVOKE DELETE` and grant `UPDATE` only on `(role, status, updated_at, version)`.
