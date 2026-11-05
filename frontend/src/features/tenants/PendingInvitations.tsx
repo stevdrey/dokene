@@ -51,15 +51,26 @@ export const PendingInvitations: React.FC = () => {
     setAcceptError(null);
     try {
       await apiClient.post(`/api/tenants/${encodeURIComponent(tenantId)}/invitation/acceptance`);
-      setInvitations((current) => current.filter((invitation) => invitation.tenantId !== tenantId));
-      await refreshWorkspaces({ background: true });
     } catch (err) {
+      setAcceptingId(null);
       if (err instanceof StaleSessionError) return;
       if (err instanceof ApiError && err.status === 404) {
         setAcceptError('Esta invitación ya no está disponible.');
         setInvitations((current) => current.filter((invitation) => invitation.tenantId !== tenantId));
       } else {
         setAcceptError('No se pudo aceptar la invitación. Inténtalo nuevamente.');
+      }
+      return;
+    }
+
+    setInvitations((current) => current.filter((invitation) => invitation.tenantId !== tenantId));
+    try {
+      await refreshWorkspaces({ background: true });
+    } catch (err) {
+      if (!(err instanceof StaleSessionError)) {
+        setAcceptError(
+          'Aceptaste la invitación, pero no se pudo actualizar tu lista de espacios. Recarga la página para verlo.'
+        );
       }
     } finally {
       setAcceptingId(null);

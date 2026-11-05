@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PendingInvitations } from './PendingInvitations';
 import { TenantProvider, useTenant } from './TenantContext';
@@ -141,12 +141,14 @@ describe('PendingInvitations', () => {
     const statuses: string[] = [];
     const Probe: React.FC = () => {
       const { status, workspaces, refreshWorkspaces: refresh } = useTenant();
+      const [failed, setFailed] = React.useState(false);
       statuses.push(status);
       return (
         <div>
           <div data-testid="bg-status">{status}</div>
           <div data-testid="bg-count">{workspaces.length}</div>
-          <button onClick={() => void refresh({ background: true })}>Background</button>
+          {failed && <div data-testid="bg-failed">failed</div>}
+          <button onClick={() => refresh({ background: true }).catch(() => setFailed(true))}>Background</button>
         </div>
       );
     };
@@ -163,10 +165,78 @@ describe('PendingInvitations', () => {
     await waitFor(() => expect(screen.getByTestId('bg-count')).toHaveTextContent('2'));
     fireEvent.click(screen.getByRole('button', { name: 'Background' }));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    // A failed background refresh is reported to its caller and leaves the state as it was.
+    expect(await screen.findByTestId('bg-failed')).toBeInTheDocument();
 
     expect(statuses).not.toContain('loading');
     expect(statuses).not.toContain('error');
     expect(screen.getByTestId('bg-status')).toHaveTextContent('ready');
     expect(screen.getByTestId('bg-count')).toHaveTextContent('2');
+  });
+
+  it('lets a foreground refresh finish when a background refresh fails while it loads', async () => {
+    const actual = await vi.importActual<typeof import('./TenantContext')>('./TenantContext');
+    vi.mocked(useTenant).mockImplementation(actual.useTenant);
+    vi.mocked(useSession).mockReturnValue({
+      status: 'authenticated',
+      identityId: 'id-1',
+      csrfToken: 'csrf-1',
+      wasSessionEnded: false,
+      error: null,
+      loginUrl: '/login',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    } as SessionContextValue);
+    const list = [{ tenantId: 'tenant-1', displayName: 'Café Artesano', role: 'OWNER' }];
+    let releaseForeground: (response: Response) => void = () => {};
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(list))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { releaseForeground = resolve; }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const Probe: React.FC = () => {
+      const { status, refreshWorkspaces: refresh } = useTenant();
+      return (
+        <div>
+          <div data-testid="race-status">{status}</div>
+          <button onClick={() => void refresh()}>Foreground</button>
+          <button onClick={() => refresh({ background: true }).catch(() => undefined)}>Background</button>
+        </div>
+      );
+    };
+
+    render(
+      <TenantProvider>
+        <Probe />
+      </TenantProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId('race-status')).toHaveTextContent('ready'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Foreground' }));
+    expect(screen.getByTestId('race-status')).toHaveTextContent('loading');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Background' }));
+    });
+    await act(async () => {
+      releaseForeground(json(list));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('race-status')).toHaveTextContent('ready'));
+  });
+
+  it('tells the invitee to reload when the workspace list cannot be refreshed after accepting', async () => {
+    refreshWorkspaces.mockRejectedValueOnce(new Error('Service Unavailable'));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+      if (url === '/api/tenants/invitations') return json([invitation]);
+      if (url === `/api/tenants/${TENANT_ID}/invitation/acceptance`) {
+        return json({ tenantId: TENANT_ID, displayName: invitation.displayName, role: 'OPERATOR' });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(<PendingInvitations />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Aceptar invitación a Panadería Central' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Recarga la página');
+    expect(screen.queryByText('Panadería Central')).not.toBeInTheDocument();
   });
 });
