@@ -29,6 +29,9 @@ export const PendingInvitations: React.FC = () => {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  // The acceptance succeeded but the workspace list could not be reloaded: offer a refresh-only retry.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     setLoadState('loading');
@@ -49,6 +52,7 @@ export const PendingInvitations: React.FC = () => {
   const accept = async (tenantId: string) => {
     setAcceptingId(tenantId);
     setAcceptError(null);
+    setRefreshFailed(false);
     try {
       await apiClient.post(`/api/tenants/${encodeURIComponent(tenantId)}/invitation/acceptance`);
     } catch (err) {
@@ -68,12 +72,23 @@ export const PendingInvitations: React.FC = () => {
       await refreshWorkspaces({ background: true });
     } catch (err) {
       if (!(err instanceof StaleSessionError)) {
-        setAcceptError(
-          'Aceptaste la invitación, pero no se pudo actualizar tu lista de espacios. Recarga la página para verlo.'
-        );
+        setRefreshFailed(true);
       }
     } finally {
       setAcceptingId(null);
+    }
+  };
+
+  /** Reloads only the workspace list; the invitation is already accepted and is never posted again. */
+  const retryRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshWorkspaces({ background: true });
+      setRefreshFailed(false);
+    } catch (err) {
+      if (err instanceof StaleSessionError) setRefreshFailed(false);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -114,7 +129,7 @@ export const PendingInvitations: React.FC = () => {
     );
   }
 
-  if (invitations.length === 0 && !acceptError) return null;
+  if (invitations.length === 0 && !acceptError && !refreshFailed) return null;
 
   return (
     <section
@@ -164,6 +179,45 @@ export const PendingInvitations: React.FC = () => {
           }}
         >
           {acceptError}
+        </div>
+      )}
+
+      {refreshFailed && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: '12px',
+            padding: '10px 12px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-error-bg)',
+            color: 'var(--color-error-text)',
+            border: '1px solid var(--color-error-border)',
+            fontSize: 'var(--font-size-secondary)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+          }}
+        >
+          <span>Aceptaste la invitación, pero no se pudo actualizar tu lista de espacios.</span>
+          <button
+            type="button"
+            onClick={() => void retryRefresh()}
+            disabled={isRefreshing}
+            style={{
+              minHeight: '44px',
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-error-border)',
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-main)',
+              fontWeight: 600,
+              cursor: isRefreshing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isRefreshing ? 'Actualizando...' : 'Reintentar actualización'}
+          </button>
         </div>
       )}
 

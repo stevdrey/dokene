@@ -223,9 +223,11 @@ describe('PendingInvitations', () => {
     await waitFor(() => expect(screen.getByTestId('race-status')).toHaveTextContent('ready'));
   });
 
-  it('tells the invitee to reload when the workspace list cannot be refreshed after accepting', async () => {
-    refreshWorkspaces.mockRejectedValueOnce(new Error('Service Unavailable'));
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
+  it('offers a refresh-only retry when the workspace list cannot be refreshed after accepting', async () => {
+    refreshWorkspaces.mockRejectedValueOnce(new Error('Service Unavailable')).mockRejectedValueOnce(
+      new Error('Service Unavailable')
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       if (url === '/api/tenants/invitations') return json([invitation]);
       if (url === `/api/tenants/${TENANT_ID}/invitation/acceptance`) {
         return json({ tenantId: TENANT_ID, displayName: invitation.displayName, role: 'OPERATOR' });
@@ -236,7 +238,24 @@ describe('PendingInvitations', () => {
     render(<PendingInvitations />);
     fireEvent.click(await screen.findByRole('button', { name: 'Aceptar invitación a Panadería Central' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Recarga la página');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Aceptaste la invitación, pero no se pudo actualizar tu lista de espacios.'
+    );
     expect(screen.queryByText('Panadería Central')).not.toBeInTheDocument();
+
+    // A retry that fails again keeps the message and the retry.
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualización' }));
+    await waitFor(() => expect(refreshWorkspaces).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: 'Reintentar actualización' })).toBeEnabled();
+
+    // A successful retry clears it; the acceptance itself is never posted again.
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar actualización' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(refreshWorkspaces).toHaveBeenCalledTimes(3);
+    expect(refreshWorkspaces).toHaveBeenLastCalledWith({ background: true });
+    const acceptancePosts = fetchSpy.mock.calls.filter(
+      ([url]) => url === `/api/tenants/${TENANT_ID}/invitation/acceptance`
+    );
+    expect(acceptancePosts).toHaveLength(1);
   });
 });
