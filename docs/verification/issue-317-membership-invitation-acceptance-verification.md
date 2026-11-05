@@ -7,7 +7,7 @@ This record is sanitized. It gives endpoints, outcomes and test names only, and 
 ## Environment
 
 - **Run:** 2026-11-04, branch `317-securityl2-require-membership-invitation-acceptance-and-support-audited-reactivation`, based on `main` at `156f275`. The code was rechecked on that base before the change. L2 still applied as reported: `MembershipService.addMembership` called `TenantMembership.createActive`, and a second add of a revoked identity returned `409`.
-- **Tested revision:** `2f69a87`, the first commit of this branch, for the backend and frontend results below. A later commit fixes `scripts/seed-local-qa.sh` after code review (see "QA seeder" below). It changes no backend or frontend file, so their results still apply.
+- **Tested revision:** `755c3ce`, which applies the code review fixes on top of the first commit `2f69a87` and the QA seeder fix `aab9890`. Every result in the Results table below was run on that content. Later commits change only this record.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build; Node with the repository's Vitest and TypeScript.
 - **Database:** Testcontainers PostgreSQL, migrated by Flyway through V37.
 - **Data:** synthetic tenants and identities only.
@@ -17,7 +17,7 @@ This record is sanitized. It gives endpoints, outcomes and test names only, and 
 | Area | Before | After |
 | --- | --- | --- |
 | `POST /api/memberships` | `201`, `ACTIVE` | `201`, `INVITED`; no tenant context until accepted |
-| Invitee | could enter immediately | lists `GET /api/tenants/invitations`, accepts with `POST /api/tenants/{tenantId}/invitation/acceptance` (`200`, or `404` plus an audited denial) |
+| Invitee | could enter immediately | lists `GET /api/tenants/invitations`, accepts with `POST /api/tenants/{tenantId}/invitation/acceptance` (`200`, or `404`) |
 | Revoked member | no way back (`409`) | `POST /api/memberships/{identityId}/reactivation` (`MEMBERSHIP_INVITE`): `REVOKED` becomes `INVITED`, same id and role, and must be accepted again |
 | Audit | `MEMBERSHIP_CREATED`, `MEMBERSHIP_REVOKED` | adds `MEMBERSHIP_INVITATION_ACCEPTED` (actor: invitee) and `MEMBERSHIP_REACTIVATED` (actor: administrator), both checked by `ck_audit_shape` |
 | UI | none | pending invitations, with the workspace name, role, date and tenant id, on the "no workspaces" page and the settings tab |
@@ -43,13 +43,27 @@ The role and ownership rules are unchanged: `OWNER` is never invited, accepted o
 
 ## Results
 
-Runs on `2f69a87`:
+Runs on `755c3ce`:
 
 | Command | Kind | Result |
 | --- | --- | --- |
-| `./gradlew check` (backend) | automated | passed: 2393 tests in 198 classes, no failures, errors or skips |
-| `npm test` (frontend) | automated | passed: 1109 tests in 47 files |
+| `./gradlew check` (backend) | automated | passed: 2395 tests in 198 classes, no failures, errors or skips |
+| `npm test` (frontend) | automated | passed: 1110 tests in 47 files. A first run alongside the backend `check` timed out in four unrelated suites (5 s limit, CPU contention); run on its own, it passed |
 | `npm run build` (frontend, `tsc -b` and Vite) | automated | passed |
+| `./scripts/seed-local-qa.sh --verify`, then revoke `testviewer` and run it again | live (local Compose stack) | passed: the second run reactivated and accepted the viewer, and all six RBAC checks passed both times |
+
+Earlier runs: `./gradlew check` passed 2393 tests and `npm test` 1109 tests on `2f69a87`, and the seeder runs in "QA seeder" below ran on `aab9890`.
+
+The code review of PR #355 led to these changes:
+- The acceptance takes the application clock as a fourth argument, because a database-stamped `updated_at` could be ahead of the clock that later transitions use.
+- `invitedAt` is the creation time.
+- The acceptance's audit context comes from `TenantContextResolver`.
+- A failed acceptance is no longer audited, because any identity could amplify it.
+- The membership status audit default fails closed.
+- Accepting refreshes the workspace list in the background.
+- The QA seeder stops when it cannot list memberships.
+
+V37 was edited before release. The local database that already had it was repaired by dropping its two functions and its history row, then re-applied by the migrate job, with no data loss.
 
 ## QA seeder
 
