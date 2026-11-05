@@ -52,7 +52,7 @@ export const PendingInvitations: React.FC = () => {
     try {
       await apiClient.post(`/api/tenants/${encodeURIComponent(tenantId)}/invitation/acceptance`);
       setInvitations((current) => current.filter((invitation) => invitation.tenantId !== tenantId));
-      await refreshWorkspaces();
+      await refreshWorkspaces({ background: true });
     } catch (err) {
       if (err instanceof StaleSessionError) return;
       if (err instanceof ApiError && err.status === 404) {

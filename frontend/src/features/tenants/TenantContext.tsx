@@ -79,7 +79,11 @@ export interface TenantContextValue {
   activeWorkspace: Workspace | null;
   error: string | null;
   switchWorkspace: (tenantId: string) => void;
-  refreshWorkspaces: () => Promise<void>;
+  /**
+   * Reloads the workspace list. With `background`, the app keeps its current state while loading, and a failure
+   * leaves it unchanged, so a change such as accepting an invitation does not blank the shell.
+   */
+  refreshWorkspaces: (options?: { background?: boolean }) => Promise<void>;
   provisionWorkspace: (displayName: string, idempotencyKey?: string) => Promise<Workspace>;
 }
 
@@ -122,7 +126,8 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [workspaces, storageKey]
   );
 
-  const refreshWorkspaces = useCallback(async () => {
+  const refreshWorkspaces = useCallback(async (options?: { background?: boolean }) => {
+    const background = options?.background === true;
     const currentRefreshGen = ++refreshGenerationRef.current;
 
     if (sessionStatus !== 'authenticated') {
@@ -133,8 +138,10 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    setStatus('loading');
-    setError(null);
+    if (!background) {
+      setStatus('loading');
+      setError(null);
+    }
 
     try {
       const list = await apiClient.get<Workspace[]>('/api/tenants');
@@ -187,6 +194,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       if (err instanceof StaleSessionError || err instanceof AbortedTenantRequestError) {
         // Discard late/cancelled response silently
+        return;
+      }
+      if (background) {
         return;
       }
       setError(err instanceof Error ? err.message : 'Error al cargar espacios de trabajo');

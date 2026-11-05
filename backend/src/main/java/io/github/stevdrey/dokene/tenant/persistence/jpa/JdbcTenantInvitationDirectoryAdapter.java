@@ -10,6 +10,8 @@ import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -48,11 +50,11 @@ public class JdbcTenantInvitationDirectoryAdapter implements TenantInvitationDir
     }
 
     @Override
-    public Optional<ActiveTenantMembership> accept(IdentityId identityId, TenantId tenantId) {
+    public Optional<ActiveTenantMembership> accept(IdentityId identityId, TenantId tenantId, Instant acceptedAt) {
         SignedDatabaseContext context = databaseContextSigner.issueIdentityContext(identityId);
         List<ActiveTenantMembership> accepted = jdbcTemplate.query("""
                         SELECT tenant_id, tenant_display_name, membership_id, role
-                        FROM dokene.accept_tenant_membership_invitation(?, ?, ?)
+                        FROM dokene.accept_tenant_membership_invitation(?, ?, ?, ?)
                         """,
                 (resultSet, rowNumber) -> new ActiveTenantMembership(
                         new TenantId(resultSet.getObject("tenant_id", UUID.class)),
@@ -62,7 +64,8 @@ public class JdbcTenantInvitationDirectoryAdapter implements TenantInvitationDir
                 ),
                 context.payload(),
                 context.signature(),
-                tenantId.value()
+                tenantId.value(),
+                Timestamp.from(acceptedAt)
         );
         return accepted.stream().findFirst();
     }

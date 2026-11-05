@@ -124,7 +124,8 @@ public class TenantController {
 
     /**
      * Accepts the caller's pending invitation to {@code tenantId} and returns the workspace it can now enter. Without
-     * a pending invitation the answer is {@code 404} whatever the reason, and the attempt is audited as a denial.
+     * a pending invitation the answer is {@code 404} whatever the reason. It is not audited: the caller holds no
+     * tenant context, and auditing it would let any identity append unbounded global denial rows.
      */
     @PostMapping("/{tenantId}/invitation/acceptance")
     public WorkspaceResponse acceptInvitation(
@@ -141,7 +142,6 @@ public class TenantController {
                     accepted.role().name()
             );
         } catch (MembershipNotFoundException exception) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
     }

@@ -58,4 +58,14 @@ class DurableMembershipAuditAdapterTest {
         verify(recorder).membershipStatusChanged(membershipId, AuditEventType.MEMBERSHIP_REACTIVATED,
                 TenantRole.ADMIN);
     }
+
+    @Test
+    void aRecorderThatDoesNotImplementTheStatusEventsFailsClosed() {
+        AuditRecorder partial = mock(AuditRecorder.class, org.mockito.Answers.CALLS_REAL_METHODS);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> partial.membershipStatusChanged(
+                        new TenantMembershipId(UUID.randomUUID()), AuditEventType.MEMBERSHIP_REACTIVATED,
+                        TenantRole.VIEWER))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
 }

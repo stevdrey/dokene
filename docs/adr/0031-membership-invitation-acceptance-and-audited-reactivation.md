@@ -30,19 +30,19 @@ Two endpoints on the global `/api/tenants` boundary, where no tenant context exi
 
 | Endpoint | Result |
 | --- | --- |
-| `GET /api/tenants/invitations` | `200` with `[{tenantId, displayName, role, invitedAt}]`: the caller's `INVITED` memberships in active tenants, oldest first. |
+| `GET /api/tenants/invitations` | `200` with `[{tenantId, displayName, role, invitedAt}]`: the caller's `INVITED` memberships in active tenants, oldest first. `invitedAt` is the membership's creation time, so a role change does not move it, and a reactivated membership shows its original invitation date. |
 | `POST /api/tenants/{tenantId}/invitation/acceptance` | `200` with the workspace (`{tenantId, displayName, role}`) the caller can now select. `404` when the caller holds no pending invitation there. |
 
-The acceptance needs the session's CSRF token like every other state-changing request. A `404` is the same whether the tenant does not exist, belongs to someone else's invitation, was already accepted, was revoked, or the tenant is not active. It is audited as an `AUTHORIZATION_DENIED` with `NO_TENANT_CONTEXT`, like a refused tenant selection.
+The acceptance needs the session's CSRF token like every other state-changing request. A `404` is the same whether the tenant does not exist, belongs to someone else's invitation, was already accepted, was revoked, or the tenant is not active. It is not audited: the caller has no tenant context, and auditing it would let any authenticated identity append unbounded global denial rows by posting random tenant ids.
 
 An invitee's row is hidden from it by tenant RLS, because it has no tenant context yet. Migration V37 therefore adds two `SECURITY DEFINER` functions in the style of `discover_active_tenant_memberships`:
 
 - `dokene.discover_pending_tenant_invitations(payload, signature)`;
-- `dokene.accept_tenant_membership_invitation(payload, signature, tenant_id)`.
+- `dokene.accept_tenant_membership_invitation(payload, signature, tenant_id, accepted_at)`.
 
-Both verify an identity capability signed with the tenant-context key (`signed_context_subject(..., 'identity')`), so a runtime session without the backend's key cannot use them. Both see only the verified identity's own rows, and never an `OWNER` row or a non-active tenant. The acceptance changes `INVITED` to `ACTIVE`, advances `updated_at` and the optimistic-lock `version`, and returns nothing when there is no pending invitation. `EXECUTE` is granted to `dokene_runtime` only.
+Both verify an identity capability signed with the tenant-context key (`signed_context_subject(..., 'identity')`), so a runtime session without the backend's key cannot use them. Both see only the verified identity's own rows, and never an `OWNER` row or a non-active tenant. The acceptance changes `INVITED` to `ACTIVE`, sets `updated_at` to the acceptance time passed by the application (the clock every other membership transition uses), advances the optimistic-lock `version`, and returns nothing when there is no pending invitation. `EXECUTE` is granted to `dokene_runtime` only.
 
-`MembershipInvitationService.acceptInvitation` runs the function and records `MEMBERSHIP_INVITATION_ACCEPTED` in the same transaction. The event is attributed to the invitee, under a tenant context built for the membership the function just activated. If the audit fails, the acceptance rolls back. The service refuses to run inside a tenant context.
+`MembershipInvitationService.acceptInvitation` runs the function and records `MEMBERSHIP_INVITATION_ACCEPTED` in the same transaction. The event is attributed to the invitee, under the tenant context `TenantContextResolver` now resolves, in that transaction, for the membership the function just activated. If the context does not resolve to that membership, or the audit fails, the acceptance rolls back. The service refuses to run inside a tenant context.
 
 The UI shows pending invitations on the "no workspaces" page and on the settings tab. It shows the workspace name, the role, the invitation date and the tenant id, because two workspaces can share a name (audit L3). Accepting reloads the workspace list.
 

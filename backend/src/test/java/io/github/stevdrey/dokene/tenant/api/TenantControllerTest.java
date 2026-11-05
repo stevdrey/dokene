@@ -224,7 +224,7 @@ class TenantControllerTest {
     }
 
     @Test
-    void acceptInvitationWithoutAPendingInvitationIsNotFoundAndAudited() {
+    void acceptInvitationWithoutAPendingInvitationIsNotFoundWithoutAudit() {
         TenantId tenantId = TenantId.random();
         when(invitationService.acceptInvitation(identityId, tenantId)).thenThrow(new MembershipNotFoundException());
 
@@ -232,7 +232,7 @@ class TenantControllerTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
-        verify(auditRecorder).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verifyNoInteractions(auditRecorder);
         assertThatThrownBy(() -> controller.acceptInvitation(tenantId.value(), null))
                 .isInstanceOf(ResponseStatusException.class);
     }

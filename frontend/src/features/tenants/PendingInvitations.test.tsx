@@ -2,8 +2,11 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PendingInvitations } from './PendingInvitations';
-import { useTenant } from './TenantContext';
+import { TenantProvider, useTenant } from './TenantContext';
+import { SessionContextValue, useSession } from '../auth/SessionContext';
 import { apiClient } from '../../api/apiClient';
+
+vi.mock('../auth/SessionContext', () => ({ useSession: vi.fn() }));
 
 vi.mock('./TenantContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./TenantContext')>();
@@ -67,7 +70,7 @@ describe('PendingInvitations', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Aceptar invitación a Panadería Central' }));
 
-    await waitFor(() => expect(refreshWorkspaces).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(refreshWorkspaces).toHaveBeenCalledWith({ background: true }));
     const acceptCall = fetchSpy.mock.calls.find(([url]) => url === `/api/tenants/${TENANT_ID}/invitation/acceptance`);
     expect(acceptCall).toBeDefined();
     const init = acceptCall![1] as RequestInit;
@@ -114,5 +117,56 @@ describe('PendingInvitations', () => {
     fetchSpy.mockResolvedValueOnce(json([invitation]));
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
     expect(await screen.findByText('Panadería Central')).toBeInTheDocument();
+  });
+
+  it('refreshes the workspaces in the background, never passing through loading or error', async () => {
+    const actual = await vi.importActual<typeof import('./TenantContext')>('./TenantContext');
+    vi.mocked(useTenant).mockImplementation(actual.useTenant);
+    vi.mocked(useSession).mockReturnValue({
+      status: 'authenticated',
+      identityId: 'id-1',
+      csrfToken: 'csrf-1',
+      wasSessionEnded: false,
+      error: null,
+      loginUrl: '/login',
+      checkSession: vi.fn(),
+      logout: vi.fn(),
+    } as SessionContextValue);
+    const first = [{ tenantId: 'tenant-1', displayName: 'Café Artesano', role: 'OWNER' }];
+    const second = [...first, { tenantId: TENANT_ID, displayName: invitation.displayName, role: 'OPERATOR' }];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(first))
+      .mockResolvedValueOnce(json(second))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const statuses: string[] = [];
+    const Probe: React.FC = () => {
+      const { status, workspaces, refreshWorkspaces: refresh } = useTenant();
+      statuses.push(status);
+      return (
+        <div>
+          <div data-testid="bg-status">{status}</div>
+          <div data-testid="bg-count">{workspaces.length}</div>
+          <button onClick={() => void refresh({ background: true })}>Background</button>
+        </div>
+      );
+    };
+
+    render(
+      <TenantProvider>
+        <Probe />
+      </TenantProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId('bg-status')).toHaveTextContent('ready'));
+    statuses.length = 0;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background' }));
+    await waitFor(() => expect(screen.getByTestId('bg-count')).toHaveTextContent('2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Background' }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+
+    expect(statuses).not.toContain('loading');
+    expect(statuses).not.toContain('error');
+    expect(screen.getByTestId('bg-status')).toHaveTextContent('ready');
+    expect(screen.getByTestId('bg-count')).toHaveTextContent('2');
   });
 });

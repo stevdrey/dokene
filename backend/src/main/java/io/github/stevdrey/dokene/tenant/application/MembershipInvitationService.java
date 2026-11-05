@@ -5,7 +5,7 @@ package io.github.stevdrey.dokene.tenant.application;
 import io.github.stevdrey.dokene.tenant.application.TenantMembershipDiscovery.ActiveTenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
-import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
+import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -20,16 +20,22 @@ public class MembershipInvitationService {
 
     private final TenantInvitationDirectory invitations;
     private final TenantContextProvider contexts;
+    private final TenantContextResolver resolver;
     private final MembershipAuditPort auditPort;
+    private final Clock clock;
 
     public MembershipInvitationService(
             TenantInvitationDirectory invitations,
             TenantContextProvider contexts,
-            MembershipAuditPort auditPort
+            TenantContextResolver resolver,
+            MembershipAuditPort auditPort,
+            Clock clock
     ) {
         this.invitations = Objects.requireNonNull(invitations, "Invitation directory is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
+        this.resolver = Objects.requireNonNull(resolver, "Tenant context resolver is required");
         this.auditPort = Objects.requireNonNull(auditPort, "Membership audit port is required");
+        this.clock = Objects.requireNonNull(clock, "Clock is required");
     }
 
     @Transactional(readOnly = true)
@@ -41,7 +47,7 @@ public class MembershipInvitationService {
 
     /**
      * Accepts the identity's pending invitation to {@code tenantId}. The acceptance is audited as the invitee, under
-     * the membership it just activated; if the audit fails the acceptance rolls back.
+     * the context the resolver now builds for the membership it just activated; if either fails, it rolls back.
      *
      * @throws MembershipNotFoundException when there is no pending invitation to accept
      */
@@ -50,11 +56,14 @@ public class MembershipInvitationService {
         Objects.requireNonNull(identityId, "Identity is required");
         Objects.requireNonNull(tenantId, "Tenant is required");
         requireNoTenantContext();
-        ActiveTenantMembership accepted = invitations.accept(identityId, tenantId)
+        ActiveTenantMembership accepted = invitations.accept(identityId, tenantId, clock.instant())
                 .orElseThrow(MembershipNotFoundException::new);
-        TenantContext member = new TenantContext(accepted.tenantId(), identityId, accepted.membershipId(),
-                accepted.role(), TenantMembershipStatus.ACTIVE);
-        contexts.runWithContext(member, () -> auditPort.invitationAccepted(accepted.membershipId(), accepted.role()));
+        // The same path every request takes, in this transaction, so it sees the membership the acceptance activated.
+        TenantContext member = resolver.resolve(identityId, accepted.tenantId());
+        if (!member.membershipId().equals(accepted.membershipId())) {
+            throw new IllegalStateException("Accepted membership does not resolve to the caller's tenant context");
+        }
+        contexts.runWithContext(member, () -> auditPort.invitationAccepted(member.membershipId(), member.role()));
         return accepted;
     }
 

@@ -30,25 +30,30 @@ BEGIN
     END IF;
 
     RETURN QUERY
-        SELECT tenant.id, tenant.display_name, membership.id, membership.role, membership.updated_at
+        SELECT tenant.id, tenant.display_name, membership.id, membership.role, membership.created_at
         FROM dokene.tenant_memberships membership
         JOIN dokene.tenants tenant ON tenant.id = membership.tenant_id
         WHERE membership.identity_id = verified_identity_id
             AND membership.status = 'INVITED'
             AND membership.role <> 'OWNER'
             AND tenant.status = 'ACTIVE'
-        ORDER BY membership.updated_at, tenant.id;
+        ORDER BY membership.created_at, tenant.id;
 END;
 $$;
+
+-- invited_at is the membership's creation time, so a role change on a pending invitation does not move it; a
+-- reactivated membership keeps its original invitation date.
 
 -- Accepts the caller's pending invitation to one tenant: INVITED becomes ACTIVE, and the optimistic-lock version
 -- advances so a concurrent role change or revocation through JPA fails instead of overwriting the acceptance. Returns
 -- no row when the identity has no pending invitation there, so the caller cannot tell a missing tenant from a
--- missing, revoked, already accepted or suspended-tenant invitation.
+-- missing, revoked, already accepted or suspended-tenant invitation. p_accepted_at is the application clock, which
+-- stamps every other membership transition, so a later domain transition never sees an updated_at ahead of it.
 CREATE FUNCTION dokene.accept_tenant_membership_invitation(
     context_payload TEXT,
     context_signature TEXT,
-    p_tenant_id UUID
+    p_tenant_id UUID,
+    p_accepted_at TIMESTAMPTZ
 )
 RETURNS TABLE (
     tenant_id UUID,
@@ -65,14 +70,14 @@ DECLARE
     verified_identity_id UUID;
 BEGIN
     verified_identity_id := dokene.signed_context_subject(context_payload, context_signature, 'identity');
-    IF verified_identity_id IS NULL OR p_tenant_id IS NULL THEN
+    IF verified_identity_id IS NULL OR p_tenant_id IS NULL OR p_accepted_at IS NULL THEN
         RETURN;
     END IF;
 
     RETURN QUERY
         UPDATE dokene.tenant_memberships membership
         SET status = 'ACTIVE',
-            updated_at = GREATEST(membership.updated_at, date_trunc('microseconds', statement_timestamp())),
+            updated_at = GREATEST(membership.updated_at, date_trunc('microseconds', p_accepted_at)),
             version = membership.version + 1
         FROM dokene.tenants tenant
         WHERE tenant.id = membership.tenant_id
@@ -86,9 +91,9 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION dokene.discover_pending_tenant_invitations(TEXT, TEXT) FROM PUBLIC;
-REVOKE ALL ON FUNCTION dokene.accept_tenant_membership_invitation(TEXT, TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION dokene.accept_tenant_membership_invitation(TEXT, TEXT, UUID, TIMESTAMPTZ) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dokene.discover_pending_tenant_invitations(TEXT, TEXT) TO dokene_runtime;
-GRANT EXECUTE ON FUNCTION dokene.accept_tenant_membership_invitation(TEXT, TEXT, UUID) TO dokene_runtime;
+GRANT EXECUTE ON FUNCTION dokene.accept_tenant_membership_invitation(TEXT, TEXT, UUID, TIMESTAMPTZ) TO dokene_runtime;
 
 -- Two membership lifecycle events, both attributed to a member and carrying only the membership's role (never an
 -- OWNER): the invitee accepting (actor = invitee) and an administrator reactivating a revoked membership. The other

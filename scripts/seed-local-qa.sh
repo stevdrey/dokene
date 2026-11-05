@@ -195,6 +195,10 @@ echo ""
 echo "Establishing workspace memberships in '$WORKSPACE_NAME'..."
 
 MEMBERSHIPS_JSON="$(curl -s -b "$OWNER_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" "$BFF_URL/api/memberships")"
+if ! echo "$MEMBERSHIPS_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    echo "Error: could not list memberships of '$WORKSPACE_NAME' as the owner." >&2
+    exit 1
+fi
 
 # Makes <username> an ACTIVE member with <role>. Since issue 317 a membership is INVITED until its invitee accepts it,
 # and a REVOKED one is recovered by an audited reactivation back to INVITED, so the invitee's own session accepts it.

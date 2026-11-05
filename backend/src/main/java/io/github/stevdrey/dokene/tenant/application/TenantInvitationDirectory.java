@@ -18,9 +18,10 @@ public interface TenantInvitationDirectory {
 
     /**
      * Turns the identity's pending invitation to {@code tenantId} into an active membership in the current
-     * transaction, or returns empty when there is none to accept.
+     * transaction, stamped {@code acceptedAt}, or returns empty when there is none to accept.
      */
-    Optional<TenantMembershipDiscovery.ActiveTenantMembership> accept(IdentityId identityId, TenantId tenantId);
+    Optional<TenantMembershipDiscovery.ActiveTenantMembership> accept(IdentityId identityId, TenantId tenantId,
+            Instant acceptedAt);
 
     record PendingInvitation(
             TenantId tenantId,

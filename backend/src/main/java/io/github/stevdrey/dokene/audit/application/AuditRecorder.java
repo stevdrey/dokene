@@ -31,9 +31,11 @@ public interface AuditRecorder {
     /**
      * {@link AuditEventType#MEMBERSHIP_INVITATION_ACCEPTED} or {@link AuditEventType#MEMBERSHIP_REACTIVATED},
      * attributed to the current tenant context. Requires an existing business transaction; failure must roll back the
-     * state transition.
+     * state transition. The default fails closed: a recorder that does not implement it refuses the transition instead
+     * of letting it commit unaudited.
      */
     default void membershipStatusChanged(TenantMembershipId target, AuditEventType eventType, TenantRole role) {
+        throw new UnsupportedOperationException("Membership status audit is not implemented by this recorder");
     }
 
     /** Requires an existing business transaction; failure must roll back the state transition. */
