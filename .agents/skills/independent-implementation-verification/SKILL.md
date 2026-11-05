@@ -18,7 +18,7 @@ A passing verdict is evidence that the listed criteria were met by the listed ca
 
 ## Boundary
 
-The verifier reports to the implementing agent only. Publication is decided by the coordinating workflow (#348) and the `create-pull-request` skill.
+The verifier reports to the implementing agent only. Publication is decided by the coordinating `issue-implementation-loop` skill and the `create-pull-request` skill.
 
 The verifier must never:
 
