@@ -30,19 +30,22 @@ public class TemplateRegistryService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final TemplateRegistryProperties properties;
+    private final TemplateRefreshLimiter refreshes;
     private final Clock clock;
     private final TransactionTemplate writes;
     private final TransactionTemplate reads;
 
     public TemplateRegistryService(TemplateMappingRepository repository, TemplateProviderGateway gateway,
             TemplateAuditPort audit, TenantAuthorizationService authorization, TenantContextProvider contexts,
-            TemplateRegistryProperties properties, Clock clock, PlatformTransactionManager transactions) {
+            TemplateRegistryProperties properties, TemplateRefreshLimiter refreshes, Clock clock,
+            PlatformTransactionManager transactions) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.gateway = Objects.requireNonNull(gateway, "Gateway is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
         this.properties = Objects.requireNonNull(properties, "Properties are required");
+        this.refreshes = Objects.requireNonNull(refreshes, "Refresh limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.writes = new TransactionTemplate(transactions);
         this.reads = new TransactionTemplate(transactions);
@@ -116,6 +119,11 @@ public class TemplateRegistryService {
      * The explicit verification path: asks the provider, stores only its normalized answer against the current
      * revision, and never advances the mapping version. An unobtainable answer drops stale evidence and is reported
      * as {@code PROVIDER_UNAVAILABLE} after that downgrade is committed.
+     *
+     * <p>Every refresh that reaches the provider spends one unit of the tenant's lookup budget, whatever the answer,
+     * including an unavailable one (issue 321). A spent budget is {@code RATE_LIMITED} with {@code Retry-After}, is
+     * audited as a denied action, makes no provider call and leaves the stored evidence untouched. Refusals decided
+     * before the provider call ({@code NOT_FOUND}, {@code STALE_VERSION}, {@code INTEGRATION_DISABLED}) cost nothing.
      */
     public Entry refreshApproval(SemanticTemplateIntent intent, long expectedVersion) {
         Objects.requireNonNull(intent, "Intent is required");
@@ -128,6 +136,7 @@ public class TemplateRegistryService {
         }
         TemplateProviderGateway.Sender sender = gateway.currentSender()
                 .orElseThrow(() -> new TemplateRefusedException(TemplateErrorCode.INTEGRATION_DISABLED));
+        acquireLookup(tenantId);
         TemplateProviderGateway.Lookup lookup = gateway.lookup(sender, current.providerTemplateName(), current.language());
         // Evidence is only kept for the account that was asked; an answer about any other account is not evidence.
         if (!answeredFor(lookup, sender)) {
@@ -158,6 +167,16 @@ public class TemplateRegistryService {
             throw new TemplateRefusedException(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         }
         return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender)));
+    }
+
+    /** A throttled refresh is a denied action, audited in its own transaction before the refusal propagates. */
+    private void acquireLookup(TenantId tenantId) {
+        try {
+            refreshes.acquire(tenantId);
+        } catch (TemplateRateLimitedException throttled) {
+            audit.refreshThrottled();
+            throw throttled;
+        }
     }
 
     private static boolean answeredFor(TemplateProviderGateway.Lookup lookup, TemplateProviderGateway.Sender sender) {

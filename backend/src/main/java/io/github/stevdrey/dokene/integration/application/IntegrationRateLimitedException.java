@@ -5,7 +5,7 @@ import io.github.stevdrey.dokene.ratelimit.RetryAfter;
 import java.time.Duration;
 import java.util.Objects;
 
-/** The mapping rejection budget is exhausted; carries only the delay for {@code Retry-After}. */
+/** The mapping rejection or provider proof budget is exhausted; carries only the delay for {@code Retry-After}. */
 public class IntegrationRateLimitedException extends IntegrationRefusedException {
     private final Duration retryAfter;
 

@@ -51,7 +51,7 @@ class WhatsAppIntegrationServiceOutboundSwitchTest {
     private final TenantId tenantId = TenantId.random();
     private final WhatsAppIntegrationService service = new WhatsAppIntegrationService(repository, audit,
             authorization, contexts, mock(PhoneNumberOwnershipVerifier.class), mock(MappingRejectionLimiter.class),
-            Clock.fixed(NOW, ZoneOffset.UTC), mock(PlatformTransactionManager.class));
+            mock(OwnershipVerificationLimiter.class), Clock.fixed(NOW, ZoneOffset.UTC), mock(PlatformTransactionManager.class));
 
     private WhatsAppIntegration stored;
 
