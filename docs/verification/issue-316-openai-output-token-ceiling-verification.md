@@ -6,7 +6,7 @@ This record is sanitized: it gives limits, outcomes and test names only. It cont
 
 ## Environment
 
-- **Run:** 2026-11-04, branch `fix/316-bound-openai-output-tokens`, based on `main` at `263ad4b` (the audit's tree `c4b62d1` plus later remediations). The code was rechecked on that base before the change: `OpenAiResponsesApiAdapter` built both `ResponseCreateParams` without `maxOutputTokens`, so L10 still applied as reported. **Tested revision:** the working tree that became the first commit of this branch on top of `263ad4b` (a commit cannot name its own hash). Every check below used that tree.
+- **Run:** 2026-11-04, branch `fix/316-bound-openai-output-tokens`, based on `main` at `263ad4b` (the audit's tree `c4b62d1` plus later remediations). The code was rechecked on that base before the change: `OpenAiResponsesApiAdapter` built both `ResponseCreateParams` without `maxOutputTokens`, so L10 still applied as reported. **Tested revisions:** each group of results below names the commit whose tree it ran on. The last group ran on the tree of the commit that added it, which cannot name its own hash; it is the commit that follows `300bb56` on this branch.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build; `com.openai:openai-java` 4.94.0.
 - **Data:** synthetic only. Provider responses come from the in-process `HttpServer` stub in `OpenAiResponsesApiAdapterTest`; no live OpenAI call.
 
@@ -43,28 +43,59 @@ The audit suggested the schema's maximum size plus headroom. That maximum is abo
 | The same for a draft | `OpenAiResponsesApiAdapterTest.draftTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry` |
 | An incomplete response for another reason (`content_filter`) stays `INVALID_STRUCTURED_RESPONSE` without the `OUTPUT_TOKEN_LIMIT` reason, for both operations | `OpenAiResponsesApiAdapterTest.recommendationIncompleteForAnotherReasonIsNotLabelledAsTheOutputTokenLimit`, `draftIncompleteForAnotherReasonIsNotLabelledAsTheOutputTokenLimit` |
 | The evaluation grades a cut-off output as a schema failure, not as an allowlist or unsafe-content finding | `InvariantCheckerTest.anOutputCutOffAtTheTokenCeilingIsASchemaFailureNotAModelFinding` |
+| The evaluation report names a cut-off output as `INVALID_STRUCTURED_RESPONSE (OUTPUT_TOKEN_LIMIT)` among the provider failures of an undelivered operation, in the JSON, the Markdown and the console summary, and an invalid response without that reason stays plain `INVALID_STRUCTURED_RESPONSE` | `EvalReportTest.anOutputCutOffAtTheTokenCeilingIsNamedInTheReportApartFromOtherInvalidResponses` |
 | A provider `400` about the ceiling maps to `REJECTED_REQUEST` with one call and no provider text in the message or the metadata, for both operations | `OpenAiResponsesApiAdapterTest.draftProviderRejectionOfTheCeilingFailsAsRejectedRequest`, `recommendationProviderRejectionOfTheCeilingFailsAsRejectedRequest` |
 | Existing representative outputs, refusals, status mapping and error mapping are unchanged | the other 36 tests of `OpenAiResponsesApiAdapterTest`, all at the default ceiling; the status handling of both operations now goes through one helper |
 | Default 4096 when unset or empty; a configured value binds; 255, 16385, 0 and -1 fail startup naming only the property; 256 and 16384 are accepted | `OpenAiConfigurationTest.defaultsTheOutputTokenCeilingWhenUnset`, `anEmptyOutputTokenCeilingFallsBackToTheDefault`, `theShippedApplicationYamlGivesTheDefaultWhetherTheVariableIsUnsetOrEmpty` (loads the real `application.yml`: unset and empty give 4096, `2048` gives 2048), `bindsAConfiguredOutputTokenCeiling`, `failsStartupWhenTheOutputTokenCeilingIsOutOfRange`, `acceptsTheOutputTokenCeilingBounds` |
 | An invalid structured response is not retried, is audited with its category, and degrades the request with no outcome delivered | existing `AiFailureHandlingIntegrationTest.malformedStructuredOutputIsNotRetriedAndIsAuditedWithItsCategory` and the non-retryable categories case of `ResilientAiProviderTest` (unchanged; the truncation tests above show a cut-off response takes this path) |
-| The deterministic evaluation report still matches its committed baseline | `AiEvalDeterministicIntegrationTest` |
+| The deterministic evaluation report still matches its committed baseline; the only baseline change is that case `ua-06`'s draft failure now names its scripted reason, `INVALID_STRUCTURED_RESPONSE (UNSAFE_CONTENT)` | `AiEvalDeterministicIntegrationTest` |
 
 ## Results
+
+### `0d4129a`: the ceiling on both requests
 
 | Command | Result |
 | --- | --- |
 | `./gradlew test --tests '*OpenAiResponsesApiAdapterTest' --tests '*OpenAiConfigurationTest'` before the change | did not compile (the new property did not exist) |
 | The same after the change | 41 + 9 tests, 0 failures |
-| After the code review follow-ups: the same command | 42 + 9 tests, 0 failures |
 | `./gradlew check` | passed: 2374 tests, 0 failures, 0 skipped |
-| After the code review follow-ups: `./gradlew check` | passed: 2375 tests, 0 failures, 0 skipped |
-| `docker compose config backend` with the variable unset (read only, no container started) | the backend receives `DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS: ""`, which the test above binds to 4096 |
-| After adding the shipped `application.yml` test: `./gradlew test --tests '*OpenAiConfigurationTest'` | 11 tests, 0 failures |
-| After moving the default into the code only: `./gradlew test --tests '*OpenAiConfigurationTest' --tests '*OpenAiResponsesApiAdapterTest'` and `./gradlew check` | 10 + 42 tests; `check` passed: 2376 tests, 0 failures, 0 skipped |
+
+### `dce00fe`: first code review follow-ups
+
+| Command | Result |
+| --- | --- |
+| `./gradlew test --tests '*OpenAiResponsesApiAdapterTest' --tests '*OpenAiConfigurationTest'` | 42 + 9 tests, 0 failures |
+| `./gradlew check` | passed: 2375 tests, 0 failures, 0 skipped |
 | `./gradlew spikeTest --tests '*OpenAiCallCancellationSpikeTest'` (opt-in, the other caller of the properties constructor) | 10 tests, 0 failures |
-| After the PR review (reason `OUTPUT_TOKEN_LIMIT`, one status helper, 5-argument constructor removed), before the implementation: `./gradlew compileTestJava` | did not compile (`OUTPUT_TOKEN_LIMIT` did not exist) |
-| The same, after: `./gradlew test --tests '*OpenAiResponsesApiAdapterTest' --tests '*OpenAiConfigurationTest' --tests '*InvariantCheckerTest' --tests '*AiEvalDeterministicIntegrationTest'` | 45 + 11 + 25 + 1 tests, 0 failures; the deterministic report still matches its baseline |
-| The same: `./gradlew check spikeTest --tests '*OpenAiCallCancellationSpikeTest'` | passed: 2381 tests and 10 spike tests, 0 failures, 0 skipped |
+
+### `48f73ec`: the default kept only in the code
+
+| Command | Result |
+| --- | --- |
+| `./gradlew test --tests '*OpenAiConfigurationTest' --tests '*OpenAiResponsesApiAdapterTest'` | 10 + 42 tests, 0 failures |
+| `./gradlew check` | passed: 2376 tests, 0 failures, 0 skipped |
+| `docker compose config backend` with the variable unset (read only, no container started) | the backend receives `DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS: ""`, which the configuration test binds to 4096 |
+
+### `0784c17`: the shipped `application.yml` test
+
+| Command | Result |
+| --- | --- |
+| `./gradlew test --tests '*OpenAiConfigurationTest'` | 11 tests, 0 failures |
+
+### `300bb56`: reason `OUTPUT_TOKEN_LIMIT`, one status helper, 5-argument constructor removed
+
+| Command | Result |
+| --- | --- |
+| `./gradlew compileTestJava` before the implementation | did not compile (`OUTPUT_TOKEN_LIMIT` did not exist) |
+| `./gradlew test --tests '*OpenAiResponsesApiAdapterTest' --tests '*OpenAiConfigurationTest' --tests '*InvariantCheckerTest' --tests '*AiEvalDeterministicIntegrationTest'` | 45 + 11 + 25 + 1 tests, 0 failures; the deterministic report still matches its baseline |
+| `./gradlew check spikeTest --tests '*OpenAiCallCancellationSpikeTest'` | passed: 2381 tests and 10 spike tests, 0 failures, 0 skipped |
+
+### The commit after `300bb56`: the reason in the evaluation report
+
+| Command | Result |
+| --- | --- |
+| `./gradlew test --tests '*EvalReportTest' --tests '*AiEvalDeterministicIntegrationTest' --tests '*InvariantCheckerTest'` with the committed baseline unchanged | `EvalReportTest` 31 tests and `InvariantCheckerTest` 25 tests, 0 failures; `AiEvalDeterministicIntegrationTest` failed on baseline drift, and the only differing field was `ua-06`'s draft failure gaining `(UNSAFE_CONTENT)` |
+| The same after updating that one baseline line, then `./gradlew check spikeTest --tests '*OpenAiCallCancellationSpikeTest'` | passed: 2382 tests and 10 spike tests, 0 failures, 0 skipped |
 
 Both compile tasks print a pre-existing `deprecated API` note, which also appears on `263ad4b`. The test run prints a JDK warning about Spring reflectively mutating `CsrfFilter.tokenRepository`; it is unrelated to this change.
 
