@@ -79,7 +79,12 @@ export interface TenantContextValue {
   activeWorkspace: Workspace | null;
   error: string | null;
   switchWorkspace: (tenantId: string) => void;
-  refreshWorkspaces: () => Promise<void>;
+  /**
+   * Reloads the workspace list. With `background`, the app keeps its current state while loading, so a change such
+   * as accepting an invitation does not blank the shell: a failure leaves the state unchanged and rejects the
+   * returned promise for the caller to report, and a refresh already in flight still completes.
+   */
+  refreshWorkspaces: (options?: { background?: boolean }) => Promise<void>;
   provisionWorkspace: (displayName: string, idempotencyKey?: string) => Promise<Workspace>;
 }
 
@@ -122,8 +127,15 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [workspaces, storageKey]
   );
 
-  const refreshWorkspaces = useCallback(async () => {
-    const currentRefreshGen = ++refreshGenerationRef.current;
+  const refreshWorkspaces = useCallback(async (options?: { background?: boolean }) => {
+    const background = options?.background === true;
+    // A background refresh never supersedes another refresh: it is applied only while no newer foreground refresh
+    // started, so it can never discard the result of a foreground refresh that is still loading.
+    const currentRefreshGen = background ? refreshGenerationRef.current : ++refreshGenerationRef.current;
+
+    if (background && sessionStatus !== 'authenticated') {
+      return;
+    }
 
     if (sessionStatus !== 'authenticated') {
       setStatus('loading');
@@ -133,8 +145,10 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    setStatus('loading');
-    setError(null);
+    if (!background) {
+      setStatus('loading');
+      setError(null);
+    }
 
     try {
       const list = await apiClient.get<Workspace[]>('/api/tenants');
@@ -188,6 +202,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (err instanceof StaleSessionError || err instanceof AbortedTenantRequestError) {
         // Discard late/cancelled response silently
         return;
+      }
+      if (background) {
+        throw err;
       }
       setError(err instanceof Error ? err.message : 'Error al cargar espacios de trabajo');
       setStatus('error');

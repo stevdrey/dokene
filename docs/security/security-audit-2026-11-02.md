@@ -194,6 +194,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L2. Adding a member creates an ACTIVE membership without the invitee's consent, and a revoked member can never be re-added — Confirmed
 
+- **Status:** fixed by [#317](https://github.com/stevdrey/dokene/issues/317); see [ADR 0031](../adr/0031-membership-invitation-acceptance-and-audited-reactivation.md) and [the verification record](../verification/issue-317-membership-invitation-acceptance-verification.md). An invitation is now `INVITED` until the invitee accepts it, and a revoked membership is recovered through an audited reactivation that returns it to `INVITED` (V37).
+
 - **Where:** `backend/.../tenant/application/MembershipService.java:74` (`TenantMembership.createActive(...)`). The `INVITED` status exists but is unused.
 - **Evidence:**
   - The OWNER of tenant A posted `{"identityId":"<auditattacker>","role":"ADMIN"}` and got `201 status ACTIVE`.

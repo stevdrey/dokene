@@ -129,13 +129,17 @@ class TenantMembershipPrivilegeIntegrationTest {
         AtomicReference<TenantMembership> invitation = new AtomicReference<>();
         scoped(adminContext, () -> invitation.set(membershipService.addMembership(invitee, TenantRole.VIEWER)));
         TenantMembership invited = invitation.get();
-        assertMembershipRow(invited, TenantRole.VIEWER, TenantMembershipStatus.ACTIVE, invited.createdAt());
+        assertMembershipRow(invited, TenantRole.VIEWER, TenantMembershipStatus.INVITED, invited.createdAt());
 
         scoped(adminContext, () -> membershipService.changeRole(invitee, TenantRole.OPERATOR));
-        assertMembershipRow(invited, TenantRole.OPERATOR, TenantMembershipStatus.ACTIVE, invited.createdAt());
+        assertMembershipRow(invited, TenantRole.OPERATOR, TenantMembershipStatus.INVITED, invited.createdAt());
 
         scoped(adminContext, () -> membershipService.revokeMembership(invitee));
         assertMembershipRow(invited, TenantRole.OPERATOR, TenantMembershipStatus.REVOKED, invited.createdAt());
+
+        // Reactivation (issue 317) is a status update, so it fits the narrowed V36 column grant.
+        scoped(adminContext, () -> membershipService.reactivateMembership(invitee));
+        assertMembershipRow(invited, TenantRole.OPERATOR, TenantMembershipStatus.INVITED, invited.createdAt());
     }
 
     private TenantMembership seedMembership(TenantRole role) {

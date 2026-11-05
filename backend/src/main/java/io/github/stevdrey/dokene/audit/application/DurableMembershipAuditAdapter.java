@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.audit.application;
 
+import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.tenant.application.MembershipAuditPort;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
@@ -28,5 +29,15 @@ public class DurableMembershipAuditAdapter implements MembershipAuditPort {
     @Override
     public void membershipRevoked(TenantMembershipId membershipId) {
         recorder.membershipRevoked(membershipId);
+    }
+
+    @Override
+    public void invitationAccepted(TenantMembershipId membershipId, TenantRole role) {
+        recorder.membershipStatusChanged(membershipId, AuditEventType.MEMBERSHIP_INVITATION_ACCEPTED, role);
+    }
+
+    @Override
+    public void membershipReactivated(TenantMembershipId membershipId, TenantRole role) {
+        recorder.membershipStatusChanged(membershipId, AuditEventType.MEMBERSHIP_REACTIVATED, role);
     }
 }

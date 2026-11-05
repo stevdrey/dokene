@@ -71,7 +71,8 @@ public class MembershipService {
                     .formatted(targetIdentity.value(), tenantId.value()));
         }
 
-        TenantMembership membership = TenantMembership.createActive(
+        // The invitee gains nothing until they accept (issue 317, audit L2).
+        TenantMembership membership = TenantMembership.invite(
                 TenantMembershipId.random(),
                 tenantId,
                 targetIdentity,
@@ -86,6 +87,28 @@ public class MembershipService {
                     .formatted(targetIdentity.value(), tenantId.value()), exception);
         }
         auditPort.membershipCreated(saved.id(), role);
+        return saved;
+    }
+
+    /**
+     * Returns a revoked membership to {@code INVITED}, keeping its id and role. The invitee must accept it again
+     * before it grants access, so a reactivation never re-enters anyone into a workspace on its own. Requires the
+     * same permission as an invitation; only {@code REVOKED} memberships qualify, and ownership never does.
+     */
+    @Transactional
+    public TenantMembership reactivateMembership(IdentityId targetIdentity) {
+        Objects.requireNonNull(targetIdentity, "Target identity is required");
+        authorization.requirePermission(TenantPermission.MEMBERSHIP_INVITE);
+        TenantId tenantId = contexts.requireCurrent().tenantId();
+        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, tenantId);
+
+        TenantMembership membership = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity)
+                .orElseThrow(MembershipNotFoundException::new);
+        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, membership.tenantId());
+
+        membership.reactivate(clock.instant());
+        TenantMembership saved = memberships.save(membership);
+        auditPort.membershipReactivated(saved.id(), saved.role());
         return saved;
     }
 

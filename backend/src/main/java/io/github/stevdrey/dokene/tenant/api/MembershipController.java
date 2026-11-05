@@ -72,6 +72,13 @@ public class MembershipController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Returns a revoked membership to {@code INVITED}; the invitee must accept it again (issue 317). */
+    @RequiredPermission(TenantPermission.MEMBERSHIP_INVITE)
+    @PostMapping("/{identityId}/reactivation")
+    public MembershipResponse reactivateMembership(@PathVariable UUID identityId) {
+        return toResponse(membershipService.reactivateMembership(new IdentityId(identityId)));
+    }
+
     @RequiredPermission(TenantPermission.MEMBERSHIP_REVOKE)
     @DeleteMapping("/{identityId}")
     public ResponseEntity<Void> revokeMembership(@PathVariable UUID identityId) {

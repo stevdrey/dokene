@@ -1,0 +1,181 @@
+-- ABOUTME: Issue 317 (audit L2): an invitation stays INVITED until the invitee accepts it, and a revoked membership
+-- ABOUTME: is recovered only through an audited reactivation that returns it to INVITED.
+
+-- An invitee has no tenant context before acceptance, so tenant RLS hides their own INVITED row. These two functions
+-- are the only way the runtime role reaches it: like dokene.discover_active_tenant_memberships (V3) they take an
+-- identity capability signed with the tenant-context key, and they see and change only that identity's invitations.
+-- Ownership is never granted by an invitation, and a suspended or archived tenant cannot be entered or joined.
+CREATE FUNCTION dokene.discover_pending_tenant_invitations(
+    context_payload TEXT,
+    context_signature TEXT
+)
+RETURNS TABLE (
+    tenant_id UUID,
+    tenant_display_name VARCHAR,
+    membership_id UUID,
+    role VARCHAR,
+    invited_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, dokene
+AS $$
+DECLARE
+    verified_identity_id UUID;
+BEGIN
+    verified_identity_id := dokene.signed_context_subject(context_payload, context_signature, 'identity');
+    IF verified_identity_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+        SELECT tenant.id, tenant.display_name, membership.id, membership.role, membership.created_at
+        FROM dokene.tenant_memberships membership
+        JOIN dokene.tenants tenant ON tenant.id = membership.tenant_id
+        WHERE membership.identity_id = verified_identity_id
+            AND membership.status = 'INVITED'
+            AND membership.role <> 'OWNER'
+            AND tenant.status = 'ACTIVE'
+        ORDER BY membership.created_at, tenant.id;
+END;
+$$;
+
+-- invited_at is the membership's creation time, so a role change on a pending invitation does not move it; a
+-- reactivated membership keeps its original invitation date.
+
+-- Accepts the caller's pending invitation to one tenant: INVITED becomes ACTIVE, and the optimistic-lock version
+-- advances so a concurrent role change or revocation through JPA fails instead of overwriting the acceptance. Returns
+-- no row when the identity has no pending invitation there, so the caller cannot tell a missing tenant from a
+-- missing, revoked, already accepted or suspended-tenant invitation. p_accepted_at is the application clock, which
+-- stamps every other membership transition, so a later domain transition never sees an updated_at ahead of it.
+CREATE FUNCTION dokene.accept_tenant_membership_invitation(
+    context_payload TEXT,
+    context_signature TEXT,
+    p_tenant_id UUID,
+    p_accepted_at TIMESTAMPTZ
+)
+RETURNS TABLE (
+    tenant_id UUID,
+    tenant_display_name VARCHAR,
+    membership_id UUID,
+    role VARCHAR
+)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, dokene
+AS $$
+DECLARE
+    verified_identity_id UUID;
+BEGIN
+    verified_identity_id := dokene.signed_context_subject(context_payload, context_signature, 'identity');
+    IF verified_identity_id IS NULL OR p_tenant_id IS NULL OR p_accepted_at IS NULL THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+        UPDATE dokene.tenant_memberships membership
+        SET status = 'ACTIVE',
+            updated_at = GREATEST(membership.updated_at, date_trunc('microseconds', p_accepted_at)),
+            version = membership.version + 1
+        FROM dokene.tenants tenant
+        WHERE tenant.id = membership.tenant_id
+            AND membership.tenant_id = p_tenant_id
+            AND membership.identity_id = verified_identity_id
+            AND membership.status = 'INVITED'
+            AND membership.role <> 'OWNER'
+            AND tenant.status = 'ACTIVE'
+        RETURNING tenant.id, tenant.display_name, membership.id, membership.role;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION dokene.discover_pending_tenant_invitations(TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION dokene.accept_tenant_membership_invitation(TEXT, TEXT, UUID, TIMESTAMPTZ) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dokene.discover_pending_tenant_invitations(TEXT, TEXT) TO dokene_runtime;
+GRANT EXECUTE ON FUNCTION dokene.accept_tenant_membership_invitation(TEXT, TEXT, UUID, TIMESTAMPTZ) TO dokene_runtime;
+
+-- Two membership lifecycle events, both attributed to a member and carrying only the membership's role (never an
+-- OWNER): the invitee accepting (actor = invitee) and an administrator reactivating a revoked membership. The other
+-- branches are copied unchanged from V33.
+ALTER TABLE dokene.audit_events DROP CONSTRAINT ck_audit_shape;
+ALTER TABLE dokene.audit_events ADD CONSTRAINT ck_audit_shape CHECK (
+    (event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED'
+        AND target_type IS NULL AND target_id IS NULL AND previous_role IS NULL AND new_role IS NULL
+        AND denial_reason IS NOT NULL AND denial_reason IN (
+            'NO_TENANT_CONTEXT', 'INACTIVE_MEMBERSHIP', 'MISSING_ROLE', 'MISSING_PERMISSION',
+            'MISSING_RESOURCE_TENANT', 'CROSS_TENANT_RESOURCE', 'INSUFFICIENT_PERMISSION', 'MAPPING_REJECTED',
+            'RATE_LIMITED', 'UNSPECIFIED')
+        AND ((tenant_id IS NULL AND denial_reason = 'NO_TENANT_CONTEXT')
+            OR (tenant_id IS NOT NULL AND denial_reason <> 'NO_TENANT_CONTEXT')))
+    OR (event_type = 'MEMBERSHIP_ROLE_CHANGED' AND outcome = 'SUCCESS'
+        AND tenant_id IS NOT NULL AND target_type = 'MEMBERSHIP' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL
+        AND previous_role IN ('ADMIN', 'OPERATOR', 'VIEWER') AND new_role IN ('ADMIN', 'OPERATOR', 'VIEWER')
+        AND previous_role <> new_role)
+    OR (event_type = 'MEMBERSHIP_CREATED' AND outcome = 'SUCCESS'
+        AND tenant_id IS NOT NULL AND target_type = 'MEMBERSHIP' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL
+        AND new_role IN ('ADMIN', 'OPERATOR', 'VIEWER'))
+    OR (event_type = 'MEMBERSHIP_REVOKED' AND outcome = 'SUCCESS'
+        AND tenant_id IS NOT NULL AND target_type = 'MEMBERSHIP' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL)
+    OR (event_type IN ('MEMBERSHIP_INVITATION_ACCEPTED', 'MEMBERSHIP_REACTIVATED') AND outcome = 'SUCCESS'
+        AND tenant_id IS NOT NULL AND actor_id IS NOT NULL AND membership_id IS NOT NULL
+        AND target_type = 'MEMBERSHIP' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL
+        AND new_role IN ('ADMIN', 'OPERATOR', 'VIEWER'))
+    OR (event_type IN ('CUSTOMER_CREATED', 'CUSTOMER_UPDATED', 'CUSTOMER_ARCHIVED',
+            'CUSTOMER_CONSENT_CHANGED', 'CUSTOMER_DO_NOT_CONTACT_CHANGED')
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'CUSTOMER' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL)
+    OR (event_type IN ('PURCHASE_RECORDED', 'PURCHASE_CORRECTED', 'PURCHASE_VOIDED')
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'PURCHASE' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL)
+    OR (event_type = 'TENANT_FOLLOW_UP_POLICY_CHANGED'
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'TENANT' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL)
+    OR (event_type IN ('CUSTOMER_FOLLOW_UP_POLICY_CHANGED', 'FOLLOW_UP_SNOOZED',
+            'MANUAL_FOLLOW_UP_RECORDED', 'FOLLOW_UP_DISMISSED')
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'CUSTOMER' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL)
+    OR (event_type = 'AI_INVOCATION_OUTCOME'
+        AND tenant_id IS NOT NULL AND target_type = 'CUSTOMER' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL
+        AND ai_operation IN ('NEXT_BEST_ACTION', 'MESSAGE_DRAFT')
+        AND ((ai_outcome IN ('GENERATED', 'MODEL_REFUSED') AND outcome = 'SUCCESS' AND ai_detail = 'NONE')
+            OR (ai_outcome = 'GATE_REJECTED' AND outcome = 'DENIED' AND ai_detail IN (
+                'NO_TENANT_CONTEXT', 'UNAUTHORIZED', 'CUSTOMER_NOT_FOUND', 'CUSTOMER_ARCHIVED', 'DO_NOT_CONTACT',
+                'NO_CONTACT_CONSENT', 'FOLLOW_UP_INELIGIBLE', 'STALE_STATE', 'DISALLOWED_ACTION',
+                'DISALLOWED_TEMPLATE_INTENT', 'INVALID_RECOMMENDATION'))
+            OR (ai_outcome = 'FAILED' AND outcome = 'FAILURE' AND ai_detail IN (
+                'TIMEOUT', 'THROTTLED', 'UNAVAILABLE', 'INVALID_STRUCTURED_RESPONSE', 'REJECTED_REQUEST',
+                'CANCELLED', 'NOT_AVAILABLE', 'REFUSED', 'CONTEXT_TOO_LARGE', 'CONTEXT_UNSUPPORTED'))))
+    OR (event_type IN ('MESSAGE_SUBMITTED', 'MESSAGE_APPROVED', 'MESSAGE_REJECTED', 'MESSAGE_CANCELLED',
+            'MESSAGE_SEND_REQUESTED', 'MESSAGE_SENT', 'MESSAGE_SEND_FAILED', 'MESSAGE_SEND_OUTCOME_UNKNOWN',
+            'MESSAGE_SEND_RESOLVED', 'MESSAGE_DELIVERY_UPDATED')
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'MESSAGE' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL
+        AND enabled IS NULL
+        AND status_to IS NOT NULL AND status_to IN (
+            'PENDING_APPROVAL', 'APPROVED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED', 'READ',
+            'REJECTED', 'CANCELLED', 'FAILED')
+        AND ((event_type = 'MESSAGE_SUBMITTED' AND status_from IS NULL)
+            OR (event_type <> 'MESSAGE_SUBMITTED' AND status_from IS NOT NULL AND status_from IN (
+                'PENDING_APPROVAL', 'APPROVED', 'QUEUED', 'SENDING', 'SENT', 'DELIVERED', 'READ',
+                'REJECTED', 'CANCELLED', 'FAILED')))
+        AND (failure_category IS NULL OR failure_category IN (
+            'INVALID_RECIPIENT', 'TEMPLATE_REJECTED', 'RATE_LIMITED', 'PROVIDER_UNAVAILABLE',
+            'AUTHENTICATION', 'POLICY_VIOLATION', 'UNKNOWN'))
+        AND (attempt_number IS NULL OR attempt_number >= 1))
+    OR (event_type = 'TEMPLATE_MAPPING_UPDATED'
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'TEMPLATE_MAPPING' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL
+        AND enabled IS NOT NULL AND status_from IS NULL AND status_to IS NULL
+        AND failure_category IS NULL AND attempt_number IS NULL)
+    OR (event_type IN ('INTEGRATION_UPDATED', 'OUTBOUND_KILL_SWITCH_CHANGED')
+        AND outcome = 'SUCCESS' AND tenant_id IS NOT NULL AND target_type = 'INTEGRATION' AND target_id IS NOT NULL
+        AND permission IS NULL AND denial_reason IS NULL AND previous_role IS NULL AND new_role IS NULL
+        AND enabled IS NOT NULL AND status_from IS NULL AND status_to IS NULL
+        AND failure_category IS NULL AND attempt_number IS NULL)
+);

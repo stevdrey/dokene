@@ -125,8 +125,11 @@ applies existing domain validation, and saves with optimistic concurrency contro
 transitions among `ADMIN`, `OPERATOR`, and `VIEWER` are supported. Both source and target
 `OWNER` roles are rejected; ownership transfer and last-owner rules need a separate use case.
 `MembershipService.addMembership(targetIdentity, role)` requires `MEMBERSHIP_INVITE`, enforces
-tenant boundaries, rejects `OWNER` invitations, saves the active membership, and records
-`MEMBERSHIP_CREATED`. `MembershipService.revokeMembership(targetIdentity)` requires
+tenant boundaries, rejects `OWNER` invitations, saves the membership as `INVITED`, and records
+`MEMBERSHIP_CREATED`; the invitee gains access only by accepting it, which records
+`MEMBERSHIP_INVITATION_ACCEPTED`, and a revoked membership returns to `INVITED` only through
+`MembershipService.reactivateMembership`, which records `MEMBERSHIP_REACTIVATED`
+([ADR 0031](0031-membership-invitation-acceptance-and-audited-reactivation.md), issue 317). `MembershipService.revokeMembership(targetIdentity)` requires
 `MEMBERSHIP_REVOKE`, rejects owner revocation, marks the membership revoked, and records
 `MEMBERSHIP_REVOKED`. Both services depend on a tenant-owned `MembershipAuditPort`, preserving
 one-way `audit -> tenant` module coupling; the `audit` module implements this port via an adapter.
