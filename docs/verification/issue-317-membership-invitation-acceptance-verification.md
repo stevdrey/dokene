@@ -7,7 +7,7 @@ This record is sanitized. It gives endpoints, outcomes and test names only, and 
 ## Environment
 
 - **Run:** 2026-11-04, branch `317-securityl2-require-membership-invitation-acceptance-and-support-audited-reactivation`, based on `main` at `156f275`. The code was rechecked on that base before the change. L2 still applied as reported: `MembershipService.addMembership` called `TenantMembership.createActive`, and a second add of a revoked identity returned `409`.
-- **Tested revision:** `755c3ce`, which applies the code review fixes on top of the first commit `2f69a87` and the QA seeder fix `aab9890`. Every result in the Results table below was run on that content. Later commits change only this record.
+- **Tested revision:** `755c3ce`, which applies the code review fixes on top of the first commit `2f69a87` and the QA seeder fix `aab9890`. Every result in the Results table below was run on that content. The two frontend commits after it, `715a80f` and `7ae43ae`, are covered in "Background workspace refresh" below. Later commits change only this record.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build; Node with the repository's Vitest and TypeScript.
 - **Database:** Testcontainers PostgreSQL, migrated by Flyway through V37.
 - **Data:** synthetic tenants and identities only.
@@ -64,6 +64,26 @@ The code review of PR #355 led to these changes:
 - The QA seeder stops when it cannot list memberships.
 
 V37 was edited before release. The local database that already had it was repaired by dropping its two functions and its history row, then re-applied by the migrate job, with no data loss.
+
+## Background workspace refresh
+
+Two optional findings from the last verification round, and a later review comment on PR #355, were first fixed in the stacked PR #356. Its two commits were then moved into this PR with a fast-forward. They change only `TenantContext.tsx`, `PendingInvitations.tsx` and `PendingInvitations.test.tsx`.
+
+- **Race (`715a80f`):** a background refresh no longer bumps the refresh generation. A background refresh that fails can therefore no longer discard a foreground refresh that is still loading, and leave the app on "loading".
+- **Failure feedback (`715a80f`):** a failed background refresh now rejects to its caller.
+- **Retry (`7ae43ae`):** if the refresh fails after a successful acceptance, the panel says the invitation was accepted but the workspace list could not be refreshed. It offers "Reintentar actualización", which reloads only the list and never posts the acceptance again. A successful retry clears the message.
+
+| Command | Kind | Result |
+| --- | --- | --- |
+| `npx vitest run --maxWorkers=2` (frontend) on `7ae43ae` | automated | passed: 1112 tests in 47 files. An unrestricted run was once killed for lack of memory while the local Docker stack was running. |
+| `npm run build` (frontend) on `7ae43ae` | automated | passed |
+| Mutations of the fix | automated | each mutation made its test fail while the acceptance-error tests kept passing (see below) |
+
+The mutations:
+- Restoring the old generation bump for background refreshes makes the race test fail.
+- Five changes to `PendingInvitations.tsx` each make the retry test fail: re-posting the acceptance, removing the button, not clearing the message, using a foreground retry, and hiding the alert when the list is empty.
+
+Two independent verifiers passed `715a80f` and `7ae43ae`. The backend is unchanged by these commits, so the backend results above still apply.
 
 ## QA seeder
 
