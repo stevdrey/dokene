@@ -7,7 +7,7 @@ This record is sanitized. It gives endpoints, outcomes and test names only, and 
 ## Environment
 
 - **Run:** 2026-11-04, branch `317-securityl2-require-membership-invitation-acceptance-and-support-audited-reactivation`, based on `main` at `156f275`. The code was rechecked on that base before the change. L2 still applied as reported: `MembershipService.addMembership` called `TenantMembership.createActive`, and a second add of a revoked identity returned `409`.
-- **Tested revision:** `2f69a87`, the first commit of this branch. Every result below was run on that content. Later commits change only this record.
+- **Tested revision:** `2f69a87`, the first commit of this branch, for the backend and frontend results below. A later commit fixes `scripts/seed-local-qa.sh` after code review (see "QA seeder" below). It changes no backend or frontend file, so their results still apply.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build; Node with the repository's Vitest and TypeScript.
 - **Database:** Testcontainers PostgreSQL, migrated by Flyway through V37.
 - **Data:** synthetic tenants and identities only.
@@ -51,7 +51,20 @@ Runs on `2f69a87`:
 | `npm test` (frontend) | automated | passed: 1109 tests in 47 files |
 | `npm run build` (frontend, `tsc -b` and Vite) | automated | passed |
 
-Not run: a manual walkthrough against the Compose stack with a real OIDC provider. The HTTP contract is covered by the MockMvc integration tests above against a real PostgreSQL.
+## QA seeder
+
+The code review of PR #355 found that `scripts/seed-local-qa.sh` invited `testoperator` and `testviewer` but never accepted. On a fresh database, `--verify` would therefore fail at its first operator check. Each membership now goes through one step: it is invited (or reactivated if revoked), its role is aligned, and the invitee's own session accepts it with its CSRF token. Every call checks its HTTP status.
+
+| Command | Kind | Result |
+| --- | --- | --- |
+| `./scripts/dev-env.sh up --yes`, then `./scripts/seed-local-qa.sh --verify` on the existing local data (both memberships already `ACTIVE`) | live (local Compose stack, Keycloak, synthetic users) | passed: all six RBAC checks |
+| As the owner, revoke `testviewer` (`204`; the viewer then gets `403`), then run `./scripts/seed-local-qa.sh --verify` again | live | passed: the seeder printed "Reactivating revoked membership of 'testviewer'... INVITED" and "Accepting the invitation as 'testviewer'... ACTIVE", and all six RBAC checks passed |
+
+A fresh invitation uses the same acceptance call. It was not run live, because that needs a database reset, which would destroy the local data.
+
+## Not run
+
+A manual browser walkthrough of the pending-invitations UI with a real OIDC provider. The UI is covered by component tests, and the HTTP contract by MockMvc integration tests against a real PostgreSQL and by the live seeder run above.
 
 ## Limitations
 

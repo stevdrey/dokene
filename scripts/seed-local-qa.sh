@@ -196,65 +196,66 @@ echo "Establishing workspace memberships in '$WORKSPACE_NAME'..."
 
 MEMBERSHIPS_JSON="$(curl -s -b "$OWNER_COOKIE_JAR" -H "X-Tenant-Id: $TENANT_ID" "$BFF_URL/api/memberships")"
 
-# Assign testoperator as OPERATOR
-if echo "$MEMBERSHIPS_JSON" | jq -e ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\")" >/dev/null 2>&1; then
-    CURRENT_OP_STATUS="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\") | .status")"
-    if [ "$CURRENT_OP_STATUS" = "REVOKED" ]; then
-        echo "Error: Membership for 'testoperator' in workspace '$WORKSPACE_NAME' is in REVOKED status." >&2
-        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. './scripts/dev-env.sh reset' and then './scripts/dev-env.sh up --seed') to run QA seeding afresh." >&2
-        exit 1
-    fi
-    CURRENT_OP_ROLE="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$OPERATOR_IDENTITY_ID\") | .role")"
-    if [ "$CURRENT_OP_ROLE" != "OPERATOR" ]; then
-        echo -n "• Updating 'testoperator' role to OPERATOR... "
-        curl -s -b "$OWNER_COOKIE_JAR" -X PUT "$BFF_URL/api/memberships/$OPERATOR_IDENTITY_ID/role" \
-            -H "X-Tenant-Id: $TENANT_ID" \
-            -H "X-CSRF-TOKEN: $OWNER_CSRF" \
-            -H "Content-Type: application/json" \
-            -d '{"role":"OPERATOR"}'
-        echo "UPDATED"
-    else
-        echo "• 'testoperator' is already an OPERATOR"
-    fi
-else
-    echo -n "• Adding 'testoperator' with role OPERATOR... "
-    curl -s -b "$OWNER_COOKIE_JAR" -X POST "$BFF_URL/api/memberships" \
-        -H "X-Tenant-Id: $TENANT_ID" \
-        -H "X-CSRF-TOKEN: $OWNER_CSRF" \
-        -H "Content-Type: application/json" \
-        -d "{\"identityId\":\"$OPERATOR_IDENTITY_ID\",\"role\":\"OPERATOR\"}" >/dev/null
-    echo "CREATED"
-fi
+# Makes <username> an ACTIVE member with <role>. Since issue 317 a membership is INVITED until its invitee accepts it,
+# and a REVOKED one is recovered by an audited reactivation back to INVITED, so the invitee's own session accepts it.
+ensure_active_membership() {
+    local username="$1" identity_id="$2" role="$3" invitee_jar="$4" invitee_csrf="$5"
+    local status current_role code
 
-# Assign testviewer as VIEWER
-if echo "$MEMBERSHIPS_JSON" | jq -e ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\")" >/dev/null 2>&1; then
-    CURRENT_VI_STATUS="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\") | .status")"
-    if [ "$CURRENT_VI_STATUS" = "REVOKED" ]; then
-        echo "Error: Membership for 'testviewer' in workspace '$WORKSPACE_NAME' is in REVOKED status." >&2
-        echo "Revoked memberships cannot be reactivated in Dokene. Please reset your local database (e.g. './scripts/dev-env.sh reset' and then './scripts/dev-env.sh up --seed') to run QA seeding afresh." >&2
-        exit 1
-    fi
-    CURRENT_VI_ROLE="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$VIEWER_IDENTITY_ID\") | .role")"
-    if [ "$CURRENT_VI_ROLE" != "VIEWER" ]; then
-        echo -n "• Updating 'testviewer' role to VIEWER... "
-        curl -s -b "$OWNER_COOKIE_JAR" -X PUT "$BFF_URL/api/memberships/$VIEWER_IDENTITY_ID/role" \
+    status="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$identity_id\") | .status")"
+    current_role="$(echo "$MEMBERSHIPS_JSON" | jq -r ".[] | select(.identityId == \"$identity_id\") | .role")"
+
+    if [ -z "$status" ]; then
+        echo -n "• Inviting '$username' with role $role... "
+        code="$(curl -s -b "$OWNER_COOKIE_JAR" -o /dev/null -w "%{http_code}" -X POST "$BFF_URL/api/memberships" \
             -H "X-Tenant-Id: $TENANT_ID" \
             -H "X-CSRF-TOKEN: $OWNER_CSRF" \
             -H "Content-Type: application/json" \
-            -d '{"role":"VIEWER"}'
-        echo "UPDATED"
-    else
-        echo "• 'testviewer' is already a VIEWER"
+            -d "{\"identityId\":\"$identity_id\",\"role\":\"$role\"}")"
+        if [ "$code" != "201" ]; then echo "FAILED (HTTP $code)"; exit 1; fi
+        echo "INVITED"
+        status="INVITED"
+        current_role="$role"
+    elif [ "$status" = "REVOKED" ]; then
+        echo -n "• Reactivating revoked membership of '$username'... "
+        code="$(curl -s -b "$OWNER_COOKIE_JAR" -o /dev/null -w "%{http_code}" \
+            -X POST "$BFF_URL/api/memberships/$identity_id/reactivation" \
+            -H "X-Tenant-Id: $TENANT_ID" \
+            -H "X-CSRF-TOKEN: $OWNER_CSRF")"
+        if [ "$code" != "200" ]; then echo "FAILED (HTTP $code)"; exit 1; fi
+        echo "INVITED"
+        status="INVITED"
+    elif [ "$status" != "ACTIVE" ] && [ "$status" != "INVITED" ]; then
+        echo "Error: Membership for '$username' in workspace '$WORKSPACE_NAME' is $status; resume it or reset the local database." >&2
+        exit 1
     fi
-else
-    echo -n "• Adding 'testviewer' with role VIEWER... "
-    curl -s -b "$OWNER_COOKIE_JAR" -X POST "$BFF_URL/api/memberships" \
-        -H "X-Tenant-Id: $TENANT_ID" \
-        -H "X-CSRF-TOKEN: $OWNER_CSRF" \
-        -H "Content-Type: application/json" \
-        -d "{\"identityId\":\"$VIEWER_IDENTITY_ID\",\"role\":\"VIEWER\"}" >/dev/null
-    echo "CREATED"
-fi
+
+    if [ "$current_role" != "$role" ]; then
+        echo -n "• Updating '$username' role to $role... "
+        code="$(curl -s -b "$OWNER_COOKIE_JAR" -o /dev/null -w "%{http_code}" \
+            -X PUT "$BFF_URL/api/memberships/$identity_id/role" \
+            -H "X-Tenant-Id: $TENANT_ID" \
+            -H "X-CSRF-TOKEN: $OWNER_CSRF" \
+            -H "Content-Type: application/json" \
+            -d "{\"role\":\"$role\"}")"
+        if [ "$code" != "204" ]; then echo "FAILED (HTTP $code)"; exit 1; fi
+        echo "UPDATED"
+    fi
+
+    if [ "$status" = "INVITED" ]; then
+        echo -n "• Accepting the invitation as '$username'... "
+        code="$(curl -s -b "$invitee_jar" -o /dev/null -w "%{http_code}" \
+            -X POST "$BFF_URL/api/tenants/$TENANT_ID/invitation/acceptance" \
+            -H "X-CSRF-TOKEN: $invitee_csrf")"
+        if [ "$code" != "200" ]; then echo "FAILED (HTTP $code)"; exit 1; fi
+        echo "ACTIVE"
+    else
+        echo "• '$username' is already an active $role"
+    fi
+}
+
+ensure_active_membership "testoperator" "$OPERATOR_IDENTITY_ID" "OPERATOR" "$OPERATOR_COOKIE_JAR" "$OPERATOR_CSRF"
+ensure_active_membership "testviewer" "$VIEWER_IDENTITY_ID" "VIEWER" "$VIEWER_COOKIE_JAR" "$VIEWER_CSRF"
 
 # ------------------------------------------------------------------------------
 # 6. Output Synthetic Identities Summary Table
