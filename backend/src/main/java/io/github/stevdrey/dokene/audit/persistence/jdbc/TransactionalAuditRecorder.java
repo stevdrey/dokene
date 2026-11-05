@@ -95,6 +95,18 @@ class TransactionalAuditRecorder implements AuditRecorder {
     }
 
     @Override
+    public void membershipStatusChanged(TenantMembershipId target, AuditEventType eventType, TenantRole role) {
+        if (eventType != AuditEventType.MEMBERSHIP_INVITATION_ACCEPTED
+                && eventType != AuditEventType.MEMBERSHIP_REACTIVATED) {
+            throw new IllegalArgumentException("Unsupported membership status audit event");
+        }
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, eventType,
+                new AuditTarget(AuditTarget.Type.MEMBERSHIP, target.value()), AuditOutcome.SUCCESS,
+                new AuditMetadata.MembershipStatusChanged(role)), mandatory);
+    }
+
+    @Override
     public void customerMutated(UUID target, AuditEventType eventType) {
         if (eventType != AuditEventType.CUSTOMER_CREATED && eventType != AuditEventType.CUSTOMER_UPDATED
                 && eventType != AuditEventType.CUSTOMER_ARCHIVED

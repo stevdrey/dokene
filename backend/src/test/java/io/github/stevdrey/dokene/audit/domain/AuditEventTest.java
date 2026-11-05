@@ -58,6 +58,29 @@ class AuditEventTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(value = AuditEventType.class, names = {"MEMBERSHIP_INVITATION_ACCEPTED", "MEMBERSHIP_REACTIVATED"})
+    void membershipStatusEventsRequireAttributionAMembershipTargetAndANonOwnerRole(AuditEventType type) {
+        TenantId tenant = new TenantId(UUID.randomUUID());
+        IdentityId actor = new IdentityId(UUID.randomUUID());
+        TenantMembershipId membership = new TenantMembershipId(UUID.randomUUID());
+        AuditTarget target = new AuditTarget(AuditTarget.Type.MEMBERSHIP, membership.value());
+        AuditMetadata role = new AuditMetadata.MembershipStatusChanged(TenantRole.VIEWER);
+
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type, target,
+                AuditOutcome.SUCCESS, UUID.randomUUID(), role)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), null, null, null, type, target,
+                AuditOutcome.SUCCESS, UUID.randomUUID(), role)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type,
+                new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()), AuditOutcome.SUCCESS,
+                UUID.randomUUID(), role)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type,
+                target, AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.MembershipRevoked()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.MembershipStatusChanged(TenantRole.OWNER))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void aiInvocationMetadataEnforcesConsistentClosedDetails() {
         assertThatThrownBy(() -> new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,

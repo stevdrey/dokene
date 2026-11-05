@@ -29,6 +29,9 @@ class RequiredPermissionCoverageTest {
     /** Authentication-only endpoints that intentionally have no tenant permission (no tenant context exists yet). */
     private static final Set<String> AUTHENTICATION_ONLY = Set.of(
             "io.github.stevdrey.dokene.tenant.api.TenantController#provisionWorkspace",
+            // Issue 317: the invitee holds no active membership until it accepts; the database scopes the acceptance
+            // to the signed caller identity's own pending invitation (V37).
+            "io.github.stevdrey.dokene.tenant.api.TenantController#acceptInvitation",
             // Issue 139: the provider callback has no user at all; the HMAC over the raw body is its only credential
             // and the tenant comes from the verified mapping, never from a membership (ADR 0030).
             "io.github.stevdrey.dokene.integration.whatsapp.webhook.WhatsAppWebhookController#receive");

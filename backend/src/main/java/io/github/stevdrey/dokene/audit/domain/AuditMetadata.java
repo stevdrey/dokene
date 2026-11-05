@@ -70,6 +70,16 @@ public sealed interface AuditMetadata {
     record MembershipRevoked() implements AuditMetadata {
     }
 
+    /** An invitation accepted by its invitee, or a revoked membership reactivated as a new invitation. */
+    record MembershipStatusChanged(TenantRole role) implements AuditMetadata {
+        public MembershipStatusChanged {
+            Objects.requireNonNull(role, "Role is required");
+            if (role == TenantRole.OWNER) {
+                throw new IllegalArgumentException("Ownership is never granted through an invitation");
+            }
+        }
+    }
+
     record MembershipRoleChanged(TenantRole previousRole, TenantRole newRole) implements AuditMetadata {
         public MembershipRoleChanged {
             Objects.requireNonNull(previousRole, "Previous role is required");

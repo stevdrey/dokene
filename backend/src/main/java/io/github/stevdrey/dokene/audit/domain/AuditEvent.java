@@ -57,6 +57,13 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid membership revoked event");
                 }
             }
+            case MEMBERSHIP_INVITATION_ACCEPTED, MEMBERSHIP_REACTIVATED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.MEMBERSHIP
+                        || !(metadata instanceof AuditMetadata.MembershipStatusChanged)) {
+                    throw new IllegalArgumentException("Invalid membership status event");
+                }
+            }
             case CUSTOMER_CREATED, CUSTOMER_UPDATED, CUSTOMER_ARCHIVED,
                     CUSTOMER_CONSENT_CHANGED, CUSTOMER_DO_NOT_CONTACT_CHANGED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null

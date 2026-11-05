@@ -23,6 +23,18 @@ public interface MembershipAuditPort {
             TenantMembershipId membershipId
     );
 
+    /** The invitee accepted; the current tenant context is the invitee's newly active membership. */
+    void invitationAccepted(
+            TenantMembershipId membershipId,
+            TenantRole role
+    );
+
+    /** A revoked membership was returned to {@code INVITED} by an authorized member. */
+    void membershipReactivated(
+            TenantMembershipId membershipId,
+            TenantRole role
+    );
+
     static MembershipAuditPort noop() {
         return new MembershipAuditPort() {
             @Override
@@ -33,6 +45,12 @@ public interface MembershipAuditPort {
 
             @Override
             public void membershipRevoked(TenantMembershipId membershipId) { }
+
+            @Override
+            public void invitationAccepted(TenantMembershipId membershipId, TenantRole role) { }
+
+            @Override
+            public void membershipReactivated(TenantMembershipId membershipId, TenantRole role) { }
         };
     }
 }

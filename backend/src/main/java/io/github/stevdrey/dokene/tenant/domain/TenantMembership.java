@@ -146,6 +146,20 @@ public final class TenantMembership {
         transitionTo(TenantMembershipStatus.SUSPENDED, occurredAt);
     }
 
+    /**
+     * Recovers a revoked membership as a new invitation. The membership keeps its id and role, and grants nothing
+     * until the invitee accepts it again. Ownership is never revoked, so it is never reactivated either.
+     */
+    public void reactivate(Instant occurredAt) {
+        if (status != TenantMembershipStatus.REVOKED) {
+            throw new IllegalStateException("Only revoked memberships can be reactivated");
+        }
+        if (role == TenantRole.OWNER) {
+            throw new IllegalArgumentException("Owner memberships cannot be reactivated");
+        }
+        updateStatus(TenantMembershipStatus.INVITED, occurredAt);
+    }
+
     public void revoke(Instant occurredAt) {
         if (status != TenantMembershipStatus.INVITED && status != TenantMembershipStatus.ACTIVE
                 && status != TenantMembershipStatus.SUSPENDED) {

@@ -14,6 +14,10 @@ vi.mock('./TenantContext', async (importOriginal) => {
   };
 });
 
+vi.mock('./PendingInvitations', () => ({
+  PendingInvitations: () => null,
+}));
+
 vi.mock('../auth/SessionContext', () => ({
   useSession: vi.fn(),
 }));

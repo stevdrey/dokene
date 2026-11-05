@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.audit.application;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.util.UUID;
@@ -41,5 +42,20 @@ class DurableMembershipAuditAdapterTest {
         adapter.membershipRevoked(membershipId);
 
         verify(recorder).membershipRevoked(membershipId);
+    }
+
+    @Test
+    void delegatesInvitationAcceptedAndReactivationToAuditRecorder() {
+        AuditRecorder recorder = mock(AuditRecorder.class);
+        DurableMembershipAuditAdapter adapter = new DurableMembershipAuditAdapter(recorder);
+
+        TenantMembershipId membershipId = new TenantMembershipId(UUID.randomUUID());
+        adapter.invitationAccepted(membershipId, TenantRole.VIEWER);
+        adapter.membershipReactivated(membershipId, TenantRole.ADMIN);
+
+        verify(recorder).membershipStatusChanged(membershipId, AuditEventType.MEMBERSHIP_INVITATION_ACCEPTED,
+                TenantRole.VIEWER);
+        verify(recorder).membershipStatusChanged(membershipId, AuditEventType.MEMBERSHIP_REACTIVATED,
+                TenantRole.ADMIN);
     }
 }

@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useTenant, normalizeWorkspaceName, countCodePoints, MAX_WORKSPACE_NAME_CODE_POINTS } from './TenantContext';
 import { useSession } from '../auth/SessionContext';
 import { ForbiddenError, ApiError } from '../../api/apiClient';
+import { PendingInvitations } from './PendingInvitations';
 
 export const NoMembershipsView: React.FC = () => {
   const { provisionWorkspace } = useTenant();
@@ -135,8 +136,10 @@ export const NoMembershipsView: React.FC = () => {
             color: 'var(--color-text-muted)',
           }}
         >
-          Tu cuenta no tiene membresías activas. Puedes crear un nuevo espacio de trabajo para tu negocio o solicitar acceso a un administrador.
+          Tu cuenta no tiene membresías activas. Puedes aceptar una invitación pendiente, crear un nuevo espacio de trabajo para tu negocio o solicitar acceso a un administrador.
         </p>
+
+        <PendingInvitations />
 
         {error && (
           <div

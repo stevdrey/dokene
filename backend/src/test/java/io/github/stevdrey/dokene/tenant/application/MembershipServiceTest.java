@@ -84,11 +84,11 @@ class MembershipServiceTest {
     }
 
     @Test
-    void addMembershipCreatesActiveMembership() {
+    void addMembershipCreatesAnInvitationThatGrantsNothingUntilAccepted() {
         contexts.runWithContext(ownerContext, () -> {
             TenantMembership created = service.addMembership(operatorIdentity, TenantRole.OPERATOR);
             assertThat(created.role()).isEqualTo(TenantRole.OPERATOR);
-            assertThat(created.status()).isEqualTo(TenantMembershipStatus.ACTIVE);
+            assertThat(created.status()).isEqualTo(TenantMembershipStatus.INVITED);
             assertThat(created.tenantId()).isEqualTo(tenantId);
             assertThat(created.identityId()).isEqualTo(operatorIdentity);
         });
@@ -170,6 +170,54 @@ class MembershipServiceTest {
             assertThatThrownBy(() -> service.addMembership(new IdentityId(UUID.randomUUID()), TenantRole.OWNER))
                     .isInstanceOf(TenantAccessDeniedException.class);
         });
+    }
+
+    @Test
+    void reactivationReturnsARevokedMembershipToInvitedAndAuditsIt() {
+        contexts.runWithContext(ownerContext, () -> {
+            TenantMembership created = service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            service.revokeMembership(operatorIdentity);
+
+            TenantMembership reactivated = service.reactivateMembership(operatorIdentity);
+
+            assertThat(reactivated.id()).isEqualTo(created.id());
+            assertThat(reactivated.status()).isEqualTo(TenantMembershipStatus.INVITED);
+            assertThat(reactivated.role()).isEqualTo(TenantRole.OPERATOR);
+            verify(auditPort).membershipReactivated(created.id(), TenantRole.OPERATOR);
+        });
+    }
+
+    @Test
+    void reactivationRejectsMembershipsThatAreNotRevoked() {
+        contexts.runWithContext(ownerContext, () -> {
+            service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            assertThatThrownBy(() -> service.reactivateMembership(operatorIdentity))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> service.reactivateMembership(ownerIdentity))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> service.reactivateMembership(new IdentityId(UUID.randomUUID())))
+                    .isInstanceOf(MembershipNotFoundException.class);
+        });
+        org.mockito.Mockito.verify(auditPort, org.mockito.Mockito.never())
+                .membershipReactivated(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void reactivationRequiresTheInvitePermission() {
+        contexts.runWithContext(ownerContext, () -> {
+            service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            service.revokeMembership(operatorIdentity);
+        });
+        IdentityId viewerIdentity = new IdentityId(UUID.randomUUID());
+        TenantMembership viewer = repository.save(TenantMembership.createActive(
+                TenantMembershipId.random(), tenantId, viewerIdentity, TenantRole.VIEWER, now));
+        TenantContext viewerContext = new TenantContext(tenantId, viewerIdentity, viewer.id(), TenantRole.VIEWER,
+                TenantMembershipStatus.ACTIVE);
+
+        contexts.runWithContext(viewerContext, () -> assertThatThrownBy(
+                () -> service.reactivateMembership(operatorIdentity)).isInstanceOf(TenantAccessDeniedException.class));
+        assertThat(repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.REVOKED);
     }
 
     @Test

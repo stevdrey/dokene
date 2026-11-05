@@ -3,6 +3,8 @@ package io.github.stevdrey.dokene.tenant.api;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.tenant.application.IdempotencyConflictException;
+import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
+import io.github.stevdrey.dokene.tenant.application.MembershipInvitationService;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
@@ -14,6 +16,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRecord;
 import io.github.stevdrey.dokene.tenant.security.AuthenticatedTenantIdentity;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -39,13 +42,16 @@ public class TenantController {
     private final TenantMembershipDiscovery membershipDiscovery;
     private final TenantContextResolver contextResolver;
     private final AuditRecorder auditRecorder;
+    private final MembershipInvitationService invitationService;
 
     public TenantController(
             WorkspaceProvisioningService provisioningService,
             TenantMembershipDiscovery membershipDiscovery,
             TenantContextResolver contextResolver,
-            AuditRecorder auditRecorder
+            AuditRecorder auditRecorder,
+            MembershipInvitationService invitationService
     ) {
+        this.invitationService = Objects.requireNonNull(invitationService, "Invitation service is required");
         this.provisioningService = Objects.requireNonNull(provisioningService, "Provisioning service is required");
         this.membershipDiscovery = Objects.requireNonNull(membershipDiscovery, "Membership discovery is required");
         this.contextResolver = Objects.requireNonNull(contextResolver, "Context resolver is required");
@@ -102,6 +108,44 @@ public class TenantController {
         return ResponseEntity.status(status).body(response);
     }
 
+    /** The caller's own pending invitations; an invitation grants no access until it is accepted. */
+    @GetMapping("/invitations")
+    public List<InvitationResponse> listInvitations(@AuthenticationPrincipal AuthenticatedTenantIdentity identity) {
+        requireAuthenticated(identity);
+        return invitationService.listPendingInvitations(identity.identityId()).stream()
+                .map(invitation -> new InvitationResponse(
+                        invitation.tenantId().value(),
+                        invitation.tenantDisplayName(),
+                        invitation.role().name(),
+                        invitation.invitedAt()
+                ))
+                .toList();
+    }
+
+    /**
+     * Accepts the caller's pending invitation to {@code tenantId} and returns the workspace it can now enter. Without
+     * a pending invitation the answer is {@code 404} whatever the reason, and the attempt is audited as a denial.
+     */
+    @PostMapping("/{tenantId}/invitation/acceptance")
+    public WorkspaceResponse acceptInvitation(
+            @PathVariable UUID tenantId,
+            @AuthenticationPrincipal AuthenticatedTenantIdentity identity
+    ) {
+        requireAuthenticated(identity);
+        try {
+            TenantMembershipDiscovery.ActiveTenantMembership accepted =
+                    invitationService.acceptInvitation(identity.identityId(), new TenantId(tenantId));
+            return new WorkspaceResponse(
+                    accepted.tenantId().value(),
+                    accepted.tenantDisplayName(),
+                    accepted.role().name()
+            );
+        } catch (MembershipNotFoundException exception) {
+            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+    }
+
     @GetMapping("/{tenantId}")
     public WorkspaceResponse getWorkspace(
             @PathVariable UUID tenantId,
@@ -154,5 +198,8 @@ public class TenantController {
     }
 
     public record WorkspaceResponse(UUID tenantId, String displayName, String role) {
+    }
+
+    public record InvitationResponse(UUID tenantId, String displayName, String role, Instant invitedAt) {
     }
 }

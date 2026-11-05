@@ -11,7 +11,10 @@ import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
+import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
+import io.github.stevdrey.dokene.tenant.application.MembershipInvitationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
+import io.github.stevdrey.dokene.tenant.application.TenantInvitationDirectory.PendingInvitation;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.application.TenantMembershipDiscovery;
@@ -24,6 +27,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.security.AuthenticatedTenantIdentity;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +42,7 @@ class TenantControllerTest {
     private TenantMembershipDiscovery membershipDiscovery;
     private TenantContextResolver contextResolver;
     private AuditRecorder auditRecorder;
+    private MembershipInvitationService invitationService;
     private TenantController controller;
 
     private final IdentityId identityId = new IdentityId(UUID.randomUUID());
@@ -49,7 +54,9 @@ class TenantControllerTest {
         membershipDiscovery = mock();
         contextResolver = mock();
         auditRecorder = mock();
-        controller = new TenantController(provisioningService, membershipDiscovery, contextResolver, auditRecorder);
+        invitationService = mock();
+        controller = new TenantController(provisioningService, membershipDiscovery, contextResolver, auditRecorder,
+                invitationService);
     }
 
     @Test
@@ -186,5 +193,47 @@ class TenantControllerTest {
                 .isEqualTo(HttpStatus.FORBIDDEN);
 
         verify(auditRecorder).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+    }
+
+    @Test
+    void listInvitationsReturnsOnlyTheCallersPendingInvitations() {
+        TenantId tenantId = TenantId.random();
+        Instant invitedAt = Instant.parse("2026-11-04T10:00:00Z");
+        when(invitationService.listPendingInvitations(identityId)).thenReturn(List.of(
+                new PendingInvitation(tenantId, "Acme Corp", TenantMembershipId.random(), TenantRole.VIEWER,
+                        invitedAt)));
+
+        List<TenantController.InvitationResponse> responses = controller.listInvitations(identity);
+
+        assertThat(responses).containsExactly(
+                new TenantController.InvitationResponse(tenantId.value(), "Acme Corp", "VIEWER", invitedAt));
+        assertThatThrownBy(() -> controller.listInvitations(null)).isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void acceptInvitationReturnsTheWorkspaceItCanNowEnter() {
+        TenantId tenantId = TenantId.random();
+        when(invitationService.acceptInvitation(identityId, tenantId)).thenReturn(
+                new ActiveTenantMembership(tenantId, "Acme Corp", TenantMembershipId.random(), TenantRole.OPERATOR));
+
+        TenantController.WorkspaceResponse response = controller.acceptInvitation(tenantId.value(), identity);
+
+        assertThat(response).isEqualTo(new TenantController.WorkspaceResponse(tenantId.value(), "Acme Corp",
+                "OPERATOR"));
+        verifyNoInteractions(auditRecorder);
+    }
+
+    @Test
+    void acceptInvitationWithoutAPendingInvitationIsNotFoundAndAudited() {
+        TenantId tenantId = TenantId.random();
+        when(invitationService.acceptInvitation(identityId, tenantId)).thenThrow(new MembershipNotFoundException());
+
+        assertThatThrownBy(() -> controller.acceptInvitation(tenantId.value(), identity))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        verify(auditRecorder).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        assertThatThrownBy(() -> controller.acceptInvitation(tenantId.value(), null))
+                .isInstanceOf(ResponseStatusException.class);
     }
 }

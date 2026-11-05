@@ -28,6 +28,14 @@ public interface AuditRecorder {
     default void membershipRevoked(TenantMembershipId target) {
     }
 
+    /**
+     * {@link AuditEventType#MEMBERSHIP_INVITATION_ACCEPTED} or {@link AuditEventType#MEMBERSHIP_REACTIVATED},
+     * attributed to the current tenant context. Requires an existing business transaction; failure must roll back the
+     * state transition.
+     */
+    default void membershipStatusChanged(TenantMembershipId target, AuditEventType eventType, TenantRole role) {
+    }
+
     /** Requires an existing business transaction; failure must roll back the state transition. */
     void customerMutated(UUID target, AuditEventType eventType);
 

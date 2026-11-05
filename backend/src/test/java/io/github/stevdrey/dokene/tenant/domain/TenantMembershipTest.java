@@ -91,6 +91,54 @@ class TenantMembershipTest {
     }
 
     @Test
+    void reactivatesARevokedMembershipAsAnInvitationKeepingIdAndRole() {
+        TenantMembership membership = invitedMembership();
+        TenantRole role = membership.role();
+        TenantMembershipId id = membership.id();
+        Instant activeAt = CREATED_AT.plusSeconds(60);
+        Instant revokedAt = activeAt.plusSeconds(60);
+        Instant reactivatedAt = revokedAt.plusSeconds(60);
+        membership.activate(activeAt);
+        membership.revoke(revokedAt);
+
+        membership.reactivate(reactivatedAt);
+
+        assertThat(membership.status()).isEqualTo(TenantMembershipStatus.INVITED);
+        assertThat(membership.role()).isEqualTo(role);
+        assertThat(membership.id()).isEqualTo(id);
+        assertThat(membership.updatedAt()).isEqualTo(reactivatedAt);
+        membership.activate(reactivatedAt.plusSeconds(60));
+        assertThat(membership.status()).isEqualTo(TenantMembershipStatus.ACTIVE);
+    }
+
+    @Test
+    void reactivatesOnlyRevokedMemberships() {
+        TenantMembership membership = invitedMembership();
+        assertThatIllegalStateException().isThrownBy(() -> membership.reactivate(CREATED_AT.plusSeconds(60)));
+        membership.activate(CREATED_AT.plusSeconds(60));
+        assertThatIllegalStateException().isThrownBy(() -> membership.reactivate(CREATED_AT.plusSeconds(120)));
+        membership.suspend(CREATED_AT.plusSeconds(180));
+        assertThatIllegalStateException().isThrownBy(() -> membership.reactivate(CREATED_AT.plusSeconds(240)));
+        assertThat(membership.status()).isEqualTo(TenantMembershipStatus.SUSPENDED);
+    }
+
+    @Test
+    void neverReactivatesAnOwnerMembership() {
+        TenantMembership owner = TenantMembership.restore(TenantMembershipId.random(), TenantId.random(),
+                new IdentityId(UUID.randomUUID()), TenantRole.OWNER, TenantMembershipStatus.REVOKED, CREATED_AT,
+                CREATED_AT, 0);
+        assertThatIllegalArgumentException().isThrownBy(() -> owner.reactivate(CREATED_AT.plusSeconds(60)));
+        assertThat(owner.status()).isEqualTo(TenantMembershipStatus.REVOKED);
+    }
+
+    @Test
+    void reactivationCannotPrecedeTheRevocation() {
+        TenantMembership membership = invitedMembership();
+        membership.revoke(CREATED_AT.plusSeconds(60));
+        assertThatIllegalArgumentException().isThrownBy(() -> membership.reactivate(CREATED_AT.plusSeconds(30)));
+    }
+
+    @Test
     void allowsRoleChangesForEveryNonTerminalStatus() {
         TenantMembership invited = invitedMembership();
         TenantMembership active = activeMembership();

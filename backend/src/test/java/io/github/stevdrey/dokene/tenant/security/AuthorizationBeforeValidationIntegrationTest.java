@@ -140,6 +140,8 @@ class AuthorizationBeforeValidationIntegrationTest {
                 new Case("PUT membership role malformed JSON", TenantRole.VIEWER, HttpMethod.PUT,
                         "/api/memberships/" + UUID.randomUUID() + "/role", MALFORMED_JSON,
                         TenantPermission.MEMBERSHIP_ROLE_UPDATE),
+                new Case("POST membership reactivation malformed identity", TenantRole.VIEWER, HttpMethod.POST,
+                        "/api/memberships/not-a-uuid/reactivation", null, TenantPermission.MEMBERSHIP_INVITE),
                 new Case("DELETE membership", TenantRole.VIEWER, HttpMethod.DELETE,
                         "/api/memberships/" + UUID.randomUUID(), null, TenantPermission.MEMBERSHIP_REVOKE)
         ).map(Arguments::of);

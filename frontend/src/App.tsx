@@ -3,6 +3,7 @@ import { SessionProvider, useSession } from './features/auth/SessionContext';
 import { TenantProvider, useTenant } from './features/tenants/TenantContext';
 import { LoginView } from './features/auth/LoginView';
 import { NoMembershipsView } from './features/tenants/NoMembershipsView';
+import { PendingInvitations } from './features/tenants/PendingInvitations';
 import { AppShell, ActiveTab } from './components/shell/AppShell';
 import { CustomerList } from './features/customers/components/CustomerList';
 import { CustomerProfile } from './features/customers/components/CustomerProfile';
@@ -218,9 +219,12 @@ const MainAppContent: React.FC = () => {
 
       {activeTab === 'configuracion' &&
         (activeWorkspace ? (
-          <IntegrationStatusPanel
-            workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
-          />
+          <>
+            <PendingInvitations />
+            <IntegrationStatusPanel
+              workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
+            />
+          </>
         ) : (
           <p style={{ fontSize: 'var(--font-size-secondary)', color: 'var(--color-text-muted)' }}>
             Selecciona un espacio de trabajo para ver su configuración.
