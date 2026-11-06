@@ -4,6 +4,7 @@ import com.openai.client.OpenAIClient;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,12 +72,81 @@ class OpenAiConfigurationTest {
 
     @Test
     void validatesMaxRetriesInPropertiesConstructor() {
-        OpenAiProviderProperties defaultProps = new OpenAiProviderProperties("key", null, null, null, null);
+        OpenAiProviderProperties defaultProps = new OpenAiProviderProperties("key", null, null, null, null, null);
         assertThat(defaultProps.maxRetries()).isEqualTo(0);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new OpenAiProviderProperties("key", null, null, null, 1)
+                new OpenAiProviderProperties("key", null, null, null, 1, null)
         ).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("dokene.ai.openai.max-retries must be 0");
+    }
+
+    @Test
+    void defaultsTheOutputTokenCeilingWhenUnset() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key"
+        ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS)
+                .isEqualTo(4096));
+    }
+
+    @Test
+    void anEmptyOutputTokenCeilingFallsBackToTheDefault() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key",
+                "dokene.ai.openai.max-output-tokens="
+        ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+    }
+
+    @Test
+    void theShippedApplicationYamlGivesTheDefaultWhetherTheVariableIsUnsetOrEmpty() {
+        ApplicationContextRunner shipped = runner
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues("dokene.ai.provider=openai", "dokene.ai.openai.api-key=test-api-key");
+
+        shipped.run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+        // compose.yaml passes the variable as an empty string when it is not set
+        shipped.withSystemProperties("DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS=")
+                .run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                        .isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS));
+        shipped.withSystemProperties("DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS=2048")
+                .run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                        .isEqualTo(2048));
+    }
+
+    @Test
+    void bindsAConfiguredOutputTokenCeiling() {
+        runner.withPropertyValues(
+                "dokene.ai.provider=openai",
+                "dokene.ai.openai.api-key=test-api-key",
+                "dokene.ai.openai.max-output-tokens=2048"
+        ).run(context -> assertThat(context.getBean(OpenAiProviderProperties.class).maxOutputTokens())
+                .isEqualTo(2048));
+    }
+
+    @Test
+    void failsStartupWhenTheOutputTokenCeilingIsOutOfRange() {
+        for (String value : new String[] {"255", "16385", "0", "-1"}) {
+            runner.withPropertyValues(
+                    "dokene.ai.provider=openai",
+                    "dokene.ai.openai.api-key=test-api-key",
+                    "dokene.ai.openai.max-output-tokens=" + value
+            ).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                        .hasRootCauseMessage("dokene.ai.openai.max-output-tokens must be between 256 and 16384");
+            });
+        }
+    }
+
+    @Test
+    void acceptsTheOutputTokenCeilingBounds() {
+        assertThat(new OpenAiProviderProperties("key", null, null, null, 0, 256).maxOutputTokens()).isEqualTo(256);
+        assertThat(new OpenAiProviderProperties("key", null, null, null, 0, 16384).maxOutputTokens()).isEqualTo(16384);
     }
 }

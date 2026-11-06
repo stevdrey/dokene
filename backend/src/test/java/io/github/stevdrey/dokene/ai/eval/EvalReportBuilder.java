@@ -194,7 +194,8 @@ public final class EvalReportBuilder {
 
     /**
      * PROVIDER_FAILURE when every attempt of the operation failed at the provider (timeout, throttling, outage,
-     * invalid structured output); GATE_REJECTED when the provider answered but the gate or service delivered nothing,
+     * invalid structured output); each failure names the adapter's closed reasons, so a response cut off at the output
+     * ceiling reads {@code INVALID_STRUCTURED_RESPONSE (OUTPUT_TOKEN_LIMIT)}. GATE_REJECTED when the provider answered but the gate or service delivered nothing,
      * which is the controls working rather than a coverage problem of the provider.
      */
     private static EvalReport.UndeliveredCase undelivered(CaseObservation obs, AiOperation operation, String status,
@@ -202,13 +203,20 @@ public final class EvalReportBuilder {
         List<EvalProviderCall> attempts = obs.calls().stream().filter(c -> c.operation() == operation).toList();
         List<String> failures = attempts.stream()
                 .filter(c -> c.failure() != null)
-                .map(c -> c.failure().name())
+                .map(c -> EvalReportWriter.status(c.failure().name(), closedReasons(c)))
                 .distinct()
                 .toList();
         String cause = attempts.stream().allMatch(c -> c.failure() != null)
                 ? EvalReport.UndeliveredCase.PROVIDER_FAILURE : EvalReport.UndeliveredCase.GATE_REJECTED;
         return new EvalReport.UndeliveredCase(obs.evalCase().id(), obs.evalCase().family().name(), operation.name(),
                 cause, status, rejection, failures);
+    }
+
+    /** The adapter's closed rejection reasons (for example {@code OUTPUT_TOKEN_LIMIT}), or null when it gave none. */
+    private static String closedReasons(EvalProviderCall call) {
+        return call.rejections().isEmpty() ? null : java.util.EnumSet.copyOf(call.rejections()).stream()
+                .map(Enum::name)
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     /**

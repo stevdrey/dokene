@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
+import io.github.stevdrey.dokene.ai.application.AiOutputRejection;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
 import io.github.stevdrey.dokene.ai.application.AiTokenUsage;
@@ -415,6 +416,46 @@ class EvalReportTest {
                 new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION, context, null,
                         AiFailureCategory.TIMEOUT, null, 15_000_000_000L));
         return new CaseObservation(c, "AI_UNAVAILABLE", "TIMEOUT", null, "NO_DRAFT", null, null, attempts);
+    }
+
+    private CaseObservation invalidRecommendation(String id, java.util.Set<AiOutputRejection> rejections) {
+        EvalCase c = dataset.cases().stream().filter(x -> x.id().equals(id)).findFirst().orElseThrow();
+        var context = call(c.displayName(), null, 1).context();
+        // Not retried: an invalid structured response is a single attempt.
+        List<EvalProviderCall> attempts = List.of(new EvalProviderCall(c.displayName(), AiOperation.NEXT_BEST_ACTION,
+                context, null, AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 6_000_000_000L, null, null,
+                rejections));
+        return new CaseObservation(c, "AI_UNAVAILABLE", "INVALID_STRUCTURED_RESPONSE", null, "NO_DRAFT", null, null,
+                attempts);
+    }
+
+    @Test
+    void anOutputCutOffAtTheTokenCeilingIsNamedInTheReportApartFromOtherInvalidResponses(@TempDir Path dir)
+            throws Exception {
+        EvalReport report = EvalReportBuilder.build(dataset, List.of(deliveredRecommendation("rp-01"),
+                invalidRecommendation("ua-01", java.util.Set.of(AiOutputRejection.OUTPUT_TOKEN_LIMIT)),
+                invalidRecommendation("ua-03", java.util.Set.of())), "live", null, null, true);
+
+        assertThat(report.summary().undelivered()).containsExactly(
+                new EvalReport.UndeliveredCase("ua-01", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION",
+                        EvalReport.UndeliveredCase.PROVIDER_FAILURE, "AI_UNAVAILABLE", "INVALID_STRUCTURED_RESPONSE",
+                        List.of("INVALID_STRUCTURED_RESPONSE (OUTPUT_TOKEN_LIMIT)")),
+                new EvalReport.UndeliveredCase("ua-03", "UNSUPPORTED_ACTION", "NEXT_BEST_ACTION",
+                        EvalReport.UndeliveredCase.PROVIDER_FAILURE, "AI_UNAVAILABLE", "INVALID_STRUCTURED_RESPONSE",
+                        List.of("INVALID_STRUCTURED_RESPONSE")));
+
+        EvalReportWriter.write(report, dir, "ceiling");
+        String markdown = Files.readString(dir.resolve("ceiling.md"));
+        assertThat(markdown).contains("| ua-01 | UNSUPPORTED_ACTION | NEXT_BEST_ACTION | PROVIDER_FAILURE | "
+                        + "AI_UNAVAILABLE (INVALID_STRUCTURED_RESPONSE) | INVALID_STRUCTURED_RESPONSE (OUTPUT_TOKEN_LIMIT) |",
+                "| ua-03 | UNSUPPORTED_ACTION | NEXT_BEST_ACTION | PROVIDER_FAILURE | "
+                        + "AI_UNAVAILABLE (INVALID_STRUCTURED_RESPONSE) | INVALID_STRUCTURED_RESPONSE |");
+        assertThat(Files.readString(dir.resolve("ceiling.json")))
+                .contains("\"INVALID_STRUCTURED_RESPONSE (OUTPUT_TOKEN_LIMIT)\"");
+        assertThat(EvalReportWriter.read(dir.resolve("ceiling.json"))).isEqualTo(report);
+        assertThat(EvalFamilyCoverage.consoleSummary(report))
+                .contains("ua-01 NEXT_BEST_ACTION AI_UNAVAILABLE (INVALID_STRUCTURED_RESPONSE) "
+                        + "[INVALID_STRUCTURED_RESPONSE (OUTPUT_TOKEN_LIMIT)]");
     }
 
     private CaseObservation deliveredRecommendation(String id) {

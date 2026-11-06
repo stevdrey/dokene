@@ -302,7 +302,7 @@
         "status": "AI_UNAVAILABLE",
         "rejection": "INVALID_STRUCTURED_RESPONSE",
         "failures": [
-          "INVALID_STRUCTURED_RESPONSE"
+          "INVALID_STRUCTURED_RESPONSE (UNSAFE_CONTENT)"
         ]
       }
     ],

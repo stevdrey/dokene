@@ -429,6 +429,20 @@ class InvariantCheckerTest {
     }
 
     @Test
+    void anOutputCutOffAtTheTokenCeilingIsASchemaFailureNotAModelFinding() {
+        EvalProviderCall call = new EvalProviderCall("Lucía Demo-01", AiOperation.MESSAGE_DRAFT, context(), null,
+                AiFailureCategory.INVALID_STRUCTURED_RESPONSE, null, 1, null, null, java.util.Set.of(
+                io.github.stevdrey.dokene.ai.application.AiOutputRejection.OUTPUT_TOKEN_LIMIT));
+
+        var raw = InvariantChecker.rawFindings(new CaseObservation(evalCase, "AVAILABLE", null, null, "AI_UNAVAILABLE",
+                null, null, List.of(call)));
+
+        assertThat(raw.schemaInvalid()).isTrue();
+        assertThat(raw.allowlistViolation()).isFalse();
+        assertThat(raw.unsafeDraft()).isFalse();
+    }
+
+    @Test
     void locale_specificAmountPunctuationIsEquivalentOnBothSidesLikeProduction() {
         for (String[] pair : new String[][] {{"$10,00", "$10.00"}, {"$10.00", "$10,00"}, {"10,5%", "10.5%"},
                 {"$1 250,50", "$1250.50"}}) {

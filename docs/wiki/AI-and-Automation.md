@@ -300,8 +300,9 @@ owns one reusable client, handles provider-specific payloads internally, and pre
 application validates eligibility and authorization before invocation and gates any later action independently
 of the provider result.
 
-Configuration is externalized through `dokene.ai.provider` and `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`), with
-default model set to `gpt-6-luna`. When `dokene.ai.provider` is unset or empty, Dokene registers `DisabledAiProvider` as a fallback,
+Configuration is externalized through `dokene.ai.provider` and `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`,
+`max-output-tokens`), with default model set to `gpt-6-luna`. `max-output-tokens` (default `4096`, `256` to `16384`) is sent on both the
+recommendation and the draft request; a response cut off there fails as `INVALID_STRUCTURED_RESPONSE` with rejection reason `OUTPUT_TOKEN_LIMIT` and is not retried (issue 316). When `dokene.ai.provider` is unset or empty, Dokene registers `DisabledAiProvider` as a fallback,
 ensuring the application boots normally and all deterministic customer, purchase, and follow-up queue/manual workflows remain
 fully operational while recommendation requests degrade gracefully to `AI_UNAVAILABLE`. For local development and offline testing,
 fake provider mode must be explicitly configured via `dokene.ai.provider=fake`, allowing execution without requiring
