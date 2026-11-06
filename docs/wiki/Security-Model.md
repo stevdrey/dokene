@@ -258,7 +258,7 @@ Protect at minimum:
 - exports;
 - integration/webhook endpoints where applicable.
 
-Implemented today: AI recommendation calls (`dokene.ai.rate-limit`, ADR 0019) and rejected WhatsApp phone-number ownership proofs (`dokene.integration.whatsapp.mapping-rejection-limit`, issues 208 and 210), both per tenant and per actor, held in memory per instance.
+Implemented today: AI recommendation calls (`dokene.ai.rate-limit`, ADR 0019) and rejected WhatsApp phone-number ownership proofs (`dokene.integration.whatsapp.mapping-rejection-limit`, issues 208 and 210), both per tenant and per actor; and, per tenant, every administrative call that reaches Meta: template approval refreshes (`dokene.template.refresh-limit`) and ownership proofs (`dokene.integration.whatsapp.ownership-verification-limit`), whatever the provider answers (issue 321). All are held in memory per instance.
 
 The AI rate limit bounds how many provider calls run, not what each costs. Each OpenAI request carries `max_output_tokens` (`dokene.ai.openai.max-output-tokens`, default 4096, issue 316), so one user action costs at most `dokene.ai.retry.max-attempts` × that many output tokens, even when the client times out and the provider keeps generating. The ceiling does not stop that post-timeout generation: at the observed rate the 15 s timeout delivers about 850 tokens, so an abandoned attempt can still bill about 3.2k more (ADR 0016). There is no per-tenant token or spend budget yet; it is tracked in issue 346.
 

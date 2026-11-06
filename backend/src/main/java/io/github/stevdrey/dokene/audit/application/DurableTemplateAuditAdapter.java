@@ -1,6 +1,8 @@
 package io.github.stevdrey.dokene.audit.application;
 
+import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.template.application.TemplateAuditPort;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -15,5 +17,10 @@ public class DurableTemplateAuditAdapter implements TemplateAuditPort {
     @Override
     public void updated(UUID mappingId, boolean enabled) {
         recorder.templateMappingUpdated(mappingId, enabled);
+    }
+
+    @Override
+    public void refreshThrottled() {
+        recorder.authorizationDenied(TenantPermission.TEMPLATE_WRITE, AuditDenialReason.RATE_LIMITED);
     }
 }

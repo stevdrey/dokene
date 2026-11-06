@@ -15,6 +15,9 @@ public interface IntegrationAuditPort {
      */
     void mappingRejected();
 
-    /** An ownership verification was refused because the rejection budget is spent; same durability and privacy. */
+    /**
+     * An ownership verification was refused because the rejection budget or the tenant's provider proof budget
+     * (issue 321) is spent; same durability and privacy.
+     */
     void mappingThrottled();
 }

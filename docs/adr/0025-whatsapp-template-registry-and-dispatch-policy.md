@@ -37,6 +37,7 @@ Approval is evidence, not configuration:
 - The lookup follows Graph cursors (`paging.cursors.after`) on the same base URL for at most five pages, never the `paging.next` URL a response supplies, and shares one deadline across all pages. Absence is concluded only when the list really ends; with pages still pending it is unavailable.
 - Anything else is *unavailable*: other status codes, redirects (not followed), timeouts, unreadable bodies, `LIMIT_EXCEEDED` or an unknown status, no secret resolver bean, an unresolvable secret. No provider text is kept or returned.
 - An unavailable answer drops earlier evidence (status `UNVERIFIED`) and the call answers `503 PROVIDER_UNAVAILABLE`, so a failure can never leave an old `APPROVED` standing.
+- Issue 321 addendum: every refresh that reaches the gateway spends one unit of a per-tenant budget in a sliding window (`dokene.template.refresh-limit`, default 30 per 15 minutes), whatever the answer, unavailable included. A spent budget answers `429 RATE_LIMITED` with `Retry-After` before the gateway is called, leaves the stored evidence unchanged and is audited as `AUTHORIZATION_DENIED` (`TEMPLATE_WRITE`, reason `RATE_LIMITED`). `RATE_LIMITED` is therefore a template API code too, with the same problem body as the messaging one.
 
 The evidence row stores the status, the check time, the business account that was asked, the mapping `version` it was checked against and, for `APPROVED` only, the verified parameter format. A refresh does not advance `version`, so recording evidence never voids open approvals.
 

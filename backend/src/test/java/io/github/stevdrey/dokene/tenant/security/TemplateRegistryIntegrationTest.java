@@ -40,6 +40,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.template.application.TemplateAuditPort;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateProviderGateway;
+import io.github.stevdrey.dokene.template.application.TemplateRefreshLimitProperties;
 import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import io.github.stevdrey.dokene.template.domain.TemplateButton;
@@ -53,6 +54,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,6 +66,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -440,6 +443,56 @@ class TemplateRegistryIntegrationTest {
         }
     }
 
+    /**
+     * Issue 321: every refresh that reaches the provider, unavailable answers included, spends the tenant's lookup budget;
+     * once it is spent, refreshes are a closed 429 with Retry-After, never reach the provider, change no evidence and
+     * are audited as denials, while configuration writes and other tenants are unaffected.
+     */
+    @Test
+    void refreshesThatReachTheProviderAreBoundedPerTenantAndThrottledWithAnAuditedClosedProblem() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        create(adminB, tenantB, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        AtomicInteger lookups = new AtomicInteger();
+        gateway.duringLookup = lookups::incrementAndGet;
+        // Refusals decided before the provider call cost nothing.
+        for (int stale = 0; stale < 5; stale++) {
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"7\"").andExpect(status().isConflict());
+        }
+        int budget = TemplateRefreshLimitProperties.DEFAULT_TENANT_CALLS;
+        for (int call = 0; call < budget; call++) {
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));
+        }
+        assertThat(lookups).hasValue(budget);
+        String before = updatedAt(tenantA);
+
+        gateway.next = approved(WABA_ID);
+        var throttled = refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"")
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(content().json("{\"type\":\"about:blank\",\"title\":\"Too Many Requests\","
+                        + "\"status\":429,\"code\":\"RATE_LIMITED\"}", JsonCompareMode.STRICT))
+                .andExpect(header().string("Retry-After", org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")))
+                .andReturn().getResponse();
+        assertThat(Long.parseLong(throttled.getHeader("Retry-After"))).isLessThanOrEqualTo(15 * 60);
+        assertThat(throttled.getContentAsString()).doesNotContain("repeat_purchase_v1").doesNotContain(WABA_ID);
+        // The budget is the tenant's: another member is throttled too.
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        refresh(secondAdminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isTooManyRequests());
+        assertThat(lookups).hasValue(budget);
+        assertThat(updatedAt(tenantA)).isEqualTo(before);
+        assertThat(refreshDenials(tenantA, adminA)).isEqualTo(1);
+        assertThat(refreshDenials(tenantA, secondAdminA)).isEqualTo(1);
+
+        // Configuration writes are never throttled; another tenant keeps its own budget.
+        replace(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"", TEMPLATE.replace("_v1", "_v2"))
+                .andExpect(status().isOk());
+        refresh(adminB, tenantB, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED"));
+        assertThat(lookups).hasValue(budget + 1);
+        assertThat(refreshDenials(tenantB, adminB)).isZero();
+    }
+
     /** Issue 268, V31: the fixed text is returned and trusted only when written with the current evidence. */
     @Test
     void theTemplateTextIsTrustedOnlyWithTheEvidenceThatReadIt() throws Exception {
@@ -792,6 +845,15 @@ class TemplateRegistryIntegrationTest {
                 rs.next();
                 return rs.getString(1);
             }
+        }
+    }
+
+    private int refreshDenials(Tenant tenant, IdentityId actor) throws SQLException {
+        try (Connection migration = migrationConnection()) {
+            return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? AND actor_id = ? "
+                    + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' AND denial_reason = 'RATE_LIMITED' "
+                    + "AND permission = 'TEMPLATE_WRITE' AND target_type IS NULL AND target_id IS NULL",
+                    tenant.id().value(), actor.value());
         }
     }
 
