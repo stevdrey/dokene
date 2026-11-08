@@ -12,7 +12,7 @@ Each request or transaction establishes an application-controlled tenant context
 - A tenant capability has the canonical form `tenant|<key_id>|<uuid>|<expiry>|<nonce>`, is valid for 60 seconds, and is renewed before expiry. PostgreSQL accepts custom two-part parameters without special privilege, so changing either parameter alone never grants access.
 - Keys are stored in `dokene.tenant_context_signing_keys (key_id, signing_key, status, created_at, retired_at)` owned by `dokene_migration` and inaccessible to `dokene_runtime`. Keys are provisioned via parameterized JDBC migration callbacks rather than Flyway SQL literal placeholders.
 - `SECURITY DEFINER` verification functions use a fixed `search_path`, resolve the active key by `key_id`, validate the canonical form, expiry, and HMAC-SHA-256 signature, and return `NULL` for every invalid input.
-- **Key Rotation Lifecycle**: To rotate signing keys without downtime, provision the new key (e.g. `k2`) with status `ACTIVE`. Switch application signing to `k2`. In-flight capabilities signed with `k1` continue verifying during their 60-second validity window. After the overlap window, update `k1` to status `RETIRED`.
+- **Key Rotation Lifecycle** (issue 324, audit L6): to rotate, run the migration job with a new key id (e.g. `k2`). It provisions `k2` as `ACTIVE` and gives every other active key a retirement deadline of the database clock plus a bounded grace (`DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE`, default `1h`, `0s` to `7d`), never later than a deadline the key already has. Verifiers read keys only through `dokene.verification_signing_key`, which ignores a key past its deadline, so instances still signing with `k1` keep working through a rolling deployment and `k1` stops verifying when the grace ends, whether or not the job runs again. The next job run records `k1` as `RETIRED`; a retired key id is never reactivated (the job fails instead). The runbook, including rollback and emergency revocation, is in the [RLS recipe](../architecture/tenant-isolation-rls-recipe.md#key-rotation-lifecycle).
 - **Transactional operations**: both capability parameters are propagated transaction-locally using `set_config(..., true)`. On transaction commit or rollback, the settings expire automatically. Tenant-scoped database operations should execute inside explicit transactions as the primary isolation boundary.
 - **Non-transactional (auto-commit) operations**: both parameters are propagated at session scope using `set_config(..., false)`. They are explicitly reset before the connection is returned to the pool. If propagation or reset fails, the physical connection is aborted (`Connection.abort()`) to prevent dirty connection reuse.
 
@@ -56,7 +56,7 @@ Since issue 308 (audit M4) the migration credential exists only in a one-shot jo
 Threat model and residual risk: a compromise of the backend process yields only `dokene_runtime` (no DDL, no RLS
 bypass, no audit modification, no read of `tenant_context_signing_keys`). The backend must still hold the signing key to
 sign capabilities, so such a compromise can forge tenant contexts while it lasts; recovery is the key rotation lifecycle
-above (provision `k2` through the job, switch signing, retire `k1`). The migration job, the database administrator and
+above (provision `k2` through the job with a zero grace, which retires `k1` at once). The migration job, the database administrator and
 the secret store remain trusted.
 
 ## Append-only audit exception

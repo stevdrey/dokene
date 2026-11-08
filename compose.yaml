@@ -150,6 +150,7 @@ services:
       DOKENE_DB_URL: jdbc:postgresql://postgres:5432/${DOKENE_DB_NAME:?Set DOKENE_DB_NAME in .env}
       DOKENE_DB_MIGRATION_USERNAME: ${DOKENE_DB_MIGRATION_USERNAME:-dokene_migration}
       DOKENE_TENANT_CONTEXT_KEY_ID: ${DOKENE_TENANT_CONTEXT_KEY_ID:-default}
+      DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE: ${DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE:-1h}
     # Mounted as files under /run/secrets/dokene and read through Spring's configtree import, never as environment
     # variables.
     secrets:

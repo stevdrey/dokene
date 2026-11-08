@@ -143,6 +143,9 @@ dokene:
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}
+    # How long a superseded key keeps verifying after the migration job provisions a new key id (issue 324). It must
+    # cover the longest rolling deployment plus the 60 s capability lifetime; 0s revokes at once. Range 0s to 7d.
+    retirement-grace: ${DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE:1h}
   security:
     post-login-redirect-url: ${DOKENE_POST_LOGIN_REDIRECT_URL:/}
     post-login-failure-redirect-url: ${DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL:}

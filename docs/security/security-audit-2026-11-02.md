@@ -249,6 +249,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L6. Tenant-context signing keys are never retired — Static
 
+- **Status:** fixed by [#324](https://github.com/stevdrey/dokene/issues/324); see [the verification record](../verification/issue-324-signing-key-retirement-verification.md) and the rotation runbook in the [RLS recipe](../architecture/tenant-isolation-rls-recipe.md#key-rotation-lifecycle). The migration job gives every key other than the configured one a retirement deadline (database clock plus a bounded grace, default `1h`) and records it `RETIRED` once past; the verifiers enforce the deadline themselves (V39), and a retired key id is never reactivated.
+
 - **Where:**
   - `TenantContextSigningKeyCallback.java:56-62` only upserts the configured key as `ACTIVE`. No code writes `RETIRED`, which appears only in a CHECK constraint.
   - Verification accepts any `ACTIVE` key (`V3`, `V19`).
