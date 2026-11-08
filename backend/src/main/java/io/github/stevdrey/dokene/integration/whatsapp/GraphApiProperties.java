@@ -4,7 +4,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
+import io.github.stevdrey.dokene.http.TrustedHostNames;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -18,16 +18,14 @@ public record GraphApiProperties(URI baseUrl, Duration timeout, List<String> add
     public static final URI DEFAULT_BASE_URL = URI.create("https://graph.facebook.com/v23.0");
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
     public static final String META_GRAPH_HOST = "graph.facebook.com";
-    private static final Pattern HOSTNAME = Pattern.compile(
-            "^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$");
 
     public GraphApiProperties {
         baseUrl = baseUrl == null ? DEFAULT_BASE_URL : baseUrl;
         timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
         additionalTrustedHosts = additionalTrustedHosts == null ? List.of() : List.copyOf(additionalTrustedHosts);
         for (String trusted : additionalTrustedHosts) {
-            // Exact, lower-case hostnames only: no scheme, port, path, wildcard or IP-literal surprises.
-            if (trusted == null || !HOSTNAME.matcher(trusted).matches()) {
+            // Exact, lower-case hostnames only: no scheme, port, path, wildcard or IP literal.
+            if (!TrustedHostNames.isExactHostName(trusted)) {
                 throw new IllegalArgumentException("Trusted Graph API hosts must be exact lower-case host names");
             }
         }

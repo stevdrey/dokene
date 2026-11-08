@@ -62,7 +62,8 @@ class GraphApiPropertiesTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"https://proxy.example", "proxy.example:8443", "*.example.com", "Proxy.Example",
-            "proxy.example/path", "", " ", "proxy..example", "-proxy.example", "10.0.0.5."})
+            "proxy.example/path", "", " ", "proxy..example", "-proxy.example", "10.0.0.5.", "10.0.0.5",
+            "169.254.169.254", "127.1"})
     void rejectsMalformedTrustedHostEntries(String entry) {
         assertThatThrownBy(() -> of("https://graph.facebook.com", entry)).isInstanceOf(IllegalArgumentException.class);
     }

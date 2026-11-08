@@ -302,7 +302,7 @@ of the provider result.
 
 Configuration is externalized through `dokene.ai.provider` and `dokene.ai.openai` (`api-key`, `model`, `base-url`, `timeout`,
 `max-output-tokens`), with default model set to `gpt-6-luna`. `max-output-tokens` (default `4096`, `256` to `16384`) is sent on both the
-recommendation and the draft request; a response cut off there fails as `INVALID_STRUCTURED_RESPONSE` with rejection reason `OUTPUT_TOKEN_LIMIT` and is not retried (issue 316). When `dokene.ai.provider` is unset or empty, Dokene registers `DisabledAiProvider` as a fallback,
+recommendation and the draft request; a response cut off there fails as `INVALID_STRUCTURED_RESPONSE` with rejection reason `OUTPUT_TOKEN_LIMIT` and is not retried (issue 316). `base-url` is validated at startup because the API key and customer data are sent to it (issue 322): it must be `https` on `api.openai.com` (the default when blank), an exact loopback test server (`localhost`, `127.0.0.1` or `[::1]`, over `http` or `https`), or an `https` host listed in `additional-trusted-hosts` (`DOKENE_AI_OPENAI_ADDITIONAL_TRUSTED_HOSTS`, empty by default), with no user info, query or fragment; anything else stops the application before a client is built, and redirects are never followed (ADR 0016 §6). When `dokene.ai.provider` is unset or empty, Dokene registers `DisabledAiProvider` as a fallback,
 ensuring the application boots normally and all deterministic customer, purchase, and follow-up queue/manual workflows remain
 fully operational while recommendation requests degrade gracefully to `AI_UNAVAILABLE`. For local development and offline testing,
 fake provider mode must be explicitly configured via `dokene.ai.provider=fake`, allowing execution without requiring

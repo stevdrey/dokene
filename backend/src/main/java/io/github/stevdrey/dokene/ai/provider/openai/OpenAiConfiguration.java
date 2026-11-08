@@ -25,19 +25,15 @@ public class OpenAiConfiguration {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("OpenAI API key must be configured when dokene.ai.provider is set to 'openai'");
         }
+        // The base URL was validated and normalized when the properties were bound (OpenAiEndpointPolicy).
+        // Redirects are never followed: a 3xx would otherwise re-send the request body, customer data included,
+        // to a host the endpoint policy never approved.
         OpenAIOkHttpClient.Builder builder = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey);
-        if (properties.baseUrl() != null && !properties.baseUrl().isBlank()) {
-            builder.baseUrl(properties.baseUrl());
-        }
-        if (properties.timeout() != null) {
-            builder.timeout(properties.timeout());
-        }
-        if (properties.maxRetries() != null && properties.maxRetries() != 0) {
-            throw new IllegalArgumentException(
-                    "dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
-                            + "retries are owned by the domain-level decorator configured with dokene.ai.retry.*");
-        }
+                .apiKey(apiKey)
+                .baseUrl(properties.baseUrl())
+                .followRedirects(false);
+        builder.timeout(properties.timeout());
+        // max-retries is guaranteed 0 by OpenAiProviderProperties; retries are owned by dokene.ai.retry.*.
         builder.maxRetries(0);
         return builder.build();
     }
