@@ -23,7 +23,9 @@ import org.springframework.stereotype.Component;
  * deadline it already has, so re-running the job cannot extend a grace); keys past their deadline are marked
  * {@code RETIRED}. The database verifiers enforce {@code retire_after} on the database clock themselves (V39),
  * so a superseded key stops verifying when the grace ends even if the job never runs again. A retired key id
- * is never reactivated: rolling back to it after its grace fails the job instead.
+ * is never reactivated: rolling back to it after its grace fails the job instead, and its key material is
+ * overwritten with random bytes when it is retired. A key id never changes its key: configuring different
+ * material under an existing id fails the job, because that would revoke the old material with no grace.
  */
 @Component
 public class TenantContextSigningKeyCallback implements Callback {
@@ -68,28 +70,55 @@ public class TenantContextSigningKeyCallback implements Callback {
             if (ownTransaction) {
                 connection.setAutoCommit(false);
             }
+            Throwable failure = null;
             try {
                 provisionAndRetire(connection);
                 if (ownTransaction) {
                     connection.commit();
                 }
             } catch (SQLException | RuntimeException exception) {
+                failure = exception;
                 if (ownTransaction) {
-                    connection.rollback();
+                    try {
+                        connection.rollback();
+                    } catch (SQLException rollbackFailure) {
+                        exception.addSuppressed(sanitized(rollbackFailure));
+                    }
                 }
                 throw exception;
             } finally {
                 if (ownTransaction) {
-                    connection.setAutoCommit(true);
+                    try {
+                        connection.setAutoCommit(true);
+                    } catch (SQLException restoreFailure) {
+                        if (failure == null) {
+                            throw restoreFailure;
+                        }
+                        failure.addSuppressed(sanitized(restoreFailure));
+                    }
                 }
             }
         } catch (SQLException exception) {
-            // The message names the table only; the driver's cause never carries bound parameter values.
-            throw new IllegalStateException(
-                    "Failed to provision tenant context signing key into dokene.tenant_context_signing_keys",
-                    exception
+            // PostgreSQL error details can quote a failing row, signing key included, so neither the driver
+            // message nor its detail is kept: only the SQLState and the vendor code reach the caller and the logs.
+            IllegalStateException failure = new IllegalStateException(
+                    "Failed to provision tenant context signing key into dokene.tenant_context_signing_keys (SQLState %s)"
+                            .formatted(exception.getSQLState()),
+                    sanitized(exception)
             );
+            for (Throwable suppressed : exception.getSuppressed()) {
+                failure.addSuppressed(suppressed);
+            }
+            throw failure;
         }
+    }
+
+    /** A copy of a driver exception without its message, detail, cause or suppressed exceptions. */
+    static SQLException sanitized(SQLException exception) {
+        SQLException copy = new SQLException(
+                "SQL failure (message withheld)", exception.getSQLState(), exception.getErrorCode());
+        copy.setStackTrace(exception.getStackTrace());
+        return copy;
     }
 
     private void provisionAndRetire(Connection connection) throws SQLException {
@@ -113,12 +142,24 @@ public class TenantContextSigningKeyCallback implements Callback {
             }
         }
 
+        try (PreparedStatement sameKey = connection.prepareStatement(
+                "SELECT signing_key = ? FROM dokene.tenant_context_signing_keys WHERE key_id = ?")) {
+            // Compares in the database and reads back only a boolean, never key material.
+            sameKey.setBytes(1, signingKey);
+            sameKey.setString(2, keyId);
+            try (ResultSet row = sameKey.executeQuery()) {
+                if (row.next() && !row.getBoolean(1)) {
+                    throw new IllegalStateException(("Tenant context signing key id '%s' already holds a different key; "
+                            + "configure a new DOKENE_TENANT_CONTEXT_KEY_ID for a new key").formatted(keyId));
+                }
+            }
+        }
+
         try (PreparedStatement upsert = connection.prepareStatement("""
                 INSERT INTO dokene.tenant_context_signing_keys (key_id, signing_key, status)
                 VALUES (?, ?, 'ACTIVE')
                 ON CONFLICT (key_id) DO UPDATE
-                SET signing_key = EXCLUDED.signing_key,
-                    status = 'ACTIVE',
+                SET status = 'ACTIVE',
                     retire_after = NULL,
                     retired_at = NULL
                 """)) {
@@ -141,7 +182,9 @@ public class TenantContextSigningKeyCallback implements Callback {
 
         try (PreparedStatement retire = connection.prepareStatement("""
                 UPDATE dokene.tenant_context_signing_keys
-                SET status = 'RETIRED', retired_at = retire_after
+                SET status = 'RETIRED',
+                    retired_at = retire_after,
+                    signing_key = dokene.gen_random_bytes(32)
                 WHERE status = 'ACTIVE' AND retire_after <= statement_timestamp()
                 """)) {
             retire.executeUpdate();

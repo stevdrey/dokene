@@ -9,18 +9,18 @@
 
 ALTER TABLE dokene.tenant_context_signing_keys ADD COLUMN retire_after TIMESTAMPTZ;
 
--- Nothing wrote RETIRED before, but a hand-retired row may lack its timestamp.
+-- Nothing wrote RETIRED before, but a hand-retired row may lack its timestamp. A retired key is never reactivated, so
+-- its material has no use left: overwrite it, as the migration job does whenever it retires a key. The deadline keeps
+-- it unusable even if a migration job of the previous release later flips it back to ACTIVE.
 UPDATE dokene.tenant_context_signing_keys
-SET retired_at = statement_timestamp()
-WHERE status = 'RETIRED' AND retired_at IS NULL;
+SET retired_at = COALESCE(retired_at, statement_timestamp()),
+    retire_after = COALESCE(retire_after, retired_at, statement_timestamp()),
+    signing_key = dokene.gen_random_bytes(32)
+WHERE status = 'RETIRED';
 
-UPDATE dokene.tenant_context_signing_keys
-SET retired_at = NULL
-WHERE status = 'ACTIVE' AND retired_at IS NOT NULL;
-
-ALTER TABLE dokene.tenant_context_signing_keys
-    ADD CONSTRAINT ck_tenant_context_signing_keys_retired_at
-    CHECK ((status = 'RETIRED') = (retired_at IS NOT NULL));
+-- Deliberately no CHECK tying retired_at to status: a migration job of the previous release, run against this schema
+-- during a release rollback, would violate it, and PostgreSQL's "Failing row contains" detail would print the
+-- configured key into that job's output. The current job keeps the two consistent itself.
 
 -- The one place that decides whether a key may verify a capability: ACTIVE and not past its retirement deadline.
 -- Security invoker on purpose: only the SECURITY DEFINER verifiers owned by dokene_migration call it, and it is not

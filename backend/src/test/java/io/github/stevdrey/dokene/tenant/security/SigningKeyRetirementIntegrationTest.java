@@ -63,12 +63,14 @@ class SigningKeyRetirementIntegrationTest {
         assertThat(verifiedTenant(newInstance.issueTenantContext(TENANT))).isEqualTo(TENANT.value());
         assertThat(auditKeyCheck(newInstance.issueProviderAuditContext(TENANT))).isEqualTo(KeyCheck.ACCEPTED);
         assertThat(row("k1").status()).as("not yet recorded").isEqualTo("ACTIVE");
+        String activeFingerprint = row("k1").fingerprint();
 
         // The next job run records the retirement at the moment the key stopped verifying.
         deploy("k2", secondKey, GRACE);
         KeyRow retired = row("k1");
         assertThat(retired.status()).isEqualTo("RETIRED");
         assertThat(retired.retiredAt()).isEqualTo(retired.retireAfter());
+        assertThat(retired.fingerprint()).as("retired key material is overwritten").isNotEqualTo(activeFingerprint);
         assertThat(verifiedTenant(oldInstance.issueTenantContext(TENANT))).isNull();
     }
 
@@ -76,10 +78,10 @@ class SigningKeyRetirementIntegrationTest {
     void theOldKeyStopsVerifyingWhenAShortGraceElapsesInRealTime() throws Exception {
         deploy("k1", firstKey, GRACE);
         HmacDatabaseContextSigner oldInstance = new HmacDatabaseContextSigner(firstKey, "k1");
-        deploy("k2", secondKey, Duration.ofSeconds(3));
+        deploy("k2", secondKey, Duration.ofSeconds(15));
         assertThat(verifiedTenant(oldInstance.issueTenantContext(TENANT))).isEqualTo(TENANT.value());
 
-        Instant giveUp = Instant.now().plusSeconds(15);
+        Instant giveUp = Instant.now().plusSeconds(45);
         UUID verified = TENANT.value();
         while (verified != null && Instant.now().isBefore(giveUp)) {
             Thread.sleep(250);
@@ -138,6 +140,23 @@ class SigningKeyRetirementIntegrationTest {
         assertThat(verifiedTenant(new HmacDatabaseContextSigner(firstKey, "k1").issueTenantContext(TENANT))).isNull();
         assertThat(verifiedTenant(new HmacDatabaseContextSigner(secondKey, "k2").issueTenantContext(TENANT)))
                 .isEqualTo(TENANT.value());
+    }
+
+    @Test
+    void reusingAKeyIdWithDifferentMaterialFailsTheJobWithoutChanges() throws Exception {
+        deploy("k1", firstKey, GRACE);
+        List<KeyRow> before = rows();
+
+        assertThatThrownBy(() -> deploy("k1", secondKey, GRACE))
+                .satisfies(failure -> {
+                    assertThat(causeChain(failure)).anyMatch(message -> message.contains("'k1' already holds a different key"));
+                    assertThat(causeChain(failure)).noneMatch(message -> containsKeyMaterial(message));
+                });
+
+        assertThat(rows()).isEqualTo(before);
+        assertThat(verifiedTenant(new HmacDatabaseContextSigner(firstKey, "k1").issueTenantContext(TENANT)))
+                .isEqualTo(TENANT.value());
+        assertThat(verifiedTenant(new HmacDatabaseContextSigner(secondKey, "k1").issueTenantContext(TENANT))).isNull();
     }
 
     @Test

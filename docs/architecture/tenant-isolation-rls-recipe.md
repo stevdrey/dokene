@@ -106,9 +106,10 @@ CREATE POLICY customers_migration_policy
 A key verifies while its row is `ACTIVE` and its `retire_after` is unset or still in the future on the database clock. `dokene.verification_signing_key(key_id)` (V39) is the only reader of the key table; every verifier (`signed_context_subject`, `append_audit_event`) goes through it. The migration job (`TenantContextSigningKeyCallback`) runs, in one transaction serialized by a table lock:
 
 - refuse to start if the configured `key_id` is `RETIRED` or past its `retire_after`: a retired key is never reactivated;
+- refuse to start if the configured `key_id` already holds different key material: a key id never changes its key, because that would revoke the old material at once, with no grace;
 - upsert the configured key as `ACTIVE` with no `retire_after`;
 - give every other `ACTIVE` key `retire_after = now() + DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE`, or keep its earlier deadline: re-running the job never extends a grace, and a shorter grace shortens it;
-- mark keys past their deadline `RETIRED`, with `retired_at = retire_after`.
+- mark keys past their deadline `RETIRED`, with `retired_at = retire_after`, and overwrite their key material with random bytes.
 
 The grace (default `1h`, range `0s` to `7d`) must cover the longest rolling deployment plus the 60-second capability lifetime and the 70-second skew the verifiers accept. The deadline is enforced by the verifiers on the database clock, so it holds across instances and even if the job never runs again; the `RETIRED` status is only recorded at the next job run.
 
@@ -125,6 +126,7 @@ The grace (default `1h`, range `0s` to `7d`) must cover the longest rolling depl
 
 - **Within the grace:** redeploy with the previous key id and key, and run the migration job first. It reactivates `k1` (clears its deadline) and schedules `k2` instead.
 - **After the grace:** the job refuses the retired key id and exits non-zero without changing any key. Roll forward with a new key id (`k3`) instead; the application rollback itself does not depend on the key id.
+- **Rolling the release back to before V39:** keep the current key id. The job of that release knows nothing about retirement deadlines: it would leave a reactivated key's `retire_after` in place, so a key it "reactivates" still stops verifying at its old deadline (or at once, if it was already retired). Key rotation and rollback need the V39 job or later.
 
 #### Runbook: emergency revocation of a leaked key
 
