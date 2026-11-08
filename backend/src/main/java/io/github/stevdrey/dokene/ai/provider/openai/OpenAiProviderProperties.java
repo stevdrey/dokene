@@ -1,11 +1,18 @@
 package io.github.stevdrey.dokene.ai.provider.openai;
 
 import java.time.Duration;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * Externalized configuration for OpenAI Responses API integration.
  * API key must never be logged or defaulted to sensitive values.
+ *
+ * <p>{@code baseUrl} is validated by {@link OpenAiEndpointPolicy} at binding time and always holds the canonical
+ * endpoint (the OpenAI default when unset). {@code additionalTrustedHosts} lists the exact HTTPS hosts, such as an
+ * internal gateway the deployment controls, that may receive the API key and customer data besides
+ * {@code api.openai.com}; listing a host is a trust decision and the list is empty by default.
  */
 @ConfigurationProperties(prefix = "dokene.ai.openai")
 public record OpenAiProviderProperties(
@@ -14,7 +21,8 @@ public record OpenAiProviderProperties(
         String baseUrl,
         Duration timeout,
         Integer maxRetries,
-        Integer maxOutputTokens
+        Integer maxOutputTokens,
+        List<String> additionalTrustedHosts
 ) {
     public static final String DEFAULT_MODEL = "gpt-6-luna";
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(15);
@@ -32,7 +40,16 @@ public record OpenAiProviderProperties(
     public static final int MAX_OUTPUT_TOKENS_FLOOR = 256;
     public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
 
+    /** Configuration without additional trusted hosts. */
+    public OpenAiProviderProperties(String apiKey, String model, String baseUrl, Duration timeout, Integer maxRetries,
+            Integer maxOutputTokens) {
+        this(apiKey, model, baseUrl, timeout, maxRetries, maxOutputTokens, null);
+    }
+
+    @ConstructorBinding
     public OpenAiProviderProperties {
+        additionalTrustedHosts = OpenAiEndpointPolicy.trustedHosts(additionalTrustedHosts);
+        baseUrl = OpenAiEndpointPolicy.canonicalBaseUrl(baseUrl, additionalTrustedHosts);
         if (model == null || model.isBlank()) {
             model = DEFAULT_MODEL;
         }

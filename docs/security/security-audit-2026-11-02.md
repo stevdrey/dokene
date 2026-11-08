@@ -301,6 +301,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 - **Where:** `backend/.../ai/provider/openai/OpenAiConfiguration.java:30-31` accepts any `baseUrl`, plain `http://` included. Compare `integration/whatsapp/GraphApiProperties.java`, which requires HTTPS on an allowlisted host.
 - **Impact:** a typo or a tampered configuration sends the API key and customer PII in cleartext to an arbitrary host.
 - **Fix:** apply the same validation as `GraphApiProperties`: HTTPS, an allowlisted host or loopback, and no userinfo, query or fragment.
+- **Status:** fixed by [#322](https://github.com/stevdrey/dokene/issues/322); see [the verification record](../verification/issue-322-openai-endpoint-validation-verification.md) and [ADR 0016](../adr/0016-openai-responses-api-adapter-with-structured-outputs.md) §6. The base URL is validated when the properties are bound, so a rejected value stops startup before any client exists: `https` on `api.openai.com`, an exact loopback test server, or an `https` host in `dokene.ai.openai.additional-trusted-hosts`, never with user info, query or fragment. Unlike the Graph policy, `*.localhost` is not accepted (see I3). The client gets a URL rebuilt from the validated parts and no longer follows redirects, which the SDK did by default.
 
 #### L12. Admin endpoints that call the provider are not throttled — Static
 

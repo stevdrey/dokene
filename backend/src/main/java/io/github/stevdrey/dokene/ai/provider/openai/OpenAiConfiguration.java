@@ -25,11 +25,13 @@ public class OpenAiConfiguration {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("OpenAI API key must be configured when dokene.ai.provider is set to 'openai'");
         }
+        // The base URL was validated and canonicalized when the properties were bound (OpenAiEndpointPolicy).
+        // Redirects are never followed: a 3xx would otherwise re-send the request body, customer data included,
+        // to a host the endpoint policy never approved.
         OpenAIOkHttpClient.Builder builder = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey);
-        if (properties.baseUrl() != null && !properties.baseUrl().isBlank()) {
-            builder.baseUrl(properties.baseUrl());
-        }
+                .apiKey(apiKey)
+                .baseUrl(properties.baseUrl())
+                .followRedirects(false);
         if (properties.timeout() != null) {
             builder.timeout(properties.timeout());
         }

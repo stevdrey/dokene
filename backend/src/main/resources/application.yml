@@ -59,7 +59,11 @@ dokene:
     openai:
       api-key: ${DOKENE_AI_OPENAI_API_KEY:}
       model: ${DOKENE_AI_OPENAI_MODEL:gpt-6-luna}
+      # Validated at startup (issue 322): https on api.openai.com (the default when blank), an exact loopback test
+      # server, or an https host listed in additional-trusted-hosts; never user info, query or fragment.
       base-url: ${DOKENE_AI_OPENAI_BASE_URL:}
+      # Comma-separated exact host names that may receive the API key and customer data. Empty by default.
+      additional-trusted-hosts: ${DOKENE_AI_OPENAI_ADDITIONAL_TRUSTED_HOSTS:}
       timeout: ${DOKENE_AI_OPENAI_TIMEOUT:15s}
       max-retries: ${DOKENE_AI_OPENAI_MAX_RETRIES:0}
       max-output-tokens: ${DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS:}
