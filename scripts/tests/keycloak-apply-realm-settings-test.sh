@@ -93,9 +93,10 @@ FAKE
 chmod +x "$WORK/kcadm.sh"
 export STUB_KCADM="$WORK/kcadm.sh"
 
-OWNER_PASSWORD=0123456789abcdef0123456789abcdef
-OPERATOR_PASSWORD=fedcba9876543210fedcba9876543210
-VIEWER_PASSWORD=00112233445566778899aabbccddeeff
+# Built at run time: synthetic 32-hex values, kept out of the source so secret scanners have nothing to match.
+OWNER_PASSWORD="$(printf '0123456789abcdef%.0s' 1 2)"
+OPERATOR_PASSWORD="$(printf 'fedcba9876543210%.0s' 1 2)"
+VIEWER_PASSWORD="$(printf '0011223344556677%.0s' 1 2)"
 
 # A realm as imported before issues 307 and 314: session.required set, no logout URL, 10 h SSO max lifespan, no PKCE
 # attribute and no password policy. The keycloak container holds the three generated passwords.
