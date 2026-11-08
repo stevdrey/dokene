@@ -28,6 +28,7 @@ The `dokene_migration` role owns the `dokene` schema and applies DDL. The applic
 - `DOKENE_DB_MIGRATION_USERNAME`, `DOKENE_DB_MIGRATION_PASSWORD` for Flyway.
 - `DOKENE_TENANT_CONTEXT_SIGNING_KEY`, a 64-character hexadecimal encoding of 32 random bytes. Generate it with `openssl rand -hex 32`; keep the value out of source control.
 - `DOKENE_TENANT_CONTEXT_KEY_ID`, an identifier for the active signing key (defaults to `default`).
+- `DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE`, how long a superseded signing key keeps verifying after a key-id change (defaults to `1h`, range `0s` to `7d`; read by the migration job).
 
 While the database is unreachable, requests wait at most `DOKENE_DB_CONNECTION_TIMEOUT_MS` (default `3000`) for a
 pooled connection. Startup refuses less than `500`, because the stale-connection check is capped at half the wait.

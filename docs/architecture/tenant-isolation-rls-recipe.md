@@ -103,10 +103,34 @@ CREATE POLICY customers_migration_policy
 
 ### Key Rotation Lifecycle
 
-1. Provision the next signing key with `key_id = k2` and `status = 'ACTIVE'` in `dokene.tenant_context_signing_keys`.
-2. Deploy the application with `DOKENE_TENANT_CONTEXT_KEY_ID=k2` and `DOKENE_TENANT_CONTEXT_SIGNING_KEY=<key_2_hex>`.
-3. In-flight capabilities signed with `k1` continue verifying during the 60-second capability validity window.
-4. After the expiration window, mark `k1` as `RETIRED` (`status = 'RETIRED'`).
+A key verifies while its row is `ACTIVE` and its `retire_after` is unset or still in the future on the database clock. `dokene.verification_signing_key(key_id)` (V39) is the only reader of the key table; every verifier (`signed_context_subject`, `append_audit_event`) goes through it. The migration job (`TenantContextSigningKeyCallback`) runs, in one transaction serialized by a table lock:
+
+- refuse to start if the configured `key_id` is `RETIRED` or past its `retire_after`: a retired key is never reactivated;
+- refuse to start if the configured `key_id` already holds different key material: a key id never changes its key, because that would revoke the old material at once, with no grace;
+- upsert the configured key as `ACTIVE` with no `retire_after`;
+- give every other `ACTIVE` key `retire_after = now() + DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE`, or keep its earlier deadline: re-running the job never extends a grace, and a shorter grace shortens it;
+- mark keys past their deadline `RETIRED`, with `retired_at = retire_after`, and overwrite their key material with random bytes.
+
+The grace (default `1h`, range `0s` to `7d`) must cover the longest rolling deployment plus the 60-second capability lifetime and the 70-second skew the verifiers accept. The deadline is enforced by the verifiers on the database clock, so it holds across instances and even if the job never runs again; the `RETIRED` status is only recorded at the next job run.
+
+#### Runbook: planned rotation
+
+1. Generate the next key (`openssl rand -hex 32`) and choose a new key id, for example `k2`. Never reuse a key id.
+2. Store the new key in the secret store, set `DOKENE_TENANT_CONTEXT_KEY_ID=k2`, and set `DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE` if the default does not cover the rollout.
+3. Run the migration job (in Compose, `docker compose up` runs `migrate` before the backend). It provisions `k2` and schedules `k1` for retirement.
+4. Roll the backend instances. Instances still signing with `k1` and new ones signing with `k2` both verify until the grace ends.
+5. Finish the rollout before the grace ends. An instance still signing with `k1` after that fails closed: every tenant-scoped read returns no rows and writes are refused.
+6. Optionally re-run the job after the grace to record `k1` as `RETIRED`. Check with the migration role: `SELECT key_id, status, retire_after, retired_at FROM dokene.tenant_context_signing_keys` (never select `signing_key`).
+
+#### Runbook: rollback
+
+- **Within the grace:** redeploy with the previous key id and key, and run the migration job first. It reactivates `k1` (clears its deadline) and schedules `k2` instead.
+- **After the grace:** the job refuses the retired key id and exits non-zero without changing any key. Roll forward with a new key id (`k3`) instead; the application rollback itself does not depend on the key id.
+- **Rolling the release back to before V39:** keep the current key id. The job of that release knows nothing about retirement deadlines: it would leave a reactivated key's `retire_after` in place, so a key it "reactivates" still stops verifying at its old deadline (or at once, if it was already retired). Key rotation and rollback need the V39 job or later.
+
+#### Runbook: emergency revocation of a leaked key
+
+Rotate as above with `DOKENE_TENANT_CONTEXT_KEY_RETIREMENT_GRACE=0s`: the leaked key stops verifying as soon as the job commits, and instances still signing with it fail closed until they are replaced. If the job has already run with a longer grace, re-run it with `0s`; the earlier deadline is shortened, never extended.
 
 ### Global membership bootstrap
 
