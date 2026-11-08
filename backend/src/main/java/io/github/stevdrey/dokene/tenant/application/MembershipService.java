@@ -25,6 +25,7 @@ public class MembershipService {
     private final TenantContextProvider contexts;
     private final TenantMembershipRepository memberships;
     private final MembershipRoleService membershipRoleService;
+    private final MembershipChangeAuthorizer changeAuthority;
     private final MembershipAuditPort auditPort;
     private final Clock clock;
 
@@ -33,6 +34,7 @@ public class MembershipService {
             TenantContextProvider contexts,
             TenantMembershipRepository memberships,
             MembershipRoleService membershipRoleService,
+            MembershipChangeAuthorizer changeAuthority,
             MembershipAuditPort auditPort,
             Clock clock
     ) {
@@ -40,6 +42,7 @@ public class MembershipService {
         this.contexts = Objects.requireNonNull(contexts, "Tenant context provider is required");
         this.memberships = Objects.requireNonNull(memberships, "Membership repository is required");
         this.membershipRoleService = Objects.requireNonNull(membershipRoleService, "Membership role service is required");
+        this.changeAuthority = Objects.requireNonNull(changeAuthority, "Membership change authorizer is required");
         this.auditPort = Objects.requireNonNull(auditPort, "Membership audit port is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
     }
@@ -60,6 +63,8 @@ public class MembershipService {
         authorization.requirePermission(TenantPermission.MEMBERSHIP_INVITE);
         TenantId tenantId = contexts.requireCurrent().tenantId();
         authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, tenantId);
+        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
+        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_INVITE, targetIdentity);
 
         if (role == TenantRole.OWNER) {
             throw new IllegalArgumentException("Ownership cannot be assigned via membership invitation");
@@ -101,6 +106,8 @@ public class MembershipService {
         authorization.requirePermission(TenantPermission.MEMBERSHIP_INVITE);
         TenantId tenantId = contexts.requireCurrent().tenantId();
         authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, tenantId);
+        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
+        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_INVITE, targetIdentity);
 
         TenantMembership membership = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity)
                 .orElseThrow(MembershipNotFoundException::new);
@@ -123,6 +130,8 @@ public class MembershipService {
         authorization.requirePermission(TenantPermission.MEMBERSHIP_REVOKE);
         TenantId tenantId = contexts.requireCurrent().tenantId();
         authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_REVOKE, tenantId);
+        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
+        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_REVOKE, targetIdentity);
 
         TenantMembership membership = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity)
                 .orElseThrow(MembershipNotFoundException::new);

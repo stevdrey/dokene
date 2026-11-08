@@ -16,6 +16,8 @@ import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,14 @@ class MembershipServiceTest {
     private final AuthorizationAuditListener auditListener = mock(AuthorizationAuditListener.class);
     private final TenantAuthorizationService authorization = new DefaultTenantAuthorizationService(contexts, auditListener, clock);
 
+    private final List<List<IdentityId>> locks = new ArrayList<>();
     private final TenantMembershipRepository repository = new TenantMembershipRepository() {
+        @Override
+        public void lockForMembershipChange(TenantId tenantId, Collection<IdentityId> identityIds) {
+            assertThat(tenantId).isEqualTo(MembershipServiceTest.this.tenantId);
+            locks.add(List.copyOf(identityIds));
+        }
+
         @Override
         public Optional<TenantMembership> findByTenantIdAndIdentityId(TenantId tenantId, IdentityId identityId) {
             return Optional.ofNullable(memberships.get(tenantId.value() + ":" + identityId.value()));
@@ -58,6 +67,15 @@ class MembershipServiceTest {
         }
     };
 
+    /** Resolves the actor's membership as stored now, like the database-backed resolver does. */
+    private final TenantContextResolver resolver = (identityId, requestedTenantId) -> Optional
+            .ofNullable(memberships.get(requestedTenantId.value() + ":" + identityId.value()))
+            .filter(membership -> membership.status() == TenantMembershipStatus.ACTIVE)
+            .map(membership -> new TenantContext(membership.tenantId(), identityId, membership.id(), membership.role()))
+            .orElseThrow(TenantContextAuthorizationException::new);
+    private final MembershipChangeAuthorizer changeAuthority = new MembershipChangeAuthorizer(contexts, repository,
+            new CurrentMembershipAuthorizer(contexts, resolver, authorization, auditListener, clock));
+
     private final MembershipAuditPort auditPort = mock(MembershipAuditPort.class);
     private MembershipService service;
     private TenantContext ownerContext;
@@ -70,8 +88,10 @@ class MembershipServiceTest {
         repository.save(ownerMembership);
         ownerContext = new TenantContext(tenantId, ownerIdentity, ownerMembership.id(), TenantRole.OWNER, TenantMembershipStatus.ACTIVE);
 
-        MembershipRoleService roleService = new MembershipRoleService(authorization, contexts, repository, auditPort, clock);
-        service = new MembershipService(authorization, contexts, repository, roleService, auditPort, clock);
+        MembershipRoleService roleService = new MembershipRoleService(authorization, contexts, repository,
+                changeAuthority, auditPort, clock);
+        service = new MembershipService(authorization, contexts, repository, roleService, changeAuthority, auditPort,
+                clock);
     }
 
     @Test
@@ -230,13 +250,123 @@ class MembershipServiceTest {
 
         MembershipService concurrentService = new MembershipService(
                 authorization, contexts, throwingRepo,
-                new MembershipRoleService(authorization, contexts, throwingRepo, auditPort, clock),
-                auditPort, clock);
+                new MembershipRoleService(authorization, contexts, throwingRepo, changeAuthority, auditPort, clock),
+                changeAuthority, auditPort, clock);
 
         contexts.runWithContext(ownerContext, () -> {
             assertThatThrownBy(() -> concurrentService.addMembership(new IdentityId(UUID.randomUUID()), TenantRole.OPERATOR))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Membership already exists");
         });
+    }
+
+    @Test
+    void everyMembershipChangeLocksTheActorAndTheTargetBeforeDeciding() {
+        contexts.runWithContext(ownerContext, () -> {
+            service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            service.changeRole(operatorIdentity, TenantRole.VIEWER);
+            service.revokeMembership(operatorIdentity);
+            service.reactivateMembership(operatorIdentity);
+        });
+
+        assertThat(locks).hasSize(4)
+                .allSatisfy(lock -> assertThat(lock).containsExactly(ownerIdentity, operatorIdentity));
+    }
+
+    @Test
+    void anActorDemotedAfterTheRequestResolvedIsRefusedForEveryChangeAndAudited() {
+        TenantMembership admin = seedActive(TenantRole.ADMIN);
+        TenantContext staleAdmin = context(admin, TenantRole.ADMIN);
+        IdentityId revokedIdentity = new IdentityId(UUID.randomUUID());
+        contexts.runWithContext(ownerContext, () -> {
+            service.addMembership(operatorIdentity, TenantRole.OPERATOR);
+            service.addMembership(revokedIdentity, TenantRole.VIEWER);
+            service.revokeMembership(revokedIdentity);
+        });
+        // A concurrent demotion committed after the actor's request resolved its ADMIN context.
+        admin.changeRole(TenantRole.VIEWER, now);
+        repository.save(admin);
+        org.mockito.Mockito.clearInvocations(auditPort, auditListener);
+
+        contexts.runWithContext(staleAdmin, () -> {
+            assertDenied(() -> service.addMembership(new IdentityId(UUID.randomUUID()), TenantRole.VIEWER));
+            assertDenied(() -> service.changeRole(operatorIdentity, TenantRole.VIEWER));
+            assertDenied(() -> service.revokeMembership(operatorIdentity));
+            assertDenied(() -> service.reactivateMembership(revokedIdentity));
+        });
+
+        verify(auditListener, org.mockito.Mockito.times(4)).onAuthorizationDenied(org.mockito.ArgumentMatchers.argThat(
+                event -> admin.id().equals(event.membershipId()) && event.reason().contains("lacks permission")));
+        org.mockito.Mockito.verifyNoInteractions(auditPort);
+        TenantMembership operator = repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity).orElseThrow();
+        assertThat(operator.role()).isEqualTo(TenantRole.OPERATOR);
+        assertThat(operator.status()).isEqualTo(TenantMembershipStatus.INVITED);
+        assertThat(repository.findByTenantIdAndIdentityId(tenantId, revokedIdentity).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.REVOKED);
+    }
+
+    @Test
+    void aRevokedActorIsRefusedEvenWhileItAdministersAnotherTenant() {
+        TenantMembership admin = seedActive(TenantRole.ADMIN);
+        TenantContext staleAdmin = context(admin, TenantRole.ADMIN);
+        contexts.runWithContext(ownerContext, () -> service.addMembership(operatorIdentity, TenantRole.OPERATOR));
+        // Same identity, still ADMIN elsewhere: authority never crosses tenants.
+        repository.save(TenantMembership.createActive(TenantMembershipId.random(), TenantId.random(),
+                admin.identityId(), TenantRole.ADMIN, now));
+        admin.revoke(now);
+        repository.save(admin);
+        org.mockito.Mockito.clearInvocations(auditListener);
+
+        contexts.runWithContext(staleAdmin, () -> assertDenied(() -> service.revokeMembership(operatorIdentity)));
+
+        verify(auditListener).onAuthorizationDenied(org.mockito.ArgumentMatchers.argThat(
+                event -> CurrentMembershipAuthorizer.MEMBERSHIP_GONE.equals(event.reason())
+                        && tenantId.equals(event.tenantId())));
+        assertThat(repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity).orElseThrow().status())
+                .isEqualTo(TenantMembershipStatus.INVITED);
+    }
+
+    @Test
+    void aReplacedActorMembershipDoesNotCarryTheRequestsAuthority() {
+        TenantMembership admin = seedActive(TenantRole.ADMIN);
+        TenantContext staleAdmin = context(admin, TenantRole.ADMIN);
+        contexts.runWithContext(ownerContext, () -> service.addMembership(operatorIdentity, TenantRole.OPERATOR));
+        // Removed and re-admitted as a new membership after the request resolved the old one.
+        repository.save(TenantMembership.createActive(TenantMembershipId.random(), tenantId, admin.identityId(),
+                TenantRole.ADMIN, now));
+
+        contexts.runWithContext(staleAdmin,
+                () -> assertDenied(() -> service.changeRole(operatorIdentity, TenantRole.VIEWER)));
+
+        assertThat(repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity).orElseThrow().role())
+                .isEqualTo(TenantRole.OPERATOR);
+    }
+
+    @Test
+    void anActorPromotedAfterTheRequestResolvedIsStillFirstCheckedAgainstTheRequest() {
+        TenantMembership viewer = seedActive(TenantRole.VIEWER);
+        TenantContext staleViewer = context(viewer, TenantRole.VIEWER);
+        viewer.changeRole(TenantRole.ADMIN, now);
+        repository.save(viewer);
+
+        contexts.runWithContext(staleViewer,
+                () -> assertDenied(() -> service.addMembership(operatorIdentity, TenantRole.OPERATOR)));
+
+        assertThat(locks).isEmpty();
+        assertThat(repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity)).isEmpty();
+    }
+
+    private TenantMembership seedActive(TenantRole role) {
+        return repository.save(TenantMembership.createActive(TenantMembershipId.random(), tenantId,
+                new IdentityId(UUID.randomUUID()), role, now));
+    }
+
+    private TenantContext context(TenantMembership membership, TenantRole resolvedRole) {
+        return new TenantContext(tenantId, membership.identityId(), membership.id(), resolvedRole,
+                TenantMembershipStatus.ACTIVE);
+    }
+
+    private static void assertDenied(org.assertj.core.api.ThrowableAssert.ThrowingCallable change) {
+        assertThatThrownBy(change).isInstanceOf(TenantAccessDeniedException.class);
     }
 }

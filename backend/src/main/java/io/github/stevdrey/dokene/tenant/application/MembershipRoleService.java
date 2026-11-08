@@ -16,12 +16,15 @@ public class MembershipRoleService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final TenantMembershipRepository memberships;
+    private final MembershipChangeAuthorizer changeAuthority;
     private final MembershipAuditPort audit;
     private final Clock clock;
 
     public MembershipRoleService(TenantAuthorizationService authorization, TenantContextProvider contexts,
-            TenantMembershipRepository memberships, MembershipAuditPort audit, Clock clock) {
+            TenantMembershipRepository memberships, MembershipChangeAuthorizer changeAuthority,
+            MembershipAuditPort audit, Clock clock) {
         this.authorization = authorization;
+        this.changeAuthority = Objects.requireNonNull(changeAuthority, "Membership change authorizer is required");
         this.contexts = contexts;
         this.memberships = memberships;
         this.audit = Objects.requireNonNull(audit, "Membership audit port is required");
@@ -33,6 +36,8 @@ public class MembershipRoleService {
         authorization.requirePermission(TenantPermission.MEMBERSHIP_ROLE_UPDATE);
         Objects.requireNonNull(targetIdentity, "Target identity is required");
         Objects.requireNonNull(newRole, "New role is required");
+        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
+        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_ROLE_UPDATE, targetIdentity);
         TenantMembership membership = memberships.findByTenantIdAndIdentityId(
                 contexts.requireCurrent().tenantId(), targetIdentity)
                 .orElseThrow(MembershipNotFoundException::new);

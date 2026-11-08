@@ -601,23 +601,39 @@ class AuditIntegrationTest {
     }
 
     @Test
-    void concurrentRoleChangesProduceOnlyOneSuccessEvent() throws Exception {
+    void concurrentRoleChangesAreSerializedAndEachAuditsTheRoleItReplaced() throws Exception {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);
-        CountDownLatch bothRead = new CountDownLatch(2);
+        CountDownLatch firstRead = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
         doAnswer(invocation -> {
             Object result = invocation.callRealMethod();
-            bothRead.countDown();
-            assertThat(bothRead.await(10, TimeUnit.SECONDS)).isTrue();
+            if (reads.incrementAndGet() == 1) {
+                firstRead.countDown();
+                assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            }
             return result;
         }).when(memberships).findByTenantIdAndIdentityId(any(), eq(target));
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(() -> changeConcurrently(context, target, TenantRole.ADMIN));
+            assertThat(firstRead.await(10, TimeUnit.SECONDS)).isTrue();
             var second = executor.submit(() -> changeConcurrently(context, target, TenantRole.OPERATOR));
+            // Issue 325: the second change waits on the membership row lock instead of reading a stale target.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (jdbc.queryForObject("SELECT count(*) FROM pg_locks WHERE NOT granted", Integer.class) == 0) {
+                assertThat(System.nanoTime()).isLessThan(deadline);
+                Thread.onSpinWait();
+            }
+            assertThat(reads).hasValue(1);
+            release.countDown();
             assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
-                    .containsExactlyInAnyOrder("success", "conflict");
+                    .containsExactly("success", "success");
         }
-        scoped(context, () -> assertThat(reader.read().events()).hasSize(1));
+        scoped(context, () -> assertThat(jdbc.queryForList("""
+                SELECT previous_role || '>' || new_role FROM dokene.audit_events
+                WHERE event_type = 'MEMBERSHIP_ROLE_CHANGED' ORDER BY occurred_at, id
+                """, String.class)).containsExactly("VIEWER>ADMIN", "ADMIN>OPERATOR"));
     }
 
     private String changeConcurrently(TenantContext context, IdentityId target, TenantRole role) {
