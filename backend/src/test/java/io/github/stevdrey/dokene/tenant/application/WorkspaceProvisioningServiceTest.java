@@ -60,6 +60,10 @@ class WorkspaceProvisioningServiceTest {
 
     private final TenantMembershipRepository membershipRepository = new TenantMembershipRepository() {
         @Override
+        public void lockForMembershipChange(TenantId tenantId, java.util.Collection<IdentityId> identityIds) {
+        }
+
+        @Override
         public Optional<TenantMembership> findByTenantIdAndIdentityId(TenantId tenantId, IdentityId identityId) {
             return Optional.ofNullable(memberships.get(tenantId.value() + ":" + identityId.value()));
         }

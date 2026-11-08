@@ -45,18 +45,39 @@ public class CurrentMembershipAuthorizer {
      * audited and {@link TenantAccessDeniedException} is thrown.
      */
     public TenantContext requireResourceAccess(TenantPermission permission, TenantScopedResource resource) {
+        Decision decision = decide(permission, resource);
+        if (decision.denial() != null) {
+            audits.onAuthorizationDenied(decision.denial());
+            throw new TenantAccessDeniedException();
+        }
+        return decision.member();
+    }
+
+    /**
+     * The same decision as {@link #requireResourceAccess}, returning the denial instead of auditing it, for a caller
+     * that must end its transaction first and then hands the event to {@link AuthorizationAuditListener}. Empty when
+     * the current member is allowed.
+     */
+    public Optional<AuthorizationDeniedEvent> denial(TenantPermission permission, TenantScopedResource resource) {
+        return Optional.ofNullable(decide(permission, resource).denial());
+    }
+
+    private Decision decide(TenantPermission permission, TenantScopedResource resource) {
         Objects.requireNonNull(permission, "Permission is required");
         TenantContext request = contexts.current().orElse(null);
         if (request == null) {
-            throw denied(null, permission, resource, "No active tenant context");
+            return Decision.refused(null, permission, resource, "No active tenant context", clock);
         }
         TenantContext member = sameMembership(request.identityId(), request.tenantId(), request.membershipId())
-                .orElseThrow(() -> denied(request, permission, resource, MEMBERSHIP_GONE));
+                .orElse(null);
+        if (member == null) {
+            return Decision.refused(request, permission, resource, MEMBERSHIP_GONE, clock);
+        }
         AuthorizationDecision decision = authorization.evaluate(member, permission, resource);
         if (!decision.isAllowed()) {
-            throw denied(request, permission, resource, decision.rejectionReason().orElse("Denied"));
+            return Decision.refused(request, permission, resource, decision.rejectionReason().orElse("Denied"), clock);
         }
-        return member;
+        return new Decision(member, null);
     }
 
     /**
@@ -83,10 +104,11 @@ public class CurrentMembershipAuthorizer {
         return member.membershipId().equals(expected) ? Optional.of(member) : Optional.empty();
     }
 
-    private TenantAccessDeniedException denied(TenantContext request, TenantPermission permission,
-            TenantScopedResource resource, String reason) {
-        audits.onAuthorizationDenied(AuthorizationDeniedEvent.of(request, permission,
-                resource == null ? null : resource.tenantId(), reason, clock.instant()));
-        return new TenantAccessDeniedException();
+    private record Decision(TenantContext member, AuthorizationDeniedEvent denial) {
+        static Decision refused(TenantContext request, TenantPermission permission, TenantScopedResource resource,
+                String reason, Clock clock) {
+            return new Decision(null, AuthorizationDeniedEvent.of(request, permission,
+                    resource == null ? null : resource.tenantId(), reason, clock.instant()));
+        }
     }
 }

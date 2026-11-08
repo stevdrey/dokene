@@ -99,4 +99,25 @@ class CurrentMembershipAuthorizerTest {
         assertThatThrownBy(() -> authorizer.requireResourceAccess(TenantPermission.MESSAGE_SEND, resource))
                 .isInstanceOf(TenantAccessDeniedException.class);
     }
+
+    @Test
+    void denialIsEmptyWhenTheCurrentMembershipAllowsIt() {
+        when(contexts.current()).thenReturn(Optional.of(request));
+        when(resolver.resolve(request.identityId(), tenantId)).thenReturn(request);
+
+        assertThat(authorizer.denial(TenantPermission.MESSAGE_SEND, resource)).isEmpty();
+        assertThat(denials).isEmpty();
+    }
+
+    @Test
+    void denialReturnsTheEventWithoutAuditingIt() {
+        when(contexts.current()).thenReturn(Optional.of(request));
+        when(resolver.resolve(request.identityId(), tenantId)).thenThrow(new TenantContextAuthorizationException());
+
+        assertThat(authorizer.denial(TenantPermission.MESSAGE_SEND, resource)).hasValueSatisfying(event -> {
+            assertThat(event.reason()).isEqualTo(CurrentMembershipAuthorizer.MEMBERSHIP_GONE);
+            assertThat(event.membershipId()).isEqualTo(request.membershipId());
+        });
+        assertThat(denials).isEmpty();
+    }
 }

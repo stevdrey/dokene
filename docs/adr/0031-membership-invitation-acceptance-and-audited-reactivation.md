@@ -75,9 +75,21 @@ ADR 0028 compares the membership a request or a dispatch attempt names with the 
 
 That is deliberate. Between the revocation and the new acceptance the membership is not active, so every check refuses. After acceptance, the member is authorized again by an administrator and by their own consent. Each command still checks the current role. The only lasting effect is on a dispatch claim left `STARTED` by that member: recovery can then turn it into an unknown outcome, which ADR 0028 intends for every expired claim. It never sends.
 
+### 6. A membership change is decided against the actor's current membership
+
+Amended by issue [#325](https://github.com/stevdrey/dokene/issues/325). The request's tenant context carries the role resolved when the request started, so a change committed while the request runs (a demotion or revocation of the actor) used not to stop it. Invite, reactivate, change role and revoke now all run through `MembershipChangeAuthorizer.change`:
+
+1. before any transaction, check the request's own context. A caller who never had the permission is refused and audited without taking a lock;
+2. in one transaction, share-lock the tenant row (`FOR SHARE`) and lock the actor's and the target's membership rows in the request's tenant (`SELECT … ORDER BY id FOR NO KEY UPDATE`), through `TenantMembershipRepository.lockForMembershipChange`;
+3. re-decide through `CurrentMembershipAuthorizer`, which requires the same, still `ACTIVE` membership with its current role, and only then run the mutation;
+4. a refusal rolls the transaction back first and is audited as `AUTHORIZATION_DENIED` afterwards, so the audit's independent transaction never needs a second pooled connection while the change still holds its own.
+
+Every membership change takes these locks, so a change to the actor that commits first makes the waiting change fail step 3, and one that starts later waits until this change commits. Locking in id order means two administrators changing each other never deadlock: one wins, the other is refused. `NO KEY` blocks every membership update but not foreign-key checks from other tables. The tenant lock is shared: a tenant suspension waits for the change, while other membership changes in the tenant do not wait for each other. The locks and the re-read are scoped to the request's tenant, so the same identity's membership in another tenant neither blocks nor authorizes the change. An architecture test allows only the known use cases to write memberships, so a new writer has to be reviewed against this path.
+
 ## Consequences
 
 - Inviting someone no longer gives them access. Operators must tell invitees to sign in and accept.
 - A revoked member can be recovered without database access. Every step is audited, and the member's consent is required again.
 - The invitee's side runs through two narrow identity-scoped database functions. The runtime role still has no general view of other tenants' memberships.
 - An invitation that is never accepted stays `INVITED` until it is revoked. Invitations do not expire, and an invitee cannot decline one; both are possible follow-ups.
+- Membership changes in one tenant are serialized per actor and target row. They are rare, short and administrative, so the wait is negligible; a membership change no longer relies on an authorization decision that a concurrent change has overtaken (issue 325).
