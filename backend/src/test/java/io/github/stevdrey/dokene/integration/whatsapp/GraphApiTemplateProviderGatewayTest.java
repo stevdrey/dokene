@@ -285,6 +285,30 @@ class GraphApiTemplateProviderGatewayTest {
         assertThat(requested.size()).isLessThanOrEqualTo(5);
     }
 
+    /** Issue 321: the meter is told about each page request, and an answer decided locally meters nothing. */
+    @Test
+    void theMeterCountsEveryPageRequestAndNothingForALocalAnswer() {
+        pages.put("", page(template("repeat_purchase_v10", "es_MX", "APPROVED"), "CUR2"));
+        pages.put("CUR2", page(template("other", "es_MX", "APPROVED"), "CUR3"));
+        pages.put("CUR3", page(template("repeat_purchase_v1", "es_MX", "PAUSED"), null));
+        java.util.concurrent.atomic.AtomicInteger metered = new java.util.concurrent.atomic.AtomicInteger();
+        var sender = gateway.currentSender().orElseThrow();
+        assertThat(gateway.lookup(sender, "repeat_purchase_v1", "es_MX", metered::incrementAndGet))
+                .isEqualTo(new Reported(TemplateApprovalStatus.PAUSED, WABA));
+        assertThat(metered).hasValue(3);
+        assertThat(requested).hasSize(3);
+
+        metered.set(0);
+        requested.clear();
+        when(secrets.getIfAvailable()).thenReturn(null);
+        assertThat(gateway.lookup(sender, "repeat_purchase_v1", "es_MX", metered::incrementAndGet))
+                .isInstanceOf(Unavailable.class);
+        assertThat(gateway.lookup(TemplateProviderGateway.Sender.of(UUID.randomUUID(), WABA), "repeat_purchase_v1",
+                "es_MX", metered::incrementAndGet)).isInstanceOf(Unavailable.class);
+        assertThat(metered).hasValue(0);
+        assertThat(requested).isEmpty();
+    }
+
     @Test
     void neverFollowsTheResponsesNextUrlAndRefusesUnsafeCursors() {
         pages.put("", page("", "CUR2"));

@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.template.application;
 
-import io.github.stevdrey.dokene.ratelimit.CallBudget;
+import io.github.stevdrey.dokene.ratelimit.ActorCallBudget;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Clock;
 import java.util.Objects;
@@ -8,24 +9,26 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Component;
 
 /**
- * Per-tenant budget of provider approval lookups (issue 321), so a member with {@code TEMPLATE_WRITE} cannot loop
- * refreshes and spend the tenant's provider quota. Keyed by tenant id only; state is per instance.
+ * Per-tenant and per-member budget of the provider requests approval refreshes make (issue 321), so a member with
+ * {@code TEMPLATE_WRITE} cannot loop refreshes, spend the tenant's provider quota or lock other members out. Keyed by
+ * tenant and identity ids only; state is per instance.
  */
 @Component
 @EnableConfigurationProperties(TemplateRefreshLimitProperties.class)
 public class TemplateRefreshLimiter {
-    private final CallBudget<TenantId> budget;
+    private final ActorCallBudget<TenantId, IdentityId> budget;
 
     public TemplateRefreshLimiter(TemplateRefreshLimitProperties properties, Clock clock) {
-        Objects.requireNonNull(properties, "Properties are required");
-        this.budget = new CallBudget<>(properties.tenantCalls(), properties.window(), clock);
+        this.budget = new ActorCallBudget<>(Objects.requireNonNull(properties, "Properties are required").limits(),
+                clock);
     }
 
-    /** Spends one lookup of the tenant's budget, or throws {@link TemplateRateLimitedException} when none is left. */
-    public void acquire(TenantId tenantId) {
-        Objects.requireNonNull(tenantId, "Tenant ID is required");
-        budget.acquire(tenantId).ifPresent(delay -> {
-            throw new TemplateRateLimitedException(delay);
-        });
+    /**
+     * Admits one refresh, to be settled with the provider requests it made, or throws
+     * {@link TemplateRateLimitedException} when the tenant or the member has no unit left.
+     */
+    public ActorCallBudget.Ticket admit(TenantId tenantId, IdentityId identityId) {
+        return budget.admit(tenantId, identityId,
+                refusal -> new TemplateRateLimitedException(refusal.retryAfter(), refusal.report()));
     }
 }

@@ -14,9 +14,23 @@ public interface TemplateProviderGateway {
 
     /**
      * Asks the provider for the template's current state in the current tenant's business account. Never throws for
-     * provider or credential problems: they are {@link Unavailable}, which carries no provider text.
+     * provider or credential problems: they are {@link Unavailable}, which carries no provider text. {@code meter} is
+     * told about each request right before it is sent to the provider, so an answer decided locally meters nothing.
      */
-    Lookup lookup(Sender sender, String providerTemplateName, String language);
+    Lookup lookup(Sender sender, String providerTemplateName, String language, RequestMeter meter);
+
+    /** {@link #lookup(Sender, String, String, RequestMeter)} without metering. */
+    default Lookup lookup(Sender sender, String providerTemplateName, String language) {
+        return lookup(sender, providerTemplateName, language, RequestMeter.NONE);
+    }
+
+    /** Counts the provider requests one lookup sends (issue 321); never sees a URL, token or response. */
+    @FunctionalInterface
+    interface RequestMeter {
+        RequestMeter NONE = () -> { };
+
+        void request();
+    }
 
     /**
      * The sending identity a mapping is bound to. An adapter may return its own subtype carrying what it needs to

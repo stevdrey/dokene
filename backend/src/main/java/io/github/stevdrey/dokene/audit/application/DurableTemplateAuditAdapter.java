@@ -21,6 +21,6 @@ public class DurableTemplateAuditAdapter implements TemplateAuditPort {
 
     @Override
     public void refreshThrottled() {
-        recorder.authorizationDenied(TenantPermission.TEMPLATE_WRITE, AuditDenialReason.RATE_LIMITED);
+        recorder.authorizationDenied(TenantPermission.TEMPLATE_WRITE, AuditDenialReason.PROVIDER_CALL_LIMITED);
     }
 }

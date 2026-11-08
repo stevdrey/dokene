@@ -1,29 +1,22 @@
 package io.github.stevdrey.dokene.template.application;
 
+import io.github.stevdrey.dokene.ratelimit.CallLimits;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Budget of provider approval lookups per tenant within a sliding {@code window} (issue 321). Every refresh that reaches
- * the provider counts, including unavailable answers. Missing values take the defaults; non-positive values fail startup.
+ * Budget of provider requests made by approval refreshes, per tenant and per member within a sliding {@code window}
+ * (issue 321). Missing values take {@link #DEFAULTS}; non-positive values fail startup.
  */
 @ConfigurationProperties(prefix = "dokene.template.refresh-limit")
-public record TemplateRefreshLimitProperties(Integer tenantCalls, Duration window) {
-    public static final int DEFAULT_TENANT_CALLS = 30;
-    public static final Duration DEFAULT_WINDOW = Duration.ofMinutes(15);
+public record TemplateRefreshLimitProperties(Integer tenantCalls, Integer actorCalls, Duration window) {
+    public static final CallLimits DEFAULTS = new CallLimits(30, 20, Duration.ofMinutes(15));
 
     public TemplateRefreshLimitProperties {
-        tenantCalls = tenantCalls == null ? DEFAULT_TENANT_CALLS : tenantCalls;
-        window = window == null ? DEFAULT_WINDOW : window;
-        if (tenantCalls <= 0) {
-            throw new IllegalArgumentException("Template refresh limit must be positive");
-        }
-        if (window.isZero() || window.isNegative()) {
-            throw new IllegalArgumentException("Template refresh window must be positive");
-        }
+        CallLimits.resolve(tenantCalls, actorCalls, window, DEFAULTS);
     }
 
-    public static TemplateRefreshLimitProperties defaults() {
-        return new TemplateRefreshLimitProperties(null, null);
+    public CallLimits limits() {
+        return CallLimits.resolve(tenantCalls, actorCalls, window, DEFAULTS);
     }
 }

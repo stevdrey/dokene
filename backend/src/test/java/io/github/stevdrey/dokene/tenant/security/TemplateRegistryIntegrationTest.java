@@ -113,6 +113,7 @@ class TemplateRegistryIntegrationTest {
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         gateway.next = new TemplateProviderGateway.Unavailable();
         gateway.duringLookup = () -> { };
+        gateway.pages = 1;
         Instant now = Instant.now();
         tenantA = seedTenant(tenants, contexts, "Template A " + UUID.randomUUID(), now);
         tenantB = seedTenant(tenants, contexts, "Template B " + UUID.randomUUID(), now);
@@ -444,12 +445,14 @@ class TemplateRegistryIntegrationTest {
     }
 
     /**
-     * Issue 321: every refresh that reaches the provider, unavailable answers included, spends the tenant's lookup budget;
-     * once it is spent, refreshes are a closed 429 with Retry-After, never reach the provider, change no evidence and
-     * are audited as denials, while configuration writes and other tenants are unaffected.
+     * Issue 321: every provider request a refresh sends, unavailable answers included, spends the member's and the
+     * tenant's budget; once either is spent, refreshes are a closed 429 with Retry-After, never reach the provider,
+     * change no evidence and are audited once per member per window, while configuration writes and other tenants are
+     * unaffected and one member cannot spend the whole tenant budget.
      */
     @Test
-    void refreshesThatReachTheProviderAreBoundedPerTenantAndThrottledWithAnAuditedClosedProblem() throws Exception {
+    void refreshesThatReachTheProviderAreBoundedPerMemberAndTenantAndThrottledWithAnAuditedClosedProblem()
+            throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         create(adminB, tenantB, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
         AtomicInteger lookups = new AtomicInteger();
@@ -458,12 +461,13 @@ class TemplateRegistryIntegrationTest {
         for (int stale = 0; stale < 5; stale++) {
             refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"7\"").andExpect(status().isConflict());
         }
-        int budget = TemplateRefreshLimitProperties.DEFAULT_TENANT_CALLS;
-        for (int call = 0; call < budget; call++) {
+        int memberShare = TemplateRefreshLimitProperties.DEFAULTS.actorCalls();
+        int tenantBudget = TemplateRefreshLimitProperties.DEFAULTS.tenantCalls();
+        for (int call = 0; call < memberShare; call++) {
             refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable())
                     .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));
         }
-        assertThat(lookups).hasValue(budget);
+        assertThat(lookups).hasValue(memberShare);
         String before = updatedAt(tenantA);
 
         gateway.next = approved(WABA_ID);
@@ -476,21 +480,52 @@ class TemplateRegistryIntegrationTest {
                 .andReturn().getResponse();
         assertThat(Long.parseLong(throttled.getHeader("Retry-After"))).isLessThanOrEqualTo(15 * 60);
         assertThat(throttled.getContentAsString()).doesNotContain("repeat_purchase_v1").doesNotContain(WABA_ID);
-        // The budget is the tenant's: another member is throttled too.
-        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
-        refresh(secondAdminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isTooManyRequests());
-        assertThat(lookups).hasValue(budget);
-        assertThat(updatedAt(tenantA)).isEqualTo(before);
+        // A looping member is audited once per window, however often it retries.
+        for (int retry = 0; retry < 3; retry++) {
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isTooManyRequests());
+        }
         assertThat(refreshDenials(tenantA, adminA)).isEqualTo(1);
+
+        // Another member still has the rest of the tenant's budget; then the tenant budget holds every member.
+        gateway.next = new TemplateProviderGateway.Unavailable();
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        for (int call = memberShare; call < tenantBudget; call++) {
+            refresh(secondAdminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
+        }
+        refresh(secondAdminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isTooManyRequests());
+        IdentityId thirdAdminA = member(tenantA, TenantRole.ADMIN);
+        refresh(thirdAdminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isTooManyRequests());
+        assertThat(lookups).hasValue(tenantBudget);
+        assertThat(updatedAt(tenantA)).isEqualTo(before);
         assertThat(refreshDenials(tenantA, secondAdminA)).isEqualTo(1);
+        assertThat(refreshDenials(tenantA, thirdAdminA)).isEqualTo(1);
 
         // Configuration writes are never throttled; another tenant keeps its own budget.
         replace(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"", TEMPLATE.replace("_v1", "_v2"))
                 .andExpect(status().isOk());
+        gateway.next = approved(WABA_ID);
         refresh(adminB, tenantB, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalStatus").value("APPROVED"));
-        assertThat(lookups).hasValue(budget + 1);
+        assertThat(lookups).hasValue(tenantBudget + 1);
         assertThat(refreshDenials(tenantB, adminB)).isZero();
+    }
+
+    /** Issue 321: only provider requests are charged; an answer decided without one costs nothing. */
+    @Test
+    void aRefreshAnsweredWithoutAProviderRequestCostsNoBudget() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        gateway.pages = 0;
+        int memberShare = TemplateRefreshLimitProperties.DEFAULTS.actorCalls();
+        for (int call = 0; call <= memberShare + 5; call++) {
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
+        }
+        // Several pages per refresh are charged as several requests.
+        gateway.pages = 5;
+        for (int call = 0; call < memberShare / 5; call++) {
+            refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable());
+        }
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isTooManyRequests());
+        assertThat(refreshDenials(tenantA, adminA)).isEqualTo(1);
     }
 
     /** Issue 268, V31: the fixed text is returned and trusted only when written with the current evidence. */
@@ -851,7 +886,7 @@ class TemplateRegistryIntegrationTest {
     private int refreshDenials(Tenant tenant, IdentityId actor) throws SQLException {
         try (Connection migration = migrationConnection()) {
             return queryInt(migration, "SELECT count(*) FROM dokene.audit_events WHERE tenant_id = ? AND actor_id = ? "
-                    + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' AND denial_reason = 'RATE_LIMITED' "
+                    + "AND event_type = 'AUTHORIZATION_DENIED' AND outcome = 'DENIED' AND denial_reason = 'PROVIDER_CALL_LIMITED' "
                     + "AND permission = 'TEMPLATE_WRITE' AND target_type IS NULL AND target_id IS NULL",
                     tenant.id().value(), actor.value());
         }

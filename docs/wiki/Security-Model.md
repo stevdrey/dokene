@@ -258,7 +258,7 @@ Protect at minimum:
 - exports;
 - integration/webhook endpoints where applicable.
 
-Implemented today: AI recommendation calls (`dokene.ai.rate-limit`, ADR 0019) and rejected WhatsApp phone-number ownership proofs (`dokene.integration.whatsapp.mapping-rejection-limit`, issues 208 and 210), both per tenant and per actor; and, per tenant, every administrative call that reaches Meta: template approval refreshes (`dokene.template.refresh-limit`) and ownership proofs (`dokene.integration.whatsapp.ownership-verification-limit`), whatever the provider answers (issue 321). All are held in memory per instance.
+Implemented today: AI recommendation calls (`dokene.ai.rate-limit`, ADR 0019) and rejected WhatsApp phone-number ownership proofs (`dokene.integration.whatsapp.mapping-rejection-limit`, issues 208 and 210), both per tenant and per actor; and, per tenant and per member, every administrative request that reaches Meta: template approval refreshes, charged per Graph page (`dokene.template.refresh-limit`), and ownership proofs (`dokene.integration.whatsapp.ownership-verification-limit`), whatever the provider answers (issue 321). Their denials are audited with reason `PROVIDER_CALL_LIMITED`, at most once per member per window. All are held in memory per instance.
 
 Outbound policy should detect or prevent anomalous bursts and repeated recipient contact.
 

@@ -1,8 +1,10 @@
 package io.github.stevdrey.dokene.template.application;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.ratelimit.ActorCallBudget;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
@@ -12,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -120,10 +123,12 @@ public class TemplateRegistryService {
      * revision, and never advances the mapping version. An unobtainable answer drops stale evidence and is reported
      * as {@code PROVIDER_UNAVAILABLE} after that downgrade is committed.
      *
-     * <p>Every refresh that reaches the provider spends one unit of the tenant's lookup budget, whatever the answer,
-     * including an unavailable one (issue 321). A spent budget is {@code RATE_LIMITED} with {@code Retry-After}, is
-     * audited as a denied action, makes no provider call and leaves the stored evidence untouched. Refusals decided
-     * before the provider call ({@code NOT_FOUND}, {@code STALE_VERSION}, {@code INTEGRATION_DISABLED}) cost nothing.
+     * <p>Every provider request a refresh sends spends one unit of the tenant's and the member's budget, whatever the
+     * answer, including an unavailable one (issue 321): a refresh is admitted while one unit is left, then charged the
+     * pages it read, and an answer decided without a request costs nothing. A spent budget is {@code RATE_LIMITED}
+     * with {@code Retry-After}, is audited as a denied action at most once per member per window, makes no provider
+     * call and leaves the stored evidence untouched. Refusals decided before the provider call ({@code NOT_FOUND},
+     * {@code STALE_VERSION}, {@code INTEGRATION_DISABLED}) cost nothing.
      */
     public Entry refreshApproval(SemanticTemplateIntent intent, long expectedVersion) {
         Objects.requireNonNull(intent, "Intent is required");
@@ -136,8 +141,15 @@ public class TemplateRegistryService {
         }
         TemplateProviderGateway.Sender sender = gateway.currentSender()
                 .orElseThrow(() -> new TemplateRefusedException(TemplateErrorCode.INTEGRATION_DISABLED));
-        acquireLookup(tenantId);
-        TemplateProviderGateway.Lookup lookup = gateway.lookup(sender, current.providerTemplateName(), current.language());
+        ActorCallBudget.Ticket ticket = admitLookup(tenantId, contexts.requireCurrent().identityId());
+        AtomicInteger requests = new AtomicInteger();
+        TemplateProviderGateway.Lookup lookup;
+        try {
+            lookup = gateway.lookup(sender, current.providerTemplateName(), current.language(),
+                    requests::incrementAndGet);
+        } finally {
+            ticket.settle(requests.get());
+        }
         // Evidence is only kept for the account that was asked; an answer about any other account is not evidence.
         if (!answeredFor(lookup, sender)) {
             lookup = new TemplateProviderGateway.Unavailable();
@@ -169,12 +181,17 @@ public class TemplateRegistryService {
         return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender)));
     }
 
-    /** A throttled refresh is a denied action, audited in its own transaction before the refusal propagates. */
-    private void acquireLookup(TenantId tenantId) {
+    /**
+     * A throttled refresh is a denied action, audited in its own transaction before the refusal propagates, at most
+     * once per member per window so a looping caller cannot multiply audit rows.
+     */
+    private ActorCallBudget.Ticket admitLookup(TenantId tenantId, IdentityId identityId) {
         try {
-            refreshes.acquire(tenantId);
+            return refreshes.admit(tenantId, identityId);
         } catch (TemplateRateLimitedException throttled) {
-            audit.refreshThrottled();
+            if (throttled.audited()) {
+                audit.refreshThrottled();
+            }
             throw throttled;
         }
     }
