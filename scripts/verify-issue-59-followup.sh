@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #59 follow-up security probes (replay, CSRF, headers, parsing) against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-59-followup.sh
 #
@@ -34,7 +36,10 @@ fi
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT:-8081}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+MISSING_PASSWORD_HINT="is not set; run ./scripts/dev-env.sh up, which generates it in .env"
+OWNER_PASSWORD="${DOKENE_TEST_OWNER_PASSWORD:?DOKENE_TEST_OWNER_PASSWORD $MISSING_PASSWORD_HINT}"
+OPERATOR_PASSWORD="${DOKENE_TEST_OPERATOR_PASSWORD:?DOKENE_TEST_OPERATOR_PASSWORD $MISSING_PASSWORD_HINT}"
+VIEWER_PASSWORD="${DOKENE_TEST_VIEWER_PASSWORD:?DOKENE_TEST_VIEWER_PASSWORD $MISSING_PASSWORD_HINT}"
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -95,17 +100,17 @@ RESP_HDR="$TEMP_DIR/resp.hdr"
 # Setup Active Sessions
 echo ""
 echo "Authenticating synthetic identities..."
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OPERATOR_COOKIE="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
 OPERATOR_SESSION="$(curl -s -b "$OPERATOR_COOKIE" "$BFF_URL/api/session")"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 OPERATOR_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 
-VIEWER_COOKIE="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE="$(login_user "testviewer" "$VIEWER_PASSWORD")"
 VIEWER_SESSION="$(curl -s -b "$VIEWER_COOKIE" "$BFF_URL/api/session")"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
 
@@ -192,7 +197,7 @@ cp "$OWNER_COOKIE" "$INVALIDATED_COOKIE"
 curl -s -b "$OWNER_COOKIE" -H "X-CSRF-TOKEN: $OWNER_CSRF" -X POST "$BFF_URL/logout" > /dev/null
 
 # Owner logs back in (creates fresh session in $OWNER_COOKIE)
-NEW_OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+NEW_OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
 NEW_OWNER_SESSION="$(curl -s -b "$NEW_OWNER_COOKIE" "$BFF_URL/api/session")"
 NEW_CSRF="$(echo "$NEW_OWNER_SESSION" | jq -r '.csrfToken')"
 
@@ -270,7 +275,7 @@ curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$AUTH_URL"
 FORM_ACTION="$(grep -o 'action="[^"]*"' "$TEMP_LOG" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
 curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" \
     --data-urlencode "username=testuser" \
-    --data-urlencode "password=$TEST_PASSWORD" \
+    --data-urlencode "password=$OWNER_PASSWORD" \
     "$FORM_ACTION"
 CB_URL="$(grep -i "^location:" "$TEMP_HDR" | tr -d '\r\n' | awk '{print $2}')"
 
@@ -291,7 +296,7 @@ fi
 # 3.2 Repeated rapid login/logout cycles
 LOOP_PASS=1
 for i in {1..3}; do
-    L_JAR="$(login_user "testuser" "$TEST_PASSWORD")"
+    L_JAR="$(login_user "testuser" "$OWNER_PASSWORD")"
     L_SESS_BODY="$(curl -s -b "$L_JAR" "$BFF_URL/api/session")"
     L_CSRF="$(echo "$L_SESS_BODY" | jq -r '.csrfToken')"
     L_SESS="$(curl -s -b "$L_JAR" -o /dev/null -w "%{http_code}" "$BFF_URL/api/session")"
@@ -308,7 +313,7 @@ else
 fi
 
 # Re-establish Owner session
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 
@@ -492,7 +497,8 @@ if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -
         AUDIT_VERIFIED=1
         DENIED_SAMPLE="$(docker exec dokene-postgres-1 psql -U boostrap_user -d npe_dokene -t -A -c "SELECT event_type, outcome, denial_reason, correlation_id FROM dokene.audit_events WHERE event_type = 'AUTHORIZATION_DENIED' ORDER BY occurred_at DESC LIMIT 5;" 2>/dev/null)"
         # Verify: contains outcome, correlation_id, denial_reason; contains zero credentials
-        if echo "$DENIED_SAMPLE" | grep -q "DENIED" && ! echo "$DENIED_SAMPLE" | grep -qE "JSESSIONID|testpassword|client_secret"; then
+        if echo "$DENIED_SAMPLE" | grep -q "DENIED" && ! echo "$DENIED_SAMPLE" | grep -qE "JSESSIONID|client_secret" \
+            && ! echo "$DENIED_SAMPLE" | grep -qF -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD"; then
             record_result "Audit" "Operational audit trail contextual attribution & cleanliness" "PASS" "Verified $DENIED_COUNT AUTHORIZATION_DENIED events in dokene.audit_events with correlation_id and denial_reason; zero passwords or session tokens recorded"
         else
             record_result "Audit" "Operational audit trail contextual attribution & cleanliness" "FAIL" "Audit events missing required attribution context or contained credentials"
@@ -504,7 +510,9 @@ fi
 BFF_LOG_FILE="${BFF_LOG_FILE:-}"
 if [ -n "$BFF_LOG_FILE" ] && [ -f "$BFF_LOG_FILE" ]; then
     AUDIT_VERIFIED=1
-    if grep -E "JSESSIONID|client_secret|testpassword" "$BFF_LOG_FILE" | grep -v "REDACTED" > /dev/null 2>&1; then
+    if { grep -E "JSESSIONID|client_secret" "$BFF_LOG_FILE"
+         grep -F -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$BFF_LOG_FILE"; } \
+            | grep -v "REDACTED" > /dev/null 2>&1; then
         record_result "Audit" "Operational application log cleanliness" "FAIL" "Sensitive credentials detected in $BFF_LOG_FILE"
     else
         record_result "Audit" "Operational application log cleanliness" "PASS" "Inspected $BFF_LOG_FILE: zero session cookies, client secrets, or user passwords"

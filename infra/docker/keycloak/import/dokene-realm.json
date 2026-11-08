@@ -10,6 +10,7 @@
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
   "bruteForceProtected": true,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
   "ssoSessionMaxLifespan": 28800,
   "clients": [
     {
@@ -37,6 +38,7 @@
       ],
       "attributes": {
         "oidc.ciba.grant.enabled": "false",
+        "pkce.code.challenge.method": "S256",
         "backchannel.logout.session.required": "true",
         "backchannel.logout.url": "http://oidc-bridge:8080/logout/connect/back-channel/dokene",
         "backchannel.logout.revoke.offline.tokens": "false",
@@ -68,7 +70,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "${env.DOKENE_TEST_USER_PASSWORD}",
+          "value": "${env.DOKENE_TEST_OWNER_PASSWORD}",
           "temporary": false
         }
       ]
@@ -84,7 +86,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "${env.DOKENE_TEST_USER_PASSWORD}",
+          "value": "${env.DOKENE_TEST_OPERATOR_PASSWORD}",
           "temporary": false
         }
       ]
@@ -100,7 +102,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "${env.DOKENE_TEST_USER_PASSWORD}",
+          "value": "${env.DOKENE_TEST_VIEWER_PASSWORD}",
           "temporary": false
         }
       ]

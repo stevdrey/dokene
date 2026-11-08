@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Smoke tests for scripts/dev-env.sh, the compose topology and ShellCheck on the local environment scripts.
+# ABOUTME: Runs without a Docker daemon.
 # Smoke tests for scripts/dev-env.sh and the compose topology. Needs bash, python3 and the `docker compose` CLI
 # (no running daemon or containers).
 #
@@ -35,7 +37,8 @@ check "restart-backend rejects unknown options" restart_backend_rejects_unknown_
 # Scripts that are ShellCheck-clean today. The scripts/verify-issue-*.sh helpers still carry findings and are not listed.
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
-  scripts/keycloak-apply-session-revocation.sh scripts/tests/keycloak-apply-session-revocation-test.sh
+  scripts/keycloak-apply-realm-settings.sh scripts/tests/keycloak-apply-realm-settings-test.sh
+  scripts/tests/keycloak-realm-config-test.sh
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
@@ -104,6 +107,106 @@ assert migrate["read_only"] and migrate["restart"] == "no"
 ' <<<"$json"
 }
 check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
+
+keycloak_gets_one_password_per_test_user() {
+  local json="" role
+  json="$(compose_config_json)" || return 1
+  python3 -I -c '
+import json, sys
+env = json.load(sys.stdin)["services"]["keycloak"]["environment"]
+for role in ("OWNER", "OPERATOR", "VIEWER"):
+    assert f"DOKENE_TEST_{role}_PASSWORD" in env, role
+assert "DOKENE_TEST_USER_PASSWORD" not in env, "the shared password variable is gone (#314)"
+' <<<"$json" || return 1
+  # The rendered model carries whatever .env holds, so the empty defaults are checked in the source.
+  for role in OWNER OPERATOR VIEWER; do
+    grep -qF "DOKENE_TEST_${role}_PASSWORD: \${DOKENE_TEST_${role}_PASSWORD:-}" "$ROOT_DIR/compose.yaml" || return 1
+  done
+  ! grep -q 'testpassword' "$ROOT_DIR/compose.yaml"
+}
+check "compose: keycloak gets one password variable per test user, none with a default (#314)" \
+  keycloak_gets_one_password_per_test_user
+
+# Runs the rendered keycloak entrypoint outside Docker: Keycloak's paths point into a scratch directory and the final
+# `exec kc.sh` is replaced, so only the checks and the realm substitution run.
+keycloak_entrypoint_substitutes_each_password() {
+  local work rc=1 script
+  work="$(mktemp -d)" || return 1
+  mkdir -p "$work/template"
+  cp "$ROOT_DIR/infra/docker/keycloak/import/dokene-realm.json" "$work/template/"
+  script="$(compose_config_json | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["services"]["keycloak"]["entrypoint"][2])')" \
+    || { rm -rf "$work"; return 1; }
+  # `config` output keeps Compose's `$$` escapes; Compose turns them into `$` only when it runs the container.
+  script="${script//\$\$/\$}"
+  script="${script//\/opt\/keycloak\/import-template/$work/template}"
+  script="${script//\/opt\/keycloak\/data\/import/$work/import}"
+  script="${script//exec \/opt\/keycloak\/bin\/kc.sh/exit 0 #}"
+  (
+    export KC_BOOTSTRAP_ADMIN_USERNAME=admin KC_BOOTSTRAP_ADMIN_PASSWORD=unused DOKENE_OIDC_CLIENT_SECRET=unused
+    export DOKENE_TEST_OWNER_PASSWORD='owner"pass\word1' DOKENE_TEST_OPERATOR_PASSWORD=operatorpass12 \
+           DOKENE_TEST_VIEWER_PASSWORD=viewerpass123
+    bash -c "$script" >/dev/null 2>&1 || exit 1
+    [ "$(jq -r '[.users[] | .credentials[0].value] | join(",")' "$work/import/dokene-realm.json")" \
+      = 'owner"pass\word1,operatorpass12,viewerpass123' ] || exit 1
+    # An empty password refuses to start and names the variable.
+    out="$(DOKENE_TEST_VIEWER_PASSWORD='' bash -c "$script" 2>&1)" && exit 1
+    grep -q 'Set DOKENE_TEST_VIEWER_PASSWORD in .env' <<<"$out"
+  ) && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "keycloak entrypoint fills each user's password and refuses an empty one (#314)" \
+  keycloak_entrypoint_substitutes_each_password
+
+# check_env against an .env from before #314: the old shared variable, none of the per user ones.
+check_env_upgrades_test_passwords() {
+  local work rc=1
+  work="$(mktemp -d)" || return 1
+  cat > "$work/.env" <<ENV
+DOKENE_DB_NAME=dokene
+DOKENE_DB_BOOTSTRAP_USERNAME=admin
+DOKENE_DB_BOOTSTRAP_PASSWORD=unused
+DOKENE_DB_PASSWORD=unused
+DOKENE_DB_RUNTIME_PASSWORD=unused
+DOKENE_DB_MIGRATION_PASSWORD=unused
+DOKENE_TENANT_CONTEXT_SIGNING_KEY=$(printf '0123456789abcdef%.0s' 1 2 3 4)
+KC_BOOTSTRAP_ADMIN_USERNAME=admin
+KC_BOOTSTRAP_ADMIN_PASSWORD=unused
+SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET=unused
+DOKENE_TEST_USER_PASSWORD=old-shared-value
+DOKENE_TEST_VIEWER_PASSWORD=
+ENV
+  (
+    # shellcheck source=../dev-env.sh
+    source "$SCRIPT" || exit 1
+    ENV_FILE="$work/.env"
+    run_check_env() { CHECK_FAILURES=0; check_env >"$work/out" 2>&1; }
+    run_check_env && [ "$CHECK_FAILURES" -eq 0 ] || exit 1
+    for key in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+      value="$(env_get "$key")"
+      grep -Eq '^[0-9a-f]{32}$' <<<"$value" || exit 1
+      ! grep -qF "$value" "$work/out" || exit 1
+    done
+    [ "$(env_get DOKENE_TEST_OWNER_PASSWORD)" != "$(env_get DOKENE_TEST_VIEWER_PASSWORD)" ] || exit 1
+    grep -q 'Generated test user passwords in .env: DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD' "$work/out" || exit 1
+    grep -q 'DOKENE_TEST_USER_PASSWORD in .env is no longer used' "$work/out" || exit 1
+    ! grep -q 'old-shared-value' "$work/out" || exit 1
+    # A second run keeps the values it generated.
+    owner="$(env_get DOKENE_TEST_OWNER_PASSWORD)"
+    run_check_env && [ "$(env_get DOKENE_TEST_OWNER_PASSWORD)" = "$owner" ] && ! grep -q 'Generated' "$work/out" || exit 1
+    # Custom values: 12 characters inside one quote pair pass; 11 inside quotes (13 raw) fail naming only the variable.
+    env_set DOKENE_TEST_OPERATOR_PASSWORD '"twelve-chars"'
+    run_check_env && [ "$CHECK_FAILURES" -eq 0 ] || exit 1
+    env_set DOKENE_TEST_OPERATOR_PASSWORD "'eleven-char'"
+    ! run_check_env || [ "$CHECK_FAILURES" -eq 1 ] || exit 1
+    grep -q 'DOKENE_TEST_OPERATOR_PASSWORD in .env must be at least 12 characters' "$work/out" || exit 1
+    ! grep -q 'eleven-char' "$work/out"
+  ) && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "check_env generates missing test passwords, keeps them, and enforces 12 characters (#314)" \
+  bash -c "$(declare -f check_env_upgrades_test_passwords) ; SCRIPT='$SCRIPT'; check_env_upgrades_test_passwords"
 
 compose_minimum_includes_patch() {
   # shellcheck source=../dev-env.sh
@@ -314,6 +417,41 @@ start_failure_detection() {
 }
 check "only start/bind errors count as a start failure" \
   bash -c "$(declare -f start_failure_detection) ; SCRIPT='$SCRIPT'; start_failure_detection"
+
+# Runs cmd_up with every step stubbed except the realm settings exit status handling, once per status.
+up_maps_realm_settings_status() {
+  local work out rc=1
+  work="$(mktemp -d)" || return 1
+  mkdir -p "$work/scripts"
+  printf '#!/usr/bin/env bash\nexit "$FAKE_APPLY_STATUS"\n' > "$work/scripts/keycloak-apply-realm-settings.sh"
+  chmod +x "$work/scripts/keycloak-apply-realm-settings.sh"
+  run_up() {
+    (
+      # shellcheck source=../dev-env.sh
+      source "$SCRIPT" || exit 99
+      ROOT_DIR="$work"
+      preflight() { :; }; refresh_secret_files() { :; }; repair_networkless_bridge() { :; }
+      compose_up_services() { :; }; compose() { :; }; info() { :; }; ok() { :; }; cmd_seed() { :; }
+      warn() { printf 'WARN %s\n' "$*"; }; fail() { printf 'FAIL %s\n' "$*"; }
+      print_summary() { printf 'SUMMARY\n'; }
+      FAKE_APPLY_STATUS="$1" cmd_up --no-build
+    )
+  }
+  (
+    # 0: no warning, `up` completes.
+    out="$(run_up 0)" && [ "$out" = "SUMMARY" ] || exit 1
+    # 3, a password not set: `up` fails before the summary and names the password step.
+    ! out="$(run_up 3)" || exit 1
+    grep -q '^FAIL Keycloak test user passwords were not set' <<<"$out" && ! grep -q SUMMARY <<<"$out" || exit 1
+    # 1, a config failure: `up` only warns and still completes.
+    out="$(run_up 1)" || exit 1
+    grep -q '^WARN Keycloak realm settings not applied' <<<"$out" && grep -q '^SUMMARY$' <<<"$out" || exit 1
+  ) && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "up fails on a realm settings password error (exit 3) and only warns on a config error (#314)" \
+  bash -c "$(declare -f up_maps_realm_settings_status) ; SCRIPT='$SCRIPT'; up_maps_realm_settings_status"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2

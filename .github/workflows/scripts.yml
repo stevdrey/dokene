@@ -3,23 +3,28 @@ name: Script tests
 on:
   pull_request:
     paths:
-      - 'scripts/keycloak-apply-session-revocation.sh'
-      - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
+      - 'scripts/keycloak-apply-realm-settings.sh'
+      - 'scripts/tests/keycloak-apply-realm-settings-test.sh'
+      - 'scripts/tests/keycloak-realm-config-test.sh'
+      - 'infra/docker/keycloak/import/dokene-realm.json'
       - '.github/workflows/scripts.yml'
   push:
     branches: [main]
     paths:
-      - 'scripts/keycloak-apply-session-revocation.sh'
-      - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
+      - 'scripts/keycloak-apply-realm-settings.sh'
+      - 'scripts/tests/keycloak-apply-realm-settings-test.sh'
+      - 'scripts/tests/keycloak-realm-config-test.sh'
+      - 'infra/docker/keycloak/import/dokene-realm.json'
       - '.github/workflows/scripts.yml'
 
 permissions:
   contents: read
 
 jobs:
-  keycloak-session-revocation:
+  keycloak-realm-settings:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - run: ./scripts/tests/keycloak-apply-session-revocation-test.sh
+      - run: ./scripts/tests/keycloak-apply-realm-settings-test.sh
+      - run: ./scripts/tests/keycloak-realm-config-test.sh

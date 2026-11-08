@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Starts, stops and inspects the local Dokene environment (Docker Compose).
+# ABOUTME: Also generates and checks the git ignored .env that holds every local secret.
 # ==============================================================================
 # dev-env.sh - start, stop and inspect the local Dokene environment
 #
@@ -36,6 +38,9 @@ WAIT_TIMEOUT="${DOKENE_WAIT_TIMEOUT:-300}"
 
 FRONTEND_PORT=5173
 BACKEND_PORT=8080
+# One generated password per realm test user (issue 314): testuser, testoperator and testviewer.
+TEST_PASSWORD_KEYS=(DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD)
+TEST_PASSWORD_MIN_LENGTH=12  # the realm passwordPolicy length(12)
 
 if [ -t 1 ]; then
   RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -50,8 +55,9 @@ fail() { printf '%s[error]%s %s\n' "$RED" "$RESET" "$*" >&2; }
 die()  { fail "$*"; exit 1; }
 
 usage() {
-  # Print the leading comment block (up to and including the closing rule), without the leading "# ".
-  awk 'NR > 1 && /^#/ { print; if (/^# =+$/ && ++rules == 2) exit } NR > 1 && !/^#/ { exit }' "${BASH_SOURCE[0]}" \
+  # Print the leading comment block (up to and including the closing rule), without the leading "# " and without
+  # the ABOUTME header lines.
+  awk '/^# ABOUTME:/ { next } NR > 1 && /^#/ { print; if (/^# =+$/ && ++rules == 2) exit } NR > 1 && !/^#/ { exit }' "${BASH_SOURCE[0]}" \
     | sed 's/^# \{0,1\}//'
 }
 
@@ -71,7 +77,7 @@ compose_teardown() {
     for v in DOKENE_DB_NAME DOKENE_DB_BOOTSTRAP_USERNAME DOKENE_DB_BOOTSTRAP_PASSWORD DOKENE_DB_PASSWORD \
              DOKENE_DB_RUNTIME_PASSWORD DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY \
              KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD \
-             SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET; do
+             SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET "${TEST_PASSWORD_KEYS[@]}"; do
       export "$v=${!v:-unused}"
     done
     docker compose "$@"
@@ -250,7 +256,42 @@ generate_env_file() {
   env_set DOKENE_TENANT_CONTEXT_SIGNING_KEY "$(openssl rand -hex 32)"
   env_set KC_BOOTSTRAP_ADMIN_PASSWORD "$(openssl rand -hex 16)"
   env_set SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET "$(openssl rand -hex 16)"
+  local key
+  for key in "${TEST_PASSWORD_KEYS[@]}"; do
+    env_set "$key" "$(openssl rand -hex 16)"
+  done
   ok ".env created (git-ignored). AI provider defaults to 'fake'; set DOKENE_AI_PROVIDER=openai and DOKENE_AI_OPENAI_API_KEY for live OpenAI calls."
+}
+
+# Test user passwords added after a checkout's .env was created (issue 314) are generated in place, so an existing
+# stack upgrades on its next `up` without a reset. Names the variables it adds, never the values.
+fill_test_passwords() {
+  local key added=""
+  for key in "${TEST_PASSWORD_KEYS[@]}"; do
+    [ -z "$(env_get "$key")" ] || continue
+    have openssl || return 0  # the blank required keys check below then names the variable
+    env_set "$key" "$(openssl rand -hex 16)"
+    added="$added $key"
+  done
+  [ -z "$added" ] || ok "Generated test user passwords in .env:$added"
+}
+
+# check_test_passwords: each test user password is at least the realm policy's 12 characters, measured without one
+# surrounding quote pair. Keycloak is not relied on to apply the policy to imported credentials.
+check_test_passwords() {
+  local key value
+  for key in "${TEST_PASSWORD_KEYS[@]}"; do
+    value="$(env_get "$key")"
+    case "$value" in
+      \"*\") value="${value#\"}"; value="${value%\"}" ;;
+      \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    esac
+    [ "${#value}" -ge "$TEST_PASSWORD_MIN_LENGTH" ] \
+      || check_fail "$key in .env must be at least $TEST_PASSWORD_MIN_LENGTH characters (the realm password policy)."
+  done
+  grep -q '^DOKENE_TEST_USER_PASSWORD=' "$ENV_FILE" \
+    && warn "DOKENE_TEST_USER_PASSWORD in .env is no longer used; each test user has its own DOKENE_TEST_*_PASSWORD. You can delete it."
+  return 0
 }
 
 check_env() {
@@ -270,17 +311,21 @@ check_env() {
     ok ".env found"
   fi
 
+  fill_test_passwords
+
   local key missing=""
   for key in DOKENE_DB_NAME DOKENE_DB_BOOTSTRAP_USERNAME DOKENE_DB_BOOTSTRAP_PASSWORD \
              DOKENE_DB_PASSWORD DOKENE_DB_RUNTIME_PASSWORD DOKENE_DB_MIGRATION_PASSWORD \
              DOKENE_TENANT_CONTEXT_SIGNING_KEY KC_BOOTSTRAP_ADMIN_USERNAME KC_BOOTSTRAP_ADMIN_PASSWORD \
-             SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET; do
+             SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET "${TEST_PASSWORD_KEYS[@]}"; do
     [ -n "$(env_get "$key")" ] || missing="$missing $key"
   done
   if [ -n "$missing" ]; then
     check_fail ".env has blank required values:$missing"
     return
   fi
+
+  check_test_passwords
 
   if [ "$(env_get DOKENE_DB_PASSWORD)" != "$(env_get DOKENE_DB_RUNTIME_PASSWORD)" ]; then
     check_fail "DOKENE_DB_PASSWORD and DOKENE_DB_RUNTIME_PASSWORD must contain the same value."
@@ -438,7 +483,8 @@ print_summary() {
     info "  Backend API: http://localhost:$BACKEND_PORT   (BFF; OIDC callback)"
     info "  Keycloak:    http://localhost:$kc_port  (admin console; realm: dokene)"
     info "  Test users:  testuser (OWNER), testoperator (OPERATOR), testviewer (VIEWER)"
-    info "               password: DOKENE_TEST_USER_PASSWORD from .env (default: testpassword)"
+    info "               passwords: DOKENE_TEST_OWNER_PASSWORD, DOKENE_TEST_OPERATOR_PASSWORD and"
+    info "               DOKENE_TEST_VIEWER_PASSWORD in .env (generated, no default)"
     [ "${SEEDED:-false}" = "true" ] \
       || info "               (run './scripts/dev-env.sh seed' once to create the QA workspace and memberships)"
   fi
@@ -564,9 +610,16 @@ cmd_up() {
   ok "All requested containers are healthy"
   compose ps
 
-  # --import-realm skips a realm Keycloak already holds; bring its session revocation settings (issue 307) up to date.
-  "$ROOT_DIR/scripts/keycloak-apply-session-revocation.sh" \
-    || warn "Keycloak session revocation settings not applied; run scripts/keycloak-apply-session-revocation.sh."
+  # --import-realm skips a realm Keycloak already holds; bring its settings (issues 307 and 314) up to date. A config
+  # failure only warns, as it did for #307. A password failure fails `up`: old passwords left in place would surface
+  # later as a vaguer seed or login failure.
+  local apply_status=0
+  "$ROOT_DIR/scripts/keycloak-apply-realm-settings.sh" || apply_status=$?
+  case "$apply_status" in
+    0) ;;
+    3) die "Keycloak test user passwords were not set from .env (see the error above); fix it and rerun './scripts/dev-env.sh up'." ;;
+    *) warn "Keycloak realm settings not applied; run scripts/keycloak-apply-realm-settings.sh." ;;
+  esac
 
   if [ "$WANT_SEED" = "true" ]; then
     if [ "$INFRA_ONLY" = "true" ]; then

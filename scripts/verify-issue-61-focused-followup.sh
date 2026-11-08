@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #61 maintainer review scenarios (consent, purchases, follow-ups) against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-61-focused-followup.sh
 #
@@ -30,7 +32,20 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+MISSING_PASSWORD_HINT="is not set; run ./scripts/dev-env.sh up, which generates it in .env"
+OWNER_PASSWORD="${DOKENE_TEST_OWNER_PASSWORD:?DOKENE_TEST_OWNER_PASSWORD $MISSING_PASSWORD_HINT}"
+OPERATOR_PASSWORD="${DOKENE_TEST_OPERATOR_PASSWORD:?DOKENE_TEST_OPERATOR_PASSWORD $MISSING_PASSWORD_HINT}"
+VIEWER_PASSWORD="${DOKENE_TEST_VIEWER_PASSWORD:?DOKENE_TEST_VIEWER_PASSWORD $MISSING_PASSWORD_HINT}"
+
+# test_password_for USERNAME: that realm test user's own password (issue 314).
+test_password_for() {
+    case "$1" in
+        testuser) printf '%s' "$OWNER_PASSWORD" ;;
+        testoperator) printf '%s' "$OPERATOR_PASSWORD" ;;
+        testviewer) printf '%s' "$VIEWER_PASSWORD" ;;
+        *) echo "Error: no test password for $1" >&2; return 1 ;;
+    esac
+}
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -74,7 +89,7 @@ login() {
 
     curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -X POST "$form_action" \
         --data-urlencode "username=$username" \
-        --data-urlencode "password=$TEST_PASSWORD" >/dev/null
+        --data-urlencode "password=$(test_password_for "$username")" >/dev/null
 
     local callback_url
     callback_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")

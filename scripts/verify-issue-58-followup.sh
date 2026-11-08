@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Verifies the issue #58 follow-up requirements (RBAC, purchases, consent, follow-ups) against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-58-followup.sh
 #
@@ -28,7 +30,10 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+MISSING_PASSWORD_HINT="is not set; run ./scripts/dev-env.sh up, which generates it in .env"
+OWNER_PASSWORD="${DOKENE_TEST_OWNER_PASSWORD:?DOKENE_TEST_OWNER_PASSWORD $MISSING_PASSWORD_HINT}"
+OPERATOR_PASSWORD="${DOKENE_TEST_OPERATOR_PASSWORD:?DOKENE_TEST_OPERATOR_PASSWORD $MISSING_PASSWORD_HINT}"
+VIEWER_PASSWORD="${DOKENE_TEST_VIEWER_PASSWORD:?DOKENE_TEST_VIEWER_PASSWORD $MISSING_PASSWORD_HINT}"
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -119,17 +124,17 @@ echo "Commit SHA: $(git rev-parse HEAD)"
 echo "Target BFF: $BFF_URL"
 echo "======================================================================"
 
-OWNER_JAR="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_JAR="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(curl -s -b "$OWNER_JAR" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OP_JAR="$(login_user "testoperator" "$TEST_PASSWORD")"
+OP_JAR="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
 OP_SESSION="$(curl -s -b "$OP_JAR" "$BFF_URL/api/session")"
 OP_CSRF="$(echo "$OP_SESSION" | jq -r '.csrfToken')"
 OP_ID="$(echo "$OP_SESSION" | jq -r '.identityId')"
 
-VI_JAR="$(login_user "testviewer" "$TEST_PASSWORD")"
+VI_JAR="$(login_user "testviewer" "$VIEWER_PASSWORD")"
 VI_SESSION="$(curl -s -b "$VI_JAR" "$BFF_URL/api/session")"
 VI_CSRF="$(echo "$VI_SESSION" | jq -r '.csrfToken')"
 VI_ID="$(echo "$VI_SESSION" | jq -r '.identityId')"

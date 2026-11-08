@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #59 black-box web abuse and injection probes against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-59-security.sh
 #
@@ -25,7 +27,10 @@ fi
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT:-8081}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+MISSING_PASSWORD_HINT="is not set; run ./scripts/dev-env.sh up, which generates it in .env"
+OWNER_PASSWORD="${DOKENE_TEST_OWNER_PASSWORD:?DOKENE_TEST_OWNER_PASSWORD $MISSING_PASSWORD_HINT}"
+OPERATOR_PASSWORD="${DOKENE_TEST_OPERATOR_PASSWORD:?DOKENE_TEST_OPERATOR_PASSWORD $MISSING_PASSWORD_HINT}"
+VIEWER_PASSWORD="${DOKENE_TEST_VIEWER_PASSWORD:?DOKENE_TEST_VIEWER_PASSWORD $MISSING_PASSWORD_HINT}"
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -81,17 +86,17 @@ login_user() {
 # 1. Setup Sessions and Tenants
 echo ""
 echo "Setting up sessions for synthetic identities..."
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OPERATOR_COOKIE="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
 OPERATOR_SESSION="$(curl -s -b "$OPERATOR_COOKIE" "$BFF_URL/api/session")"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 OPERATOR_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 
-VIEWER_COOKIE="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE="$(login_user "testviewer" "$VIEWER_PASSWORD")"
 VIEWER_SESSION="$(curl -s -b "$VIEWER_COOKIE" "$BFF_URL/api/session")"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
 VIEWER_ID="$(echo "$VIEWER_SESSION" | jq -r '.identityId')"
@@ -669,7 +674,7 @@ echo "=== SUITE 10: SECURITY AUDIT & OPERATIONAL EVIDENCE ==="
 # Check backend log file for any raw password or unredacted secrets
 APP_LOG="/home/srey/.gemini/antigravity/brain/657b7b8c-d1f6-4865-86e7-556c97dccc10/.system_generated/tasks/task-107.log"
 if [ -f "$APP_LOG" ]; then
-    if grep -q "testpassword" "$APP_LOG"; then
+    if grep -qF -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$APP_LOG"; then
         record_result "Audit" "Credential leakage in backend log" "FAIL" "Found plaintext password in application log!"
     else
         record_result "Audit" "Credential leakage in backend log" "PASS" "No plaintext passwords found in application logs"

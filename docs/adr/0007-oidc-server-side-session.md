@@ -4,6 +4,11 @@
 
 Accepted
 
+Amended in place on 2026-11-06 ([#314](https://github.com/stevdrey/dokene/issues/314), audit L9): the local realm now
+requires S256 PKCE on the server side as well, so a provider that receives a request without it refuses the login
+(§OIDC Authorization Code Flow); the realm settings script that upgrades an existing realm also applies the PKCE
+attribute, a password policy and per user test passwords (§Upgrading an existing realm).
+
 ## Context
 
 Dokene needs provider-neutral internal identities before an operator can select and enter a tenant. Provider
@@ -25,7 +30,10 @@ and never receives or handles OAuth access tokens, refresh tokens, ID tokens, or
 Login begins when the browser navigates to `/oauth2/authorization/{registrationId}`, and the registered provider
 callback is `/login/oauth2/code/{registrationId}`. Spring Security handles the Authorization Code exchange as a
 confidential client, performs provider discovery, and enforces PKCE (RFC 7636 with S256 `code_challenge` and `code_verifier` validation) alongside state, token signatures, issuer,
-audience, nonce, and temporal validity claims before any internal identity adaptation occurs.
+audience, nonce, and temporal validity claims before any internal identity adaptation occurs. The provider enforces
+PKCE too: the local realm sets `pkce.code.challenge.method=S256` on `dokene-bff`, so Keycloak answers an
+authorization request without a challenge, or with the `plain` method, with `invalid_request` instead of the login
+form. Any other deployment's realm must set the same client attribute.
 
 The adapter takes only the framework-validated, case-sensitive `(issuer, subject)` pair. PostgreSQL resolves it
 through a single atomic upsert into `oidc_identity_mappings`, whose unique constraint prevents duplicate mappings
@@ -97,11 +105,17 @@ user, nor live forever while it stays active. The contract, with the default bou
   timeout must not be shorter than `revalidation-interval`.
 - **Upgrading an existing realm**: Keycloak's `--import-realm` skips a realm that already exists, so the realm import
   file configures new realms only. An existing realm receives the back-channel URL, its session and offline-token
-  attributes and the SSO max lifespan from `scripts/keycloak-apply-session-revocation.sh`, which is idempotent,
-  changes only those four values and has a `--check` mode that exits non-zero on drift. `scripts/dev-env.sh up` runs
+  attributes and the SSO max lifespan from `scripts/keycloak-apply-realm-settings.sh`, which is idempotent,
+  changes only the values it manages (these four, plus the #314 values in the amendment below) and has a `--check`
+  mode that exits non-zero on drift. `scripts/dev-env.sh up` runs
   it after every start. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
   Console or `kcadm.sh`) when they deploy this change. Until then IdP logout is bounded by revalidation instead of
-  being immediate.
+  being immediate. *Amended 2026-11-06 ([#314](https://github.com/stevdrey/dokene/issues/314)):* the script, renamed
+  from `keycloak-apply-session-revocation.sh`, now also applies the `S256` PKCE attribute and the realm password
+  policy `length(12) and notUsername and notEmail`, and then sets each local test user's password from its own
+  generated `.env` variable. `--check` covers the six config values; passwords cannot be checked. Other deployments
+  set the PKCE attribute and a password policy of their own (see `infra/docker/README.md`, local template versus
+  shared deployments).
 - **Residual: local logout**: the SPA logout is local (`POST /logout` without `provider=true`); it ends the Dokene
   session but not the provider SSO session, so on a shared device the next login can be silent. Provider logout remains
   available through `POST /logout?provider=true` and is not the SPA default.

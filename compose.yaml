@@ -40,6 +40,12 @@ services:
           echo "Error: Set SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET in .env" >&2
           exit 1
         fi
+        for test_password in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+          if [ -z "$${!test_password}" ]; then
+            echo "Error: Set $$test_password in .env (./scripts/dev-env.sh up generates it)" >&2
+            exit 1
+          fi
+        done
         escape_json() {
           local str="$$1"
           str="$${str//\\/\\\\}"
@@ -62,16 +68,21 @@ services:
         mkdir -p /opt/keycloak/data/import
         content="$$(cat /opt/keycloak/import-template/dokene-realm.json)"
         escaped_secret="$$(escape_json "$$DOKENE_OIDC_CLIENT_SECRET")"
-        escaped_password="$$(escape_json "$$DOKENE_TEST_USER_PASSWORD")"
         content="$${content//"\$${env.DOKENE_OIDC_CLIENT_SECRET}"/"$$escaped_secret"}"
-        content="$${content//"\$${env.DOKENE_TEST_USER_PASSWORD}"/"$$escaped_password"}"
+        for test_password in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+          escaped_password="$$(escape_json "$${!test_password}")"
+          content="$${content//"\$${env.$$test_password}"/"$$escaped_password"}"
+        done
         printf "%s\n" "$$content" > /opt/keycloak/data/import/dokene-realm.json
         exec /opt/keycloak/bin/kc.sh start --optimized --http-enabled=true --hostname-strict=false --import-realm
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-}
       DOKENE_OIDC_CLIENT_SECRET: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-}
-      DOKENE_TEST_USER_PASSWORD: ${DOKENE_TEST_USER_PASSWORD:-testpassword}
+      # One generated password per test user (issue 314); the entrypoint above refuses to start when one is empty.
+      DOKENE_TEST_OWNER_PASSWORD: ${DOKENE_TEST_OWNER_PASSWORD:-}
+      DOKENE_TEST_OPERATOR_PASSWORD: ${DOKENE_TEST_OPERATOR_PASSWORD:-}
+      DOKENE_TEST_VIEWER_PASSWORD: ${DOKENE_TEST_VIEWER_PASSWORD:-}
     ports:
       - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
     volumes:
