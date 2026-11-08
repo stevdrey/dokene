@@ -70,4 +70,10 @@ public record OpenAiProviderProperties(
                     + MAX_OUTPUT_TOKENS_FLOOR + " and " + MAX_OUTPUT_TOKENS_CEILING);
         }
     }
+
+    /** Redacted: the record holds the API key (audit I1). */
+    @Override
+    public String toString() {
+        return "OpenAiProviderProperties[REDACTED]";
+    }
 }

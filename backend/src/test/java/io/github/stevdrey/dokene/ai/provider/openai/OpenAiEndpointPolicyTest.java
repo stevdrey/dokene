@@ -27,12 +27,15 @@ class OpenAiEndpointPolicyTest {
     @CsvSource({
             "https://api.openai.com/v1, https://api.openai.com/v1",
             "HTTPS://API.OPENAI.COM/v1, https://api.openai.com/v1",
-            "https://api.openai.com:443/v1, https://api.openai.com:443/v1",
             "https://api.openai.com, https://api.openai.com",
             "http://127.0.0.1:18080/v1, http://127.0.0.1:18080/v1",
             "http://localhost:9000/v1, http://localhost:9000/v1",
             "https://localhost:9443/v1, https://localhost:9443/v1",
-            "http://[::1]:9000/v1, http://[::1]:9000/v1"})
+            "http://[::1]:9000/v1, http://[::1]:9000/v1",
+            "https://api.openai.com:443/v1, https://api.openai.com/v1",
+            "https://api.openai.com:443/v1/./x/../, https://api.openai.com/v1/",
+            "http://localhost:80/v1, http://localhost/v1",
+            "https://localhost:80/v1, https://localhost:80/v1"})
     void acceptsOpenAiOverHttpsAndExactLoopbackTestServers(String configured, String canonical) {
         assertThat(of(configured).baseUrl()).isEqualTo(canonical);
     }
@@ -106,11 +109,19 @@ class OpenAiEndpointPolicyTest {
     @ParameterizedTest
     @ValueSource(strings = {"https://gateway.example", "gateway.example:8443", "*.example.com", "Gateway.Example",
             "gateway.example/path", "", " ", "gateway..example", "-gateway.example", "gateway.example.",
-            "user@gateway.example"})
+            "user@gateway.example", "10.0.0.5", "169.254.169.254", "127.1", "2130706433"})
     void rejectsMalformedTrustedHostEntries(String entry) {
         assertThatThrownBy(() -> of("https://api.openai.com/v1", entry))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("dokene.ai.openai.additional-trusted-hosts entries must be exact lower-case host names");
+    }
+
+    @Test
+    void toStringNeverExposesTheApiKeyOrTrustedHosts() {
+        String text = new OpenAiProviderProperties("sk-test-s3cr3t", null, "https://gw.internal.example/v1", null,
+                null, null, List.of("gw.internal.example")).toString();
+        assertThat(text).isEqualTo("OpenAiProviderProperties[REDACTED]")
+                .doesNotContain("sk-test-s3cr3t").doesNotContain("gw.internal.example");
     }
 
     @Test

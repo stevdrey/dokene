@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.ai.provider.openai;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.models.moderations.ModerationCreateParams;
 import com.sun.net.httpserver.HttpServer;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import java.io.IOException;
@@ -247,6 +248,12 @@ class OpenAiConfigurationTest {
                 OpenAIClient client = context.getBean(OpenAIClient.class);
                 assertThatThrownBy(() -> client.models().list()).isInstanceOf(RuntimeException.class);
                 assertThat(redirectorHits).hasValue(1);
+                assertThat(targetHits).hasValue(0);
+
+                // A POST carrying a body (customer data in real calls) answered with 307 is not replayed either.
+                assertThatThrownBy(() -> client.moderations().create(ModerationCreateParams.builder()
+                        .input("synthetic redirect probe").build())).isInstanceOf(RuntimeException.class);
+                assertThat(redirectorHits).hasValue(2);
                 assertThat(targetHits).hasValue(0);
             });
 
