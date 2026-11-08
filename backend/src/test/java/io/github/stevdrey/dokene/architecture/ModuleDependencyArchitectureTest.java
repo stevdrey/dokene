@@ -37,6 +37,11 @@ import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
 import io.github.stevdrey.dokene.messaging.application.OutboundDispatchService;
 import io.github.stevdrey.dokene.messaging.application.OutboundMessageCommandService;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
+import io.github.stevdrey.dokene.tenant.application.MembershipRoleService;
+import io.github.stevdrey.dokene.tenant.application.MembershipService;
+import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
+import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -50,6 +55,13 @@ class ModuleDependencyArchitectureTest {
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
                 .importPackages(ROOT);
     }
+
+    private static final ArchRule MEMBERSHIPS_ARE_WRITTEN_ONLY_BY_KNOWN_USE_CASES = noClasses().that()
+            .doNotBelongToAnyOf(MembershipService.class, MembershipRoleService.class,
+                    WorkspaceProvisioningService.class)
+            .should().callMethod(TenantMembershipRepository.class, "save", TenantMembership.class)
+            .because("ADR 0031 §6: a membership mutation runs through MembershipChangeAuthorizer.change, so a new "
+                    + "writer must be reviewed against it");
 
     private static final ArchRule UPSTREAM_NEVER_DEPENDS_ON_MESSAGING = noClasses().that().resideInAnyPackage(
                     ROOT + ".followup..", ROOT + ".customer..", ROOT + ".purchase..", ROOT + ".ai..",
@@ -148,6 +160,11 @@ class ModuleDependencyArchitectureTest {
             .should().dependOnClassesThat().resideInAnyPackage("com.fasterxml.jackson..",
                     "org.springframework.security..", "..api..")
             .because("spec 0007 AC-9 and AC-11: verification runs on raw bytes, adds no filter chain and touches no API");
+
+    @Test
+    void membershipsAreWrittenOnlyByKnownUseCases() {
+        MEMBERSHIPS_ARE_WRITTEN_ONLY_BY_KNOWN_USE_CASES.check(production);
+    }
 
     @Test
     void rateLimitPrimitivesDependOnNoModule() {

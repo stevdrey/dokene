@@ -77,13 +77,14 @@ That is deliberate. Between the revocation and the new acceptance the membership
 
 ### 6. A membership change is decided against the actor's current membership
 
-Amended by issue [#325](https://github.com/stevdrey/dokene/issues/325). The request's tenant context carries the role resolved when the request started, so a change committed while the request runs (a demotion or revocation of the actor) used not to stop it. Invite, reactivate, change role and revoke now, inside their transaction and before reading the target:
+Amended by issue [#325](https://github.com/stevdrey/dokene/issues/325). The request's tenant context carries the role resolved when the request started, so a change committed while the request runs (a demotion or revocation of the actor) used not to stop it. Invite, reactivate, change role and revoke now all run through `MembershipChangeAuthorizer.change`:
 
-1. keep the request-context check, which refuses early and audits like before;
-2. lock the actor's and the target's membership rows in the request's tenant (`SELECT … ORDER BY id FOR NO KEY UPDATE`, `TenantMembershipRepository.lockForMembershipChange`);
-3. re-authorize through `CurrentMembershipAuthorizer`, which re-resolves the same, still `ACTIVE` membership and its current role, and audits a refusal as `AUTHORIZATION_DENIED` in an independent transaction.
+1. before any transaction, check the request's own context. A caller who never had the permission is refused and audited without taking a lock;
+2. in one transaction, share-lock the tenant row (`FOR SHARE`) and lock the actor's and the target's membership rows in the request's tenant (`SELECT … ORDER BY id FOR NO KEY UPDATE`), through `TenantMembershipRepository.lockForMembershipChange`;
+3. re-decide through `CurrentMembershipAuthorizer`, which requires the same, still `ACTIVE` membership with its current role, and only then run the mutation;
+4. a refusal rolls the transaction back first and is audited as `AUTHORIZATION_DENIED` afterwards, so the audit's independent transaction never needs a second pooled connection while the change still holds its own.
 
-Every membership change takes these locks, so a change to the actor that commits first makes the waiting change fail step 3, and one that starts later waits until this change commits. Locking in id order means two administrators changing each other never deadlock: one wins, the other is refused. `NO KEY` blocks every membership update but not foreign-key checks from other tables. The lock and the re-read are scoped to the request's tenant, so the same identity's membership in another tenant neither blocks nor authorizes the change. `MembershipChangeAuthorizer` implements the three steps.
+Every membership change takes these locks, so a change to the actor that commits first makes the waiting change fail step 3, and one that starts later waits until this change commits. Locking in id order means two administrators changing each other never deadlock: one wins, the other is refused. `NO KEY` blocks every membership update but not foreign-key checks from other tables. The tenant lock is shared: a tenant suspension waits for the change, while other membership changes in the tenant do not wait for each other. The locks and the re-read are scoped to the request's tenant, so the same identity's membership in another tenant neither blocks nor authorizes the change. An architecture test allows only the known use cases to write memberships, so a new writer has to be reviewed against this path.
 
 ## Consequences
 

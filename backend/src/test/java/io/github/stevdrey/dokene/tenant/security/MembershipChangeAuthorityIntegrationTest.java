@@ -6,6 +6,9 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.queryInt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
@@ -41,21 +44,25 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class MembershipChangeAuthorityIntegrationTest {
 
     private static final Instant CREATED_AT = Instant.parse("2026-11-01T00:00:00Z");
-    private static final long TIMEOUT_SECONDS = 20;
+    static final long TIMEOUT_SECONDS = 20;
+    private static final String LOCK_NOT_AVAILABLE = "55P03";
+    private static final String LOCK_TIMEOUT = "SET LOCAL lock_timeout = '500ms'";
 
     @Autowired private TenantRepository tenants;
-    @Autowired private TenantMembershipRepository memberships;
+    @MockitoSpyBean private TenantMembershipRepository memberships;
     @Autowired private TenantContextProvider contexts;
     @Autowired private AuditExecutionContext execution;
     @Autowired private MembershipService membershipService;
     @Autowired private DatabaseContextSigner signer;
 
     private final ExecutorService pool = Executors.newCachedThreadPool();
+    private final CountDownLatch paused = new CountDownLatch(1);
     private Tenant tenant;
     private TenantMembership admin;
     private TenantMembership viewer;
@@ -63,8 +70,8 @@ class MembershipChangeAuthorityIntegrationTest {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) throws SQLException {
         TenantSecurityIntegrationFixture.configure(registry);
-        // Two concurrent changes, each holding its connection while a denial is audited on an independent one.
-        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "4");
+        // Two changes running at once hold one connection each; a denial is audited only after its change released one.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "2");
     }
 
     @BeforeEach
@@ -82,7 +89,7 @@ class MembershipChangeAuthorityIntegrationTest {
 
             CompletableFuture<Void> revoke = runAs(admin, correlation, () -> membershipService.revokeMembership(
                     viewer.identityId()));
-            awaitLockWait(revoke);
+            awaitBlockedBy(demotion, revoke);
             demotion.commit();
 
             assertThatThrownBy(() -> revoke.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
@@ -107,7 +114,7 @@ class MembershipChangeAuthorityIntegrationTest {
                 setStatus(revocation, actor, TenantMembershipStatus.REVOKED);
 
                 CompletableFuture<Void> attempt = runAs(actor, UUID.randomUUID(), change::run);
-                awaitLockWait(attempt);
+                awaitBlockedBy(revocation, attempt);
                 revocation.commit();
 
                 assertThatThrownBy(() -> attempt.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
@@ -126,7 +133,7 @@ class MembershipChangeAuthorityIntegrationTest {
 
             CompletableFuture<Void> change = runAs(admin, UUID.randomUUID(),
                     () -> membershipService.changeRole(viewer.identityId(), TenantRole.OPERATOR));
-            awaitLockWait(change);
+            awaitBlockedBy(demotion, change);
             demotion.rollback();
 
             change.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -198,6 +205,73 @@ class MembershipChangeAuthorityIntegrationTest {
         pool.shutdownNow();
     }
 
+    @Test
+    void aDemotionStartedAfterTheChangeLockedWaitsUntilTheChangeCommits() throws Exception {
+        CountDownLatch release = pauseAfterLocksOnReadOf(viewer.identityId());
+        CompletableFuture<Void> change = runAs(admin, UUID.randomUUID(),
+                () -> membershipService.changeRole(viewer.identityId(), TenantRole.OPERATOR));
+        assertThat(paused.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+        try (Connection demotion = openTransaction(tenant)) {
+            executeUpdate(demotion, LOCK_TIMEOUT);
+            assertLockNotAvailable(() -> setRole(demotion, admin, TenantRole.VIEWER));
+            demotion.rollback();
+
+            release.countDown();
+            change.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            setRole(demotion, admin, TenantRole.VIEWER);
+            demotion.commit();
+        }
+
+        assertMembershipRow(viewer, TenantRole.OPERATOR, TenantMembershipStatus.ACTIVE);
+        assertMembershipRow(admin, TenantRole.VIEWER, TenantMembershipStatus.ACTIVE);
+    }
+
+    @Test
+    void aTenantSuspensionWaitsForTheChangeButAnotherMembershipChangeDoesNot() throws Exception {
+        TenantMembership otherAdmin = seedMembership(tenant, new IdentityId(UUID.randomUUID()), TenantRole.ADMIN);
+        TenantMembership otherTarget = seedMembership(tenant, new IdentityId(UUID.randomUUID()), TenantRole.VIEWER);
+        CountDownLatch release = pauseAfterLocksOnReadOf(viewer.identityId());
+        CompletableFuture<Void> change = runAs(admin, UUID.randomUUID(),
+                () -> membershipService.changeRole(viewer.identityId(), TenantRole.OPERATOR));
+        assertThat(paused.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+        try (Connection suspension = openTransaction(tenant)) {
+            executeUpdate(suspension, LOCK_TIMEOUT);
+            assertLockNotAvailable(() -> executeUpdate(suspension, """
+                    UPDATE dokene.tenants SET status = 'SUSPENDED', updated_at = now(), version = version + 1
+                    WHERE id = ?
+                    """, tenant.id().value()));
+            suspension.rollback();
+        }
+        // The tenant lock is shared, so a change of other rows finishes while the first one still holds it.
+        runAs(otherAdmin, UUID.randomUUID(), () -> membershipService.changeRole(otherTarget.identityId(),
+                TenantRole.OPERATOR)).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        release.countDown();
+        change.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        assertMembershipRow(viewer, TenantRole.OPERATOR, TenantMembershipStatus.ACTIVE);
+        assertMembershipRow(otherTarget, TenantRole.OPERATOR, TenantMembershipStatus.ACTIVE);
+    }
+
+    /** Holds a change at its read of {@code target}, which comes after the locks and the fresh check. */
+    private CountDownLatch pauseAfterLocksOnReadOf(IdentityId target) {
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            paused.countDown();
+            assertThat(release.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            return result;
+        }).when(memberships).findByTenantIdAndIdentityId(any(), eq(target));
+        return release;
+    }
+
+    private static void assertLockNotAvailable(SqlAction action) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(SQLException.class,
+                exception -> assertThat(exception.getSQLState()).isEqualTo(LOCK_NOT_AVAILABLE));
+    }
+
     private Tenant seedTenant() {
         return TenantSecurityIntegrationFixture.seedTenant(tenants, contexts,
                 "Membership authority " + UUID.randomUUID(), CREATED_AT);
@@ -236,11 +310,13 @@ class MembershipChangeAuthorityIntegrationTest {
                 """, status.name(), membership.id().value())).isEqualTo(1);
     }
 
-    /** Waits until the change is blocked on a row lock held by the concurrent transaction. */
-    private static void awaitLockWait(CompletableFuture<Void> change) throws Exception {
+    /** Waits until {@code blocker}'s transaction is what holds some other session, the change, on a lock. */
+    static void awaitBlockedBy(Connection blocker, CompletableFuture<Void> change) throws Exception {
+        int blockerPid = queryInt(blocker, "SELECT pg_backend_pid()");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
         try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection()) {
-            while (queryInt(connection, "SELECT count(*) FROM pg_locks WHERE NOT granted") == 0) {
+            while (queryInt(connection, "SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))",
+                    blockerPid) == 0) {
                 if (change.isDone()) {
                     change.get();
                     throw new AssertionError("The membership change finished without waiting for the row lock");
@@ -248,7 +324,7 @@ class MembershipChangeAuthorityIntegrationTest {
                 if (System.nanoTime() > deadline) {
                     throw new AssertionError("The membership change never waited for the row lock");
                 }
-                Thread.onSpinWait();
+                Thread.sleep(10);
             }
         }
     }
@@ -270,7 +346,7 @@ class MembershipChangeAuthorityIntegrationTest {
         }
     }
 
-    private static List<String> auditRows(UUID correlation) throws SQLException {
+    static List<String> auditRows(UUID correlation) throws SQLException {
         try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection();
                 PreparedStatement statement = connection.prepareStatement("""
                         SELECT event_type, outcome, permission, membership_id
@@ -295,6 +371,11 @@ class MembershipChangeAuthorityIntegrationTest {
                     SELECT count(*) FROM dokene.tenant_memberships WHERE id = ? AND role = ? AND status = ?
                     """, membership.id().value(), role.name(), status.name())).isEqualTo(1);
         }
+    }
+
+    @FunctionalInterface
+    private interface SqlAction {
+        void run() throws SQLException;
     }
 
     @FunctionalInterface

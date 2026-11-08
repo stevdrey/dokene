@@ -621,9 +621,12 @@ class AuditIntegrationTest {
             var second = executor.submit(() -> changeConcurrently(context, target, TenantRole.OPERATOR));
             // Issue 325: the second change waits on the membership row lock instead of reading a stale target.
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-            while (jdbc.queryForObject("SELECT count(*) FROM pg_locks WHERE NOT granted", Integer.class) == 0) {
+            while (jdbc.queryForObject("""
+                    SELECT count(*) FROM pg_stat_activity
+                    WHERE wait_event_type = 'Lock' AND query LIKE '%FOR NO KEY UPDATE%'
+                    """, Integer.class) == 0) {
                 assertThat(System.nanoTime()).isLessThan(deadline);
-                Thread.onSpinWait();
+                Thread.sleep(10);
             }
             assertThat(reads).hasValue(1);
             release.countDown();

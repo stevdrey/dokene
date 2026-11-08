@@ -55,44 +55,40 @@ public class MembershipService {
         return memberships.findAllByTenantId(tenantId);
     }
 
-    @Transactional
     public TenantMembership addMembership(IdentityId targetIdentity, TenantRole role) {
         Objects.requireNonNull(targetIdentity, "Target identity is required");
         Objects.requireNonNull(role, "Role is required");
 
-        authorization.requirePermission(TenantPermission.MEMBERSHIP_INVITE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
-        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, tenantId);
-        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
-        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_INVITE, targetIdentity);
+        return changeAuthority.change(TenantPermission.MEMBERSHIP_INVITE, targetIdentity, () -> {
+            if (role == TenantRole.OWNER) {
+                throw new IllegalArgumentException("Ownership cannot be assigned via membership invitation");
+            }
 
-        if (role == TenantRole.OWNER) {
-            throw new IllegalArgumentException("Ownership cannot be assigned via membership invitation");
-        }
+            TenantId tenantId = contexts.requireCurrent().tenantId();
+            Optional<TenantMembership> existing = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity);
+            if (existing.isPresent()) {
+                throw new IllegalStateException("Membership already exists for identity %s in tenant %s"
+                        .formatted(targetIdentity.value(), tenantId.value()));
+            }
 
-        Optional<TenantMembership> existing = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity);
-        if (existing.isPresent()) {
-            throw new IllegalStateException("Membership already exists for identity %s in tenant %s"
-                    .formatted(targetIdentity.value(), tenantId.value()));
-        }
-
-        // The invitee gains nothing until they accept (issue 317, audit L2).
-        TenantMembership membership = TenantMembership.invite(
-                TenantMembershipId.random(),
-                tenantId,
-                targetIdentity,
-                role,
-                clock.instant()
-        );
-        TenantMembership saved;
-        try {
-            saved = memberships.save(membership);
-        } catch (DataIntegrityViolationException exception) {
-            throw new IllegalStateException("Membership already exists for identity %s in tenant %s"
-                    .formatted(targetIdentity.value(), tenantId.value()), exception);
-        }
-        auditPort.membershipCreated(saved.id(), role);
-        return saved;
+            // The invitee gains nothing until they accept (issue 317, audit L2).
+            TenantMembership membership = TenantMembership.invite(
+                    TenantMembershipId.random(),
+                    tenantId,
+                    targetIdentity,
+                    role,
+                    clock.instant()
+            );
+            TenantMembership saved;
+            try {
+                saved = memberships.save(membership);
+            } catch (DataIntegrityViolationException exception) {
+                throw new IllegalStateException("Membership already exists for identity %s in tenant %s"
+                        .formatted(targetIdentity.value(), tenantId.value()), exception);
+            }
+            auditPort.membershipCreated(saved.id(), role);
+            return saved;
+        });
     }
 
     /**
@@ -100,49 +96,40 @@ public class MembershipService {
      * before it grants access, so a reactivation never re-enters anyone into a workspace on its own. Requires the
      * same permission as an invitation; only {@code REVOKED} memberships qualify, and ownership never does.
      */
-    @Transactional
     public TenantMembership reactivateMembership(IdentityId targetIdentity) {
         Objects.requireNonNull(targetIdentity, "Target identity is required");
-        authorization.requirePermission(TenantPermission.MEMBERSHIP_INVITE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
-        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, tenantId);
-        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
-        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_INVITE, targetIdentity);
+        return changeAuthority.change(TenantPermission.MEMBERSHIP_INVITE, targetIdentity, () -> {
+            TenantMembership membership = memberships
+                    .findByTenantIdAndIdentityId(contexts.requireCurrent().tenantId(), targetIdentity)
+                    .orElseThrow(MembershipNotFoundException::new);
+            authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, membership.tenantId());
 
-        TenantMembership membership = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity)
-                .orElseThrow(MembershipNotFoundException::new);
-        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_INVITE, membership.tenantId());
-
-        membership.reactivate(clock.instant());
-        TenantMembership saved = memberships.save(membership);
-        auditPort.membershipReactivated(saved.id(), saved.role());
-        return saved;
+            membership.reactivate(clock.instant());
+            TenantMembership saved = memberships.save(membership);
+            auditPort.membershipReactivated(saved.id(), saved.role());
+            return saved;
+        });
     }
 
-    @Transactional
     public void changeRole(IdentityId targetIdentity, TenantRole newRole) {
         membershipRoleService.changeRole(targetIdentity, newRole);
     }
 
-    @Transactional
     public void revokeMembership(IdentityId targetIdentity) {
         Objects.requireNonNull(targetIdentity, "Target identity is required");
-        authorization.requirePermission(TenantPermission.MEMBERSHIP_REVOKE);
-        TenantId tenantId = contexts.requireCurrent().tenantId();
-        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_REVOKE, tenantId);
-        // The request's role may be stale: re-decide against the locked, current membership (issue 325).
-        changeAuthority.requireCurrentAuthority(TenantPermission.MEMBERSHIP_REVOKE, targetIdentity);
+        changeAuthority.change(TenantPermission.MEMBERSHIP_REVOKE, targetIdentity, () -> {
+            TenantMembership membership = memberships
+                    .findByTenantIdAndIdentityId(contexts.requireCurrent().tenantId(), targetIdentity)
+                    .orElseThrow(MembershipNotFoundException::new);
+            authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_REVOKE, membership.tenantId());
 
-        TenantMembership membership = memberships.findByTenantIdAndIdentityId(tenantId, targetIdentity)
-                .orElseThrow(MembershipNotFoundException::new);
-        authorization.requireResourceAccess(TenantPermission.MEMBERSHIP_REVOKE, membership.tenantId());
+            if (membership.role() == TenantRole.OWNER) {
+                throw new IllegalArgumentException("Owner membership cannot be revoked");
+            }
 
-        if (membership.role() == TenantRole.OWNER) {
-            throw new IllegalArgumentException("Owner membership cannot be revoked");
-        }
-
-        membership.revoke(clock.instant());
-        memberships.save(membership);
-        auditPort.membershipRevoked(membership.id());
+            membership.revoke(clock.instant());
+            memberships.save(membership);
+            auditPort.membershipRevoked(membership.id());
+        });
     }
 }

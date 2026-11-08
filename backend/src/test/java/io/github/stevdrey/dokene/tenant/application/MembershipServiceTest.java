@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembership;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipStatus;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import java.time.Clock;
@@ -23,9 +24,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 class MembershipServiceTest {
 
@@ -73,8 +78,10 @@ class MembershipServiceTest {
             .filter(membership -> membership.status() == TenantMembershipStatus.ACTIVE)
             .map(membership -> new TenantContext(membership.tenantId(), identityId, membership.id(), membership.role()))
             .orElseThrow(TenantContextAuthorizationException::new);
-    private final MembershipChangeAuthorizer changeAuthority = new MembershipChangeAuthorizer(contexts, repository,
-            new CurrentMembershipAuthorizer(contexts, resolver, authorization, auditListener, clock));
+    private final CurrentMembershipAuthorizer currentMembers = new CurrentMembershipAuthorizer(contexts, resolver,
+            authorization, auditListener, clock);
+    private final MembershipChangeAuthorizer changeAuthority = new MembershipChangeAuthorizer(authorization, contexts,
+            repository, currentMembers, auditListener, TransactionOperations.withoutTransaction());
 
     private final MembershipAuditPort auditPort = mock(MembershipAuditPort.class);
     private MembershipService service;
@@ -354,6 +361,36 @@ class MembershipServiceTest {
 
         assertThat(locks).isEmpty();
         assertThat(repository.findByTenantIdAndIdentityId(tenantId, operatorIdentity)).isEmpty();
+    }
+
+    @Test
+    void aRefusalUnderTheLockSkipsTheMutationAndIsAuditedOnlyAfterTheTransactionEnded() {
+        TenantMembership admin = seedActive(TenantRole.ADMIN);
+        TenantContext staleAdmin = context(admin, TenantRole.ADMIN);
+        admin.changeRole(TenantRole.VIEWER, now);
+        repository.save(admin);
+        AtomicBoolean inTransaction = new AtomicBoolean();
+        List<Boolean> auditedInTransaction = new ArrayList<>();
+        TransactionOperations tracked = new TransactionOperations() {
+            @Override
+            public <T> T execute(TransactionCallback<T> action) {
+                inTransaction.set(true);
+                try {
+                    return action.doInTransaction(new SimpleTransactionStatus());
+                } finally {
+                    inTransaction.set(false);
+                }
+            }
+        };
+        MembershipChangeAuthorizer authority = new MembershipChangeAuthorizer(authorization, contexts, repository,
+                currentMembers, event -> auditedInTransaction.add(inTransaction.get()), tracked);
+        AtomicBoolean mutated = new AtomicBoolean();
+
+        contexts.runWithContext(staleAdmin, () -> assertDenied(() -> authority.change(
+                TenantPermission.MEMBERSHIP_REVOKE, operatorIdentity, () -> mutated.set(true))));
+
+        assertThat(mutated).isFalse();
+        assertThat(auditedInTransaction).containsExactly(false);
     }
 
     private TenantMembership seedActive(TenantRole role) {

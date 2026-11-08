@@ -26,4 +26,8 @@ interface SpringDataTenantMembershipRepository extends JpaRepository<TenantMembe
             """, nativeQuery = true)
     List<UUID> lockByTenantIdAndIdentityIds(@Param("tenantId") UUID tenantId,
             @Param("identityIds") Collection<UUID> identityIds);
+
+    /** {@code SHARE} makes a tenant update (a suspension) wait, while membership changes never block each other here. */
+    @Query(value = "SELECT id FROM dokene.tenants WHERE id = :tenantId FOR SHARE", nativeQuery = true)
+    List<UUID> shareLockTenant(@Param("tenantId") UUID tenantId);
 }

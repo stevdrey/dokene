@@ -55,6 +55,7 @@ public class JpaTenantMembershipRepositoryAdapter implements TenantMembershipRep
     public void lockForMembershipChange(TenantId tenantId, Collection<IdentityId> identityIds) {
         Objects.requireNonNull(tenantId, "Tenant ID is required");
         List<UUID> identities = identityIds.stream().map(IdentityId::value).distinct().toList();
+        repository.shareLockTenant(tenantId.value());
         if (identities.isEmpty()) {
             return;
         }

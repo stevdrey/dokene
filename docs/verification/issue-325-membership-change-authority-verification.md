@@ -6,20 +6,25 @@ This record is sanitized: it gives outcomes and test names only. It contains no 
 
 ## Environment
 
-- **Run:** 2026-11-08, branch `325-security-revalidate-authority-for-membership-changes`, based on `main` at `01c8490` (through #363). The analysis named a worktree at `a328848`; the code was rechecked on the base first and the finding still applied: `MembershipService` (invite, reactivate, revoke) and `MembershipRoleService` (role change) authorized only through `DefaultTenantAuthorizationService`, which evaluates the role and status cached in the request's `TenantContext`. Nothing re-read the actor's membership in the writing transaction, and nothing serialized the change with a concurrent change to the actor. The concurrent behavior had not been reproduced by the analysis; the negative control in Results shows it with the revalidation disabled. **Tested revision:** the branch commit that adds this record (a commit cannot name its own hash); the PR names it.
+- **Run:** 2026-11-08, branch `325-security-revalidate-authority-for-membership-changes`, based on `main` at `01c8490` (through #363). The analysis named a worktree at `a328848`; the code was rechecked on the base first and the finding still applied: `MembershipService` (invite, reactivate, revoke) and `MembershipRoleService` (role change) authorized only through `DefaultTenantAuthorizationService`, which evaluates the role and status cached in the request's `TenantContext`. Nothing re-read the actor's membership in the writing transaction, and nothing serialized the change with a concurrent change to the actor. The concurrent behavior had not been reproduced by the analysis; the negative control in Results shows it with the revalidation disabled. **Tested revision:** first `0aa0678`, then the review follow-up commit that updates this record, on top of it (a commit cannot name its own hash); the PR names it. The Results below are for the follow-up.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build.
 - **Database:** Testcontainers PostgreSQL 17, migrated by Flyway (no new migration). Concurrent changes run on a raw `dokene_runtime` connection bound to the tenant with a signed context, as an application instance would.
 
 ## Change
 
-- `TenantMembershipRepository.lockForMembershipChange(tenantId, identityIds)`: `SELECT id … WHERE tenant_id = ? AND identity_id IN (…) ORDER BY id FOR NO KEY UPDATE`, mandatory transaction. PostgreSQL sorts before it locks, so every membership change takes its row locks in the same order. The runtime role's column `UPDATE` grant (V36) and the tenant RLS update policy already permit the locking clause; no grant or policy changed.
-- `MembershipChangeAuthorizer.requireCurrentAuthority(permission, target)`: locks the actor's and the target's membership in the request's tenant, then calls `CurrentMembershipAuthorizer.requireResourceAccess`, which requires the same membership id, `ACTIVE`, with a role that holds the permission, and audits any refusal.
-- `MembershipService.addMembership`, `reactivateMembership`, `revokeMembership` and `MembershipRoleService.changeRole` call it after the existing request-context checks and before reading the target. The HTTP contract is unchanged: a refusal is `403`.
+- `TenantMembershipRepository.lockForMembershipChange(tenantId, identityIds)`, mandatory transaction: `SELECT id FROM dokene.tenants … FOR SHARE`, then `SELECT id … WHERE tenant_id = ? AND identity_id IN (…) ORDER BY id FOR NO KEY UPDATE`. PostgreSQL sorts before it locks, so every membership change takes its row locks in the same order. The runtime role's column `UPDATE` grants (V16, V36) and the tenant RLS update policies already permit the locking clauses; no grant or policy changed.
+- `MembershipChangeAuthorizer.change(permission, target, mutation)` is the single path of a membership change. It checks the request's own context before any transaction; then, in one transaction, takes the locks, re-decides through `CurrentMembershipAuthorizer.denial` (the same membership id, `ACTIVE`, with a role that holds the permission) and runs the mutation. A refusal rolls back first and is audited afterwards.
+- `MembershipService.addMembership`, `reactivateMembership`, `revokeMembership` and `MembershipRoleService.changeRole` run their mutation through it and are no longer `@Transactional` themselves. The HTTP contract is unchanged: a refusal is `403`.
+- An architecture rule allows only the known use cases to call `TenantMembershipRepository.save`.
 
 ## Automated coverage
 
 | Acceptance item | Test |
 | --- | --- |
+| Concurrent change, the other order: a demotion started after the change took its locks waits (`lock_timeout` reports `55P03`) and succeeds once the change has committed | `MembershipChangeAuthorityIntegrationTest.aDemotionStartedAfterTheChangeLockedWaitsUntilTheChangeCommits` |
+| Coordination with the tenant: a tenant suspension waits for the change, while another membership change in the same tenant does not | `MembershipChangeAuthorityIntegrationTest.aTenantSuspensionWaitsForTheChangeButAnotherMembershipChangeDoesNot` |
+| Audit under pool pressure: with one pooled connection, a refusal under the lock still answers `403` and persists its denial | `MembershipChangeAuditPoolIntegrationTest.aRefusalUnderTheLockIsDeniedAndAuditedWithASingleConnection`; `MembershipServiceTest.aRefusalUnderTheLockSkipsTheMutationAndIsAuditedOnlyAfterTheTransactionEnded` |
+| Single path: only the known use cases write memberships | `ModuleDependencyArchitectureTest.membershipsAreWrittenOnlyByKnownUseCases` |
 | Concurrent change: a demotion of the actor committed while the revocation waits on the lock refuses it; the target is unchanged | `MembershipChangeAuthorityIntegrationTest.aDemotionCommittedWhileTheChangeWaitsRefusesItAndAuditsTheDenial` |
 | Audit: that refusal persists exactly one `AUTHORIZATION_DENIED` / `DENIED` / `MEMBERSHIP_REVOKE` row for the actor's membership under the request's correlation id, despite the rollback | same test |
 | Concurrent change: a revocation of the actor committed while an invitation, a role change or a reactivation waits refuses each one; nothing is written | `MembershipChangeAuthorityIntegrationTest.aRevocationCommittedWhileTheChangeWaitsRefusesEveryKindOfChange` |
@@ -37,15 +42,14 @@ This record is sanitized: it gives outcomes and test names only. It contains no 
 
 | Command | Kind | Result |
 | --- | --- | --- |
-| `./gradlew test --tests '*MembershipServiceTest' --tests '*CurrentMembershipAuthorizerTest' --tests '*WorkspaceProvisioningServiceTest' --tests '*MembershipControllerTest'` | automated | passed |
-| `./gradlew test --tests '*MembershipChangeAuthorityIntegrationTest' --tests '*MembershipManagementIntegrationTest' --tests '*TenantMembershipPrivilegeIntegrationTest'` | automated | 25 tests, 0 failures, 0 skipped |
-| Same new integration test with `requireCurrentAuthority` short-circuited (local, not committed) | automated (negative control) | 5 of 5 failed: the changes did not wait for the concurrent transaction, so the stale authorization was used |
-| `./gradlew check` (backend) | automated | BUILD SUCCESSFUL: 2549 tests, 0 failures, 0 errors, 0 skipped. The first run failed only `AuditIntegrationTest.concurrentRoleChangesProduceOnlyOneSuccessEvent`, which forced the race the lock now prevents; it was rewritten (see Notes) and the full run repeated |
+| `./gradlew test --tests '*MembershipServiceTest' --tests '*CurrentMembershipAuthorizerTest' --tests '*ModuleDependencyArchitectureTest' --tests '*MembershipChangeAudit*' --tests '*MembershipChangeAuthority*' --tests '*AuditIntegrationTest' --tests '*MembershipManagementIntegrationTest' --tests '*TenantMembershipPrivilegeIntegrationTest'` | automated | 102 tests, 0 failures |
+| Negative controls (local, not committed): denial audited inside the transaction; tenant lock removed; membership lock removed | automated | 2 tests failed (the single-connection test and the audit-order unit test); 1 failed (the suspension test); 5 of 7 failed (including the reverse-order and mutual-revocation tests) |
+| `./gradlew check` (backend) | automated | BUILD SUCCESSFUL: 2556 tests, 0 failures, 0 errors, 0 skipped. The first full run, before the review follow-up, failed only `AuditIntegrationTest.concurrentRoleChangesProduceOnlyOneSuccessEvent`, which forced the race the lock now prevents; it was rewritten (see Notes) |
 
 Notes:
 
 - Behavior change: two concurrent changes to the same membership used to race, and the loser got an optimistic-lock `409` with one audit event. They now serialize on the row lock, so the later one is applied to the state the earlier one committed, and both are audited with the role each replaced. The optimistic `version` check stays as a backstop. The existing audit test asserted the race (both reads before either write), which the lock now prevents by design, so it was rewritten to assert the serialization instead.
 
-- The integration test raises the Hikari pool to 4 connections, as other suites that audit denials inside a transaction do: the shared fixture's single connection cannot serve the independent audit transaction while the change holds its own.
+- The main integration test sets the Hikari pool to 2 connections, one for each change running at once. The denial audit no longer needs a connection of its own while a change holds one; `MembershipChangeAuditPoolIntegrationTest` proves it with the shared fixture's single connection.
 
 Not run: a live multi-instance deployment. The serialization is enforced by PostgreSQL row locks, which the integration test exercises across separate connections. No frontend change was made, so no frontend checks were run.
