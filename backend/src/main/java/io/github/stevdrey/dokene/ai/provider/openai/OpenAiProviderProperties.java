@@ -13,11 +13,24 @@ public record OpenAiProviderProperties(
         String model,
         String baseUrl,
         Duration timeout,
-        Integer maxRetries
+        Integer maxRetries,
+        Integer maxOutputTokens
 ) {
     public static final String DEFAULT_MODEL = "gpt-6-luna";
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(15);
     public static final int DEFAULT_MAX_RETRIES = 0;
+
+    /**
+     * Per-request output ceiling (reasoning tokens included) for both structured operations. About ten times the
+     * observed average output (about 390 tokens in a median 6.8 s, issue 124 baseline). It caps what one attempt can
+     * generate and bill; it does not stop generation after the client times out. At that rate the 15 s timeout
+     * delivers roughly 850 tokens, so an abandoned attempt can still bill about 3.2k more. A response cut off here is
+     * incomplete and fails as an invalid structured response with reason {@code OUTPUT_TOKEN_LIMIT}, which is never
+     * retried. It is also the effective draft size limit: the draft schema allows more (about 5k tokens).
+     */
+    public static final int DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+    public static final int MAX_OUTPUT_TOKENS_FLOOR = 256;
+    public static final int MAX_OUTPUT_TOKENS_CEILING = 16384;
 
     public OpenAiProviderProperties {
         if (model == null || model.isBlank()) {
@@ -32,6 +45,12 @@ public record OpenAiProviderProperties(
             throw new IllegalArgumentException(
                     "dokene.ai.openai.max-retries must be 0 to enforce single-invocation timeout determinism; "
                             + "retries are owned by the domain-level decorator configured with dokene.ai.retry.*");
+        }
+        if (maxOutputTokens == null) {
+            maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS;
+        } else if (maxOutputTokens < MAX_OUTPUT_TOKENS_FLOOR || maxOutputTokens > MAX_OUTPUT_TOKENS_CEILING) {
+            throw new IllegalArgumentException("dokene.ai.openai.max-output-tokens must be between "
+                    + MAX_OUTPUT_TOKENS_FLOOR + " and " + MAX_OUTPUT_TOKENS_CEILING);
         }
     }
 }

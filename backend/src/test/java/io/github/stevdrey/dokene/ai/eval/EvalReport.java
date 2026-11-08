@@ -57,7 +57,8 @@ public record EvalReport(
 
     /**
      * One operation that reached the provider without a delivered outcome, with its cause and the distinct failure
-     * categories of its provider attempts (for example {@code TIMEOUT}), so a gap is visible without reading the
+     * categories of its provider attempts (for example {@code TIMEOUT}, or {@code INVALID_STRUCTURED_RESPONSE
+     * (OUTPUT_TOKEN_LIMIT)} with the adapter's closed reasons), so a gap is visible without reading the
      * per-case table.
      */
     public record UndeliveredCase(String caseId, String family, String operation, String cause, String status,

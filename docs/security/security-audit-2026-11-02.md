@@ -294,6 +294,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - Customer notes, which operators control, are sent to the model and can ask for verbose output.
   - Rate limits bound how many calls run, not what each one costs (60 per tenant and 20 per actor per minute, in memory and per instance).
 - **Fix:** set `maxOutputTokens` from the schema's maximum size plus headroom. Consider a per-tenant monthly token budget.
+- **Status:** fixed by [#316](https://github.com/stevdrey/dokene/issues/316); see [the verification record](../verification/issue-316-openai-output-token-ceiling-verification.md). The ceiling is set from observed output and the timeout rather than the schema maximum; the record explains why. The per-tenant token budget is tracked in [#346](https://github.com/stevdrey/dokene/issues/346).
 
 #### L11. The OpenAI base URL is not validated — Static (configuration)
 

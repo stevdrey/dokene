@@ -426,7 +426,7 @@ class OpenAiCallCancellationSpikeTest {
     }
 
     private OpenAiProviderProperties properties() {
-        return new OpenAiProviderProperties("test-api-key", "gpt-test", provider.baseUrl(), PROVIDER_TIMEOUT, 0);
+        return new OpenAiProviderProperties("test-api-key", "gpt-test", provider.baseUrl(), PROVIDER_TIMEOUT, 0, null);
     }
 
     private OpenAIClient standardClient() {

@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.domain.NoDraft;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiOperation;
+import io.github.stevdrey.dokene.ai.application.AiOutputRejection;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
@@ -37,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -117,12 +119,17 @@ class OpenAiResponsesApiAdapterTest {
     }
 
     private OpenAiResponsesApiAdapter createAdapter(String model, Duration defaultTimeout) {
+        return createAdapter(model, defaultTimeout, null);
+    }
+
+    private OpenAiResponsesApiAdapter createAdapter(String model, Duration defaultTimeout, Integer maxOutputTokens) {
         OpenAiProviderProperties properties = new OpenAiProviderProperties(
                 "test-api-key",
                 model,
                 "http://127.0.0.1:" + port + "/v1",
                 defaultTimeout,
-                0
+                0,
+                maxOutputTokens
         );
         OpenAIClient client = OpenAIOkHttpClient.builder()
                 .apiKey(properties.apiKey())
@@ -962,7 +969,7 @@ class OpenAiResponsesApiAdapterTest {
                  "rationale": "Not enough history", "confidence": 0.7}}
                 """, 10, 5));
         OpenAiProviderProperties properties = new OpenAiProviderProperties("test-api-key", null,
-                "http://127.0.0.1:" + port + "/v1", Duration.ofSeconds(15), 0);
+                "http://127.0.0.1:" + port + "/v1", Duration.ofSeconds(15), 0, null);
         OpenAIClient client = OpenAIOkHttpClient.builder().apiKey("test-api-key")
                 .baseUrl(properties.baseUrl()).maxRetries(0).build();
         OpenAiResponsesApiAdapter adapter = new OpenAiResponsesApiAdapter(client, properties,
@@ -985,12 +992,191 @@ class OpenAiResponsesApiAdapterTest {
         assertThat(capturedCorrelationHeader.get()).isNull();
     }
 
+    @Test
+    void recommendationRequestCarriesTheDefaultOutputTokenCeiling() {
+        responseBody.set(buildWireResponse("resp_cap_rec", "gpt-6-luna", NO_RECOMMENDATION_JSON, 20, 10));
+
+        AiRecommendationResponse response = createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest);
+
+        assertThat(response.outcome()).isInstanceOf(NoRecommendation.class);
+        assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+        assertThat(sentMaxOutputTokens()).isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    @Test
+    void draftRequestCarriesTheDefaultOutputTokenCeilingAndAValidDraftSucceeds() {
+        responseBody.set(buildWireResponse("resp_cap_draft_default", "gpt-6-luna", VALID_DRAFT_JSON, 50, 50));
+
+        AiDraftResponse response = createAdapter("gpt-6-luna", Duration.ofSeconds(15)).draft(sampleDraftRequest());
+
+        assertThat(response.outcome()).isInstanceOf(MessageDraft.class);
+        assertThat(response.metadata().status()).isEqualTo(AiCompletionStatus.SUCCEEDED);
+        assertThat(sentMaxOutputTokens()).isEqualTo(OpenAiProviderProperties.DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    @Test
+    void draftRequestCarriesTheConfiguredOutputTokenCeiling() {
+        responseBody.set(buildWireResponse("resp_cap_draft", "gpt-6-luna", VALID_DRAFT_JSON, 50, 50));
+
+        AiDraftResponse response = createAdapter("gpt-6-luna", Duration.ofSeconds(15), 1024).draft(sampleDraftRequest());
+
+        assertThat(response.outcome()).isInstanceOf(MessageDraft.class);
+        assertThat(sentMaxOutputTokens()).isEqualTo(1024);
+    }
+
+    @Test
+    void recommendationTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry() {
+        responseBody.set(buildWireResponseWithStatus("resp_trunc_rec", "gpt-6-luna", "incomplete", "max_output_tokens",
+                "{\"recommendation\": {\"outcome\": \"ACT", 900, 4096));
+
+        assertThatThrownBy(() -> createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> assertTruncationFailure((AiProviderException) ex, "resp_trunc_rec", "\"ACT"));
+        assertThat(requestCounter.get()).isEqualTo(1);
+    }
+
+    @Test
+    void draftTruncatedAtTheCeilingFailsAsInvalidWithoutAnOutcomeOrRetry() {
+        responseBody.set(buildWireResponseWithStatus("resp_trunc_draft", "gpt-6-luna", "incomplete", "max_output_tokens",
+                "{\"draft\": {\"outcome\": \"DRAFT\", \"body\": \"Hola", 900, 4096));
+
+        assertThatThrownBy(() -> createAdapter("gpt-6-luna", Duration.ofSeconds(15)).draft(sampleDraftRequest()))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> assertTruncationFailure((AiProviderException) ex, "resp_trunc_draft", "Hola"));
+        assertThat(requestCounter.get()).isEqualTo(1);
+    }
+
+    @Test
+    void recommendationIncompleteForAnotherReasonIsNotLabelledAsTheOutputTokenLimit() {
+        responseBody.set(buildWireResponseWithStatus("resp_filter_rec", "gpt-6-luna", "incomplete", "content_filter",
+                "{\"recommendation\": {\"outcome\": \"ACT", 900, 40));
+
+        assertThatThrownBy(() -> createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> {
+                    AiProviderException ape = (AiProviderException) ex;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.rejections()).isEmpty();
+                });
+    }
+
+    @Test
+    void draftIncompleteForAnotherReasonIsNotLabelledAsTheOutputTokenLimit() {
+        responseBody.set(buildWireResponseWithStatus("resp_filter_draft", "gpt-6-luna", "incomplete", "content_filter",
+                "{\"draft\": {\"outcome\": \"DRAFT\", \"body\": \"Hola", 900, 40));
+
+        assertThatThrownBy(() -> createAdapter("gpt-6-luna", Duration.ofSeconds(15)).draft(sampleDraftRequest()))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(ex -> {
+                    AiProviderException ape = (AiProviderException) ex;
+                    assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+                    assertThat(ape.rejections()).isEmpty();
+                });
+    }
+
+    @Test
+    void draftProviderRejectionOfTheCeilingFailsAsRejectedRequest() {
+        stubCeilingRejection();
+
+        assertThatThrownBy(() -> createAdapter("gpt-6-luna", Duration.ofSeconds(15)).draft(sampleDraftRequest()))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(OpenAiResponsesApiAdapterTest::assertCeilingRejection);
+        assertThat(requestCounter.get()).isEqualTo(1);
+    }
+
+    @Test
+    void recommendationProviderRejectionOfTheCeilingFailsAsRejectedRequest() {
+        stubCeilingRejection();
+
+        assertThatThrownBy(() -> createAdapter("gpt-6-luna", Duration.ofSeconds(15)).recommend(sampleRequest))
+                .isInstanceOf(AiProviderException.class)
+                .satisfies(OpenAiResponsesApiAdapterTest::assertCeilingRejection);
+        assertThat(requestCounter.get()).isEqualTo(1);
+    }
+
+    private void stubCeilingRejection() {
+        responseStatusCode.set(400);
+        responseBody.set("""
+                {"error": {"message": "Invalid 'max_output_tokens'", "type": "invalid_request_error",
+                 "param": "max_output_tokens", "code": "integer_below_min_value"}}
+                """);
+    }
+
+    private static void assertCeilingRejection(Throwable ex) {
+        AiProviderException ape = (AiProviderException) ex;
+        assertThat(ape.category()).isEqualTo(AiFailureCategory.REJECTED_REQUEST);
+        assertThat(ape.getMessage()).doesNotContain("max_output_tokens");
+        assertThat(ape.metadata().toString()).doesNotContain("max_output_tokens");
+    }
+
+    private static final String NO_RECOMMENDATION_JSON = """
+            {
+              "recommendation": {
+                "outcome": "NO_RECOMMENDATION",
+                "reason": "RECENTLY_CONTACTED",
+                "rationale": "Contacted recently",
+                "confidence": 0.95
+              }
+            }
+            """;
+
+    private static final String VALID_DRAFT_JSON = """
+            {
+              "draft": {
+                "outcome": "DRAFT",
+                "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                "templateIntent": "REPEAT_PURCHASE",
+                "body": "Hola Acme Corp, esperamos disfrute su Widget Pro.",
+                "draftVariables": [],
+                "locale": "es-419",
+                "evidence": ["Compra: Widget Pro"],
+                "warnings": [],
+                "rationale": "Valid grounded Spanish draft",
+                "confidence": 0.90
+              }
+            }
+            """;
+
+    private AiDraftRequest sampleDraftRequest() {
+        return new AiDraftRequest(new DraftContext(
+                sampleContext,
+                SemanticAction.REPEAT_PURCHASE_FOLLOW_UP,
+                SemanticTemplateIntent.REPEAT_PURCHASE,
+                new TrustedBusinessFacts("Dokene", "es-419")
+        ), Duration.ofSeconds(5));
+    }
+
+    private int sentMaxOutputTokens() {
+        var node = JsonMapper.builder().build().readTree(capturedRequestBody.get());
+        assertThat(node.has("max_output_tokens")).as("request sets max_output_tokens").isTrue();
+        return node.get("max_output_tokens").asInt();
+    }
+
+    private static void assertTruncationFailure(AiProviderException ape, String requestId, String partialFragment) {
+        assertThat(ape.category()).isEqualTo(AiFailureCategory.INVALID_STRUCTURED_RESPONSE);
+        assertThat(ape.category().retryable()).isFalse();
+        assertThat(ape.rejections()).containsExactly(AiOutputRejection.OUTPUT_TOKEN_LIMIT);
+        assertThat(ape.metadata().status()).isEqualTo(AiCompletionStatus.FAILED);
+        assertThat(ape.metadata().providerRequestId()).isEqualTo(requestId);
+        assertThat(ape.metadata().usage()).isNotNull();
+        assertThat(ape.metadata().usage().outputTokens()).isEqualTo(4096);
+        assertThat(ape.getMessage()).doesNotContain(partialFragment);
+        assertThat(ape.metadata().toString()).doesNotContain(partialFragment);
+    }
+
     private static String buildWireResponse(String id, String model, String structuredOutputText,
                                             long inputTokens, long outputTokens) {
         return buildWireResponseWithStatus(id, model, "completed", structuredOutputText, inputTokens, outputTokens);
     }
 
     private static String buildWireResponseWithStatus(String id, String model, String status,
+                                                      String structuredOutputText,
+                                                      long inputTokens, long outputTokens) {
+        return buildWireResponseWithStatus(id, model, status, null, structuredOutputText, inputTokens, outputTokens);
+    }
+
+    /** {@code incompleteReason} sets {@code incomplete_details.reason}, as the provider does for an incomplete response. */
+    private static String buildWireResponseWithStatus(String id, String model, String status, String incompleteReason,
                                                       String structuredOutputText,
                                                       long inputTokens, long outputTokens) {
         String escapedText = structuredOutputText
@@ -1001,6 +1187,8 @@ class OpenAiResponsesApiAdapterTest {
 
         String statusField = status != null ? "\"status\": \"%s\",".formatted(status) : "";
         String msgStatusField = status != null ? "\"status\": \"%s\",".formatted(status) : "";
+        String incompleteField = incompleteReason != null
+                ? "\"incomplete_details\": {\"reason\": \"%s\"},".formatted(incompleteReason) : "";
 
         return """
                 {
@@ -1008,6 +1196,7 @@ class OpenAiResponsesApiAdapterTest {
                   "object": "response",
                   "created_at": 1727376000,
                   "model": "%s",
+                  %s
                   %s
                   "output": [
                     {
@@ -1029,6 +1218,6 @@ class OpenAiResponsesApiAdapterTest {
                     "total_tokens": %d
                   }
                 }
-                """.formatted(id, model, statusField, msgStatusField, escapedText, inputTokens, outputTokens, inputTokens + outputTokens);
+                """.formatted(id, model, statusField, incompleteField, msgStatusField, escapedText, inputTokens, outputTokens, inputTokens + outputTokens);
     }
 }
