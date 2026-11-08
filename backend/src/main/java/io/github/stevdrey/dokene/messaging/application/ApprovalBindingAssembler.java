@@ -34,10 +34,13 @@ public class ApprovalBindingAssembler {
 
     private final TemplateMappingResolver templates;
     private final ContactPolicyRepository contactPolicies;
+    private final MessageSendGuards guards;
 
-    public ApprovalBindingAssembler(TemplateMappingResolver templates, ContactPolicyRepository contactPolicies) {
+    public ApprovalBindingAssembler(TemplateMappingResolver templates, ContactPolicyRepository contactPolicies,
+            MessageSendGuards guards) {
         this.templates = Objects.requireNonNull(templates, "Template resolver is required");
         this.contactPolicies = Objects.requireNonNull(contactPolicies, "Contact policy repository is required");
+        this.guards = Objects.requireNonNull(guards, "Send guards are required");
     }
 
     /** The value a vocabulary parameter takes for this message (TemplateMapping.Parameter). */
@@ -69,7 +72,7 @@ public class ApprovalBindingAssembler {
     /**
      * The template review would show for this message, rendered from the same current records approval binds; empty
      * when the message could not be approved as it stands (no sendable mapping in its language, a value the provider
-     * would reject, a body that does not match a fixed template).
+     * would reject, a body that does not match a fixed template, rendered content the safety rules refuse).
      */
     public Optional<ReviewedTemplate> review(OutboundMessage message, Customer customer) {
         Objects.requireNonNull(message, "Message is required");
@@ -98,7 +101,7 @@ public class ApprovalBindingAssembler {
     /**
      * Refuses with {@code TEMPLATE_NOT_MAPPED} when the intent has no sendable mapping, the template language does not
      * match the message locale or a parameter is outside the vocabulary; {@code BODY_REJECTED} when a rendered value
-     * breaks the provider's parameter rules or a template without {@code message_body} would not send the body;
+     * breaks the provider's parameter rules, the rendered content fails the safety rules or a template without {@code message_body} would not send the body;
      * {@code NO_CONTACT_CONSENT} when the contact's WhatsApp consent is not currently granted.
      */
     public ApprovalFingerprint.Binding bind(OutboundMessage message, Customer customer,
@@ -136,18 +139,22 @@ public class ApprovalBindingAssembler {
                     .orElseThrow(() -> refuse(MessagingErrorCode.TEMPLATE_NOT_MAPPED));
             values.add(render(parameter, body, customer));
         }
+        String renderedBody = renderedFixedBody(mapping, values);
         // A template that does not carry the body sends only its fixed text, with any other parameter filled in, so
         // the body must be exactly that rendered text: what is reviewed, safety-checked and approved is then what the
         // recipient reads (ADR 0025 §2a).
         if (!mapping.parameterNames().contains(TemplateMapping.Parameter.MESSAGE_BODY.parameterName())
-                && !body.equals(renderedFixedBody(mapping, values))) {
+                && !body.equals(renderedBody)) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+        List<String> validated;
         try {
-            return new Rendered(mapping, TemplateParameterValues.validate(mapping.parameterNames(), values));
+            validated = TemplateParameterValues.validate(mapping.parameterNames(), values);
         } catch (IllegalArgumentException rejected) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+        guards.checkRendered(customer, locale, validated, renderedBody);
+        return new Rendered(mapping, validated);
     }
 
     /**

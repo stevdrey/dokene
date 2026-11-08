@@ -89,6 +89,8 @@ Approval (T2) re-checks customer status, do-not-contact, WhatsApp consent, eligi
 | `customer_name` | The customer's current display name |
 | `message_body` | The submitted body, unchanged |
 
+Every value, and the template body with the values filled in, passes the same safety rules as the message body on submit, review, approval and send (`BODY_REJECTED` otherwise), so a customer name holding a link, amount or offer word blocks a template that uses `customer_name` until the name is corrected.
+
 A mapping with any other parameter name, or written in a language the message locale does not accept, is refused with `TEMPLATE_NOT_MAPPED`. Messages are written in `es-419` (the default) or `en-US`; `es-419` accepts any Spanish template (`es`, `es_MX`) and `en-US` accepts exactly Meta's `en_US`. AI drafts are `es-419` only, so an `AI_DRAFT` submit in `en-US` is `400 INVALID_INPUT`. While a message awaits approval or dispatch, its detail includes `template`: the provider template name, Meta language and the fixed header, body and footer text that will be sent. A rendered value the provider would reject (a line break, a run of five spaces) is refused with `BODY_REJECTED`. A tenant without a configured integration is refused with `INTEGRATION_DISABLED`; the kill switches are not checked at approval.
 
 ### Tables (V18)

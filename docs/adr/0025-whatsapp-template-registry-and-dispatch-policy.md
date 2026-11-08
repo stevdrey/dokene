@@ -124,6 +124,16 @@ Dokene's policy:
 - **Approval binding** (ADR 0024, addendum for issue 268). The fingerprint scheme is `approval/v4`: the template revision now includes the header, body and footer text and the buttons. A text change on Meta's side followed by a refresh voids open approvals (for a template without `message_body` the stored body no longer matches, which is `BODY_REJECTED`). Approvals computed under `approval/v3` no longer match and are refused with `APPROVAL_INVALIDATED`; the message has to be cancelled and submitted again. Because V31 also resets every approved mapping, no v3 approval can be sent before a refresh anyway.
 - **Dispatch.** Unchanged: the Graph adapter omits `components` for a template without parameters.
 
+## Addendum (issue 326): rendered content passes the message safety rules
+
+A message body was validated against `DraftSafetyValidator`, but a value from a tenant record, such as `customer_name`, only passed the provider's parameter rules, so it could reach the recipient without the link, provider-identifier, amount and offer checks.
+
+- **One check on the rendering path.** `ApprovalBindingAssembler.render`, the one place submit, review, approval and send render a template, calls `MessageSendGuards.checkRendered` with every parameter value and the fixed body with those values filled in. Checking the rendered body as well catches content that only exists once values are joined by the fixed text.
+- **Same rules as the body.** `DraftSafetyValidator.validateRenderedText` applies the body's rules, the message locale's vocabulary and the customer's recent valid purchases as the only offer grounding. A name never grounds an offer, not even in itself. The rules did not change, so `FIXED_TEXT_RULES_VERSION` did not either.
+- **Closed refusal.** A refused value is `BODY_REJECTED` on submit, approval and send, before any claim or provider call, and quotes nothing. Review shows no preview, which an approval naming a revision needs, so the reviewer cannot approve it.
+- **Consequence for names.** A customer whose display name holds a link, amount or offer word (for example a business called "Regalos Ana") cannot be messaged through a template with `customer_name`, the same outcome as a body greeting them by that name. The operator corrects the name or uses a template without that parameter.
+- **Grounding read.** The read uses `PurchaseService` directly (`DraftGroundingAssembler.renderedContentGrounding`) rather than the full follow-up assembly, so a `VIEWER` holding `MESSAGE_READ` but not `FOLLOWUP_EVALUATE`, or a customer no longer due, still gets a normal message detail.
+
 ## Addendum (issue 268, part 2): English outbound locale
 
 The second part of [#268](https://github.com/stevdrey/dokene/issues/268) adds US English, so `hello_world` (`en_US`) can go through the normal submit, review, approval and send workflow.

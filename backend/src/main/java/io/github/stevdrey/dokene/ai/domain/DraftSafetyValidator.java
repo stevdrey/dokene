@@ -333,6 +333,18 @@ public final class DraftSafetyValidator {
         return validateTexts(texts, "", "", false, Vocabulary.of(locale));
     }
 
+    /**
+     * Validates what a recipient would read from a rendered template (issue 326): its parameter values and the fixed
+     * body with those values filled in, under the rules and vocabulary applied to a message body. An offer or amount
+     * must be grounded in {@code grounding}'s offer-bearing text, as a body's is.
+     */
+    public static Optional<DraftSafetyViolation> validateRenderedText(Map<String, String> texts, String locale,
+            DraftGroundingContext grounding) {
+        Objects.requireNonNull(texts, "Texts are required");
+        Objects.requireNonNull(grounding, "Grounding is required");
+        return validateTexts(texts, "", grounding.offerBearingText(), false, Vocabulary.of(locale));
+    }
+
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText, boolean refusalRationale) {
         return validateTexts(texts, allowedContextText, offerContextText, refusalRationale, Vocabulary.SPANISH);

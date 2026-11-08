@@ -46,7 +46,8 @@ class ApprovalBindingAssemblerTest {
 
     private final TemplateMappingResolver templates = mock(TemplateMappingResolver.class);
     private final ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
-    private final ApprovalBindingAssembler assembler = new ApprovalBindingAssembler(templates, contactPolicies);
+    private final MessageSendGuards guards = mock(MessageSendGuards.class);
+    private final ApprovalBindingAssembler assembler = new ApprovalBindingAssembler(templates, contactPolicies, guards);
     private final TenantId tenantId = new TenantId(UUID.randomUUID());
     private final SenderRevision sender = new SenderRevision(UUID.randomUUID(), "100000000000001",
             "200000000000001", 1);

@@ -1,5 +1,5 @@
-// ABOUTME: The customer, contact policy, eligibility and body guards shared by submit (T1), approval (T2) and the
-// ABOUTME: last-moment send gate (issue 138). Callers hold the customer lock; refusals carry a closed code only.
+// ABOUTME: The customer, contact policy, eligibility, body and rendered-content guards shared by submit (T1), approval
+// ABOUTME: (T2) and the last-moment send gate (issue 138). Callers hold the customer lock; refusals carry a closed code only.
 package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
@@ -20,7 +20,9 @@ import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -79,6 +81,23 @@ public class MessageSendGuards {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
         if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding()).isPresent()) {
+            throw refuse(MessagingErrorCode.BODY_REJECTED);
+        }
+    }
+
+    /**
+     * The body guard applied to what the provider would receive (issue 326), on every path that renders a template:
+     * each parameter value, which may come from tenant records rather than the reviewed body, and the fixed body with
+     * those values filled in. Refuses with {@code BODY_REJECTED} and never quotes a value.
+     */
+    public void checkRendered(Customer customer, String locale, List<String> parameterValues, String renderedBody) {
+        Map<String, String> texts = new LinkedHashMap<>();
+        for (int index = 0; index < parameterValues.size(); index++) {
+            texts.put("parameter " + (index + 1), parameterValues.get(index));
+        }
+        texts.put("rendered body", renderedBody);
+        if (DraftSafetyValidator.validateRenderedText(texts, locale, grounding.renderedContentGrounding(customer))
+                .isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
     }
