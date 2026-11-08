@@ -9,6 +9,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface TemplateProviderGateway {
+    /** Most provider requests one lookup may send; the refresh budget reserves this many per refresh (issue 321). */
+    int MAX_REQUESTS_PER_LOOKUP = 5;
+
     /** The current tenant's configured integration, regardless of kill switches; empty when none exists. */
     Optional<Sender> currentSender();
 
@@ -16,6 +19,7 @@ public interface TemplateProviderGateway {
      * Asks the provider for the template's current state in the current tenant's business account. Never throws for
      * provider or credential problems: they are {@link Unavailable}, which carries no provider text. {@code meter} is
      * told about each request right before it is sent to the provider, so an answer decided locally meters nothing.
+     * A lookup never sends more than {@link #MAX_REQUESTS_PER_LOOKUP} requests.
      */
     Lookup lookup(Sender sender, String providerTemplateName, String language, RequestMeter meter);
 

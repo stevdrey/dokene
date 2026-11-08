@@ -23,17 +23,17 @@ This record is sanitized: it gives limits, outcomes and test names only. It cont
 
 | Endpoint | Budget (`tenant-calls` / `actor-calls` / `window`) | Charged | Not charged |
 | --- | --- | --- | --- |
-| `POST /api/templates/{templateIntent}/approval-refresh` | `dokene.template.refresh-limit`: 30 / 20 / 15m | every Graph request the refresh sends (up to five pages), whatever the answer, unavailable included | an answer decided without a request (no resolver, an unresolvable secret); `404 NOT_FOUND`, `409 STALE_VERSION`, `409 INTEGRATION_DISABLED`; authorization refusals |
+| `POST /api/templates/{templateIntent}/approval-refresh` | `dokene.template.refresh-limit`: 30 / 20 / 15m | every Graph request the refresh sends (up to five pages, all five reserved while it runs), whatever the answer, unavailable included | an answer decided without a request (no resolver, an unresolvable secret); `404 NOT_FOUND`, `409 STALE_VERSION`, `409 INTEGRATION_DISABLED`; authorization refusals |
 | `POST /api/integrations/whatsapp/ownership-verifications` | `dokene.integration.whatsapp.ownership-verification-limit`: 30 / 20 / 15m | every proof that reaches the verifier, whatever the outcome, unavailable included | disabled integration, `409 STALE_VERSION`, `404`, authorization refusals, a proof already refused by the rejection budget |
 
 - Both endpoints use the neutral primitive `ratelimit.ActorCallBudget`: a synchronized sliding window per tenant id and per (tenant, member). Its limits are validated in one place, `ratelimit.CallLimits`, and it never sees a phone number id, template name or token.
   - An operation is admitted only while both levels have a unit left, so one member cannot spend more than 20 of the tenant's 30.
   - A refused call records nothing, so a client that retries after `Retry-After` succeeds once the window has moved.
-- Template refreshes are metered. The Graph adapter reports each page request through `TemplateProviderGateway.RequestMeter` right before sending it, and the service settles the admission with that count:
-  - zero requests refunds it;
-  - several requests charge the rest.
+- Template refreshes are metered. A refresh is admitted only while both levels have `TemplateProviderGateway.MAX_REQUESTS_PER_LOOKUP` (five) units left, and it reserves all five while it runs. The Graph adapter reports each page request through `TemplateProviderGateway.RequestMeter` right before sending it, and the service settles the admission with that count:
+  - the unused part of the reservation is refunded;
+  - zero requests refunds all of it.
 
-  The tenant bound is therefore 30 plus at most four pages of the last admitted refresh per window.
+  Overlapping refreshes therefore never spend more than the limit together. A member can start a refresh while it has five units left, so it gets 16 one-page refreshes from its 20, and the tenant 26 from its 30, before waiting. The refresh limiter refuses to start with limits below five.
 - A spent budget is `429` with `Retry-After` in whole seconds (at least one, at most the window). The provider is not called, and stored evidence and proofs are unchanged. The body is the closed problem:
 
   ```json
@@ -63,18 +63,20 @@ The code review of PR #358 raised nine findings. All were applied in `cf67489`:
 8. Unused `defaults()` methods: removed.
 9. Missing tests: added; see below.
 
+A second review raised one more finding (P2): each refresh reserved one unit and charged its extra pages only when it settled, so overlapping refreshes could all be admitted before any extra page was counted. Twenty overlapping five-page refreshes by one member could spend 100 units and lock everyone else out. Fixed by reserving a full lookup at admission and refunding what was not used.
+
 ## Automated coverage
 
 | Acceptance item | Test |
 | --- | --- |
 | Covered by the test below. | `TemplateRegistryIntegrationTest.refreshesThatReachTheProviderAreBoundedPerMemberAndTenantAndThrottledWithAnAuditedClosedProblem` |
-| Steps and expected outcomes for that test. | (1) Stale refreshes cost nothing. (2) One admin reaches the provider exactly 20 times, then gets `429` with the strict closed problem and `Retry-After` ≤ 900; the response has no template name or business account id. (3) Three more retries add no audit row: one `PROVIDER_CALL_LIMITED` row in all. (4) A second admin uses the remaining 10 and is throttled, and so is a third admin. (5) The provider is reached exactly 30 times and the mapping is unchanged. (6) `PUT` and another tenant's refresh still succeed. |
+| Steps and expected outcomes for that test. | (1) Stale refreshes cost nothing. (2) One admin reaches the provider exactly 16 times (20 less the reservation of a full lookup, plus one), then gets `429` with the strict closed problem and `Retry-After` ≤ 900; the response has no template name or business account id. (3) Three more retries add no audit row: one `PROVIDER_CALL_LIMITED` row in all. (4) A second admin makes 10 more and is throttled, and so is a third admin. (5) The provider is reached exactly 26 times and the mapping is unchanged. (6) `PUT` and another tenant's refresh still succeed. |
 | A refresh answered without a provider request costs nothing, even 26 times; refreshes of five pages are charged five units each | `TemplateRegistryIntegrationTest.aRefreshAnsweredWithoutAProviderRequestCostsNoBudget` |
 | Covered by the test below. | `WhatsAppIntegrationConfigurationIntegrationTest.unavailableProofsSpendTheProofBudgetAndAreThenThrottledWithoutAProviderCall` |
-| Steps and expected outcomes for that test. | (1) Unavailable proofs cost no rejection budget. (2) One admin reaches the provider exactly 20 times, then gets a strict `429` with no phone number id. (3) A repeat adds no second audit row: one `PROVIDER_CALL_LIMITED` row and no `RATE_LIMITED`. (4) A second admin uses the remaining 10 and is throttled. (5) Disabling the integration and another tenant's proof still succeed. |
+| Steps and expected outcomes for that test. | (1) Unavailable proofs cost no rejection budget. (2) One admin reaches the provider exactly 16 times (20 less the reservation of a full lookup, plus one), then gets a strict `429` with no phone number id. (3) A repeat adds no second audit row: one `PROVIDER_CALL_LIMITED` row and no `RATE_LIMITED`. (4) A second admin uses the remaining 10 and is throttled. (5) Disabling the integration and another tenant's proof still succeed. |
 | Metering: three pages meter three requests; a missing resolver or a foreign sender meters none and sends nothing | `GraphApiTemplateProviderGatewayTest.theMeterCountsEveryPageRequestAndNothingForALocalAnswer` |
-| Service level, with a moving clock: three pages cost three units; zero pages cost nothing; a looping member is audited once and cannot lock others out; a retry after `Retry-After` reaches the provider again | `TemplateRegistryServiceRefreshLimitTest` |
-| Per-member and per-tenant limits, the wait at both levels (never below one second), refusals recording nothing, retry after the window, refund, extra charges, single settlement, once-per-window reporting, eviction, 96 concurrent callers bounded at both levels, missing keys | `ActorCallBudgetTest` |
+| Service level, with a moving clock: three pages cost three units; zero pages cost nothing; a refresh started while another by the same member is still reading pages is throttled; a looping member is audited once and cannot lock others out; a retry after `Retry-After` reaches the provider again | `TemplateRegistryServiceRefreshLimitTest` |
+| Per-member and per-tenant limits, the wait at both levels (never below one second), refusals recording nothing, retry after the window, refund, extra charges, single settlement, reservations of several units and their refunds, overlapping unsettled reservations held to both limits, once-per-window reporting, eviction, 96 concurrent callers bounded at both levels with single and five-unit reservations, missing keys | `ActorCallBudgetTest` |
 | Defaults and refusal of non-positive limits and windows | `CallLimitsTest` |
 | A throttled proof records `PROVIDER_CALL_LIMITED`, not `RATE_LIMITED` | `DurableIntegrationAuditAdapterTest.aThrottledProofIsADeniedManagePermissionEventWithItsOwnReason` |
 | Normal operation and the existing budgets: rejection throttling, successful proofs, concurrent proofs, audit fail-closed paths, refresh evidence, stale versions and isolation | the other tests of `TemplateRegistryIntegrationTest` and `WhatsAppIntegrationConfigurationIntegrationTest` |

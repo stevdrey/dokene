@@ -446,9 +446,10 @@ class TemplateRegistryIntegrationTest {
 
     /**
      * Issue 321: every provider request a refresh sends, unavailable answers included, spends the member's and the
-     * tenant's budget; once either is spent, refreshes are a closed 429 with Retry-After, never reach the provider,
-     * change no evidence and are audited once per member per window, while configuration writes and other tenants are
-     * unaffected and one member cannot spend the whole tenant budget.
+     * tenant's budget. A refresh is admitted only while a full lookup's requests are left; once fewer are, refreshes
+     * are a closed 429 with Retry-After, never reach the provider, change no evidence and are audited once per member
+     * per window, while configuration writes and other tenants are unaffected and one member cannot spend the whole
+     * tenant budget.
      */
     @Test
     void refreshesThatReachTheProviderAreBoundedPerMemberAndTenantAndThrottledWithAnAuditedClosedProblem()
@@ -461,8 +462,10 @@ class TemplateRegistryIntegrationTest {
         for (int stale = 0; stale < 5; stale++) {
             refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"7\"").andExpect(status().isConflict());
         }
-        int memberShare = TemplateRefreshLimitProperties.DEFAULTS.actorCalls();
-        int tenantBudget = TemplateRefreshLimitProperties.DEFAULTS.tenantCalls();
+        // Each one-page refresh reserves a full lookup while it runs and keeps one unit.
+        int reserved = TemplateProviderGateway.MAX_REQUESTS_PER_LOOKUP;
+        int memberShare = TemplateRefreshLimitProperties.DEFAULTS.actorCalls() - reserved + 1;
+        int tenantBudget = TemplateRefreshLimitProperties.DEFAULTS.tenantCalls() - reserved + 1;
         for (int call = 0; call < memberShare; call++) {
             refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isServiceUnavailable())
                     .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));

@@ -125,6 +125,68 @@ class ActorCallBudgetTest {
     }
 
     @Test
+    void aReservationNeedsEveryUnitAndRefundsWhatTheOperationDidNotUse() {
+        ActorCallBudget<String, String> wide = new ActorCallBudget<>(new CallLimits(12, 7, WINDOW), clock);
+        wide.admit("t", "a", 5, Refused::new).settle(1);
+        wide.admit("t", "a", 5, Refused::new).settle(2);
+        // Three units are kept, four are left: a full reservation of five no longer fits, a single unit still does.
+        assertThatThrownBy(() -> wide.admit("t", "a", 5, Refused::new)).isInstanceOf(Refused.class);
+        wide.admit("t", "a", Refused::new);
+
+        assertThatThrownBy(() -> wide.admit("t", "b", 0, Refused::new)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> wide.admit("t", "b", 8, Refused::new)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void overlappingReservationsNeverExceedEitherLimit() {
+        ActorCallBudget<String, String> wide = new ActorCallBudget<>(new CallLimits(30, 20, WINDOW), clock);
+        List<ActorCallBudget.Ticket> inFlight = new ArrayList<>();
+        // Four unsettled five-request operations hold the member's whole share before any page is settled.
+        for (int operation = 0; operation < 4; operation++) {
+            inFlight.add(wide.admit("t", "a", 5, Refused::new));
+        }
+        assertThatThrownBy(() -> wide.admit("t", "a", 5, Refused::new)).isInstanceOf(Refused.class);
+        inFlight.add(wide.admit("t", "b", 5, Refused::new));
+        inFlight.add(wide.admit("t", "b", 5, Refused::new));
+        assertThatThrownBy(() -> wide.admit("t", "c", 5, Refused::new)).isInstanceOf(Refused.class);
+
+        // Settled at five requests each, the tenant has spent exactly its limit and nobody was locked out early.
+        inFlight.forEach(ticket -> ticket.settle(5));
+        assertThatThrownBy(() -> wide.admit("t", "c", Refused::new)).isInstanceOf(Refused.class);
+    }
+
+    @Test
+    void concurrentReservationsNeverExceedEitherLimit() throws Exception {
+        ActorCallBudget<String, String> shared = new ActorCallBudget<>(new CallLimits(30, 20, WINDOW), clock);
+        AtomicInteger granted = new AtomicInteger();
+        AtomicInteger grantedToA = new AtomicInteger();
+        List<Callable<Void>> callers = new ArrayList<>();
+        for (int caller = 0; caller < 96; caller++) {
+            String actor = "actor" + (caller % 3);
+            callers.add(() -> {
+                try {
+                    shared.admit("tenant", actor, 5, Refused::new).settle(5);
+                    granted.incrementAndGet();
+                    if (actor.equals("actor0")) {
+                        grantedToA.incrementAndGet();
+                    }
+                } catch (Refused ignored) {
+                    // expected once a limit is reached
+                }
+                return null;
+            });
+        }
+        try (ExecutorService pool = Executors.newFixedThreadPool(16)) {
+            for (Future<Void> result : pool.invokeAll(callers)) {
+                result.get();
+            }
+        }
+
+        assertThat(granted).hasValue(6);
+        assertThat(grantedToA.get()).isLessThanOrEqualTo(4);
+    }
+
+    @Test
     void onlyTheFirstRefusalOfEachActorPerWindowIsReported() {
         for (int call = 0; call < 3; call++) {
             admit("t", "a");

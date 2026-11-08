@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.template.application;
 
 import io.github.stevdrey.dokene.ratelimit.ActorCallBudget;
+import io.github.stevdrey.dokene.ratelimit.CallLimits;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Clock;
@@ -19,16 +20,20 @@ public class TemplateRefreshLimiter {
     private final ActorCallBudget<TenantId, IdentityId> budget;
 
     public TemplateRefreshLimiter(TemplateRefreshLimitProperties properties, Clock clock) {
-        this.budget = new ActorCallBudget<>(Objects.requireNonNull(properties, "Properties are required").limits(),
-                clock);
+        CallLimits limits = Objects.requireNonNull(properties, "Properties are required").limits();
+        if (Math.min(limits.tenantCalls(), limits.actorCalls()) < TemplateProviderGateway.MAX_REQUESTS_PER_LOOKUP) {
+            throw new IllegalArgumentException("Refresh limits must allow at least one full lookup");
+        }
+        this.budget = new ActorCallBudget<>(limits, clock);
     }
 
     /**
-     * Admits one refresh, to be settled with the provider requests it made, or throws
-     * {@link TemplateRateLimitedException} when the tenant or the member has no unit left.
+     * Admits one refresh and reserves the most provider requests a lookup can send, so overlapping refreshes never
+     * spend more than the limit together, or throws {@link TemplateRateLimitedException} when the tenant or the member
+     * has fewer units left. The ticket is settled with the requests the refresh made and refunds the rest.
      */
     public ActorCallBudget.Ticket admit(TenantId tenantId, IdentityId identityId) {
-        return budget.admit(tenantId, identityId,
+        return budget.admit(tenantId, identityId, TemplateProviderGateway.MAX_REQUESTS_PER_LOOKUP,
                 refusal -> new TemplateRateLimitedException(refusal.retryAfter(), refusal.report()));
     }
 }

@@ -124,8 +124,9 @@ public class TemplateRegistryService {
      * as {@code PROVIDER_UNAVAILABLE} after that downgrade is committed.
      *
      * <p>Every provider request a refresh sends spends one unit of the tenant's and the member's budget, whatever the
-     * answer, including an unavailable one (issue 321): a refresh is admitted while one unit is left, then charged the
-     * pages it read, and an answer decided without a request costs nothing. A spent budget is {@code RATE_LIMITED}
+     * answer, including an unavailable one (issue 321): a refresh is admitted only while a full lookup's requests are
+     * left and reserves them, so overlapping refreshes cannot exceed the limit, then keeps only the pages it read, and
+     * an answer decided without a request costs nothing. A spent budget is {@code RATE_LIMITED}
      * with {@code Retry-After}, is audited as a denied action at most once per member per window, makes no provider
      * call and leaves the stored evidence untouched. Refusals decided before the provider call ({@code NOT_FOUND},
      * {@code STALE_VERSION}, {@code INTEGRATION_DISABLED}) cost nothing.

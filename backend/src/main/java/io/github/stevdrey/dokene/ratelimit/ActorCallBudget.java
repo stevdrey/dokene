@@ -11,10 +11,11 @@ import java.util.function.Function;
 /**
  * Thread-safe in-memory budget of outbound provider calls per tenant and per actor within the tenant, over one sliding
  * window. A call is admitted only while both levels have a unit left, so one actor can never spend more than its own
- * share of the tenant's budget. An admitted operation is settled with the number of provider requests it really made:
- * zero refunds the admission and more than one charges the rest, so the bound is the limit plus whatever one admitted
- * operation can add. Refusals record nothing, and at most one refusal per actor per window is flagged for reporting, so
- * callers can audit denials without a looping caller multiplying the rows. Keys are opaque; state is per instance.
+ * share of the tenant's budget. An operation that may make several provider requests reserves its maximum when it is
+ * admitted, so overlapping operations can never spend more than the limit together, and is then settled with the number
+ * it really made: the unused part of the reservation is refunded, so zero refunds the whole admission. Refusals record
+ * nothing, and at most one refusal per actor per window is flagged for reporting, so callers can audit denials without
+ * a looping caller multiplying the rows. Keys are opaque; state is per instance.
  */
 public final class ActorCallBudget<T, A> {
     private final CallLimits limits;
@@ -45,22 +46,37 @@ public final class ActorCallBudget<T, A> {
      * Admits one operation for {@code actor} of {@code tenant} and records one unit at both levels, or throws the
      * exception {@code refused} builds when either level has none left.
      */
-    public synchronized Ticket admit(T tenant, A actor, Function<Refusal, ? extends RuntimeException> refused) {
+    public Ticket admit(T tenant, A actor, Function<Refusal, ? extends RuntimeException> refused) {
+        return admit(tenant, actor, 1, refused);
+    }
+
+    /**
+     * Admits one operation that may make up to {@code units} provider requests and reserves all of them at both levels,
+     * or throws the exception {@code refused} builds when either level has fewer than {@code units} left. The ticket
+     * then refunds whatever the operation did not use.
+     */
+    public synchronized Ticket admit(T tenant, A actor, int units,
+            Function<Refusal, ? extends RuntimeException> refused) {
         ActorKey<T, A> key = new ActorKey<>(Objects.requireNonNull(tenant, "Tenant key is required"),
                 Objects.requireNonNull(actor, "Actor key is required"));
         Objects.requireNonNull(refused, "Refusal factory is required");
+        if (units < 1 || units > Math.min(limits.tenantCalls(), limits.actorCalls())) {
+            throw new IllegalArgumentException("Units must be positive and fit both limits");
+        }
         Instant now = clock.instant();
         maybeEvictExpired(now);
         SlidingWindow tenantCalls = tenants.computeIfAbsent(tenant, ignored -> new SlidingWindow(limits.window()));
         SlidingWindow actorCalls = actors.computeIfAbsent(key, ignored -> new SlidingWindow(limits.window()));
-        Duration delay = longest(blockedFor(tenantCalls, limits.tenantCalls(), now),
-                blockedFor(actorCalls, limits.actorCalls(), now));
+        Duration delay = longest(blockedFor(tenantCalls, limits.tenantCalls(), units, now),
+                blockedFor(actorCalls, limits.actorCalls(), units, now));
         if (delay != null) {
             throw refused.apply(new Refusal(delay, firstReport(key, now)));
         }
-        tenantCalls.record(now);
-        actorCalls.record(now);
-        return new AdmittedTicket(key, now);
+        for (int unit = 0; unit < units; unit++) {
+            tenantCalls.record(now);
+            actorCalls.record(now);
+        }
+        return new AdmittedTicket(key, now, units);
     }
 
     synchronized boolean tracks(T tenant, A actor) {
@@ -71,11 +87,13 @@ public final class ActorCallBudget<T, A> {
     private final class AdmittedTicket implements Ticket {
         private final ActorKey<T, A> key;
         private final Instant admittedAt;
+        private final int reserved;
         private boolean settled;
 
-        private AdmittedTicket(ActorKey<T, A> key, Instant admittedAt) {
+        private AdmittedTicket(ActorKey<T, A> key, Instant admittedAt, int reserved) {
             this.key = key;
             this.admittedAt = admittedAt;
+            this.reserved = reserved;
         }
 
         @Override
@@ -88,16 +106,19 @@ public final class ActorCallBudget<T, A> {
                     return;
                 }
                 settled = true;
-                if (requests == 0) {
+                for (int unused = requests; unused < reserved; unused++) {
                     refund(tenants.get(key.tenant()));
                     refund(actors.get(key));
+                }
+                if (requests <= reserved) {
                     return;
                 }
+                // A caller that exceeds its own reservation is still charged for every request it made.
                 Instant now = clock.instant();
                 SlidingWindow tenantCalls = tenants.computeIfAbsent(key.tenant(),
                         ignored -> new SlidingWindow(limits.window()));
                 SlidingWindow actorCalls = actors.computeIfAbsent(key, ignored -> new SlidingWindow(limits.window()));
-                for (int extra = 1; extra < requests; extra++) {
+                for (int extra = reserved; extra < requests; extra++) {
                     tenantCalls.record(now);
                     actorCalls.record(now);
                 }
@@ -121,9 +142,9 @@ public final class ActorCallBudget<T, A> {
         return true;
     }
 
-    /** Null while a unit is left; otherwise how long until one frees up. */
-    private static Duration blockedFor(SlidingWindow calls, int limit, Instant now) {
-        return calls.count(now) < limit ? null : calls.untilBelow(limit, now);
+    /** Null while {@code units} are left; otherwise how long until that many free up. */
+    private static Duration blockedFor(SlidingWindow calls, int limit, int units, Instant now) {
+        return calls.count(now) + units <= limit ? null : calls.untilBelow(limit - units + 1, now);
     }
 
     private static Duration longest(Duration first, Duration second) {

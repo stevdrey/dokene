@@ -29,7 +29,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
     /** Most pages one lookup may read; a longer list is unavailable rather than assumed to lack the template. */
-    private static final int MAX_PAGES = 5;
+    private static final int MAX_PAGES = TemplateProviderGateway.MAX_REQUESTS_PER_LOOKUP;
     /** Requested explicitly so the schema check never depends on Graph's default field set. */
     private static final String FIELDS = "name,language,status,parameter_format,components";
 

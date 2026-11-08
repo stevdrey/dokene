@@ -1,5 +1,5 @@
-// ABOUTME: Unit tests for the approval refresh budget (issue 321): provider requests are metered per page, local answers
-// ABOUTME: cost nothing, members are held to their share, denials are audited once per window, and retries recover.
+// ABOUTME: Unit tests for the approval refresh budget (issue 321): requests are metered per page, local answers
+// ABOUTME: cost nothing, overlapping refreshes stay in the limit, denials are audited once, and retries recover.
 package io.github.stevdrey.dokene.template.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,7 +47,7 @@ class TemplateRegistryServiceRefreshLimitTest {
     private final PagingGateway gateway = new PagingGateway();
     private final TemplateRegistryService service = new TemplateRegistryService(repository, gateway, audit,
             mock(TenantAuthorizationService.class), contexts, new TemplateRegistryProperties(null),
-            new TemplateRefreshLimiter(new TemplateRefreshLimitProperties(5, 3, WINDOW), clock), clock,
+            new TemplateRefreshLimiter(new TemplateRefreshLimitProperties(12, 7, WINDOW), clock), clock,
             mock(PlatformTransactionManager.class));
 
     @BeforeEach
@@ -63,7 +63,7 @@ class TemplateRegistryServiceRefreshLimitTest {
         gateway.pages = 3;
         assertRefusedWith(TemplateErrorCode.PROVIDER_UNAVAILABLE);
 
-        // The member's share of 3 is spent by the three pages of one refresh.
+        // Three of the member's 7 units are spent, so a full lookup's 5 no longer fit.
         TemplateRateLimitedException throttled = assertThrottled();
         assertThat(throttled.retryAfterSeconds()).isEqualTo(WINDOW.toSeconds());
         assertThat(gateway.lookups).hasValue(1);
@@ -92,13 +92,39 @@ class TemplateRegistryServiceRefreshLimitTest {
 
         // Another member still has the rest of the tenant's budget, then the tenant budget holds everyone.
         actAs(new IdentityId(UUID.randomUUID()));
+        for (int refresh = 0; refresh < 3; refresh++) {
+            assertRefusedWith(TemplateErrorCode.PROVIDER_UNAVAILABLE);
+        }
+        assertThrottled();
+        actAs(new IdentityId(UUID.randomUUID()));
         assertRefusedWith(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         assertRefusedWith(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         assertThrottled();
         actAs(new IdentityId(UUID.randomUUID()));
         assertThrottled();
-        verify(audit, times(3)).refreshThrottled();
-        assertThat(gateway.lookups).hasValue(5);
+        verify(audit, times(4)).refreshThrottled();
+        assertThat(gateway.lookups).hasValue(8);
+    }
+
+    @Test
+    void anOverlappingRefreshIsRefusedWhileAnotherHoldsTheReservationOfAFullLookup() {
+        gateway.pages = 5;
+        AtomicInteger overlapping = new AtomicInteger();
+        gateway.during = () -> {
+            if (overlapping.getAndIncrement() == 0) {
+                // A second refresh by the same member while the first one is still reading pages.
+                assertThrottled();
+            }
+        };
+        assertRefusedWith(TemplateErrorCode.PROVIDER_UNAVAILABLE);
+        assertThat(gateway.lookups).hasValue(1);
+
+        // Another member still fits one full lookup; after it, neither that member nor the tenant has room for one.
+        gateway.during = () -> { };
+        actAs(new IdentityId(UUID.randomUUID()));
+        assertRefusedWith(TemplateErrorCode.PROVIDER_UNAVAILABLE);
+        assertThrottled();
+        assertThat(gateway.lookups).hasValue(2);
     }
 
     @Test
@@ -137,6 +163,7 @@ class TemplateRegistryServiceRefreshLimitTest {
     private final class PagingGateway implements TemplateProviderGateway {
         final AtomicInteger lookups = new AtomicInteger();
         volatile int pages = 1;
+        volatile Runnable during = () -> { };
 
         @Override
         public Optional<Sender> currentSender() {
@@ -148,6 +175,7 @@ class TemplateRegistryServiceRefreshLimitTest {
             lookups.incrementAndGet();
             for (int page = 0; page < pages; page++) {
                 meter.request();
+                during.run();
             }
             return new Unavailable();
         }
