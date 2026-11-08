@@ -51,4 +51,14 @@ class DurableIntegrationAuditAdapterTest {
         verify(recorder).authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.RATE_LIMITED);
         verifyNoMoreInteractions(recorder);
     }
+
+    /** Issue 321: a spent provider proof budget has its own reason, never the rejection budget's RATE_LIMITED. */
+    @Test
+    void aThrottledProofIsADeniedManagePermissionEventWithItsOwnReason() {
+        adapter.proofThrottled();
+
+        verify(recorder).authorizationDenied(TenantPermission.INTEGRATION_MANAGE,
+                AuditDenialReason.PROVIDER_CALL_LIMITED);
+        verifyNoMoreInteractions(recorder);
+    }
 }

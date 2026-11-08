@@ -309,6 +309,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - `integration/application/WhatsAppIntegrationService.java:281-286`: an `Unavailable` ownership proof costs no `MappingRejectionLimiter` budget.
 - **Impact:** a member with `TEMPLATE_WRITE` or `INTEGRATION_MANAGE` can loop these calls. Each one makes up to 5 Graph GETs with the tenant's token. The loop burns the tenant's Meta quota, which can block real sends, and ties up request threads.
 - **Fix:** add a per-tenant token bucket to both endpoints.
+- **Status:** fixed by [#321](https://github.com/stevdrey/dokene/issues/321); see [the verification record](../verification/issue-321-admin-provider-call-limits-verification.md). Each endpoint now spends a budget of provider calls per tenant and per member in a sliding window (defaults 30 per tenant and 20 per member in 15 minutes), whatever the provider answers, unavailable answers included. Template refreshes are charged per Graph page they read and not at all when no request was sent. A spent budget is `429 RATE_LIMITED` with `Retry-After`, makes no provider call and is audited as `AUTHORIZATION_DENIED` with reason `PROVIDER_CALL_LIMITED` at most once per member per window. A sliding window was used instead of a token bucket because it gives the same hard bound per window and reuses the existing `SlidingWindow` primitive.
 
 #### L13. Builds are not reproducible or verified — Static
 

@@ -1,8 +1,10 @@
 package io.github.stevdrey.dokene.template.application;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.ratelimit.ActorCallBudget;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
@@ -12,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,19 +33,22 @@ public class TemplateRegistryService {
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final TemplateRegistryProperties properties;
+    private final TemplateRefreshLimiter refreshes;
     private final Clock clock;
     private final TransactionTemplate writes;
     private final TransactionTemplate reads;
 
     public TemplateRegistryService(TemplateMappingRepository repository, TemplateProviderGateway gateway,
             TemplateAuditPort audit, TenantAuthorizationService authorization, TenantContextProvider contexts,
-            TemplateRegistryProperties properties, Clock clock, PlatformTransactionManager transactions) {
+            TemplateRegistryProperties properties, TemplateRefreshLimiter refreshes, Clock clock,
+            PlatformTransactionManager transactions) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.gateway = Objects.requireNonNull(gateway, "Gateway is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
         this.properties = Objects.requireNonNull(properties, "Properties are required");
+        this.refreshes = Objects.requireNonNull(refreshes, "Refresh limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.writes = new TransactionTemplate(transactions);
         this.reads = new TransactionTemplate(transactions);
@@ -116,6 +122,14 @@ public class TemplateRegistryService {
      * The explicit verification path: asks the provider, stores only its normalized answer against the current
      * revision, and never advances the mapping version. An unobtainable answer drops stale evidence and is reported
      * as {@code PROVIDER_UNAVAILABLE} after that downgrade is committed.
+     *
+     * <p>Every provider request a refresh sends spends one unit of the tenant's and the member's budget, whatever the
+     * answer, including an unavailable one (issue 321): a refresh is admitted only while a full lookup's requests are
+     * left and reserves them, so overlapping refreshes cannot exceed the limit, then keeps only the pages it read, and
+     * an answer decided without a request costs nothing. A spent budget is {@code RATE_LIMITED}
+     * with {@code Retry-After}, is audited as a denied action at most once per member per window, makes no provider
+     * call and leaves the stored evidence untouched. Refusals decided before the provider call ({@code NOT_FOUND},
+     * {@code STALE_VERSION}, {@code INTEGRATION_DISABLED}) cost nothing.
      */
     public Entry refreshApproval(SemanticTemplateIntent intent, long expectedVersion) {
         Objects.requireNonNull(intent, "Intent is required");
@@ -128,7 +142,15 @@ public class TemplateRegistryService {
         }
         TemplateProviderGateway.Sender sender = gateway.currentSender()
                 .orElseThrow(() -> new TemplateRefusedException(TemplateErrorCode.INTEGRATION_DISABLED));
-        TemplateProviderGateway.Lookup lookup = gateway.lookup(sender, current.providerTemplateName(), current.language());
+        ActorCallBudget.Ticket ticket = admitLookup(tenantId, contexts.requireCurrent().identityId());
+        AtomicInteger requests = new AtomicInteger();
+        TemplateProviderGateway.Lookup lookup;
+        try {
+            lookup = gateway.lookup(sender, current.providerTemplateName(), current.language(),
+                    requests::incrementAndGet);
+        } finally {
+            ticket.settle(requests.get());
+        }
         // Evidence is only kept for the account that was asked; an answer about any other account is not evidence.
         if (!answeredFor(lookup, sender)) {
             lookup = new TemplateProviderGateway.Unavailable();
@@ -158,6 +180,21 @@ public class TemplateRegistryService {
             throw new TemplateRefusedException(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         }
         return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender)));
+    }
+
+    /**
+     * A throttled refresh is a denied action, audited in its own transaction before the refusal propagates, at most
+     * once per member per window so a looping caller cannot multiply audit rows.
+     */
+    private ActorCallBudget.Ticket admitLookup(TenantId tenantId, IdentityId identityId) {
+        try {
+            return refreshes.admit(tenantId, identityId);
+        } catch (TemplateRateLimitedException throttled) {
+            if (throttled.audited()) {
+                audit.refreshThrottled();
+            }
+            throw throttled;
+        }
     }
 
     private static boolean answeredFor(TemplateProviderGateway.Lookup lookup, TemplateProviderGateway.Sender sender) {

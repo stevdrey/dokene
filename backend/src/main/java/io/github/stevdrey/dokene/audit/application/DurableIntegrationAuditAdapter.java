@@ -33,4 +33,9 @@ public class DurableIntegrationAuditAdapter implements IntegrationAuditPort {
     public void mappingThrottled() {
         recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.RATE_LIMITED);
     }
+
+    @Override
+    public void proofThrottled() {
+        recorder.authorizationDenied(TenantPermission.INTEGRATION_MANAGE, AuditDenialReason.PROVIDER_CALL_LIMITED);
+    }
 }

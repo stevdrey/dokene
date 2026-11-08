@@ -36,20 +36,22 @@ public class WhatsAppIntegrationService {
     private final TenantContextProvider contexts;
     private final PhoneNumberOwnershipVerifier ownership;
     private final MappingRejectionLimiter rejections;
+    private final OwnershipVerificationLimiter proofs;
     private final Clock clock;
     private final TransactionTemplate reads;
     private final TransactionTemplate writes;
 
     public WhatsAppIntegrationService(WhatsAppIntegrationRepository repository, IntegrationAuditPort audit,
             TenantAuthorizationService authorization, TenantContextProvider contexts,
-            PhoneNumberOwnershipVerifier ownership, MappingRejectionLimiter rejections, Clock clock,
-            PlatformTransactionManager transactions) {
+            PhoneNumberOwnershipVerifier ownership, MappingRejectionLimiter rejections,
+            OwnershipVerificationLimiter proofs, Clock clock, PlatformTransactionManager transactions) {
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
         this.authorization = Objects.requireNonNull(authorization, "Authorization is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
         this.ownership = Objects.requireNonNull(ownership, "Ownership verifier is required");
         this.rejections = Objects.requireNonNull(rejections, "Rejection limiter is required");
+        this.proofs = Objects.requireNonNull(proofs, "Proof limiter is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         Objects.requireNonNull(transactions, "Transaction manager is required");
         this.reads = new TransactionTemplate(transactions);
@@ -127,7 +129,13 @@ public class WhatsAppIntegrationService {
      *
      * <p>A number the credential does not reach and a number another tenant already verified are answered alike with
      * {@code INVALID_INPUT} and count against the rejection budget (issue 208), so the outcome is not an oracle for
-     * other tenants' mappings. An inconclusive provider answer is {@code PROVIDER_UNAVAILABLE} and costs no budget.
+     * other tenants' mappings. An inconclusive provider answer is {@code PROVIDER_UNAVAILABLE} and costs no rejection
+     * budget.
+     *
+     * <p>Independently, every proof that reaches the provider spends one unit of the tenant's and the member's proof
+     * budget, whatever the outcome, including an unavailable one (issue 321). Either spent budget is
+     * {@code RATE_LIMITED} with {@code Retry-After} and makes no provider call; it is audited as a denied action, a
+     * spent proof budget at most once per member per window.
      *
      * <p>Not one transaction: the provider call runs between a short read and a short compare-and-set write, so no
      * connection is held across the network, and a configuration change in between is a {@code STALE_VERSION}.
@@ -145,6 +153,7 @@ public class WhatsAppIntegrationService {
             throw new IntegrationRefusedException(MessagingErrorCode.INVALID_INPUT);
         }
         try (MappingAttempt attempt = beginMappingAttempt(context)) {
+            acquireProof(context);
             Outcome outcome = ownership.verify(new Claim(current.tenantId(), current.phoneNumberId(),
                     current.businessAccountId(), current.secretRef()));
             switch (outcome) {
@@ -235,6 +244,21 @@ public class WhatsAppIntegrationService {
             return rejections.begin(context.tenantId(), context.identityId());
         } catch (IntegrationRateLimitedException throttled) {
             audit.mappingThrottled();
+            throw throttled;
+        }
+    }
+
+    /**
+     * Spends one provider proof of the tenant's and the member's budget. A throttled proof is audited with its own
+     * reason, at most once per member per window, so a looping caller cannot multiply audit rows.
+     */
+    private void acquireProof(TenantContext context) {
+        try {
+            proofs.acquire(context.tenantId(), context.identityId());
+        } catch (IntegrationRateLimitedException throttled) {
+            if (throttled.audited()) {
+                audit.proofThrottled();
+            }
             throw throttled;
         }
     }

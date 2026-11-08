@@ -16,6 +16,8 @@ final class ScriptedTemplateProviderGateway implements TemplateProviderGateway {
     volatile Lookup next = new Unavailable();
     /** Runs inside lookup, before it answers: lets a test land a newer refresh while this one is in flight. */
     volatile Runnable duringLookup = () -> { };
+    /** How many provider requests each lookup pretends to send (issue 321): 0 for a locally decided answer. */
+    volatile int pages = 1;
 
     ScriptedTemplateProviderGateway(WhatsAppIntegrationRepository integrations, TenantContextProvider contexts) {
         this.integrations = integrations;
@@ -29,7 +31,10 @@ final class ScriptedTemplateProviderGateway implements TemplateProviderGateway {
     }
 
     @Override
-    public Lookup lookup(Sender sender, String providerTemplateName, String language) {
+    public Lookup lookup(Sender sender, String providerTemplateName, String language, RequestMeter meter) {
+        for (int page = 0; page < pages; page++) {
+            meter.request();
+        }
         Lookup answer = next;
         duringLookup.run();
         return answer;

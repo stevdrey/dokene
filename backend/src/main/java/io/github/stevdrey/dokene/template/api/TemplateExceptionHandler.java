@@ -6,8 +6,10 @@ import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.InvalidRequestException;
 import io.github.stevdrey.dokene.template.api.TemplateApiContract.TemplateProblem;
 import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
+import io.github.stevdrey.dokene.template.application.TemplateRateLimitedException;
 import io.github.stevdrey.dokene.template.application.TemplateRefusedException;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,15 @@ public class TemplateExceptionHandler {
     @ExceptionHandler(TemplateRefusedException.class)
     ResponseEntity<TemplateProblem> refused(TemplateRefusedException refusal) {
         return problem(refusal.code());
+    }
+
+    /** The closed problem plus {@code Retry-After} in whole seconds; nothing about the tenant's budget is disclosed. */
+    @ExceptionHandler(TemplateRateLimitedException.class)
+    ResponseEntity<TemplateProblem> rateLimited(TemplateRateLimitedException throttled) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(throttled.retryAfterSeconds()))
+                .contentType(MediaType.parseMediaType(TemplateApiContract.PROBLEM_MEDIA_TYPE))
+                .body(TemplateProblem.of(TemplateErrorCode.RATE_LIMITED));
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)

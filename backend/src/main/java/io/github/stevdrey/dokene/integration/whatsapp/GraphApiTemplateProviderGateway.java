@@ -29,7 +29,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class GraphApiTemplateProviderGateway implements TemplateProviderGateway {
     /** Most pages one lookup may read; a longer list is unavailable rather than assumed to lack the template. */
-    private static final int MAX_PAGES = 5;
+    private static final int MAX_PAGES = TemplateProviderGateway.MAX_REQUESTS_PER_LOOKUP;
     /** Requested explicitly so the schema check never depends on Graph's default field set. */
     private static final String FIELDS = "name,language,status,parameter_format,components";
 
@@ -60,7 +60,7 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
     }
 
     @Override
-    public Lookup lookup(Sender sender, String providerTemplateName, String language) {
+    public Lookup lookup(Sender sender, String providerTemplateName, String language, RequestMeter meter) {
         try {
             IntegrationSecretResolver resolver = secrets.getIfAvailable();
             if (resolver == null || !(sender instanceof GraphSender graph)
@@ -72,7 +72,8 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
             try (ResolvedSecret secret = resolver.resolve(
                     new Tenant(graph.tenantId(), SecretPurpose.WHATSAPP_ACCESS_TOKEN),
                     new SecretReference(graph.secretRef()))) {
-                return secret.withValue(token -> search(graph, token, providerTemplateName, language, deadline));
+                return secret.withValue(token -> search(graph, token, providerTemplateName, language, deadline,
+                        meter));
             }
         } catch (RuntimeException failure) {
             return new Unavailable();
@@ -84,10 +85,13 @@ public class GraphApiTemplateProviderGateway implements TemplateProviderGateway 
      * {@code MAX_PAGES} pages. Absence is concluded only when the list really ended; running out of pages, time or a
      * usable cursor with more pages pending is unavailable.
      */
-    private Lookup search(GraphSender graph, char[] token, String name, String language, long deadline) {
+    private Lookup search(GraphSender graph, char[] token, String name, String language, long deadline,
+            RequestMeter meter) {
         String cursor = null;
         for (int page = 0; page < MAX_PAGES; page++) {
-            Reply reply = http.get(pageUri(graph, name, language, cursor), token, deadline);
+            URI uri = pageUri(graph, name, language, cursor);
+            meter.request();
+            Reply reply = http.get(uri, token, deadline);
             if (reply.status() != 200 || reply.body() == null) {
                 return new Unavailable();
             }

@@ -29,6 +29,7 @@ import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.integration.application.IntegrationAuditPort;
 import io.github.stevdrey.dokene.integration.application.IntegrationRefusedException;
 import io.github.stevdrey.dokene.integration.application.MappingRejectionLimitProperties;
+import io.github.stevdrey.dokene.integration.application.OwnershipVerificationLimitProperties;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.Claim;
 import io.github.stevdrey.dokene.integration.application.PhoneNumberOwnershipVerifier.NotProven;
@@ -90,6 +91,7 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
     private static final int TENANT_BUDGET = MappingRejectionLimitProperties.DEFAULT_TENANT_REJECTIONS;
     private static final String MAPPING_REJECTED = "MAPPING_REJECTED";
     private static final String RATE_LIMITED = "RATE_LIMITED";
+    private static final String PROVIDER_CALL_LIMITED = "PROVIDER_CALL_LIMITED";
     private static final String ON = "{\"enabled\":true}";
     private static final String OFF = "{\"enabled\":false}";
 
@@ -762,6 +764,57 @@ class WhatsAppIntegrationConfigurationIntegrationTest {
         assertThat(denials(tenantB, adminB, MAPPING_REJECTED)).isZero();
         assertThat(denials(tenantB, adminB, RATE_LIMITED)).isZero();
     }
+    /**
+     * Issue 321: unavailable proofs cost no rejection budget, but every proof that reaches the provider spends the
+     * member's and the tenant's proof budget; once either is spent, proofs are a closed 429 that never reaches the
+     * provider and is audited with its own reason, once per member per window.
+     */
+    @Test
+    void unavailableProofsSpendTheProofBudgetAndAreThenThrottledWithoutAProviderCall() throws Exception {
+        ownership.answer(tenantA, new Unavailable());
+        write(adminA, tenantA, null, body(phoneId, "wa-token-ok", true)).andExpect(status().isOk());
+        int memberShare = OwnershipVerificationLimitProperties.DEFAULTS.actorCalls();
+        int tenantBudget = OwnershipVerificationLimitProperties.DEFAULTS.tenantCalls();
+        for (int proof = 0; proof < memberShare; proof++) {
+            verify(adminA, tenantA, "\"0\"").andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("PROVIDER_UNAVAILABLE"));
+        }
+        assertThat(ownership.claims).hasSize(memberShare);
+        assertThat(denials(tenantA, adminA, MAPPING_REJECTED)).isZero();
+
+        var throttled = verify(adminA, tenantA, "\"0\"")
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(content().json("{\"type\":\"about:blank\",\"title\":\"Too Many Requests\","
+                        + "\"status\":429,\"code\":\"RATE_LIMITED\"}", JsonCompareMode.STRICT))
+                .andExpect(header().string("Retry-After", org.hamcrest.Matchers.matchesPattern("[1-9][0-9]*")))
+                .andReturn().getResponse();
+        assertThat(Long.parseLong(throttled.getHeader("Retry-After"))).isLessThanOrEqualTo(15 * 60);
+        assertThat(throttled.getContentAsString()).doesNotContain(phoneId);
+        verify(adminA, tenantA, "\"0\"").andExpect(status().isTooManyRequests());
+        assertThat(ownership.claims).hasSize(memberShare);
+        // Its own reason, once per member per window; the rejection budget's RATE_LIMITED is untouched.
+        assertThat(denials(tenantA, adminA, PROVIDER_CALL_LIMITED)).isEqualTo(1);
+        assertThat(denials(tenantA, adminA, RATE_LIMITED)).isZero();
+
+        // Another member still has the rest of the tenant's budget; then the tenant budget holds every member.
+        IdentityId secondAdminA = member(tenantA, TenantRole.ADMIN);
+        for (int proof = memberShare; proof < tenantBudget; proof++) {
+            verify(secondAdminA, tenantA, "\"0\"").andExpect(status().isServiceUnavailable());
+        }
+        verify(secondAdminA, tenantA, "\"0\"").andExpect(status().isTooManyRequests());
+        assertThat(ownership.claims).hasSize(tenantBudget);
+        assertThat(denials(tenantA, secondAdminA, PROVIDER_CALL_LIMITED)).isEqualTo(1);
+
+        // Configuration writes, including the kill path, are never throttled; another tenant keeps its own budget.
+        write(adminA, tenantA, "\"0\"", body(phoneId, "wa-token-ok", false)).andExpect(status().isOk());
+        ownership.answer(tenantB, new Proven());
+        write(adminB, tenantB, null, body(Long.toString(NEXT_ID.incrementAndGet()), "wa-token-ok", true))
+                .andExpect(status().isOk());
+        verify(adminB, tenantB, "\"0\"").andExpect(status().isOk());
+        assertThat(ownership.claims).hasSize(tenantBudget + 1);
+    }
+
     @Test
     void successfulProofsNeverConsumeBudgetAndTheTenantBudgetSpansActors() throws Exception {
         ownership.answer(tenantA, new Proven());
