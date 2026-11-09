@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a full SHA pin whose comment is prose, not one tag.
+# ABOUTME: Expected: violation on the uses line.
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # pinned, see docs

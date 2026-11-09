@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a docker:// action pinned by a 64 hex digest.
+# ABOUTME: Expected: pass; the digest is the pin.
+jobs:
+  build:
+    steps:
+      - uses: docker://ghcr.io/owner/image@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
