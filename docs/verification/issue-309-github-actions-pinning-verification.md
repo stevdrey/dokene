@@ -70,7 +70,21 @@ Ten repositories, ten SHAs, one SHA per repository across all ten workflows (AC-
 
 ## CI runs on the pull request
 
-To be filled when the pull request's checks finish: the run id of `Workflow pins` and of every workflow the pull request triggers (`Backend`, `Frontend`, `CodeQL`, `Security Scans`, `Pull Request Size Guard`, `Script tests`, `PR preflight tests`, `Dependency check`), all green on the tested revision. The runner resolves every action at "Set up job", so a passing job proves every pin in it. `publish-wiki.yml` runs only on push to `main`; its first post merge run is the proof for that file (AC-6).
+Pull request [#369](https://github.com/stevdrey/dokene/pull/369), tested revision `50ee41e5862389c0c8bc48eb57cc5cd0f20dd726` (this record's CI section was added in the commit after it; the pins and scripts are unchanged). Every workflow the pull request triggers passed on that revision (AC-6):
+
+| Workflow | Run id | Conclusion |
+| --- | --- | --- |
+| Workflow pins | 42650858064 | success (18 test checks passed, check exit 0) |
+| Backend CI | 42650857947 | success |
+| Frontend CI | 42650857948 | success |
+| CodeQL | 42650857872 | success |
+| Security Scans | 42650857901 | success |
+| OWASP Dependency Check | 42650857882 | success |
+| Pull Request Size Guard | 42650857927 | success |
+| Script tests | 42650857954 | success |
+| Agent PR Preflight Tests | 42650857874 | success |
+
+The runner resolves every action at "Set up job". The `Download action repository` lines across these nine runs name all ten pinned SHAs (`actions/checkout`, `actions/setup-java`, `actions/setup-node`, `actions/github-script`, `actions/cache`, `actions/upload-artifact`, `gradle/actions`, `gitleaks/gitleaks-action`, `aquasecurity/trivy-action`, `github/codeql-action`), each at the SHA in the evidence table; the other references in those lines (`aquasecurity/setup-trivy`, a second `actions/checkout`, two other `actions/cache` commits) are pulled in by the pinned actions themselves, not by this repository's workflows. `publish-wiki.yml` runs only on push to `main`; its first post merge run is the proof for that file.
 
 ## Not verified here
 
