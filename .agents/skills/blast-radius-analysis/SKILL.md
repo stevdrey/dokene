@@ -12,7 +12,7 @@ This is an optional pilot practice from [Epic #371](https://github.com/stevdrey/
 The default is not to run it. Run it, and say why, only when the change:
 
 - crosses two or more of these boundaries: API contract, persistence or migration, frontend behavior, authentication or authorization, RLS or tenant scope, messaging side effects; or
-- touches a numbered item of the [security invariants](../../../docs/security/security-invariants.md) or the decision of an accepted ADR.
+- touches a numbered item of the [security invariants](../../../docs/security/security-invariants.md).
 
 Skip it, and say so in one line, for documentation-only work or a change inside one module with no contract or invariant impact.
 
@@ -22,7 +22,7 @@ This skill is a step inside `agent-task-workflow`, not a second orchestrator. It
 
 It sits at the "applicable skills" level of the `AGENTS.md` precedence: explicit task requirements, accepted ADRs, and security invariants win over anything it concludes. When the analysis finds that the task conflicts with an ADR or invariant, report the conflict; do not resolve it here.
 
-Its record is implementer's evidence. It never creates a merge blocker by itself (see [Blocking bar](#blocking-bar)).
+Its record is implementer's evidence. A finding from it becomes a blocker only under the [Blocking bar](#blocking-bar); the analysis never adds a gate of its own.
 
 ## Procedure
 
@@ -36,7 +36,7 @@ For each boundary, find the code that the change reaches and cite it (`path:line
 
 | Boundary | Where to look in Dokene |
 | --- | --- |
-| Entry points | `backend/src/main/java/**/api/*Controller.java`, webhook endpoints, scheduled tasks and listeners that reach the changed code |
+| Entry points | Controllers found with `git grep -l '@RestController' backend/src/main/java`, which includes webhook controllers outside `api` packages such as `integration/whatsapp/webhook/`; scheduled tasks and listeners that reach the changed code |
 | Callers | Usages of every changed public method or port; ArchUnit rules in `backend/src/test/java/**/architecture/` |
 | API contract | Request and response DTOs, status codes, error shapes, and the frontend consumers in `frontend/src/api/` and `frontend/src/features/` |
 | Persistence and migrations | Flyway scripts in `backend/src/main/resources/db/migration/`, runtime-role grants, RLS policies, constraints, locking and transaction boundaries |
@@ -86,7 +86,7 @@ safety_assumptions:
 probes:
   - id: P1
     command: "<exact command>"
-    kind: automated | manual | simulated | live
+    kind: automated | manual | simulated   # never live: probes do not reach a real provider (step 4)
     result: passed | failed | not-run
     negative_control: "<what was removed and the observed failure, or none>"
 uncertainty: ["<unverified: item and reason>"]

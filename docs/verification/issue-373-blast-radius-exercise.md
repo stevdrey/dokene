@@ -18,7 +18,7 @@ This record is sanitized: outcomes and test names only. All data in the tests is
 | P1, P2 baseline | `./gradlew test --tests '*ModuleDependencyArchitectureTest' --tests '*tenant.application.MembershipServiceTest'` | automated | BUILD SUCCESSFUL: `ModuleDependencyArchitectureTest` 22 tests, `MembershipServiceTest` 20 tests, 0 failures |
 | P1, P2 negative controls | Same command after removing the denial check at `MembershipChangeAuthorizer.java:63-65` and adding a class in `tenant.application` that calls `TenantMembershipRepository.save` | automated | BUILD FAILED as intended: 42 tests, 5 failed. `membershipsAreWrittenOnlyByKnownUseCases` (P1) and 4 `MembershipServiceTest` cases (P2): `aRefusalUnderTheLockSkipsTheMutationAndIsAuditedOnlyAfterTheTransactionEnded`, `aRevokedActorIsRefusedEvenWhileItAdministersAnotherTenant`, `aReplacedActorMembershipDoesNotCarryTheRequestsAuthority`, `anActorDemotedAfterTheRequestResolvedIsRefusedForEveryChangeAndAudited` |
 
-Both safety-critical assumptions therefore reached the `reproduced` level.
+Both safety-critical assumptions, as narrowed in the record, therefore reached the `reproduced` level. P1 proves only that a writer outside the allow-list is caught, not that the allow-listed classes write inside `MembershipChangeAuthorizer.change`; the record keeps that `unverified`.
 
 ## Comparison with the project's tests
 
