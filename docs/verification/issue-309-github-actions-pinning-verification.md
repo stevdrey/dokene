@@ -6,9 +6,9 @@ This record is sanitized: it names commit SHAs, tags, file lines, commands and r
 
 ## Environment
 
-- **Run:** 2026-11-09 (UTC), branch `fix/309-pin-github-actions`, based on `main` at `38deb90`. The tree was rechecked on that base before the change: `grep -n "uses:" .github/workflows/*.yml` listed 26 references in nine workflows, all by tag, so M5 still applied as reported. The spec counted 27; the tree held 26, and the twenty seventh reference in the table below is the `checkout` step of the new `workflow-pins.yml`.
+- **Run:** 2026-11-09 (UTC) for the pins and the evidence table, 2026-11-10 (UTC) for the review corrections, branch `fix/309-pin-github-actions`, based on `main` at `38deb90`. The tree was rechecked on that base before the change: `grep -n "uses:" .github/workflows/*.yml` listed 26 references in nine workflows, all by tag, so M5 still applied as reported. The spec counted 27; the tree held 26, and the twenty seventh reference in the table below is the `checkout` step of the new `workflow-pins.yml`.
 - **Tested revision:** the commit named in [CI runs on the pull request](#ci-runs-on-the-pull-request). The local results below were run on the working tree that became that commit. A record cannot name its own commit hash, so the CI section is added in a later commit that changes only this record.
-- **Review corrections:** the check, its test and fixtures, `workflow-pins.yml` and the documentation were corrected after the review of `6cb083d3` on pull request #369 (ten findings); the 27 pins did not change. The branch was merged with `main` at `6c54473` at the same time, which moved the invariant from 31 to 32. Every result below is from the corrected tree; nothing is carried forward from the first revision except the evidence table, whose pins and workflow lines are unchanged.
+- **Review corrections:** the check, its test and fixtures, `workflow-pins.yml` and the documentation were corrected after the review of `6cb083d3` on pull request #369 (ten findings); the 27 pins did not change. The branch was merged with `main` at `6c54473` at the same time, which moved the invariant from 31 to 32. Results from the first revision that were not rerun are marked as such in the results table: the evidence table and its `git ls-remote` resolution (no pin or workflow line changed) and the run of the check on the base tree. Every other result is from the corrected tree.
 - **Toolchain:** bash 5.3.15 (Homebrew) and `/bin/bash` 3.2.57 (macOS) for the check and its test, with the system `find`, `sort`, `awk`, `cut`, `tr` and `dirname`; `git` 2.x for `git ls-remote`; ruby's `YAML.load_file` to parse the two edited YAML files. No Docker, no Gradle, no network beyond `git ls-remote` to `github.com`.
 
 ## Evidence table
@@ -52,9 +52,10 @@ Ten repositories, ten SHAs, one SHA per repository across all ten workflows (AC-
 | Acceptance item | Check |
 | --- | --- |
 | The pinned tree passes; the default directory is `.github/workflows` | `check-workflow-pins-test.sh`: "the real workflows are all pinned", "the default directory is .github/workflows" |
-| Each forbidden class is reported with the exact `file:line: reference` line: tag, branch, short SHA, uppercase SHA, full SHA without comment, full SHA with a prose comment, quoted tag, job level reusable workflow on a tag, `.yaml` file, two violations in one file (both lines), two SHAs for one repository (the second line), `docker://` without a digest, a double quoted, single quoted or spaced `uses` key (all three lines) | one fixture directory each under `scripts/tests/fixtures/check-workflow-pins/`, expected output hard coded in the test |
+| Each forbidden class is reported with the exact `file:line: reference` line: tag, branch, short SHA, uppercase SHA, full SHA without comment, full SHA with a prose comment, quoted tag, job level reusable workflow on a tag, `.yaml` file, two violations in one file (both lines), two SHAs for one repository (the second line), `docker://` without a digest, a double quoted, single quoted or spaced `uses` key (all three lines) |
+| A floating tag in a composite action reached through a symbolic link under the actions directory is reported | built at run time in the test's temporary directory | one fixture directory each under `scripts/tests/fixtures/check-workflow-pins/`, expected output hard coded in the test |
 | Two SHAs for one repository in two files, the repository spelled in another case in the second, report only the second file's line in its original spelling | fixture `cross-file-sha` (`a.yml`, `b.yml`) |
-| A `./` reference outside `.github/actions` and `.github/workflows`, a `./` reference that climbs out with `..`, and a floating tag inside a local composite action's `action.yml` are all reported; the `./.github/actions/setup` reference beside them is not | fixture `composite` (`workflows/workflow.yml`, `actions/setup/action.yml`) |
+| A `./` reference outside `.github/actions` and `.github/workflows`, a `./` reference that climbs out with `..`, a `./` reference into a subdirectory of `.github/workflows`, and a floating tag inside a local composite action's `action.yml` are all reported; the `./.github/actions/setup` reference and the job level `./.github/workflows/reusable.yml` beside them are not | fixture `composite` (`workflows/workflow.yml`, `actions/setup/action.yml`) |
 | An empty directory exits 2 | fixture `empty-dir` |
 | A `./.github/actions/` local action, a `docker://` reference with a 64 hex digest and a commented out `uses:` line pass | fixtures `local-action`, `docker-digest`, `commented-out` |
 | The check runs on every pull request and push to `main` with `contents: read`, a 5 minute timeout and a pinned `checkout`, as the first case of the test | `.github/workflows/workflow-pins.yml` (AC-4) |
@@ -63,12 +64,12 @@ Ten repositories, ten SHAs, one SHA per repository across all ten workflows (AC-
 
 | Command | Kind | Result |
 | --- | --- | --- |
-| `./scripts/check-workflow-pins.sh` on the base tree (before the pins) | manual | exit 1, 26 lines, one per tag reference, matching the `grep` count |
+| `./scripts/check-workflow-pins.sh` on the base tree (before the pins) | manual | exit 1, 26 lines, one per tag reference, matching the `grep` count; run with the first revision's script, not rerun after the corrections |
 | `./scripts/check-workflow-pins.sh` on the pinned tree | manual | exit 0, no output |
-| `./scripts/tests/check-workflow-pins-test.sh` (bash 5.3) | automated | 21 checks passed, `All checks passed` |
-| `/bin/bash scripts/tests/check-workflow-pins-test.sh` (bash 3.2) | automated | 21 checks passed |
+| `./scripts/tests/check-workflow-pins-test.sh` (bash 5.3) | automated | 22 checks passed, `All checks passed` |
+| `/bin/bash scripts/tests/check-workflow-pins-test.sh` (bash 3.2) | automated | 22 checks passed |
 | `/bin/bash scripts/check-workflow-pins.sh` on the pinned tree (bash 3.2) | manual | exit 0, no output |
-| The three new test cases on the tree before the script was corrected | automated | all three failed with exit 0 where 1 was wanted, so they test the corrections |
+| The new test cases on the tree before the script was corrected | automated | the key spellings, composite and cross file cases failed with exit 0 where 1 was wanted, and the symbolic link case and the `.github/workflows` subdirectory line failed before the correction that followed the first independent verification, so they test the corrections |
 | The check on scratch workflows outside the tree: the three `uses` key spellings; a `./scripts/x`, a `..` escape and a composite action on a floating tag; `Actions/Cache/restore` and `actions/cache/save` on two SHAs | manual | exit 1 with every expected line in each case; all three exited 0 on `6cb083d3` |
 | The check on a scratch workflow with an arbitrary 40 hex SHA beside `# v7.0.1`, and a floating `# v7` comment | manual | exit 0: the script does not prove tag equality, as the pinning page and invariant 32 now state |
 | `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>' 'refs/tags/<tag>^{}'` for the ten recorded tags | manual | every SHA in the table equals the peeled commit (annotated) or the plain line (lightweight) (AC-2); run on the first revision, not rerun after the corrections because no pin changed |

@@ -81,7 +81,16 @@ expect "a quoted or spaced uses key is still checked" 1 "$FIXTURES/key-spellings
 expect "a local reference outside the scanned trees and a floating tag in a composite action fail" 1 "$FIXTURES/composite/workflows" \
     "$FIXTURES/composite/actions/setup/action.yml:6: some/action@v1" \
     "$FIXTURES/composite/workflows/workflow.yml:7: ./scripts/x" \
-    "$FIXTURES/composite/workflows/workflow.yml:8: ./.github/actions/../../x"
+    "$FIXTURES/composite/workflows/workflow.yml:8: ./.github/actions/../../x" \
+    "$FIXTURES/composite/workflows/workflow.yml:9: ./.github/workflows/sub/act"
+
+# Built at run time: a symlink in a fixture would point outside the repository.
+mkdir -p "$WORK/symlink/workflows" "$WORK/symlink/actions" "$WORK/outside/setup"
+printf 'jobs:\n  build:\n    steps:\n      - uses: ./.github/actions/linked/setup\n' >"$WORK/symlink/workflows/workflow.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WORK/outside/setup/action.yml"
+ln -s "$WORK/outside" "$WORK/symlink/actions/linked"
+expect "a floating tag in a composite action behind a symlink fails" 1 "$WORK/symlink/workflows" \
+    "$WORK/symlink/actions/linked/setup/action.yml:4: some/action@v1"
 expect "a docker:// reference without a digest fails" 1 "$FIXTURES/docker-no-digest" \
     "$FIXTURES/docker-no-digest/workflow.yml:6: docker://alpine:3.20"
 expect "an empty directory exits 2" 2 "$FIXTURES/empty-dir"

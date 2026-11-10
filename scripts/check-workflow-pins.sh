@@ -15,8 +15,9 @@ USES_LINE='^[[:space:]]*(-[[:space:]]+)?("uses"|'\''uses'\''|uses)[[:space:]]*:[
 COMMENT_LINE='^[[:space:]]*#'
 PINNED_VALUE='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(/[^@[:space:]]+)?@[0-9a-f]{40}$'
 TAG_COMMENT='^#[[:space:]]+[^[:space:]]+[[:space:]]*$'
-# A local reference must stay inside the two trees this script reads; no segment may start with a dot, which rules out `..`.
-LOCAL_VALUE='^\./\.github/(actions|workflows)(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)+$'
+# A local reference must name something this script reads: an action at any depth under .github/actions, or one
+# workflow file directly under .github/workflows. No segment may start with a dot, which rules out `..`.
+LOCAL_VALUE='^\./\.github/(actions(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)+|workflows/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ya?ml)$'
 DOCKER_DIGEST='@sha256:[0-9a-f]{64}$'
 
 # Plain indexed arrays instead of associative ones, so the script also runs on the bash 3.2 that macOS ships.
@@ -85,10 +86,10 @@ while IFS= read -r f; do files+=("$f"); done < <(find "$DIR" -maxdepth 1 -type f
 [ "${#files[@]}" -gt 0 ] || { echo "check-workflow-pins: no *.yml or *.yaml file in $DIR" >&2; exit 2; }
 
 # A `./.github/actions/...` reference runs a composite action from the tree, and that action can itself name outside
-# actions. Exit 2 above depends on workflow files only.
+# actions. Exit 2 above depends on workflow files only. -L: a symlinked action directory or file runs like a real one.
 ACTIONS_DIR="$(dirname "$DIR")/actions"
 if [ -d "$ACTIONS_DIR" ]; then
-    while IFS= read -r f; do files+=("$f"); done < <(find "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
+    while IFS= read -r f; do files+=("$f"); done < <(find -L "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
 fi
 
 for f in "${files[@]}"; do check_file "$f"; done
