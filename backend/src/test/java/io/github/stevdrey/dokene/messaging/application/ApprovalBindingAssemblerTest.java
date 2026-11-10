@@ -6,7 +6,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
@@ -206,6 +209,20 @@ class ApprovalBindingAssemblerTest {
 
         mapping("en_US", TemplateParameterFormat.POSITIONAL, List.of("customer_name", "message_body"), CONTENT, 3);
         assertThat(assembler.review(message(BODY), customer)).isEmpty();
+    }
+
+    /** Issue 326: an approved message's preview answers coverage and review from one render. */
+    @Test
+    void reviewIfCoveredRendersOnceAndShowsNothingOnceTheApprovalNoLongerCovers() {
+        OutboundMessage message = message(BODY);
+        ApprovalFingerprint approved = ApprovalFingerprint.of(assembler.bind(message, customer, sender));
+        clearInvocations(guards);
+
+        assertThat(assembler.reviewIfCovered(message, customer, sender, approved)).isPresent();
+        verify(guards, times(1)).checkRendered(any(), any(), any(), any(), any());
+
+        mapping("es", List.of("customer_name", "message_body"), 4);
+        assertThat(assembler.reviewIfCovered(message, customer, sender, approved)).isEmpty();
     }
 
     @Test

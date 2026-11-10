@@ -7,7 +7,7 @@ import io.github.stevdrey.dokene.ai.domain.DraftGroundingContext;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.TenantFollowUpPolicy;
-import io.github.stevdrey.dokene.purchase.application.PurchaseService;
+import io.github.stevdrey.dokene.purchase.application.PurchaseRepository;
 import io.github.stevdrey.dokene.purchase.domain.Purchase;
 import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -24,15 +24,15 @@ public class DraftGroundingAssembler {
     private final FollowUpPolicyRepository policies;
     private final TenantRepository tenants;
     private final TenantContextProvider tenantContexts;
-    private final PurchaseService purchases;
+    private final PurchaseRepository purchases;
 
     public DraftGroundingAssembler(RecommendationContextAssembler contexts, FollowUpPolicyRepository policies,
-            TenantRepository tenants, TenantContextProvider tenantContexts, PurchaseService purchases) {
+            TenantRepository tenants, TenantContextProvider tenantContexts, PurchaseRepository purchases) {
         this.contexts = Objects.requireNonNull(contexts, "Context assembler is required");
         this.policies = Objects.requireNonNull(policies, "Policy repository is required");
         this.tenants = Objects.requireNonNull(tenants, "Tenant repository is required");
         this.tenantContexts = Objects.requireNonNull(tenantContexts, "Tenant context provider is required");
-        this.purchases = Objects.requireNonNull(purchases, "Purchase service is required");
+        this.purchases = Objects.requireNonNull(purchases, "Purchase repository is required");
     }
 
     /** The validator inputs, or empty when the customer is not currently eligible for a follow up. */
@@ -55,14 +55,15 @@ public class DraftGroundingAssembler {
 
     /**
      * The grounding of rendered template content (issue 326): the customer's identity and the same recent valid
-     * purchases {@link #assemble} grounds a body on. It needs no follow-up eligibility or follow-up permission, so a
-     * review read by any member who may read the message answers the same as the approval that follows it.
+     * purchases {@link #assemble} grounds a body on. It reads the tenant's repository directly and needs no follow-up
+     * eligibility or purchase permission, because it only decides whether content passes and returns no purchase data,
+     * so a review read by any member who may read the message answers the same as the approval that follows it.
      */
     @Transactional(readOnly = true)
     public DraftGroundingContext renderedContentGrounding(Customer customer) {
         Objects.requireNonNull(customer, "Customer is required");
-        List<String> descriptions = purchases.list(customer.id(), PurchaseStatus.VALID, null,
-                RecommendationContext.MAX_PURCHASES).purchases().stream().map(Purchase::description).toList();
+        List<String> descriptions = purchases.list(customer.tenantId(), customer.id(), PurchaseStatus.VALID, null,
+                RecommendationContext.MAX_PURCHASES).stream().map(Purchase::description).toList();
         return new DraftGroundingContext(customer.displayName(), customer.notes(), descriptions, List.of(), null, null);
     }
 

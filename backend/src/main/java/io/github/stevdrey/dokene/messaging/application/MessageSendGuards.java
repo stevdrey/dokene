@@ -1,7 +1,9 @@
 // ABOUTME: The customer, contact policy, eligibility, body and rendered-content guards shared by submit (T1), approval
-// ABOUTME: (T2) and the last-moment send gate (issue 138). Callers hold the customer lock; refusals carry a closed code only.
+// ABOUTME: (T2) and the last-moment send gate (issue 138). Callers hold the customer lock; refusals carry a closed code.
 package io.github.stevdrey.dokene.messaging.application;
 
+import io.github.stevdrey.dokene.ai.domain.AmbiguousSurnames;
+import io.github.stevdrey.dokene.ai.domain.DraftGroundingContext;
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.DraftVariables;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
@@ -26,12 +28,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 @Component
 public class MessageSendGuards {
     // Fixed, context free rationale: the validator checks it with the body and it must never fabricate facts.
     private static final String OPERATOR_RATIONALE = "Mensaje enviado por el operador.";
+    private static final DraftGroundingContext NOTHING_GROUNDED = new DraftGroundingContext(null, null, List.of(),
+            List.of(), null, null);
 
     private final ContactPolicyRepository contactPolicies;
     private final FollowUpService followUps;
@@ -75,7 +81,9 @@ public class MessageSendGuards {
                 .orElseThrow(() -> refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE));
         MessageDraft draft;
         try {
-            draft = new MessageDraft(action, intent, AmbiguousSurnames.neutralized(body, customer.displayName()),
+            draft = new MessageDraft(action, intent,
+                    AmbiguousSurnames.neutralized(withSentenceBreakAfterName(body, customer.displayName()),
+                            customer.displayName()),
                     DraftVariables.empty(), locale, List.of(), List.of(),
                     OPERATOR_RATIONALE, RecommendationConfidence.of(1.0));
         } catch (RecommendationValidationException exception) {
@@ -87,22 +95,37 @@ public class MessageSendGuards {
     }
 
     /**
-     * The body guard applied to what the provider would receive (issue 326), on every path that renders a template:
-     * each parameter value, which may come from tenant records rather than the reviewed body, and the fixed body with
-     * those values filled in. Refuses with {@code BODY_REJECTED} and never quotes a value. The customer's own name is
-     * read through {@link AmbiguousSurnames}, as in the body guard.
+     * The body guard applied to what the provider would receive (issue 326), on every path that renders a template.
+     * Identity values, which come from tenant records, carry no offer however a purchase reads, so they are checked
+     * with nothing to ground one. The body value and the rendered body are grounded as a body is. Refuses with
+     * {@code BODY_REJECTED} and never quotes a value. The customer's own name is read through {@link AmbiguousSurnames}.
      */
-    public void checkRendered(Customer customer, String locale, List<String> parameterValues, String renderedBody) {
-        Map<String, String> texts = new LinkedHashMap<>();
-        for (int index = 0; index < parameterValues.size(); index++) {
-            texts.put("parameter " + (index + 1),
-                    AmbiguousSurnames.neutralized(parameterValues.get(index), customer.displayName()));
+    public void checkRendered(Customer customer, String locale, List<String> identityValues, List<String> bodyValues,
+            String renderedBody) {
+        Map<String, String> texts = labelled(customer, identityValues);
+        if (DraftSafetyValidator.validateRenderedText(texts, locale, NOTHING_GROUNDED).isPresent()) {
+            throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+        texts = labelled(customer, bodyValues);
         texts.put("rendered body", AmbiguousSurnames.neutralized(renderedBody, customer.displayName()));
         if (DraftSafetyValidator.validateRenderedText(texts, locale, grounding.renderedContentGrounding(customer))
                 .isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+    }
+
+    private static Map<String, String> labelled(Customer customer, List<String> values) {
+        Map<String, String> texts = new LinkedHashMap<>();
+        for (int index = 0; index < values.size(); index++) {
+            texts.put("parameter " + (index + 1), AmbiguousSurnames.neutralized(values.get(index), customer.displayName()));
+        }
+        return texts;
+    }
+
+    /** A period written straight after the customer's own name ends a sentence: "Ana.Gracias" is not a domain. */
+    private static String withSentenceBreakAfterName(String body, String displayName) {
+        return Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(displayName) + "\\.(?=\\p{Lu})").matcher(body)
+                .replaceAll(Matcher.quoteReplacement(displayName + ". "));
     }
 
     private static MessagingRefusedException refuse(MessagingErrorCode code) {

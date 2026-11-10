@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -242,7 +243,7 @@ public final class DraftSafetyValidator {
     /** The written numbers and fractions these rules read as quantities, for a caller that must treat them alike. */
     public static Set<String> writtenQuantityWords() {
         return Stream.concat(NUMBER_WORDS.keySet().stream(), FRACTION_WORDS.keySet().stream())
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     /** {@code text} as these rules read it: compatibility forms, format characters, case and look-alikes folded. */

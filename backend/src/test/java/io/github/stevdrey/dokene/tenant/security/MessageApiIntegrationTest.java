@@ -561,6 +561,16 @@ class MessageApiIntegrationTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
     }
 
+    /** Issue 326: a fixed template that ends a sentence right after the name is not read as a domain at submit. */
+    @Test
+    void aSentenceBreakRightAfterTheNameInAFixedTemplateIsAccepted() throws Exception {
+        templates.parameterNames = List.of("customer_name");
+        templates.content = new TemplateContent(null, "Hola {{1}}.Gracias por su compra", null);
+
+        submit(ownerA, "s-" + UUID.randomUUID(), etag(policyVersion),
+                submitJson("Hola Ana Pérez.Gracias por su compra")).andExpect(status().isCreated());
+    }
+
     private void rename(String displayName) throws Exception {
         Customer current = inContext(ownerA, () -> customers.get(customer.id()));
         inContext(ownerA, () -> customers.update(customer.id(), current.version(), displayName, current.notes(),

@@ -185,7 +185,7 @@ class SendPolicyGateTest {
         permitted();
         approvedWith(atApproval);
         doThrow(new MessagingRefusedException(MessagingErrorCode.BODY_REJECTED)).when(guards)
-                .checkRendered(any(), any(), any(), any());
+                .checkRendered(any(), any(), any(), any(), any());
 
         assertRefused(new SendPolicyGate(messages, guards, real, safety, defaults()), approved,
                 MessagingErrorCode.BODY_REJECTED);

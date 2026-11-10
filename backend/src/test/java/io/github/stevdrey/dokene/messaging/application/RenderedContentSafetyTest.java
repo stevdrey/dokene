@@ -212,6 +212,54 @@ class RenderedContentSafetyTest {
         assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", BODY, named), named, sender), "descuento");
     }
 
+    /** An identity value carries no offer: a purchase that would ground the same text in a body does not ground it. */
+    @Test
+    void aNameCarryingAnOfferIsRefusedEvenWhenAPurchaseWouldGroundIt() {
+        purchases("Televisor con 10% de descuento");
+        Customer customer = customer("Ana 10% de descuento");
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", BODY, customer), customer, sender),
+                "descuento");
+    }
+
+    @Test
+    void anOrdinaryWordNearAListedSurnameDoesNotRefuseIt() {
+        Customer customer = customer("Ana Bono");
+        for (String body : List.of("Hoy queremos saber cómo está.", "Tenemos un nuevo horario.")) {
+            assertThat(assembler.bind(message("es-419", body, customer), customer, sender).parameterValues())
+                    .containsExactly("Ana Bono", body);
+        }
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Es especial.", customer), customer, sender),
+                "Bono");
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Son cien.", customer), customer, sender),
+                "Bono");
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Son 100.", customer), customer, sender),
+                "Bono");
+    }
+
+    @Test
+    void aSentenceBreakAfterAPlaceholderIsNotADomainButAFixedDomainStaysRefused() {
+        mapping("es", List.of("customer_name"), new TemplateContent(null, "Hola {{1}}.Gracias por su compra", null));
+        Customer customer = customer("Ana Pérez");
+        assertThat(assembler.bind(message("es-419", "Hola Ana Pérez.Gracias por su compra", customer), customer,
+                sender).parameterValues()).containsExactly("Ana Pérez");
+
+        mapping("es", List.of("customer_name"), new TemplateContent(null, "Visite {{1}}.com", null));
+        Customer domain = customer("promo");
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Visite promo.com", domain), domain, sender),
+                "promo");
+    }
+
+    @Test
+    void aBlankSymbolOrAVeryLongWordDoesNotMoveANumberOutOfReach() {
+        Customer customer = customer("Ana Precio");
+        for (String padding : List.of("\u2800".repeat(40), "z".repeat(60))) {
+            String body = "Ana Precio " + padding + " 100.";
+            assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", body, customer), customer, sender),
+                    "100");
+        }
+    }
+
     @Test
     void theRenderedContentUsesTheVocabularyOfTheMessageLocale() {
         mapping("en_US", new TemplateContent(null, "Hello {{1}}: {{2}}", null));
@@ -240,9 +288,13 @@ class RenderedContentSafetyTest {
     }
 
     private void mapping(String language, TemplateContent content) {
+        mapping(language, List.of("customer_name", "message_body"), content);
+    }
+
+    private void mapping(String language, List<String> parameterNames, TemplateContent content) {
         when(templates.resolve(SemanticTemplateIntent.GENERAL_FOLLOW_UP)).thenReturn(new TemplateMappingResolver.Resolved(
                 new ResolvedTemplateMapping(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "general_follow_up", language,
-                        TemplateParameterFormat.POSITIONAL, List.of("customer_name", "message_body"), content, 3)));
+                        TemplateParameterFormat.POSITIONAL, parameterNames, content, 3)));
     }
 
     private Customer customer(String name) {
