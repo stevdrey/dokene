@@ -91,7 +91,8 @@ development, `npm run dev` has no CSP; use `npm run build && npm run preview` (s
   `./scripts/dev-env.sh reset`. The test user passwords are the exception: every `up` sets them from `.env`.
 - A test user login is refused after pulling issue 314: run `./scripts/dev-env.sh up`. It adds the missing
   `DOKENE_TEST_*_PASSWORD` values to `.env` and applies them to your existing realm; the old shared
-  `DOKENE_TEST_USER_PASSWORD` no longer works and can be deleted from `.env`.
+  `DOKENE_TEST_USER_PASSWORD` no longer works and can be deleted from `.env`. The realm settings script needs `jq`,
+  so `up` now fails its preflight without it (macOS: `brew install jq`) instead of leaving the old passwords in place.
 - `DOKENE_TEST_<ROLE>_PASSWORD in .env must be at least 12 characters`: the realm password policy is
   `length(12) and notUsername and notEmail`. Use a longer value, or delete the line and let `up` generate one.
 - `Keycloak test user passwords were not set from .env`: the Keycloak container is missing a password variable or

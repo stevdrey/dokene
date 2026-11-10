@@ -234,9 +234,9 @@ compose_version_supported() {
 check_tools() {
   have curl || check_fail "curl is required for health checks."
   have openssl || warn "openssl not found: it is only needed to generate a new .env automatically."
-  if [ "${WANT_SEED:-false}" = "true" ]; then
-    have jq || check_fail "jq is required by scripts/seed-local-qa.sh (macOS: brew install jq)."
-  fi
+  # Every `up` runs keycloak-apply-realm-settings.sh, which needs jq; without it an existing realm would keep its old
+  # test user passwords while .env holds the new ones (#314).
+  have jq || check_fail "jq is required by scripts/keycloak-apply-realm-settings.sh and scripts/seed-local-qa.sh (macOS: brew install jq)."
 }
 
 generate_env_file() {

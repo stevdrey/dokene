@@ -453,6 +453,22 @@ up_maps_realm_settings_status() {
 check "up fails on a realm settings password error (exit 3) and only warns on a config error (#314)" \
   bash -c "$(declare -f up_maps_realm_settings_status) ; SCRIPT='$SCRIPT'; up_maps_realm_settings_status"
 
+# Every `up` runs keycloak-apply-realm-settings.sh, which needs jq, so a missing jq must fail preflight even without
+# --seed: otherwise an existing realm keeps its old passwords while .env holds the new ones.
+check_tools_requires_jq_without_seed() {
+  (
+    # shellcheck source=../dev-env.sh
+    source "$SCRIPT" || exit 99
+    have() { [ "$1" != "jq" ]; }
+    warn() { :; }; ok() { :; }
+    check_fail() { printf 'CHECK_FAIL %s\n' "$*"; }
+    out="$(WANT_SEED=false check_tools)"
+    grep -q '^CHECK_FAIL jq is required' <<<"$out" && grep -q 'keycloak-apply-realm-settings' <<<"$out"
+  )
+}
+check "check_tools requires jq for every up, not only --seed (#314)" \
+  bash -c "$(declare -f check_tools_requires_jq_without_seed) ; SCRIPT='$SCRIPT'; check_tools_requires_jq_without_seed"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
   exit 1
