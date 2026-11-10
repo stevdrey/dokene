@@ -72,11 +72,21 @@ expect "two violations in one file are both reported" 1 "$FIXTURES/two-violation
     "$FIXTURES/two-violations/workflow.yml:9: actions/setup-node@v7"
 expect "two SHAs for one repository report the second" 1 "$FIXTURES/two-shas" \
     "$FIXTURES/two-shas/workflow.yml:7: actions/cache/save@$SHA2"
+expect "two SHAs for one repository in two files report the second file, whatever the case" 1 "$FIXTURES/cross-file-sha" \
+    "$FIXTURES/cross-file-sha/b.yml:6: Actions/cache/save@$SHA2"
+expect "a quoted or spaced uses key is still checked" 1 "$FIXTURES/key-spellings" \
+    "$FIXTURES/key-spellings/workflow.yml:6: actions/checkout@v7" \
+    "$FIXTURES/key-spellings/workflow.yml:7: actions/setup-node@v7" \
+    "$FIXTURES/key-spellings/workflow.yml:8: actions/setup-java@v6"
+expect "a local reference outside the scanned trees and a floating tag in a composite action fail" 1 "$FIXTURES/composite/workflows" \
+    "$FIXTURES/composite/actions/setup/action.yml:6: some/action@v1" \
+    "$FIXTURES/composite/workflows/workflow.yml:7: ./scripts/x" \
+    "$FIXTURES/composite/workflows/workflow.yml:8: ./.github/actions/../../x"
 expect "a docker:// reference without a digest fails" 1 "$FIXTURES/docker-no-digest" \
     "$FIXTURES/docker-no-digest/workflow.yml:6: docker://alpine:3.20"
 expect "an empty directory exits 2" 2 "$FIXTURES/empty-dir"
 
-expect "a local ./ action passes" 0 "$FIXTURES/local-action"
+expect "a local ./.github/actions reference passes" 0 "$FIXTURES/local-action"
 expect "a docker:// reference with a 64 hex digest passes" 0 "$FIXTURES/docker-digest"
 expect "a commented out uses line is skipped" 0 "$FIXTURES/commented-out"
 

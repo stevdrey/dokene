@@ -1,0 +1,8 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: local references inside and outside the scanned trees.
+# ABOUTME: Expected: the .github/actions reference passes; the path outside the scanned trees and the `..` escape are violations.
+jobs:
+  build:
+    steps:
+      - uses: ./.github/actions/setup
+      - uses: ./scripts/x
+      - uses: ./.github/actions/../../x

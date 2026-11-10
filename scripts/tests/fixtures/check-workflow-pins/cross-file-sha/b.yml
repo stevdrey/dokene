@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: second file, same repository spelled in another case, another SHA.
+# ABOUTME: Expected: violation on the uses line, reported in its original spelling (rule 6 across files, case insensitive).
+jobs:
+  build:
+    steps:
+      - uses: Actions/cache/save@89abcdef0123456789abcdef0123456789abcdef # v6.0.0

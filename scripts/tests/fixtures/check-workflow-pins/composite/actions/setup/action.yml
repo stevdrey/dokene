@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a local composite action that itself references a floating tag.
+# ABOUTME: Expected: violation on the uses line; the check reads action files beside the workflows directory.
+runs:
+  using: composite
+  steps:
+    - uses: some/action@v1

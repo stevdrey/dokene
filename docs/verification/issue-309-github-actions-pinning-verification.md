@@ -1,14 +1,15 @@
 # Issue #309 GitHub Actions pinning: verification record
 
-Status: single PR. It closes audit finding M5 of the [security audit of 2026-11-02](../security/security-audit-2026-11-02.md): every workflow under `.github/workflows/` referenced its actions by a movable tag, so whoever controlled a tag controlled what ran in CI with the job token (and `NVD_API_KEY` in `dependency-check.yml`). The rule is in [github-actions-pinning.md](../security/github-actions-pinning.md) and security invariant 31.
+Status: single PR. It closes audit finding M5 of the [security audit of 2026-11-02](../security/security-audit-2026-11-02.md): every workflow under `.github/workflows/` referenced its actions by a movable tag, so whoever controlled a tag controlled what ran in CI with the job token (and `NVD_API_KEY` in `dependency-check.yml`). The rule is in [github-actions-pinning.md](../security/github-actions-pinning.md) and security invariant 32.
 
 This record is sanitized: it names commit SHAs, tags, file lines, commands and run identifiers only. It contains no token, key or secret.
 
 ## Environment
 
 - **Run:** 2026-11-09 (UTC), branch `fix/309-pin-github-actions`, based on `main` at `38deb90`. The tree was rechecked on that base before the change: `grep -n "uses:" .github/workflows/*.yml` listed 26 references in nine workflows, all by tag, so M5 still applied as reported. The spec counted 27; the tree held 26, and the twenty seventh reference in the table below is the `checkout` step of the new `workflow-pins.yml`.
-- **Tested revision:** the pull request's head commit, named in the pull request. The pins, the check and the fixtures below were run on the working tree that became that commit. A record cannot name its own commit hash.
-- **Toolchain:** bash 5.3.15 (Homebrew) and `/bin/bash` 3.2.57 (macOS) for the check and its test; `git` 2.x for `git ls-remote`; ruby's `YAML.load_file` to parse the two edited YAML files. No Docker, no Gradle, no network beyond `git ls-remote` to `github.com`.
+- **Tested revision:** the commit named in [CI runs on the pull request](#ci-runs-on-the-pull-request). The local results below were run on the working tree that became that commit. A record cannot name its own commit hash, so the CI section is added in a later commit that changes only this record.
+- **Review corrections:** the check, its test and fixtures, `workflow-pins.yml` and the documentation were corrected after the review of `6cb083d3` on pull request #369 (ten findings); the 27 pins did not change. The branch was merged with `main` at `6c54473` at the same time, which moved the invariant from 31 to 32. Every result below is from the corrected tree; nothing is carried forward from the first revision except the evidence table, whose pins and workflow lines are unchanged.
+- **Toolchain:** bash 5.3.15 (Homebrew) and `/bin/bash` 3.2.57 (macOS) for the check and its test, with the system `find`, `sort`, `awk`, `cut`, `tr` and `dirname`; `git` 2.x for `git ls-remote`; ruby's `YAML.load_file` to parse the two edited YAML files. No Docker, no Gradle, no network beyond `git ls-remote` to `github.com`.
 
 ## Evidence table
 
@@ -51,10 +52,12 @@ Ten repositories, ten SHAs, one SHA per repository across all ten workflows (AC-
 | Acceptance item | Check |
 | --- | --- |
 | The pinned tree passes; the default directory is `.github/workflows` | `check-workflow-pins-test.sh`: "the real workflows are all pinned", "the default directory is .github/workflows" |
-| Each forbidden class is reported with the exact `file:line: reference` line: tag, branch, short SHA, uppercase SHA, full SHA without comment, full SHA with a prose comment, quoted tag, job level reusable workflow on a tag, `.yaml` file, two violations in one file (both lines), two SHAs for one repository (the second line), `docker://` without a digest | one fixture directory each under `scripts/tests/fixtures/check-workflow-pins/`, expected output hard coded in the test |
+| Each forbidden class is reported with the exact `file:line: reference` line: tag, branch, short SHA, uppercase SHA, full SHA without comment, full SHA with a prose comment, quoted tag, job level reusable workflow on a tag, `.yaml` file, two violations in one file (both lines), two SHAs for one repository (the second line), `docker://` without a digest, a double quoted, single quoted or spaced `uses` key (all three lines) | one fixture directory each under `scripts/tests/fixtures/check-workflow-pins/`, expected output hard coded in the test |
+| Two SHAs for one repository in two files, the repository spelled in another case in the second, report only the second file's line in its original spelling | fixture `cross-file-sha` (`a.yml`, `b.yml`) |
+| A `./` reference outside `.github/actions` and `.github/workflows`, a `./` reference that climbs out with `..`, and a floating tag inside a local composite action's `action.yml` are all reported; the `./.github/actions/setup` reference beside them is not | fixture `composite` (`workflows/workflow.yml`, `actions/setup/action.yml`) |
 | An empty directory exits 2 | fixture `empty-dir` |
-| A `./` local action, a `docker://` reference with a 64 hex digest and a commented out `uses:` line pass | fixtures `local-action`, `docker-digest`, `commented-out` |
-| The check runs on every pull request and push to `main` with `contents: read`, a 5 minute timeout and a pinned `checkout` | `.github/workflows/workflow-pins.yml` (AC-4) |
+| A `./.github/actions/` local action, a `docker://` reference with a 64 hex digest and a commented out `uses:` line pass | fixtures `local-action`, `docker-digest`, `commented-out` |
+| The check runs on every pull request and push to `main` with `contents: read`, a 5 minute timeout and a pinned `checkout`, as the first case of the test | `.github/workflows/workflow-pins.yml` (AC-4) |
 
 ## Results
 
@@ -62,30 +65,20 @@ Ten repositories, ten SHAs, one SHA per repository across all ten workflows (AC-
 | --- | --- | --- |
 | `./scripts/check-workflow-pins.sh` on the base tree (before the pins) | manual | exit 1, 26 lines, one per tag reference, matching the `grep` count |
 | `./scripts/check-workflow-pins.sh` on the pinned tree | manual | exit 0, no output |
-| `./scripts/tests/check-workflow-pins-test.sh` (bash 5.3) | automated | 18 checks passed, `All checks passed` |
-| `/bin/bash scripts/tests/check-workflow-pins-test.sh` (bash 3.2) | automated | 18 checks passed |
-| `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>' 'refs/tags/<tag>^{}'` for the ten recorded tags | manual | every SHA in the table equals the peeled commit (annotated) or the plain line (lightweight) (AC-2) |
-| `git diff -- .github/workflows` filtered for `permissions` and `read`/`write` lines | manual | no line changed; the diff is 26 `uses:` lines plus the new file (AC-6) |
-| `ruby -ryaml -e 'YAML.load_file(...)'` on `workflow-pins.yml` and `dependabot.yml` | manual | both parse |
+| `./scripts/tests/check-workflow-pins-test.sh` (bash 5.3) | automated | 21 checks passed, `All checks passed` |
+| `/bin/bash scripts/tests/check-workflow-pins-test.sh` (bash 3.2) | automated | 21 checks passed |
+| `/bin/bash scripts/check-workflow-pins.sh` on the pinned tree (bash 3.2) | manual | exit 0, no output |
+| The three new test cases on the tree before the script was corrected | automated | all three failed with exit 0 where 1 was wanted, so they test the corrections |
+| The check on scratch workflows outside the tree: the three `uses` key spellings; a `./scripts/x`, a `..` escape and a composite action on a floating tag; `Actions/Cache/restore` and `actions/cache/save` on two SHAs | manual | exit 1 with every expected line in each case; all three exited 0 on `6cb083d3` |
+| The check on a scratch workflow with an arbitrary 40 hex SHA beside `# v7.0.1`, and a floating `# v7` comment | manual | exit 0: the script does not prove tag equality, as the pinning page and invariant 32 now state |
+| `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>' 'refs/tags/<tag>^{}'` for the ten recorded tags | manual | every SHA in the table equals the peeled commit (annotated) or the plain line (lightweight) (AC-2); run on the first revision, not rerun after the corrections because no pin changed |
+| `git diff origin/main -- .github/workflows` filtered for `permissions` and `read`/`write` lines | manual | no existing line changed; the diff is 26 `uses:` lines plus the new file (AC-6) |
+| `ruby -ryaml -e 'YAML.load_file(...)'` on `workflow-pins.yml`, `dependabot.yml` and the new fixtures | manual | all parse |
 
 ## CI runs on the pull request
 
-Pull request [#369](https://github.com/stevdrey/dokene/pull/369), tested revision `50ee41e5862389c0c8bc48eb57cc5cd0f20dd726` (this record's CI section was added in the commit after it; the pins and scripts are unchanged). Every workflow the pull request triggers passed on that revision (AC-6):
-
-| Workflow | Run id | Conclusion |
-| --- | --- | --- |
-| Workflow pins | 42650858064 | success (18 test checks passed, check exit 0) |
-| Backend CI | 42650857947 | success |
-| Frontend CI | 42650857948 | success |
-| CodeQL | 42650857872 | success |
-| Security Scans | 42650857901 | success |
-| OWASP Dependency Check | 42650857882 | success |
-| Pull Request Size Guard | 42650857927 | success |
-| Script tests | 42650857954 | success |
-| Agent PR Preflight Tests | 42650857874 | success |
-
-The runner resolves every action at "Set up job". The `Download action repository` lines across these nine runs name all ten pinned SHAs (`actions/checkout`, `actions/setup-java`, `actions/setup-node`, `actions/github-script`, `actions/cache`, `actions/upload-artifact`, `gradle/actions`, `gitleaks/gitleaks-action`, `aquasecurity/trivy-action`, `github/codeql-action`), each at the SHA in the evidence table; the other references in those lines (`aquasecurity/setup-trivy`, a second `actions/checkout`, two other `actions/cache` commits) are pulled in by the pinned actions themselves, not by this repository's workflows. `publish-wiki.yml` runs only on push to `main`; its first post merge run is the proof for that file.
+Not recorded yet for the corrected revision. The nine runs listed here before were on `50ee41e5862389c0c8bc48eb57cc5cd0f20dd726`, which predates the review corrections, so they are withdrawn rather than carried forward. The tested revision, the run ids and the pinned SHAs the runner downloaded are added here in a commit that changes only this record, after CI has run on the corrected commit. `publish-wiki.yml` runs only on push to `main`; its first post merge run is the proof for that file.
 
 ## Not verified here
 
-No live Dependabot run: after merge, the repository's Dependabot page must show no configuration error for the `github-actions` entry, and the next scheduled run should open at most one grouped pull request (AC-5). If the page shows an error, the fix is a follow up pull request on the YAML only; the pins stay. The binaries the Trivy and gitleaks actions download at run time are audit L13 and are not pinned by this change. Neither repository setting named in the pinning page (platform SHA requirement, required check) can be set from the contributing side.
+No live Dependabot run: after merge, the repository's Dependabot page must show no configuration error for the `github-actions` entry, and the next scheduled run should open at most one grouped pull request (AC-5). If the page shows an error, the fix is a follow up pull request on the YAML only; the pins stay. The binaries the Trivy and gitleaks actions download at run time are audit L13 and are not pinned by this change. No live Dependabot pull request either: that `OWASP Dependency Check` runs without `NVD_API_KEY` on one comes from reading the workflow's triggers and `backend/build.gradle`, not from an observed run. None of the three repository settings named in the pinning page (platform SHA requirement, required check, code owner review) can be set from the contributing side, so `.github/CODEOWNERS` was not seen to block a merge.
