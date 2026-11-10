@@ -237,17 +237,25 @@ class RenderedContentSafetyTest {
                 "Bono");
     }
 
-    @Test
-    void aSentenceBreakAfterAPlaceholderIsNotADomainButAFixedDomainStaysRefused() {
-        mapping("es", List.of("customer_name"), new TemplateContent(null, "Hola {{1}}.Gracias por su compra", null));
-        Customer customer = customer("Ana Pérez");
-        assertThat(assembler.bind(message("es-419", "Hola Ana Pérez.Gracias por su compra", customer), customer,
-                sender).parameterValues()).containsExactly("Ana Pérez");
+    /** Links are read in the exact rendered text: a capital after the period does not make it a sentence break. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Hola {{1}}.Com {{2}}", "Hola {{1}}.COM {{2}}", "Hola {{1}}.Gracias {{2}}"})
+    void aDomainFormedAcrossAValueAndFixedTextIsRefusedWhateverItsCase(String fixedBody) {
+        mapping("es", new TemplateContent(null, fixedBody, null));
+        Customer customer = customer("promo");
+        OutboundMessage message = message("es-419", BODY, customer);
 
-        mapping("es", List.of("customer_name"), new TemplateContent(null, "Visite {{1}}.com", null));
-        Customer domain = customer("promo");
-        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Visite promo.com", domain), domain, sender),
-                "promo");
+        assertRefusedQuotingNothing(() -> assembler.bind(message, customer, sender), "promo");
+        assertThat(assembler.review(message, customer)).isEmpty();
+    }
+
+    /** The final period of an exempted name is kept, so an ignored character cannot join a link across it unseen. */
+    @Test
+    void aLinkFormedFromAFinalPeriodOfTheNameIsRefused() {
+        Customer customer = customer("Ana Bono.");
+        String body = "Ana Bono.\u200Dcom";
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", body, customer), customer, sender), "Bono");
     }
 
     @Test

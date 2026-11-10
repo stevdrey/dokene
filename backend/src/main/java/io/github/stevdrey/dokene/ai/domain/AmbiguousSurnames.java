@@ -62,8 +62,9 @@ public final class AmbiguousSurnames {
             return text;
         }
         String surname = displayName.substring(displayName.lastIndexOf(' ') + 1);
+        // Only the letters are blanked: a final period stays, so it can still form a link with what follows.
         String blanked = displayName.substring(0, displayName.length() - surname.length())
-                + "x".repeat(surname.length());
+                + surname.replaceAll("[^.]", "x");
         Matcher occurrences = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(displayName) + "(?![\\p{L}\\p{N}])")
                 .matcher(text);
         StringBuilder out = new StringBuilder(text.length());

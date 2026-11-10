@@ -561,14 +561,15 @@ class MessageApiIntegrationTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
     }
 
-    /** Issue 326: a fixed template that ends a sentence right after the name is not read as a domain at submit. */
+    /** Issue 326: links are read in the exact text, so a period run into a word after the name is refused at submit. */
     @Test
-    void aSentenceBreakRightAfterTheNameInAFixedTemplateIsAccepted() throws Exception {
+    void aPeriodRunIntoAWordRightAfterTheNameIsRefusedAsALink() throws Exception {
         templates.parameterNames = List.of("customer_name");
         templates.content = new TemplateContent(null, "Hola {{1}}.Gracias por su compra", null);
 
         submit(ownerA, "s-" + UUID.randomUUID(), etag(policyVersion),
-                submitJson("Hola Ana Pérez.Gracias por su compra")).andExpect(status().isCreated());
+                submitJson("Hola Ana Pérez.Gracias por su compra"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
     }
 
     private void rename(String displayName) throws Exception {

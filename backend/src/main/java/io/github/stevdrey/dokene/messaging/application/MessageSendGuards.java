@@ -28,8 +28,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -82,8 +80,7 @@ public class MessageSendGuards {
         MessageDraft draft;
         try {
             draft = new MessageDraft(action, intent,
-                    AmbiguousSurnames.neutralized(withSentenceBreakAfterName(body, customer.displayName()),
-                            customer.displayName()),
+                    AmbiguousSurnames.neutralized(body, customer.displayName()),
                     DraftVariables.empty(), locale, List.of(), List.of(),
                     OPERATOR_RATIONALE, RecommendationConfidence.of(1.0));
         } catch (RecommendationValidationException exception) {
@@ -120,12 +117,6 @@ public class MessageSendGuards {
             texts.put("parameter " + (index + 1), AmbiguousSurnames.neutralized(values.get(index), customer.displayName()));
         }
         return texts;
-    }
-
-    /** A period written straight after the customer's own name ends a sentence: "Ana.Gracias" is not a domain. */
-    private static String withSentenceBreakAfterName(String body, String displayName) {
-        return Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(displayName) + "\\.(?=\\p{Lu})").matcher(body)
-                .replaceAll(Matcher.quoteReplacement(displayName + ". "));
     }
 
     private static MessagingRefusedException refuse(MessagingErrorCode code) {

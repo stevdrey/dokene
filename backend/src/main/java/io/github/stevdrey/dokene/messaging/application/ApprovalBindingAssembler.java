@@ -32,8 +32,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class ApprovalBindingAssembler {
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([^{}]+)\\}\\}");
-    /** A period between a placeholder and a capital ends a sentence; for the safety check only it is not a domain. */
-    private static final Pattern SENTENCE_JOIN = Pattern.compile("\\}\\}\\.(?=\\p{Lu})");
 
     private final TemplateMappingResolver templates;
     private final ContactPolicyRepository contactPolicies;
@@ -190,18 +188,8 @@ public class ApprovalBindingAssembler {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
         guards.checkRendered(customer, locale, valuesOf(mapping, validated, false), valuesOf(mapping, validated, true),
-                renderedBody(SENTENCE_JOIN.matcher(mapping.content().body()).replaceAll("}}. "), mapping, validated));
+                renderedBody);
         return new Rendered(mapping, validated);
-    }
-
-    /**
-     * The fixed body with each placeholder replaced by its bound value, in one pass, so a value that itself looks like
-     * a placeholder is never substituted again. Positional {@code {{i}}} takes the i-th value; named {@code {{name}}}
-     * takes that parameter's value. The verified schema guarantees every placeholder has a value; a placeholder it
-     * does not name is left as written rather than guessed, so a review read never fails on it.
-     */
-    private static String renderedFixedBody(ResolvedTemplateMapping mapping, List<String> values) {
-        return renderedBody(mapping.content().body(), mapping, values);
     }
 
     /** The values of the parameters that carry the message body, or of the others. */
@@ -212,8 +200,14 @@ public class ApprovalBindingAssembler {
                 .mapToObj(values::get).toList();
     }
 
-    private static String renderedBody(String template, ResolvedTemplateMapping mapping, List<String> values) {
-        Matcher placeholder = PLACEHOLDER.matcher(template);
+    /**
+     * The fixed body with each placeholder replaced by its bound value, in one pass, so a value that itself looks like
+     * a placeholder is never substituted again. Positional {@code {{i}}} takes the i-th value; named {@code {{name}}}
+     * takes that parameter's value. The verified schema guarantees every placeholder has a value; a placeholder it
+     * does not name is left as written rather than guessed, so a review read never fails on it.
+     */
+    private static String renderedFixedBody(ResolvedTemplateMapping mapping, List<String> values) {
+        Matcher placeholder = PLACEHOLDER.matcher(mapping.content().body());
         StringBuilder rendered = new StringBuilder();
         while (placeholder.find()) {
             int index = valueIndex(mapping, placeholder.group(1));
