@@ -29,6 +29,7 @@ final class AmbiguousSurnames {
     /** Two to four capitalized Latin words, so a connector or a sentence never reads as a person's name. */
     private static final Pattern PERSON_NAME = Pattern.compile(WORD + "(?: " + WORD + "){1,3}");
     private static final Pattern WORDS = Pattern.compile("\\p{L}+");
+    private static final Pattern SPACING = Pattern.compile("[\\s\\p{Z}]+");
     /** The reach of a quantity or commercial word around the name, as the validator reads a price near its term. */
     private static final int REACH = 30;
 
@@ -63,8 +64,10 @@ final class AmbiguousSurnames {
                 .matcher(text);
         StringBuilder out = new StringBuilder(text.length());
         while (occurrences.find()) {
-            String before = text.substring(Math.max(0, occurrences.start() - REACH), occurrences.start());
-            String after = text.substring(occurrences.end(), Math.min(text.length(), occurrences.end() + REACH));
+            String before = readable(text.substring(0, occurrences.start()));
+            String after = readable(text.substring(occurrences.end()));
+            before = before.substring(Math.max(0, before.length() - REACH));
+            after = after.substring(0, Math.min(after.length(), REACH));
             occurrences.appendReplacement(out,
                     Matcher.quoteReplacement(inReach(before) || inReach(after) ? occurrences.group() : blanked));
         }
@@ -97,6 +100,11 @@ final class AmbiguousSurnames {
         }
         return parts(folded).stream().anyMatch(word -> COMMERCIAL_WORDS.contains(word)
                 || QUANTITY_WORDS.contains(word) && !ARTICLES.contains(word));
+    }
+
+    /** The text as the validator reads it with spacing collapsed, so invisible padding cannot move a number away. */
+    private static String readable(String text) {
+        return SPACING.matcher(folded(text)).replaceAll(" ");
     }
 
     private static List<String> parts(String text) {

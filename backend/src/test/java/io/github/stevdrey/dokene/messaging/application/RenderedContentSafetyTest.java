@@ -166,6 +166,18 @@ class RenderedContentSafetyTest {
                 customer, sender), name);
     }
 
+    /** Reach is measured on the text as the validator reads it, so padding it ignores cannot move a number away. */
+    @ParameterizedTest
+    @ValueSource(strings = {"\u200D", "\u00A0", "\u202F"})
+    void paddingTheValidatorIgnoresDoesNotMoveANumberOutOfReach(String padding) {
+        Customer customer = customer("Ana Precio");
+        String after = "Ana Precio" + padding.repeat(40) + "100.";
+        String before = "100" + padding.repeat(40) + "Ana Precio.";
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", after, customer), customer, sender), "100");
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", before, customer), customer, sender), "100");
+    }
+
     @Test
     void anEnglishSurnameIsListedForAnEnglishMessage() {
         mapping("en_US", new TemplateContent(null, "Hello {{1}}: {{2}}", null));
