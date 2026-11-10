@@ -78,7 +78,21 @@ Ten repositories, ten SHAs, one SHA per repository across all ten workflows (AC-
 
 ## CI runs on the pull request
 
-Not recorded yet for the corrected revision. The nine runs listed here before were on `50ee41e5862389c0c8bc48eb57cc5cd0f20dd726`, which predates the review corrections, so they are withdrawn rather than carried forward. The tested revision, the run ids and the pinned SHAs the runner downloaded are added here in a commit that changes only this record, after CI has run on the corrected commit. `publish-wiki.yml` runs only on push to `main`; its first post merge run is the proof for that file.
+Pull request [#369](https://github.com/stevdrey/dokene/pull/369), tested revision `f4c0eeac66c4e8fad9ee957b8dd94d0d60307f39`. This section was added in the commit after it, which changes only this record. Every workflow the pull request triggers passed on that revision (AC-6). The nine runs recorded here before were on `50ee41e5862389c0c8bc48eb57cc5cd0f20dd726`, which predates the review corrections, and are withdrawn.
+
+| Workflow | Run id | Conclusion |
+| --- | --- | --- |
+| Workflow pins | 42828818976 | success (24 test checks passed, `All checks passed`) |
+| Backend CI | 42828819243 | success |
+| Frontend CI | 42828819168 | success |
+| CodeQL | 42828818973 | success |
+| Security Scans | 42828818914 | success |
+| OWASP Dependency Check | 42828818956 | success |
+| Pull Request Size Guard | 42828818953, 42828820971 | success (two runs, both on this revision) |
+| Script tests | 42828819004 | success |
+| Agent PR Preflight Tests | 42828818925 | success |
+
+The runner resolves every action at "Set up job". The `Download action repository` lines across these runs name all ten pinned SHAs (`actions/checkout`, `actions/setup-java`, `actions/setup-node`, `actions/github-script`, `actions/cache`, `actions/upload-artifact`, `gradle/actions`, `gitleaks/gitleaks-action`, `aquasecurity/trivy-action`, `github/codeql-action`), each at the SHA in the evidence table; the other references in those lines (`aquasecurity/setup-trivy`, a second `actions/checkout`, two other `actions/cache` commits) are pulled in by the pinned actions themselves, not by this repository's workflows. `publish-wiki.yml` runs only on push to `main`; its first post merge run is the proof for that file.
 
 ## Not verified here
 
