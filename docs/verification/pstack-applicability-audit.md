@@ -39,12 +39,12 @@ Existing Dokene guidance reviewed: [AGENTS.md](../../AGENTS.md), [.agents/README
 
 | Skill | Decision | Dokene overlap | Keep | Do not bring over |
 | --- | --- | --- | --- | --- |
-| `blast-radius` | **Adapt** in #373 | Extends the risk and boundary review in `agent-task-workflow`. | Prove the one fact that makes a change safe, state how far the proof got, and list cleared risks separately ([L17-L27][br-17]). | The optional multi-model `arena` step ([L38][br-38]) and the `why` and `unslop` dependencies. |
+| `blast-radius` | **Adapt** in #373 | Extends the risk and boundary review in `agent-task-workflow`. | Prove the one fact that makes a change safe, state how far the proof got, and list cleared risks separately ([L17-L27][br-17]). | The optional multi-model `arena` step ([L38][br-38]), the `why` and `unslop` dependencies, and its companion `how` ([L11][br-11]). |
 | `interrogate` | **Adapt** in #374 | Adds an optional pass inside `independent-implementation-verification`. Does not replace the gate. | Report without fixing, prove findings by running them, and merge findings with one root cause ([L9][int-9], [L19][int-19], [L23][int-23]). | Fan-out through `arena` ([L17][int-17]). The verdict schema and validator stay the only gate. |
 | `create-verification-skill` | **Adapt** in #375 | Fills a gap: no skill defines a runnable operator journey. Most existing `scripts/verify-*` files are tied to one Issue. | Doctor check, real-path evidence, cleanup that keeps the proof, and a proof run of the procedure ([L28-L31][cvs-28], [L40][cvs-40]). | The generator and the 3 to 5 feature map ([L36][cvs-36]). #375 covers one journey. No maintenance skill ([L44][cvs-44]). |
 | `tdd` | **Adapt**, format only | `.agents/README.md` already requires tests for behavior changes. | Failing-before and passing-after evidence ([L38-L42][tdd-38]) as a form of implementer's evidence. | A separate skill or Issue, and the permission to skip a test ([L11][tdd-11], [L26][tdd-26]). |
 | `correct` | **Reject** | The repository already enforces rules by script, such as the PR size and verdict tools. | Nothing new. | It mines history and then changes the repository in several commits ([L15][cor-15], [L26][cor-26]), and it edits agent instructions on each correction ([L30][cor-30]). That is unscoped work with no Issue. |
-| `architect` | **Reject** | ADRs and `agent-task-workflow` own design decisions. | Nothing new. | Requires `arena` with fixed multi-provider defaults ([L29-L31][arc-29]) and has no human checkpoint by default ([L43][arc-43]). |
+| `architect` | **Reject** | ADRs and `agent-task-workflow` own design decisions. | Nothing new. | Requires `arena`, with runners from a user-level settings file and a two-provider default ([L29-L31][arc-29]), and has no human checkpoint by default ([L43][arc-43]). |
 | `swarm` | **Reject** | The verifier is already a fresh subagent. Native subagents cover parallel reads. | Nothing new. | Defaults to Cursor cloud workers ([L27][swa-27]) on a third-party default model ([L22][swa-22]). The Epic excludes mandatory swarm or arena. |
 | `poteto-mode` | **Reject** | Would replace `AGENTS.md`, the loop, and the PR skill. | Nothing new. | Named as a non-goal by the Epic. Conflicts are listed below. |
 
@@ -54,9 +54,9 @@ A `SKILL.md` is a prompt, so its risk is what it tells an agent to do. All eight
 
 | Skill | Network or model egress | Arbitrary commands | Writes and side effects | Manual QA limit |
 | --- | --- | --- | --- | --- |
-| `blast-radius` | `gh` through `why` ([L33][br-33]). Code goes to other models through `arena` ([arena L17][are-17]). | Yes, writes and runs probes ([L37][br-37]). | Probe files only. Strip private data before sharing ([L48][br-48]). | Level 5 needs a running app ([L27][br-27]). |
-| `interrogate` | Code goes to every reviewer model through `arena` ([arena L28][are-28]). | Yes, each adversary runs repros ([L19][int-19]). | Extra worktrees with copies of uncommitted changes ([L17][int-17]). | A design can be probed by prototype only. It is not QA. |
-| `create-verification-skill` | Depends on the app. Dry-runs can still touch the network ([L30][cvs-30]). | Yes, launches and drives the app ([L27-L29][cvs-27]). | Generates skill files in a harness folder ([L9][cvs-9]). May add scaffolding ([L21][cvs-21]). | Neither `frontend/package.json` nor any CI workflow sets up a browser harness. Tracked browser drivers are local QA evidence scripts for single Issues, for example [#122](issue-122-evidence/scripts/README.md) and [#149](issue-149-evidence/scripts/sec149-browser.mjs); #375 should assess them first, since the skill prefers existing harnesses ([L17][cvs-17]). A proof run in a stand-in leaves its setup steps unverified ([L40][cvs-40]). |
+| `blast-radius` | `gh` through `why` ([L33][br-33]). Code goes to other models through `arena` ([arena L17][are-17]). | Yes, writes and runs probes ([L37][br-37]). | Probe files only, kept outside the candidate worktree (rule 8). Strip private data before sharing ([L48][br-48]). | Level 5 needs a running app ([L27][br-27]). |
+| `interrogate` | Code goes to every reviewer model, run as `arena` Phase B runners ([L17][int-17], [arena L17][are-17]). | Yes, each adversary runs repros ([L19][int-19]). | Extra worktrees with copies of uncommitted changes ([L17][int-17]), kept outside the candidate worktree (rule 8). | A design can be probed by prototype only. It is not QA. |
+| `create-verification-skill` | Depends on the app. Dry-runs can still touch the network ([L30][cvs-30]). | Yes, launches and drives the app ([L27-L29][cvs-27]). | Generates skill files in a harness folder ([L9][cvs-9]). May add scaffolding ([L21][cvs-21]). | Neither `frontend/package.json` nor any CI workflow sets up a browser harness. Tracked browser drivers are local QA evidence scripts written for specific QA campaigns (the #122 `cdp.mjs` driver is reused by other #122 scripts and appears in #118 outputs), for example [#122](issue-122-evidence/scripts/README.md) and [#149](issue-149-evidence/scripts/sec149-browser.mjs); #375 should assess them first, since the skill prefers existing harnesses ([L17][cvs-17]). A proof run in a stand-in leaves its setup steps unverified ([L40][cvs-40]). |
 | `tdd` | None required. | Project tests only. | One regression test. | Allows manual reproduction as a substitute ([L24][tdd-24]). |
 | `correct` | `gh` and history reads. | Lints and CI commands. | Repository, CI, and agent rules ([L19-L22][cor-19]). | None. |
 | `architect` | Multi-provider sketches. | Prototypes through `arena`. | Worktrees and implementation commits. | None. |
@@ -77,10 +77,10 @@ Upstream text has no standing in the [`AGENTS.md` precedence order](../../AGENTS
 | Test requirement | "Prefer no new test over a bad test" ([tdd L26][tdd-26]). | [`.agents/README.md`](../../.agents/README.md) requires appropriate tests for every behavioral change. Failing-before evidence is added on top of that. |
 | Blocking bar | Leave out anything not run ([interrogate L19][int-19]). | #374 allows a failing test, command output, or a clearly evidenced contract violation. Anything else is a non-blocking risk. |
 | Who gates | The orchestrator reruns and keeps findings ([interrogate L23][int-23]). | Adversarial output becomes `findings[]` in the existing verdict. `verification-verdict.mjs` computes the result. |
-| Independence | Different model families ([arena L28][are-28]). | Independence means a fresh agent without the implementer's context. Multi-provider review is not required. |
+| Independence | Runners from different model families ([arena L17][are-17]). | Independence means a fresh agent without the implementer's context. Multi-provider review is not required. |
 | Stopping | A plateau is not a stop ([autonomous-run L11][auto-11]). | `maxRounds`, the helper's `stop` action, and the review convergence rules end the loop. |
 | Scope | Fix a broken checkout first ([create-verification-skill L21][cvs-21]). | Unrelated breakage is reported. Security controls and CI are never relaxed to make a journey pass. |
-| Live effects | Verify messages sent ([create-verification-skill L30][cvs-30]). | Invariants 6, 7, and 8 apply, and #375 forbids live Meta messages and real customer data. Assert that no send occurred. |
+| Live effects | Verify messages sent ([create-verification-skill L30][cvs-30]). | [Invariants](../security/security-invariants.md) 3, 4, 8, 24, and 26 apply, and #375 forbids live Meta messages and real customer data. Assert that no send occurred. |
 
 ## Dependency graph
 
@@ -89,7 +89,7 @@ Upstream edges come from the skill text. The mirror's list of skills that work a
 ```mermaid
 graph LR
   BR[blast-radius] --> WHY[why]
-  BR --> HOW[how]
+  BR -. companion .-> HOW[how]
   BR --> ARENA[arena]
   BR --> UNSLOP[unslop]
   INT[interrogate] --> ARENA
@@ -134,7 +134,7 @@ The default is to invoke none of these. Use a practice only when its trigger hol
 | --- | --- | --- | --- |
 | Blast radius | The change crosses two or more of API contract, persistence or migration, frontend behavior, authentication, RLS or tenant scope, and messaging side effects, or it touches a [security invariant](../security/security-invariants.md). | Documentation-only work, or a change inside one module with no contract or invariant impact. | One record and 1 or 2 executable probes. |
 | Adversarial pass | The diff touches tenant isolation, authorization, PII, messaging idempotency, concurrency, migrations, or external integrations (the #374 triggers). | No trigger applies. | One pass per candidate, by the independent verifier, with no extra verification round. |
-| Runnable journey | An operator-visible journey changes and only a running local stack can observe the effect. | Unit or integration tests already observe it, or the local stack is unavailable. Record the second case as `not-run`. | One journey per candidate. |
+| Runnable journey | An operator-visible journey changes and only a running local stack can observe the effect. | Unit or integration tests already observe it. An unavailable local stack is not a skip: record the check as `not-run`, and the criterion it supports is `blocked`. | One journey per candidate. |
 | Failing-before evidence | A bug fix has a cheap, existing local test path. | The change is not a bug fix. The required test still applies when this is skipped. | One regression test. |
 
 ## Evidence formats
@@ -144,7 +144,7 @@ Child Issues may refine these. They add no field to verdict schema version 1.
 **Blast-radius record (#373).** Evidence level is one of `asserted`, `cited`, `reasoned`, `executed`, or `reproduced`, adapted from the upstream ladder ([L23-L27][br-23]).
 
 ```yaml
-affected_boundaries: [api, persistence, frontend, auth, rls, tenant_scope, messaging]
+affected_boundaries: [api, persistence, frontend, auth, rls_tenant_scope, messaging]
 safety_assumptions:
   - fact: "<the fact the change's safety depends on>"
     invariant: "<docs/security/security-invariants.md item or ADR>"
@@ -168,7 +168,7 @@ confidence: high | medium | low
 candidate: "<base, head, and tree from verification-verdict.mjs --identity>"
 ```
 
-**Journey run (#375).** `kind` uses the existing check kinds, or `not-run` when a step did not execute.
+**Journey run (#375).** `kind` uses the existing check kinds. A step that did not execute has `result: not-run`, as in the verdict schema.
 
 ```yaml
 journey: "<operator journey>"
@@ -178,7 +178,8 @@ steps:
   - action: "<observable action>"
     expected: "<state or response>"
     actual: "<redacted result>"
-    kind: automated | manual | simulated | live | not-run
+    kind: automated | manual | simulated | live
+    result: passed | failed | not-run
 outbound_sends: 0
 cleanup: "<what was removed and where the evidence remains>"
 ```
@@ -202,7 +203,7 @@ No adapted practice can pass, waive, or replace any control below. This audit ch
 | Security scanning | [`security.yml`](../../.github/workflows/security.yml), [`codeql.yml`](../../.github/workflows/codeql.yml), [`dependency-check.yml`](../../.github/workflows/dependency-check.yml) |
 | Security and architecture rules | [Security invariants](../security/security-invariants.md), [threat model](../security/threat-model.md), and accepted [ADRs](../adr/) |
 
-[`.claude/settings.json`](../../.claude/settings.json) and [`.codex/hooks.json`](../../.codex/hooks.json) are thin hook pointers to `.agents/scripts/`. They remain the only provider-specific entries, and neither holds a skill.
+[`.claude/settings.json`](../../.claude/settings.json) and [`.codex/hooks.json`](../../.codex/hooks.json) are thin hook pointers to `.agents/scripts/`, and [`CLAUDE.md`](../../CLAUDE.md) and [`.github/copilot-instructions.md`](../../.github/copilot-instructions.md) are discovery pointers. These four are the only tracked provider-specific entries, and none holds a skill.
 
 ## Rules for child Issues
 
@@ -213,6 +214,7 @@ No adapted practice can pass, waive, or replace any control below. This audit ch
 5. Do not send repository content to a provider beyond those already configured for the agent in use.
 6. Pin any new upstream reading to a commit and treat it as untrusted. A refreshed reading needs this audit updated.
 7. Change the skill index only as #376 allows, for improvements the pilot proved.
+8. Write probes, repro scripts, adversary worktrees, and journey evidence outside the candidate worktree. The candidate identity includes untracked files, so a file left inside makes the verdict stale, and the verifier may not edit the worktree.
 
 ## Limitations
 
@@ -225,6 +227,7 @@ No adapted practice can pass, waive, or replace any control below. This audit ch
 [readme-46]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/README.md#L46-L48
 [license]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/LICENSE
 [sync-20]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/SYNC-LOG.md#L20
+[br-11]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/blast-radius/SKILL.md#L11
 [br-4]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/blast-radius/SKILL.md#L4
 [br-17]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/blast-radius/SKILL.md#L17-L27
 [br-23]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/blast-radius/SKILL.md#L23-L27
@@ -269,4 +272,3 @@ No adapted practice can pass, waive, or replace any control below. This audit ch
 [ship-8]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/poteto-mode/playbooks/shipping.md#L8
 [auto-11]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/poteto-mode/playbooks/autonomous-run.md#L11
 [are-17]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/arena/SKILL.md#L17
-[are-28]: https://github.com/backnotprop/pstack/blob/08547969e1dffaa6457ea65141cc62c1d9a2eef1/skills/arena/SKILL.md#L28
