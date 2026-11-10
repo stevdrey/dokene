@@ -91,6 +91,16 @@ printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WO
 ln -s "$WORK/outside" "$WORK/symlink/actions/linked"
 expect "a floating tag in a composite action behind a symlink fails" 1 "$WORK/symlink/workflows" \
     "$WORK/symlink/actions/linked/setup/action.yml:4: some/action@v1"
+
+# A directory named like a workflow file, and a workflow file that is a symlink: both are read.
+mkdir -p "$WORK/named/workflows/act.yml" "$WORK/named/elsewhere"
+printf 'jobs:\n  build:\n    steps:\n      - uses: ./.github/workflows/act.yml\n  call:\n    uses: ./.github/workflows/linked.yml\n' >"$WORK/named/workflows/workflow.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WORK/named/workflows/act.yml/action.yml"
+printf 'jobs:\n  build:\n    steps:\n      - uses: other/action@v2\n' >"$WORK/named/elsewhere/reusable.yml"
+ln -s "$WORK/named/elsewhere/reusable.yml" "$WORK/named/workflows/linked.yml"
+expect "an action in a directory named like a workflow file and a symlinked workflow file are both read" 1 "$WORK/named/workflows" \
+    "$WORK/named/workflows/act.yml/action.yml:4: some/action@v1" \
+    "$WORK/named/workflows/linked.yml:4: other/action@v2"
 expect "a docker:// reference without a digest fails" 1 "$FIXTURES/docker-no-digest" \
     "$FIXTURES/docker-no-digest/workflow.yml:6: docker://alpine:3.20"
 expect "an empty directory exits 2" 2 "$FIXTURES/empty-dir"

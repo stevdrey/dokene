@@ -4,8 +4,8 @@
 #
 # Usage: ./scripts/check-workflow-pins.sh [dir]     (default dir: .github/workflows)
 # Exit 0 when every reference is pinned, 1 with one `<dir>/<file>:<line>: <reference>` line per violation,
-# 2 when the directory holds no *.yml or *.yaml file. Local composite actions (action.yml, action.yaml) under the
-# sibling `actions` directory of dir are scanned too, when that directory exists.
+# 2 when the directory holds no *.yml or *.yaml file. Local composite actions (action.yml, action.yaml) are scanned
+# too: at any depth under the sibling `actions` directory of dir when it exists, and in any subdirectory of dir.
 set -euo pipefail
 
 DIR="${1:-.github/workflows}"
@@ -82,15 +82,17 @@ check_file() {
 [ -d "$DIR" ] || { echo "check-workflow-pins: $DIR is not a directory" >&2; exit 2; }
 
 files=()
-while IFS= read -r f; do files+=("$f"); done < <(find "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
+while IFS= read -r f; do files+=("$f"); done < <(find -L "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
 [ "${#files[@]}" -gt 0 ] || { echo "check-workflow-pins: no *.yml or *.yaml file in $DIR" >&2; exit 2; }
 
 # A `./.github/actions/...` reference runs a composite action from the tree, and that action can itself name outside
 # actions. Exit 2 above depends on workflow files only. -L: a symlinked action directory or file runs like a real one.
+# Subdirectories of the workflows directory are read as well, so that whatever a name LOCAL_VALUE accepts turns out
+# to be on disk (a directory called `x.yml` holding an action, for one), its `uses` lines are still checked.
 ACTIONS_DIR="$(dirname "$DIR")/actions"
-if [ -d "$ACTIONS_DIR" ]; then
-    while IFS= read -r f; do files+=("$f"); done < <(find -L "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
-fi
+action_roots=("$DIR")
+[ -d "$ACTIONS_DIR" ] && action_roots+=("$ACTIONS_DIR")
+while IFS= read -r f; do files+=("$f"); done < <(find -L "${action_roots[@]}" -mindepth 2 -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
 
 for f in "${files[@]}"; do check_file "$f"; done
 
