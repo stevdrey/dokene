@@ -125,6 +125,8 @@ Include negative/security tests where relevant:
 
 Prefer integration tests for persistence/security boundaries and unit tests for deterministic domain rules.
 
+When a backend change also reaches another boundary (API contract, migration, RLS or tenant scope, authorization, messaging side effects, or the frontend) or a security invariant, use `.agents/skills/blast-radius-analysis/SKILL.md` to trace its callers and prove its safety-critical assumptions, for example with an ArchUnit rule or a negative control.
+
 Before completion, run the relevant Gradle tests/build and document any intentionally skipped verification.
 
 ## Review Checklist
