@@ -1,7 +1,9 @@
-// ABOUTME: The customer, contact policy, eligibility and body guards shared by submit (T1), approval (T2) and the
-// ABOUTME: last-moment send gate (issue 138). Callers hold the customer lock; refusals carry a closed code only.
+// ABOUTME: The customer, contact policy, eligibility, body and rendered-content guards shared by submit (T1), approval
+// ABOUTME: (T2) and the last-moment send gate (issue 138). Callers hold the customer lock; refusals carry a closed code.
 package io.github.stevdrey.dokene.messaging.application;
 
+import io.github.stevdrey.dokene.ai.domain.AmbiguousSurnames;
+import io.github.stevdrey.dokene.ai.domain.DraftGroundingContext;
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.DraftVariables;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
@@ -20,7 +22,9 @@ import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,6 +34,8 @@ import org.springframework.stereotype.Component;
 public class MessageSendGuards {
     // Fixed, context free rationale: the validator checks it with the body and it must never fabricate facts.
     private static final String OPERATOR_RATIONALE = "Mensaje enviado por el operador.";
+    private static final DraftGroundingContext NOTHING_GROUNDED = new DraftGroundingContext(null, null, List.of(),
+            List.of(), null, null);
 
     private final ContactPolicyRepository contactPolicies;
     private final FollowUpService followUps;
@@ -73,7 +79,9 @@ public class MessageSendGuards {
                 .orElseThrow(() -> refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE));
         MessageDraft draft;
         try {
-            draft = new MessageDraft(action, intent, body, DraftVariables.empty(), locale, List.of(), List.of(),
+            draft = new MessageDraft(action, intent,
+                    AmbiguousSurnames.neutralized(body, customer.displayName()),
+                    DraftVariables.empty(), locale, List.of(), List.of(),
                     OPERATOR_RATIONALE, RecommendationConfidence.of(1.0));
         } catch (RecommendationValidationException exception) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
@@ -81,6 +89,34 @@ public class MessageSendGuards {
         if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding()).isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+    }
+
+    /**
+     * The body guard applied to what the provider would receive (issue 326), on every path that renders a template.
+     * Identity values, which come from tenant records, carry no offer however a purchase reads, so they are checked
+     * with nothing to ground one. The body value and the rendered body are grounded as a body is. Refuses with
+     * {@code BODY_REJECTED} and never quotes a value. The customer's own name is read through {@link AmbiguousSurnames}.
+     */
+    public void checkRendered(Customer customer, String locale, List<String> identityValues, List<String> bodyValues,
+            String renderedBody) {
+        Map<String, String> texts = labelled(customer, identityValues);
+        if (DraftSafetyValidator.validateRenderedText(texts, locale, NOTHING_GROUNDED).isPresent()) {
+            throw refuse(MessagingErrorCode.BODY_REJECTED);
+        }
+        texts = labelled(customer, bodyValues);
+        texts.put("rendered body", AmbiguousSurnames.neutralized(renderedBody, customer.displayName()));
+        if (DraftSafetyValidator.validateRenderedText(texts, locale, grounding.renderedContentGrounding(customer))
+                .isPresent()) {
+            throw refuse(MessagingErrorCode.BODY_REJECTED);
+        }
+    }
+
+    private static Map<String, String> labelled(Customer customer, List<String> values) {
+        Map<String, String> texts = new LinkedHashMap<>();
+        for (int index = 0; index < values.size(); index++) {
+            texts.put("parameter " + (index + 1), AmbiguousSurnames.neutralized(values.get(index), customer.displayName()));
+        }
+        return texts;
     }
 
     private static MessagingRefusedException refuse(MessagingErrorCode code) {

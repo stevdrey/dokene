@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -160,7 +161,7 @@ class SendPolicyGateTest {
         TemplateMappingResolver resolver = mock(TemplateMappingResolver.class);
         ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
         when(contactPolicies.whatsAppConsentRevision(customer, approved.contactId())).thenReturn(OptionalLong.of(1));
-        ApprovalBindingAssembler real = new ApprovalBindingAssembler(resolver, contactPolicies);
+        ApprovalBindingAssembler real = new ApprovalBindingAssembler(resolver, contactPolicies, guards);
         resolvesAs(resolver, TemplateParameterFormat.POSITIONAL);
         ApprovalFingerprint atApproval = ApprovalFingerprint.of(real.bind(approved, customer, sender));
         permitted();
@@ -170,6 +171,24 @@ class SendPolicyGateTest {
 
         assertRefused(new SendPolicyGate(messages, guards, real, safety, defaults()), approved,
                 MessagingErrorCode.APPROVAL_INVALIDATED);
+    }
+
+    /** Issue 326: content that fails the rendered check when it is sent is refused before any claim or provider call. */
+    @Test
+    void renderedContentTheSafetyRulesRefuseNeverBecomesASendCommand() {
+        TemplateMappingResolver resolver = mock(TemplateMappingResolver.class);
+        ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
+        when(contactPolicies.whatsAppConsentRevision(customer, approved.contactId())).thenReturn(OptionalLong.of(1));
+        ApprovalBindingAssembler real = new ApprovalBindingAssembler(resolver, contactPolicies, guards);
+        resolvesAs(resolver, TemplateParameterFormat.POSITIONAL);
+        ApprovalFingerprint atApproval = ApprovalFingerprint.of(real.bind(approved, customer, sender));
+        permitted();
+        approvedWith(atApproval);
+        doThrow(new MessagingRefusedException(MessagingErrorCode.BODY_REJECTED)).when(guards)
+                .checkRendered(any(), any(), any(), any(), any());
+
+        assertRefused(new SendPolicyGate(messages, guards, real, safety, defaults()), approved,
+                MessagingErrorCode.BODY_REJECTED);
     }
 
     @Test
