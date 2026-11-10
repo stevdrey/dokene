@@ -280,6 +280,18 @@ class OutboundDispatchIntegrationTest {
         assertDeniedWithoutEffects(approved, MessagingErrorCode.APPROVAL_INVALIDATED);
     }
 
+    /** Issue 326: a parameter value is checked again at the last moment, before any claim or provider call. */
+    @Test
+    void anUnsafeParameterValueAtSendTimeMakesNoProviderCallAndWritesNothing() throws Exception {
+        OutboundMessage approved = approvedMessage();
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        inContext(ownerA, () -> customers.update(customer.id(), current.version(), "Ana promo.example",
+                current.notes(), current.phones().stream().map(phone -> new PhoneInput(phone.e164().substring(4),
+                        "CR", phone.primary())).toList()));
+
+        assertDeniedWithoutEffects(approved, MessagingErrorCode.BODY_REJECTED);
+    }
+
     @Test
     void doNotContactAndArchiveBlockTheSend() throws Exception {
         OutboundMessage approved = approvedMessage();

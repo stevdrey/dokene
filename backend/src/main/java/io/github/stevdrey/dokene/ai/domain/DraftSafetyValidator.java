@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -239,6 +240,17 @@ public final class DraftSafetyValidator {
 
     private DraftSafetyValidator() {}
 
+    /** The written numbers and fractions these rules read as quantities, for a caller that must treat them alike. */
+    public static Set<String> writtenQuantityWords() {
+        return Stream.concat(NUMBER_WORDS.keySet().stream(), FRACTION_WORDS.keySet().stream())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** {@code text} as these rules read it: compatibility forms, format characters, case and look-alikes folded. */
+    public static String canonicalized(String text) {
+        return canonicalBase(text);
+    }
+
     /**
      * Validates a message draft against deterministic safety constraints and context grounding.
      * Evidence citations are grounded against the flattened context only (no fact-type provenance).
@@ -331,6 +343,18 @@ public final class DraftSafetyValidator {
     public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts, String locale) {
         Objects.requireNonNull(texts, "Texts are required");
         return validateTexts(texts, "", "", false, Vocabulary.of(locale));
+    }
+
+    /**
+     * Validates what a recipient would read from a rendered template (issue 326): its parameter values and the fixed
+     * body with those values filled in, under the rules and vocabulary applied to a message body. An offer or amount
+     * must be grounded in {@code grounding}'s offer-bearing text, as a body's is.
+     */
+    public static Optional<DraftSafetyViolation> validateRenderedText(Map<String, String> texts, String locale,
+            DraftGroundingContext grounding) {
+        Objects.requireNonNull(texts, "Texts are required");
+        Objects.requireNonNull(grounding, "Grounding is required");
+        return validateTexts(texts, "", grounding.offerBearingText(), false, Vocabulary.of(locale));
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,

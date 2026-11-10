@@ -5,6 +5,7 @@ import io.github.stevdrey.dokene.ai.application.RecommendationContext;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
 import io.github.stevdrey.dokene.ai.domain.DraftGroundingContext;
+import io.github.stevdrey.dokene.ai.domain.AmbiguousSurnames;
 import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
 import io.github.stevdrey.dokene.ai.domain.NoDraft;
@@ -666,7 +667,12 @@ public class DefaultAiActionGate implements AiActionGate {
             // 15. Safety and grounding validation
             String allowedContext = formatAllowedContext(assembly.context(), tenantPolicy, tenant);
             var grounding = buildGrounding(assembly.context());
-            var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
+            // The customer's own listed surname is not an offer word; the draft that is accepted stays as generated.
+            var screened = new MessageDraft(draft.action(), draft.templateIntent(),
+                    AmbiguousSurnames.neutralized(draft.body(), assembly.context().untrusted().displayName()),
+                    draft.draftVariables(), draft.locale(), draft.evidence(), draft.warnings(), draft.rationale(),
+                    draft.confidence());
+            var violation = DraftSafetyValidator.validate(screened, allowedContext, grounding);
             if (violation.isPresent()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get().code(), TenantPermission.MESSAGE_DRAFT);
                 return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,
