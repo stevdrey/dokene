@@ -89,10 +89,12 @@ while IFS= read -r f; do files+=("$f"); done < <(find -L "$DIR" -maxdepth 1 -typ
 # actions. Exit 2 above depends on workflow files only. -L: a symlinked action directory or file runs like a real one.
 # Subdirectories of the workflows directory are read as well, so that whatever a name LOCAL_VALUE accepts turns out
 # to be on disk (a directory called `x.yml` holding an action, for one), its `uses` lines are still checked.
+# -mindepth 2 on the workflows directory only: a file directly in it is already in the list as a workflow.
+while IFS= read -r f; do files+=("$f"); done < <(find -L "$DIR" -mindepth 2 -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
 ACTIONS_DIR="$(dirname "$DIR")/actions"
-action_roots=("$DIR")
-[ -d "$ACTIONS_DIR" ] && action_roots+=("$ACTIONS_DIR")
-while IFS= read -r f; do files+=("$f"); done < <(find -L "${action_roots[@]}" -mindepth 2 -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
+if [ -d "$ACTIONS_DIR" ]; then
+    while IFS= read -r f; do files+=("$f"); done < <(find -L "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
+fi
 
 for f in "${files[@]}"; do check_file "$f"; done
 

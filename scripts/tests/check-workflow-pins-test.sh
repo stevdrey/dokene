@@ -92,6 +92,13 @@ ln -s "$WORK/outside" "$WORK/symlink/actions/linked"
 expect "a floating tag in a composite action behind a symlink fails" 1 "$WORK/symlink/workflows" \
     "$WORK/symlink/actions/linked/setup/action.yml:4: some/action@v1"
 
+# An action file directly in the actions directory, one level above where actions usually sit.
+mkdir -p "$WORK/top/workflows" "$WORK/top/actions"
+printf 'jobs:\n  build:\n    steps:\n      - run: true\n' >"$WORK/top/workflows/workflow.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WORK/top/actions/action.yml"
+expect "an action file directly in the actions directory is read" 1 "$WORK/top/workflows" \
+    "$WORK/top/actions/action.yml:4: some/action@v1"
+
 # A directory named like a workflow file, and a workflow file that is a symlink: both are read.
 mkdir -p "$WORK/named/workflows/act.yml" "$WORK/named/elsewhere"
 printf 'jobs:\n  build:\n    steps:\n      - uses: ./.github/workflows/act.yml\n  call:\n    uses: ./.github/workflows/linked.yml\n' >"$WORK/named/workflows/workflow.yml"
