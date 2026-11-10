@@ -239,6 +239,17 @@ public final class DraftSafetyValidator {
 
     private DraftSafetyValidator() {}
 
+    /** The written numbers and fractions these rules read as quantities, for a caller that must treat them alike. */
+    public static Set<String> writtenQuantityWords() {
+        return Stream.concat(NUMBER_WORDS.keySet().stream(), FRACTION_WORDS.keySet().stream())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    /** {@code text} as these rules read it: compatibility forms, format characters, case and look-alikes folded. */
+    public static String canonicalized(String text) {
+        return canonicalBase(text);
+    }
+
     /**
      * Validates a message draft against deterministic safety constraints and context grounding.
      * Evidence citations are grounded against the flattened context only (no fact-type provenance).

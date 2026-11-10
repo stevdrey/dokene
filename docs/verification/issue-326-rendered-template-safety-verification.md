@@ -21,6 +21,8 @@ This record is sanitized: it gives rules, outcomes and test names only. It conta
 | Vocabulary follows the message locale | `RenderedContentSafetyTest.theRenderedContentUsesTheVocabularyOfTheMessageLocale` |
 | Submit, review and approval over HTTP: refusals with no open-message slot taken, a `VIEWER` read stays `200`, and consent still refuses once the name is safe, then approval succeeds | `MessageApiIntegrationTest.anUnsafeCustomerNameIsRefusedAtSubmitReviewAndApprovalWhileASafeOneKeepsTheirControls` |
 | Dispatch: refused with no provider call, attempt, transition or idempotency row | `OutboundDispatchIntegrationTest.anUnsafeParameterValueAtSendTimeMakesNoProviderCallAndWritesNothing`, `SendPolicyGateTest.renderedContentTheSafetyRulesRefuseNeverBecomesASendCommand` |
+| Listed surnames: a real surname that is also an offer word passes after a given name, in review, approval and a greeting | `RenderedContentSafetyTest.aListedSurnameAfterAGivenNameIsNotAnOfferWord`, `RenderedContentSafetyTest.anEnglishSurnameIsListedForAnEnglishMessage`, `MessageApiIntegrationTest.aListedSurnameIsSubmittedAndApprovedWhileTheSameWordElsewhereIsNot` |
+| The exemption is bounded: names that do not read as a person's, or that hold a quantity, a commercial or function word, a digit, a symbol, a link or another offer word, are refused, as are the same word elsewhere in a message and the name near a quantity in any form the validator reads. An invented name of the permitted shape remains possible and carries no number, link or other offer word | `RenderedContentSafetyTest.aListedSurnameOpensNoOtherContent`, `RenderedContentSafetyTest.onlyTheCustomersOwnFullNameIsExempted`, `RenderedContentSafetyTest.aQuantityOrCommercialWordNearTheNameKeepsItRefused`, `RenderedContentSafetyTest.noWrittenQuantityTheValidatorReadsCanPrecedeASurnameOrStandNearTheName` (every word in the validator's list), `RenderedContentSafetyTest.aDisguisedEarlierWordDoesNotQualifyTheName` |
 | The fixed-text rules did not change, so approved template evidence stays trusted | `FixedTextRulesVersionTest` (unchanged) |
 
 ## Results
@@ -30,7 +32,11 @@ This record is sanitized: it gives rules, outcomes and test names only. It conta
 | `./gradlew test --tests '*RenderedContentSafetyTest' --tests '*ApprovalBindingAssemblerTest' --tests '*SendPolicyGateTest' --tests '*DraftSafetyValidatorTest' --tests '*FixedTextRulesVersionTest' --tests '*OutboundMessageCommandServiceValidationTest' --tests '*ModuleDependencyArchitectureTest'` | automated | passed after a test-stub fix; the one earlier failure was in the test's own Mockito re-stubbing |
 | `./gradlew test --tests '*RenderedContentSafetyTest' --tests '*MessageApiIntegrationTest' --tests '*OutboundDispatchIntegrationTest' --tests '*EnglishTemplateSendJourneyIntegrationTest' --tests '*ApprovedSendJourneyIntegrationTest'` | automated | BUILD SUCCESSFUL |
 | Negative control (local, not committed): the `checkRendered` call removed from `render` | automated | 15 of 29 selected tests failed, including the HTTP and dispatch tests above |
-| `./gradlew check` (backend) | automated | BUILD SUCCESSFUL: 2573 tests, 0 failures, 0 errors, 0 skipped |
+| Negative control (local, not committed), first exemption: the digit guards removed from `AmbiguousSurnames` | automated | 1 of 30 selected tests failed (`onlyTheCustomersOwnFullNameIsExempted`) |
+| `./gradlew check` (backend), first commit `9ad50ef` | automated | BUILD SUCCESSFUL: 2573 tests, 0 failures, 0 errors, 0 skipped |
+| `./gradlew check` (backend), first exemption | automated | BUILD SUCCESSFUL: 2590 tests, 0 failures; independent verification then failed it for being too broad, and the exemption was narrowed |
+| `./gradlew check` (backend), narrowed exemption | automated | BUILD SUCCESSFUL: 2609 tests, 0 failures; independent verification then failed it because its quantity list was a partial copy of the validator's |
+| `./gradlew check` (backend), validator's own quantities | automated | BUILD SUCCESSFUL: 2617 tests, 0 failures, 0 errors, 0 skipped |
 
 Notes:
 

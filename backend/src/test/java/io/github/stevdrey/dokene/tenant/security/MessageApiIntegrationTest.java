@@ -547,6 +547,20 @@ class MessageApiIntegrationTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
     }
 
+    /** Issue 326: a real surname that is also an offer word, in the template and in a greeting, is not refused. */
+    @Test
+    void aListedSurnameIsSubmittedAndApprovedWhileTheSameWordElsewhereIsNot() throws Exception {
+        rename("Ana Bono");
+        submit(ownerA, "u-" + UUID.randomUUID(), etag(policyVersion), submitJson("Un bono para usted."))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
+        String messageId = body(submit(ownerA, "s-" + UUID.randomUUID(), etag(policyVersion),
+                submitJson("Hola Ana Bono, seguimos atentos.")).andExpect(status().isCreated()))
+                .get("messageId").asString();
+        templateOf(viewerA, messageId).andExpect(jsonPath("$.template.renderedBody").exists());
+        approve(ownerA, messageId, "v-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
     private void rename(String displayName) throws Exception {
         Customer current = inContext(ownerA, () -> customers.get(customer.id()));
         inContext(ownerA, () -> customers.update(customer.id(), current.version(), displayName, current.notes(),

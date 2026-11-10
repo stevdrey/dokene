@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.ai.domain.DraftGroundingContext;
+import io.github.stevdrey.dokene.ai.domain.DraftSafetyValidator;
 import io.github.stevdrey.dokene.ai.domain.SemanticAction;
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyRepository;
@@ -32,6 +33,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Instant;
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +87,92 @@ class RenderedContentSafetyTest {
                 "es-419", BODY, customer), name);
         assertRefusedQuotingNothing(() -> assembler.bind(message, customer, sender), name);
         assertThat(assembler.review(message, customer)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Ana Bono", "Luis Soles", "Eva Reales", "Mario Precio", "Ana M. Bono", "Ana María Bono"})
+    void aListedSurnameAfterAGivenNameIsNotAnOfferWord(String name) {
+        Customer customer = customer(name);
+
+        assertThat(assembler.review(message("es-419", BODY, customer), customer).orElseThrow().renderedBody())
+                .isEqualTo("Hola " + name + ": " + BODY);
+        assertThat(assembler.bind(message("es-419", BODY, customer), customer, sender).parameterValues())
+                .containsExactly(name, BODY);
+    }
+
+    /** The exception is not a way in: an offer word first, alone, or with a number, a symbol or another offer word. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Bono", "Precio especial", "Ana Precio 100", "Ana Soles 500", "Ana Bono gratis",
+            "Ana Precio $", "Ana Precio promo.example", "Ana Regalo", "Ana bono", "Aumento de Precio", "Cambio De Precio",
+            "Su Nuevo Precio", "Le Damos Un Bono", "Cien Soles", "Mil Reales", "Bono Precio", "Ana Bono Mora"})
+    void aListedSurnameOpensNoOtherContent(String name) {
+        Customer customer = customer(name);
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", BODY, customer), customer, sender), name);
+    }
+
+    @Test
+    void onlyTheCustomersOwnFullNameIsExempted() {
+        Customer customer = customer("Ana Precio");
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Tenemos un precio nuevo.", customer),
+                customer, sender), "precio");
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Ana Precio es de 100.", customer),
+                customer, sender), "precio");
+    }
+
+    /** Every written quantity the validator reads, exhaustively, so the exemption cannot drift from its rules. */
+    @Test
+    void noWrittenQuantityTheValidatorReadsCanPrecedeASurnameOrStandNearTheName() {
+        for (String word : DraftSafetyValidator.writtenQuantityWords()) {
+            Customer quantity = customer(Character.toUpperCase(word.charAt(0)) + word.substring(1) + " Soles");
+            assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", BODY, quantity), quantity, sender),
+                    "Soles");
+            if (!Set.of("un", "una").contains(word)) {
+                Customer surname = customer("Ana Soles");
+                assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", "Ana Soles " + word + ".", surname),
+                        surname, sender), "Soles");
+            }
+        }
+    }
+
+    /** A disguised spelling of an earlier word is read as the validator reads it, or the name does not qualify. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Cién Soles", "Cien- Soles", "Nuevo' Precio", "Cien-Mil Soles", "\uFF23ien Soles",
+            "\u0421ien Soles", "Mi\u0301l Soles"})
+    void aDisguisedEarlierWordDoesNotQualifyTheName(String name) {
+        Customer customer = customer(name);
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", BODY, customer), customer, sender), "Soles");
+    }
+
+    /** A quantity in any form the validator reads, or a commercial word, keeps the name subject to the rules. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Ana Precio \uFF15\uFF10\uFF10.", "Ana Precio cien.", "Son cien Ana Precio.",
+            "Ana Precio especial para usted.", "Ana Precio \u00B2."})
+    void aQuantityOrCommercialWordNearTheNameKeepsItRefused(String body) {
+        Customer customer = customer("Ana Precio");
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", body, customer), customer, sender), "Precio");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Best Price", "Flash Sale", "Your New Price", "Ten Rand", "Sale Mora"})
+    void anEnglishNameThatReadsAsAnOfferIsRefusedForAnEnglishMessage(String name) {
+        mapping("en_US", new TemplateContent(null, "Hello {{1}}: {{2}}", null));
+        Customer customer = customer(name);
+
+        assertRefusedQuotingNothing(() -> assembler.bind(message("en-US", "We hope you are enjoying it.", customer),
+                customer, sender), name);
+    }
+
+    @Test
+    void anEnglishSurnameIsListedForAnEnglishMessage() {
+        mapping("en_US", new TemplateContent(null, "Hello {{1}}: {{2}}", null));
+        Customer customer = customer("Ana Price");
+
+        assertThat(assembler.bind(message("en-US", "We hope you are enjoying it.", customer), customer, sender)
+                .parameterValues()).containsExactly("Ana Price", "We hope you are enjoying it.");
     }
 
     /** Neither value is a link alone: only the rendered body, the text the recipient reads, shows one. */

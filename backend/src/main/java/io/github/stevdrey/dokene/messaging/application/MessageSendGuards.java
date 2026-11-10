@@ -75,7 +75,8 @@ public class MessageSendGuards {
                 .orElseThrow(() -> refuse(MessagingErrorCode.FOLLOW_UP_INELIGIBLE));
         MessageDraft draft;
         try {
-            draft = new MessageDraft(action, intent, body, DraftVariables.empty(), locale, List.of(), List.of(),
+            draft = new MessageDraft(action, intent, AmbiguousSurnames.neutralized(body, customer.displayName()),
+                    DraftVariables.empty(), locale, List.of(), List.of(),
                     OPERATOR_RATIONALE, RecommendationConfidence.of(1.0));
         } catch (RecommendationValidationException exception) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
@@ -88,14 +89,16 @@ public class MessageSendGuards {
     /**
      * The body guard applied to what the provider would receive (issue 326), on every path that renders a template:
      * each parameter value, which may come from tenant records rather than the reviewed body, and the fixed body with
-     * those values filled in. Refuses with {@code BODY_REJECTED} and never quotes a value.
+     * those values filled in. Refuses with {@code BODY_REJECTED} and never quotes a value. The customer's own name is
+     * read through {@link AmbiguousSurnames}, as in the body guard.
      */
     public void checkRendered(Customer customer, String locale, List<String> parameterValues, String renderedBody) {
         Map<String, String> texts = new LinkedHashMap<>();
         for (int index = 0; index < parameterValues.size(); index++) {
-            texts.put("parameter " + (index + 1), parameterValues.get(index));
+            texts.put("parameter " + (index + 1),
+                    AmbiguousSurnames.neutralized(parameterValues.get(index), customer.displayName()));
         }
-        texts.put("rendered body", renderedBody);
+        texts.put("rendered body", AmbiguousSurnames.neutralized(renderedBody, customer.displayName()));
         if (DraftSafetyValidator.validateRenderedText(texts, locale, grounding.renderedContentGrounding(customer))
                 .isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
