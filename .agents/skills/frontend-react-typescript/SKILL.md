@@ -129,6 +129,8 @@ Cover relevant cases such as:
 
 Prefer tests that exercise components through accessible roles/labels and user-visible behavior.
 
+When the trigger in the "When to use" section of `.agents/skills/blast-radius-analysis/SKILL.md` applies to a frontend change, use that skill to trace the consumers and status-code handling on both sides and to prove the assumption the UI relies on.
+
 Before completion, run the relevant frontend tests/build/lint/type checks defined by the repository and document any intentionally skipped verification.
 
 ## Review Checklist

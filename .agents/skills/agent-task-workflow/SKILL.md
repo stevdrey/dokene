@@ -49,6 +49,10 @@ A well-scoped implementation task should identify:
 - verification commands;
 - documentation or ADR updates.
 
+## Cross-Layer Risk
+
+When the trigger in the "When to use" section of `.agents/skills/blast-radius-analysis/SKILL.md` applies, apply that skill while scoping. It traces the affected boundaries and proves the one or two facts the change's safety depends on, and its record becomes implementer's evidence. It is an optional pilot practice: it adds no gate, and the rest of this workflow is unchanged. Otherwise, skip it and say so in one line.
+
 ## Execution Loop
 
 Use the smallest useful execution loop:
