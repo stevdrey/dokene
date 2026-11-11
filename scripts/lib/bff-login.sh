@@ -16,7 +16,8 @@
 #     loopback URL, so credentials are only ever posted to the local stack;
 #   - the password is read from stdin and handed to curl through stdin (--data-urlencode
 #     "password@-"), so it never appears in an argument list or the process table;
-#   - the callback must be the BFF's /login/oauth2/code/dokene endpoint.
+#   - the callback must be BFF_URL's own /login/oauth2/code/dokene endpoint, so the code only goes back
+#     to the origin the login started from.
 #
 # Reads BFF_URL (default http://localhost:8080). WORK_DIR holds transient header and page files.
 # Pure parts (is_local_target, header_value, bff_login_form_action) are tested offline by
@@ -44,17 +45,17 @@ bff_login_form_action() {
 
 # bff_login USERNAME COOKIE_JAR WORK_DIR, password on stdin. See the header for the contract.
 bff_login() {
-  local user="$1" jar="$2" work="$3"
-  local headers="$work/bff-login-$user.headers" page="$work/bff-login-$user.page"
+  local user="$1" jar="$2" work="$3" headers page rc
+  headers="$(mktemp "$work/bff-login.XXXXXX")" || { printf 'bff_login: cannot create a work file for %s\n' "$user" >&2; return 1; }
+  page="$(mktemp "$work/bff-login.XXXXXX")" || { rm -f "$headers"; printf 'bff_login: cannot create a work file for %s\n' "$user" >&2; return 1; }
   BFF_LOGIN_ERROR=""
-  if _bff_login_flow "$user" "$jar" "$headers" "$page"; then
-    rm -f "$headers" "$page"
-    printf '%s\n' "$jar"
-  else
-    rm -f "$headers" "$page"
+  _bff_login_flow "$user" "$jar" "$headers" "$page"; rc=$?
+  rm -f "$headers" "$page"
+  if [ "$rc" -ne 0 ]; then
     printf 'bff_login: %s for %s\n' "${BFF_LOGIN_ERROR:-login failed}" "$user" >&2
     return 1
   fi
+  printf '%s\n' "$jar"
 }
 
 # The four hops of bff_login; on failure sets BFF_LOGIN_ERROR and returns 1. Reads the password from stdin.
@@ -80,7 +81,7 @@ _bff_login_flow() {
   [ -n "$callback" ] || { BFF_LOGIN_ERROR="authentication failed (no redirect; check the user and password)"; return 1; }
   is_local_target "$callback" || { BFF_LOGIN_ERROR="authentication failed (callback is not a loopback URL)"; return 1; }
   case "$callback" in
-    *"/login/oauth2/code/dokene"*) ;;
+    "$bff/login/oauth2/code/dokene?"*) ;;
     *) BFF_LOGIN_ERROR="authentication failed (unexpected callback)"; return 1 ;;
   esac
 

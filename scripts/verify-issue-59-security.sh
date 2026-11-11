@@ -65,17 +65,17 @@ login_user() {
 # 1. Setup Sessions and Tenants
 echo ""
 echo "Setting up sessions for synthetic identities..."
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")" || exit 1  # bff_login printed the reason
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OPERATOR_COOKIE="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE="$(login_user "testoperator" "$TEST_PASSWORD")" || exit 1  # bff_login printed the reason
 OPERATOR_SESSION="$(curl -s -b "$OPERATOR_COOKIE" "$BFF_URL/api/session")"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 OPERATOR_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 
-VIEWER_COOKIE="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE="$(login_user "testviewer" "$TEST_PASSWORD")" || exit 1  # bff_login printed the reason
 VIEWER_SESSION="$(curl -s -b "$VIEWER_COOKIE" "$BFF_URL/api/session")"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
 VIEWER_ID="$(echo "$VIEWER_SESSION" | jq -r '.identityId')"

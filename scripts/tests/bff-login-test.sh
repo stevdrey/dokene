@@ -67,13 +67,14 @@ done
 printf '%s\n' "$url" >> "$STUB_LOG"
 if [ "$post" = true ]; then
   cat > "$STUB_DIR/posted-password"
-  printf 'HTTP/1.1 302 Found\r\nLocation: %s\r\n' "$STUB_CALLBACK" > "$headers"
+  printf 'HTTP/1.1 %s\r\n' "${STUB_CALLBACK:+302 Found}${STUB_CALLBACK:-200 OK}" > "$headers"
+  [ -z "$STUB_CALLBACK" ] || printf 'Location: %s\r\n' "$STUB_CALLBACK" >> "$headers"
   exit 0
 fi
 case "$url" in
   */oauth2/authorization/dokene)
-    printf 'HTTP/1.1 302 Found\r\nLocation: %s\r\n' "$STUB_AUTH_URL" > "$headers"
-    printf '302' ;;
+    printf 'HTTP/1.1 %s\r\nLocation: %s\r\n' "${STUB_STATUS:-302}" "$STUB_AUTH_URL" > "$headers"
+    printf '%s' "${STUB_STATUS:-302}" ;;
   "$STUB_AUTH_URL")
     printf '<form action="%s" method="post">' "$STUB_FORM_ACTION" > "$out" ;;
 esac
@@ -81,13 +82,16 @@ exit 0
 STUB
 chmod +x "$TMP/bin/curl"
 
+# run_login [USER]: logs in through the stub with WORK_DIR=$TMP/work.
 run_login() {
-  : > "$TMP/calls"; rm -f "$TMP/posted-password"
+  : > "$TMP/calls"; rm -f "$TMP/posted-password"; mkdir -p "$TMP/work"
   printf '%s' 'p@ss word&=1' | PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/calls" STUB_DIR="$TMP" \
-    bff_login testuser "$TMP/jar" "$TMP" > "$TMP/out" 2> "$TMP/err"
+    bff_login "${1:-testuser}" "$TMP/jar" "$TMP/work" > "$TMP/out" 2> "$TMP/err"
 }
-export STUB_AUTH_URL STUB_FORM_ACTION STUB_CALLBACK
+unset BFF_URL  # the default http://localhost:8080 is the origin the stub callback must match
+export STUB_AUTH_URL STUB_FORM_ACTION STUB_CALLBACK STUB_STATUS
 use_local_stack() {
+  STUB_STATUS=302
   STUB_AUTH_URL="http://localhost:8081/realms/dokene/protocol/openid-connect/auth?x=1"
   STUB_FORM_ACTION="http://localhost:8081/realms/dokene/login-actions/authenticate?s=1"
   STUB_CALLBACK="http://localhost:8080/login/oauth2/code/dokene?code=c&state=s"
@@ -98,7 +102,7 @@ assert "a loopback flow logs in" run_login
 assert "a successful login prints the cookie jar" [ "$(cat "$TMP/out")" = "$TMP/jar" ]
 assert "the password reaches curl through stdin" [ "$(cat "$TMP/posted-password")" = 'p@ss word&=1' ]
 assert "the callback is completed" grep -qx "http://localhost:8080/login/oauth2/code/dokene?code=c&state=s" "$TMP/calls"
-refute "transient login files are removed" compgen -G "$TMP/bff-login-*"
+refute "transient login files are removed" compgen -G "$TMP/work/bff-login.*"
 
 use_local_stack; STUB_AUTH_URL="http://keycloak.example.com/realms/dokene/auth"
 refute "a remote authorization redirect is refused" run_login
@@ -119,8 +123,32 @@ refute "a remote callback is refused" run_login
 refute "a remote callback is never followed" grep -q attacker.example.com "$TMP/calls"
 refute "the password never appears in the error output" grep -q 'p@ss' "$TMP/err"
 
-# --- static safety: the helper never puts the password in an argument
-refute "the helper never passes a password on the command line" grep -Eq 'password=\$' "$LIB"
+use_local_stack; STUB_STATUS=200
+refute "an authorization request that is not a 302 is refused" run_login
+assert "a non-302 authorization request explains why" grep -q "expected 302" "$TMP/err"
+refute "no password is posted after a non-302 authorization request" [ -e "$TMP/posted-password" ]
+
+use_local_stack; STUB_CALLBACK=""
+refute "a credential POST without a redirect (wrong password) is refused" run_login
+assert "a missing redirect points at the credentials" grep -q "check the user and password" "$TMP/err"
+
+use_local_stack; STUB_CALLBACK="http://localhost:9999/x?r=/login/oauth2/code/dokene&code=c"
+refute "a loopback callback on another origin is refused" run_login
+refute "a callback on another origin is never followed" grep -q "localhost:9999" "$TMP/calls"
+
+use_local_stack; STUB_CALLBACK="http://localhost:8080/elsewhere?r=/login/oauth2/code/dokene&code=c"
+refute "a callback with the endpoint only in its query is refused" run_login
+
+# A username with path segments must not name files: "x/../../escape" once resolved to $TMP/escape.*.
+use_local_stack; mkdir -p "$TMP/work/bff-login-x"; printf keep > "$TMP/escape.headers"
+assert "a username with path segments still logs in" run_login "x/../../escape"
+assert "a username cannot overwrite or delete a file outside WORK_DIR" [ "$(cat "$TMP/escape.headers" 2>/dev/null)" = keep ]
+refute "no work files are left after that login" compgen -G "$TMP/work/bff-login.*"
+
+# --- static safety: the helper sends the password only through stdin (comments are ignored)
+LIB_CODE="$(grep -Ev '^[[:space:]]*#' "$LIB")"
+assert "the helper posts the password from stdin exactly once" [ "$(grep -c 'password@-' <<<"$LIB_CODE")" -eq 1 ]
+refute "the helper never builds a password= argument" grep -q 'password=' <<<"$LIB_CODE"
 
 if [ "$FAILURES" -gt 0 ]; then printf '\n%s test(s) failed\n' "$FAILURES"; exit 1; fi
 printf '\nall tests passed\n'
