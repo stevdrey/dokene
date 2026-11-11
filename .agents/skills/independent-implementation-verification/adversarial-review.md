@@ -79,7 +79,7 @@ Record each probe that ran as a check: `kind` `automated`, `manual`, or `simulat
 
 ## Deduplication
 
-Several symptoms with one root cause are one finding. Group findings by `root_cause` (the same faulty code or missing guard), keep one finding with the strongest evidence as its reproduction, list the other symptoms in its `summary`, and union their `criteria`. Do not raise a finding for a defect another finding already explains, and do not repeat a finding the previous verdict already recorded unless its status changed. Separate root causes stay separate findings, even in the same file.
+Several symptoms with one root cause are one finding. Group findings by `root_cause` (the same faulty code or missing guard), keep one finding with the strongest evidence as its reproduction, list the other symptoms in its `summary`, and union their `criteria`. Do not raise a finding for a defect another finding already explains. On a re-verification, a finding the previous verdict recorded keeps its id instead of being raised again under a new one; it is never dropped while unresolved, because the validator reads only the current verdict. Separate root causes stay separate findings, even in the same file.
 
 ## Budget
 
@@ -92,7 +92,7 @@ Several symptoms with one root cause are one finding. Group findings by `root_ca
 
 On a re-verification, the pass covers only:
 
-1. each previous adversarial blocker: rerun its reproduction on the new candidate; resolved only if the rerun passes;
+1. each previous adversarial blocker: rerun its reproduction on the new candidate and carry the finding into the new verdict's `findings[]` with the same id and refreshed evidence, `status: resolved` only if the rerun passes, otherwise still `open` `blocker`;
 2. code changed since the previous candidate, with the same triggers and budget.
 
 Unchanged code is not attacked again. A proven blocker found incidentally in unchanged code is still reported, because the bar is evidence, not novelty; a new hypothesis there without proof is optional. This keeps the pass from producing a fresh list each round and lets the loop's `maxRounds` and stop rules converge.
