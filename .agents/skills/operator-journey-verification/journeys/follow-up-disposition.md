@@ -15,7 +15,7 @@ An OPERATOR finds a due follow-up in the queue and dismisses it. Afterwards the 
 ./scripts/verify-journey-follow-up-disposition.sh --out "$(mktemp -d)"
 ```
 
-When the candidate changes backend code, rebuild the image first with `./scripts/dev-env.sh restart-backend --yes`. `--keep-fixture` leaves the fixture customer active for a manual look.
+When the candidate changes backend code, rebuild the image first with `./scripts/dev-env.sh restart-backend --yes`. `--keep-fixture` leaves the fixture customer active for a manual look. `--fixture-only` builds a due fixture, keeps it, and runs no steps; use it for S21.
 
 ## Fixture
 
@@ -59,16 +59,18 @@ All data is invented. The password comes from `DOKENE_TEST_USER_PASSWORD` and is
 | S17 | Eligibility after the dismissal | `NOT_YET_DUE` or `INELIGIBLE` | automated |
 | S18 | Operator walks the due queue | Customer absent | automated |
 | S19 | Viewer walks the due queue | Customer absent | automated |
-| S20 | Operator lists messages for the customer | `0` | automated |
+| S20 | Operator reads the customer (positive control), then lists its messages | `200`, then `0` | automated |
 | S21 | Follow-up queue screen after a reload | Customer absent | manual |
 
-S21 is outside the script. To perform it, run with `--keep-fixture` and pause before S15, or run it on a second fixture: sign in at `http://localhost:5173` as `testoperator`, open the follow-up queue, confirm the customer is listed, dismiss it from the UI, reload, and confirm it is gone; then sign in as `testviewer` and confirm the queue shows no dismiss control and no customer. Record what was observed, who or what drove the browser, and the browser used. The tracked #122 browser drivers are not reused: they are written for that campaign and pin its working folder.
+S21 is outside the script. To perform it, run `./scripts/verify-journey-follow-up-disposition.sh --fixture-only`, which prints the name of a due customer it keeps. Then sign in at `http://localhost:5173` as `testoperator`, open the follow-up queue, confirm the customer is listed, dismiss it from the UI, reload, and confirm it is gone; then sign in as `testviewer` and confirm the queue shows no dismiss control and no customer. Afterwards, archive the customer as `testuser`. Record what was observed, who or what drove the browser, and the browser used. The tracked #122 browser drivers are not reused: they are written for that campaign and pin its working folder.
 
 ## Cleanup
 
 The owner archives the fixture customer (`DELETE /api/customers/{id}`, `204`; OPERATOR lacks `CUSTOMER_DELETE`). Working files, including cookies and response bodies, live in a temporary directory that is deleted on exit. The journey record stays in `--out`. Tenant B is kept so later runs reuse it. If cleanup fails, the record says so and names the fixture to archive.
 
 ## What this journey does not cover
+
+- A regression in the message filter itself: S20 proves the query's session and tenant can see the customer, but detecting a filter that hides existing messages needs a message, and this journey creates none on purpose.
 
 - AI recommendations or drafts, message approval, and sending: they are other journeys, and sending is out of scope for agents.
 - Snooze and manual follow-up completion; `FollowUpOperatorJourneySystemTest` covers them below the real security chain.

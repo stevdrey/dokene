@@ -11,13 +11,15 @@
 #
 # Usage:
 #   ./scripts/verify-journey-follow-up-disposition.sh [run] [--out DIR] [--keep-fixture]
+#   ./scripts/verify-journey-follow-up-disposition.sh --fixture-only [--out DIR]
+#     (builds and keeps a due fixture for the manual browser step S21, runs no steps)
 #   ./scripts/verify-journey-follow-up-disposition.sh doctor
 #   ./scripts/verify-journey-follow-up-disposition.sh help
 #
 # Prerequisites: ./scripts/dev-env.sh up --seed (local stack, seeded QA identities), curl, jq.
 # Targets only localhost. All data is invented; nothing is sent to WhatsApp or any provider.
 #
-# Exit codes: 0 every step passed; 1 a step failed; 2 a precondition is unavailable
+# Exit codes: 0 every step passed (with --fixture-only: the fixture was built and kept, no step ran); 1 a step failed; 2 a precondition is unavailable
 # (stack down, seed missing, non-local target) or the journey record could not be written:
 # the journey is blocked, not passed.
 # ==============================================================================
@@ -39,19 +41,32 @@ usage() {
 # Pure helpers (exercised offline by scripts/tests/verify-journey-follow-up-disposition-test.sh)
 # ------------------------------------------------------------------------------
 
-# True only for plain-HTTP loopback origins: the journey must never reach a shared or production host.
+# True only for plain-HTTP loopback origins (no path, query or fragment): the journey must never reach a shared or
+# production host. The loopback rule itself lives only in is_local_target.
 is_local_url() {
-  [[ "$1" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?$ ]]
+  is_local_target "$1" && [[ "$1" =~ ^http://[^/?#]*$ ]]
 }
 
 # True for a URL on a plain-HTTP loopback origin, with or without a path (OIDC redirects and the login form).
 is_local_target() {
+  case "$1" in *[[:cntrl:]]*) return 1 ;; esac  # one line only: a newline could smuggle a second URL
   [[ "$1" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?(/|\?|$) ]]
 }
 
 # True when $1 (absolute) is $2 or below it.
 path_is_within() {
   case "$1/" in "$2"/*) return 0 ;; *) return 1 ;; esac
+}
+
+# True when $1 or one of its existing ancestors is the same directory as $2 (-ef), which also catches case-insensitive
+# file systems and bind mounts that a string comparison misses.
+path_is_within_dir() {
+  local p="$1"
+  while :; do
+    [ -e "$p" ] && [ "$p" -ef "$2" ] && return 0
+    [ "$p" = "/" ] || [ -z "$p" ] && return 1
+    p="${p%/*}"; [ -n "$p" ] || p="/"
+  done
 }
 
 # Physical absolute form of $1 without GNU realpath: resolves symlinks through the nearest existing ancestor and
@@ -85,7 +100,7 @@ yaml_str() {
   local s="$1"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
-  s="$(printf '%s' "$s" | tr '\t\r\n' '   ')"
+  s="$(printf '%s' "$s" | tr '\t\r\n' '   ' | tr -d '\000-\037\177')"
   printf '"%s"' "$s"
 }
 
@@ -129,6 +144,7 @@ check() {
 }
 
 eq() { [ "$1" = "$2" ]; }
+is_id() { [ -n "$1" ] && [ "$1" != "null" ]; }
 is_due() { [ "$1" = "DUE" ] || [ "$1" = "OVERDUE" ]; }
 # Only a successful read with a recognized non-due status counts; an error such as status-500 does not.
 not_due() { [ "$1" = "NOT_YET_DUE" ] || [ "$1" = "INELIGIBLE" ]; }
@@ -139,6 +155,7 @@ not_due() { [ "$1" = "NOT_YET_DUE" ] || [ "$1" = "INELIGIBLE" ]; }
 write_record() {
   local result="passed"
   [ "$STEPS_FAILED" -gt 0 ] && result="failed"
+  [ "${FIXTURE_ONLY:-false}" = true ] && result="not-run"
   [ -n "${BLOCKED_REASON:-}" ] && result="blocked"
   rm -f "$RECORD" 2>/dev/null
   {
@@ -181,21 +198,25 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || true; fi
 COMMAND="run"
 OUT_DIR=""
 KEEP_FIXTURE=false
+FIXTURE_ONLY=false
 while [ $# -gt 0 ]; do
   case "$1" in
     run|doctor) COMMAND="$1" ;;
     help|-h|--help) usage; exit 0 ;;
     --out) [ $# -ge 2 ] || { echo "--out needs a directory" >&2; exit 2; }; OUT_DIR="$2"; shift ;;
     --keep-fixture) KEEP_FIXTURE=true ;;
+    --fixture-only) FIXTURE_ONLY=true; KEEP_FIXTURE=true ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
   esac
   shift
 done
 
 if [ -f "$ROOT_DIR/.env" ]; then
-  # Only the values this script needs; .env is not sourced wholesale.
-  env_get() { grep -E "^$1=" "$ROOT_DIR/.env" | tail -n 1 | cut -d= -f2-; }
+  # .env is sourced in a subshell, as seed-local-qa.sh does, so quoting matches; only the requested value comes back
+  # to this process.
+  env_get() { ( set -a; . "$ROOT_DIR/.env" >/dev/null 2>&1; printf '%s' "${!1:-}" ); }
   : "${DOKENE_TEST_USER_PASSWORD:=$(env_get DOKENE_TEST_USER_PASSWORD)}"
+  # shellcheck disable=SC2031 # env_get's subshell only reads .env; the value comes back on stdout
   : "${KEYCLOAK_PORT:=$(env_get KEYCLOAK_PORT)}"
 fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
@@ -208,7 +229,7 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dokene-journey-work.XXXXXX")"
 [ -n "$OUT_DIR" ] || OUT_DIR="${TMPDIR:-/tmp}/dokene-journey-$RUN_ID"
 # Refuse an evidence directory inside the repository before anything is created there (it would change the candidate).
 OUT_DIR="$(resolve_path "$OUT_DIR")" || { echo "[blocked] cannot resolve --out; avoid '..' below a missing directory" >&2; rm -rf "$WORK_DIR"; exit 2; }
-if path_is_within "$OUT_DIR" "$ROOT_DIR"; then
+if path_is_within "$OUT_DIR" "$ROOT_DIR" || path_is_within_dir "$OUT_DIR" "$ROOT_DIR"; then
   echo "[blocked] --out is inside the repository; keep evidence outside the candidate worktree" >&2
   rm -rf "$WORK_DIR"; exit 2
 fi
@@ -289,7 +310,7 @@ queue_contains() {
 archive_fixture() {
   [ -n "$CUSTOMER_ID" ] || return 0
   if [ "$KEEP_FIXTURE" = true ]; then
-    CLEANUP_NOTE="fixture customer kept (--keep-fixture); work files removed; this record kept"
+    CLEANUP_NOTE="fixture customer 'QA Journey $RUN_ID' kept (--keep-fixture or --fixture-only); archive it as testuser when done; work files removed; this record kept"
   else
     # Archiving needs CUSTOMER_DELETE, which OPERATOR lacks; the owner session archives the fixture.
     http GET "/api/customers/$CUSTOMER_ID" "$OWNER_JAR" -H "X-Tenant-Id: $TENANT_A"
@@ -357,6 +378,7 @@ http POST /api/tenants "$OWNER_JAR" -H "Content-Type: application/json" -H "X-CS
   -d "$(jq -cn --arg n "$ISOLATION_TENANT_NAME" --arg k "$ISOLATION_TENANT_KEY" '{displayName: $n, idempotencyKey: $k}')"
 case "$HTTP_STATUS" in 200|201) ;; *) blocked "isolation tenant provisioning returned $(trace); is DOKENE_PROVISIONING_ENABLED=true?" ;; esac
 TENANT_B="$(body .tenantId)"
+is_id "$TENANT_B" || blocked "isolation tenant provisioning returned no tenant id ($(trace))"
 
 http GET /api/follow-up-policy "$OPERATOR_JAR" -H "X-Tenant-Id: $TENANT_A"
 TENANT_TZ="$(body .timeZone)"
@@ -371,7 +393,9 @@ OP_WRITE=("${A[@]}" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" -H "Content-Type: applicat
 http POST /api/customers "$OPERATOR_JAR" "${OP_WRITE[@]}" \
   -d "$(jq -cn --arg n "QA Journey $RUN_ID" --arg p "$PHONE" '{displayName: $n, phones: [{number: $p, region: "CL", primary: true}]}')"
 [ "$HTTP_STATUS" = "201" ] || blocked "fixture customer creation returned $(trace)"
-CUSTOMER_ID="$(body .id)"; PHONE_ID="$(body '.phones[0].id')"
+NEW_CUSTOMER_ID="$(body .id)"; PHONE_ID="$(body '.phones[0].id')"
+{ is_id "$NEW_CUSTOMER_ID" && is_id "$PHONE_ID"; } || blocked "fixture customer creation returned no customer or phone id ($(trace))"
+CUSTOMER_ID="$NEW_CUSTOMER_ID"
 CLEANUP_NOTE="fixture customer left active (cleanup did not run)"
 
 http GET "/api/customers/$CUSTOMER_ID/contact-policy" "$OPERATOR_JAR" "${A[@]}"
@@ -392,6 +416,18 @@ http PUT "/api/customers/$CUSTOMER_ID/follow-up-policy" "$OPERATOR_JAR" "${OP_WR
 [ "$HTTP_STATUS" = "200" ] || blocked "fixture follow-up policy returned $(trace)"
 echo "[ok] fixture ready (customer {customer} in tenant A, next date = tenant today)"
 
+if [ "$FIXTURE_ONLY" = true ]; then
+  for n in $(seq 1 20); do
+    record_step "S$n" "automated step" "see the journey file" "fixture-only run" not-run >/dev/null
+  done
+  record_step S21 "the follow-up queue screen reflects the dismissal after reload" \
+    "customer absent from the queue page" "fixture kept for the browser step" not-run manual
+  archive_fixture
+  echo "Fixture for S21: customer 'QA Journey $RUN_ID' in '$SEED_TENANT_NAME' is due and kept; archive it as testuser afterwards."
+  write_record || exit 2
+  exit 0
+fi
+
 # ------------------------------------------------------------------------------
 # Steps
 # ------------------------------------------------------------------------------
@@ -404,7 +440,8 @@ current_policy_etag() {
   printf '%s' "$HTTP_ETAG"
 }
 dismiss() {  # jar csrf tenant if-match key
-  local args=(-H "X-Tenant-Id: $3" -H "X-CSRF-TOKEN: $2" -H "Content-Type: application/json" -H "Idempotency-Key: $5")
+  local args=(-H "X-Tenant-Id: $3" -H "Content-Type: application/json" -H "Idempotency-Key: $5")
+  [ -n "$2" ] && args+=(-H "X-CSRF-TOKEN: $2")
   [ -n "$4" ] && args+=(-H "If-Match: $4")
   http POST "/api/customers/$CUSTOMER_ID/follow-up-dismissals" "$1" "${args[@]}" -d '{"notes":"QA journey dismissal"}'
 }
@@ -427,9 +464,7 @@ S="$(eligibility_status "$OPERATOR_JAR" "$TENANT_A")"
 check S5 "the refused viewer request changed nothing" "DUE or OVERDUE" "$S" is_due "$S"
 
 echo "--- Session security (real BFF chain)"
-http POST "/api/customers/$CUSTOMER_ID/follow-up-dismissals" "$OPERATOR_JAR" "${A[@]}" \
-  -H "Content-Type: application/json" -H "If-Match: $ETAG" -H "Idempotency-Key: qa-journey-nocsrf-$RUN_ID" \
-  -d '{"notes":"QA journey dismissal"}'
+dismiss "$OPERATOR_JAR" "" "$TENANT_A" "$ETAG" "qa-journey-nocsrf-$RUN_ID"
 check S6 "operator dismissal without the CSRF token is refused" "403" "$(trace)" eq "$HTTP_STATUS" 403
 S="$(eligibility_status "$OPERATOR_JAR" "$TENANT_A")"
 check S7 "the refused request changed nothing" "DUE or OVERDUE" "$S" is_due "$S"
@@ -474,9 +509,13 @@ S="$(queue_contains "$VIEWER_JAR" "$TENANT_A" "$CUSTOMER_ID")"
 check S19 "the customer left the viewer's due queue" "false" "$S" eq "$S" false
 
 echo "--- No outbound side effect"
+# Positive control: the same session and tenant can see the customer, so an empty list is not "customer not visible".
+http GET "/api/customers/$CUSTOMER_ID" "$OPERATOR_JAR" "${A[@]}"
+VISIBLE="$HTTP_STATUS"
 http GET "/api/messages?customerId=$CUSTOMER_ID" "$OPERATOR_JAR" "${A[@]}"
 OUTBOUND_COUNT="$( [ "$HTTP_STATUS" = "200" ] && message_count "$WORK_DIR/body" || echo unknown)"
-check S20 "no outbound message exists for the fixture customer" "0" "$OUTBOUND_COUNT ($(trace))" eq "$OUTBOUND_COUNT" 0
+check S20 "no outbound message exists for the fixture customer (visible to the same query)" "customer 200, 0 messages" \
+  "customer $VISIBLE, $OUTBOUND_COUNT messages ($(trace))" eq "$VISIBLE:$OUTBOUND_COUNT" "200:0"
 
 record_step S21 "the follow-up queue screen reflects the dismissal after reload" \
   "customer absent from the queue page" "browser step outside this script; see the journey file" not-run manual

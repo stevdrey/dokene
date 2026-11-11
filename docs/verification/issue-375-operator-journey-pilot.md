@@ -64,7 +64,7 @@ All runs used the same stack without a reset. Each run made its own fixture cust
 
 | Command | Result |
 | --- | --- |
-| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 53 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks, and a static check that the script calls no message send, approval, or creation path |
+| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 63 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks and directory identity, fixture ids, YAML control characters, and a static check that the script calls no message send, approval, or creation path |
 | `shellcheck -x scripts/verify-journey-follow-up-disposition.sh scripts/tests/verify-journey-follow-up-disposition-test.sh` | No findings |
 
 The `Script tests` workflow runs the offline test on pull requests that change either script.
@@ -86,7 +86,18 @@ A later code review of the script added these fixes:
 - **S13:** it sends the follow-up policy version that the fixture superseded, an `If-Match` that was once current.
 - **S17:** its expected text names both accepted statuses.
 
-Moving the login sequence into a helper shared with `seed-local-qa.sh` and the campaign scripts is left for follow-up work.
+Moving the login sequence into a helper shared with `seed-local-qa.sh` and the campaign scripts is follow-up work (stacked PR #383).
+
+A second code review led to these fixes:
+
+- **S21:** the new `--fixture-only` mode builds and keeps a due fixture, so the browser step can actually be performed. It records every step `not-run`; it was exercised live, and its fixture was archived afterwards.
+- **Fixture ids:** a missing customer, phone or tenant id now blocks the run instead of making later absence checks pass vacuously.
+- **S20:** the step first reads the customer through the same session and tenant (expects `200`) as a positive control. A regression in the message filter itself still needs a message to detect, and the journey creates none on purpose.
+- **`.env`:** it is now sourced in a subshell, as `seed-local-qa.sh` does.
+- **Inside-repository guard:** it also compares directory identity, which covers case-insensitive file systems.
+- **YAML scalars:** all control characters are removed.
+- **S6:** it reuses `dismiss()`, which omits the CSRF header when given an empty token.
+- **Loopback rule:** it lives only in `is_local_target`.
 
 ## Observations
 
@@ -97,5 +108,5 @@ Moving the login sequence into a helper shared with `seed-local-qa.sh` and the c
 
 ## Not run
 
-- S21, the browser step: not performed in this pilot. The script cannot pause between creating a due fixture and dismissing it, and no browser harness is tracked for this journey, so the UI half of "UI/API sync" is unverified. The API half (queue and eligibility agree for OPERATOR and VIEWER after the disposition, S17 to S19) is automated.
+- S21, the browser step: not performed in this pilot. `--fixture-only` now provides a due fixture for it, but no browser harness is tracked for this journey and nobody has run the step, so the UI half of "UI/API sync" is unverified. The API half (queue and eligibility agree for OPERATOR and VIEWER after the disposition, S17 to S19) is automated.
 - No live Meta, WhatsApp, or AI provider path; none is part of the journey.

@@ -33,6 +33,7 @@ refute "an empty value is not local" is_local_url ""
 assert "a loopback login form is a local target" is_local_target "http://localhost:8081/realms/dokene/login-actions/authenticate?x=1"
 refute "a remote login form is not a local target" is_local_target "http://login.example.com/realms/dokene"
 refute "a host that starts with localhost is not a local target" is_local_target "http://localhost.example.com/x"
+refute "a second line cannot smuggle a target" is_local_target "$(printf 'http://localhost/\nhttp://evil.example')"
 refute "userinfo cannot smuggle a target" is_local_target "http://localhost:8081@example.com/x"
 
 # --- evidence stays outside the candidate worktree
@@ -112,6 +113,23 @@ if [ "$(id -u)" -ne 0 ]; then
   refute "a stale record that cannot be replaced fails the run" write_record 2>/dev/null
 fi
 chmod u+w "$TMP/stale"
+
+# --- origins and ids
+refute "an origin with a query is not a plain origin" is_local_url "http://localhost:8080?x=1"
+refute "an origin with a fragment is not a plain origin" is_local_url "http://localhost:8080#x"
+assert "a UUID is an id" is_id "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+refute "an empty value is not an id" is_id ""
+refute "null is not an id" is_id "null"
+
+# --- YAML scalars drop other control characters
+assert "ESC and BEL are removed from YAML scalars" [ "$(yaml_str "$(printf 'a\033[31mb\007c')")" = '"a[31mbc"' ]
+
+# --- the inside-repository guard compares directory identity, not only strings
+assert "an ancestor that is the repository by identity is detected" path_is_within_dir "$ROOT_DIR/./missing/out" "$ROOT_DIR"
+refute "a scratch directory is not the repository by identity" path_is_within_dir "$TMP/real/out" "$ROOT_DIR"
+
+# --- the fixture-only mode for the manual browser step is documented
+assert "--fixture-only appears in the usage text" grep -q -- '--fixture-only' "$SCRIPT"
 
 # --- static safety: no outbound or provider write path, no remote target
 refute "the journey never calls a message send, approval or creation path" \
