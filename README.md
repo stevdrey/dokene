@@ -20,7 +20,7 @@ See the [Roadmap](docs/wiki/Roadmap.md) for planned phases, and follow progress 
 ## Local environment
 
 The whole stack (PostgreSQL, Keycloak, backend, frontend) runs in Docker so every contributor gets the same
-runtime configuration. Only Docker (Compose 2.27.2+) is required on the host:
+runtime configuration. Only Docker (Compose 2.27.2+), `curl` and `jq` are required on the host:
 
 ```bash
 ./scripts/dev-env.sh up --seed     # preflight checks, .env generation, build, start, QA seed

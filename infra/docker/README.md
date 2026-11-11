@@ -152,6 +152,10 @@ docker compose up -d --wait postgres keycloak
 
 `docker compose up` without service names now also builds and starts the backend and frontend containers.
 
+This command does not run the `.env` checks of `dev-env.sh`. Keycloak refuses to start while one of
+`DOKENE_TEST_OWNER_PASSWORD`, `DOKENE_TEST_OPERATOR_PASSWORD` and `DOKENE_TEST_VIEWER_PASSWORD` is empty (issue 314),
+so run `./scripts/dev-env.sh doctor` or `up` once first: either one generates the missing values in `.env`.
+
 Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/import/dokene-realm.json`.
 
 The import runs only when the realm does not exist yet, so later edits to that file never reach an existing realm on

@@ -59,6 +59,8 @@ echo "Target BFF:      $BFF_URL"
 echo "Target Keycloak: $KEYCLOAK_URL"
 echo "======================================================================"
 
+# Prints nothing and fails when the last response had no Location header. Under errexit a plain assignment from it or
+# from start_login would end the script before the caller's FAILED message, so those assignments add `|| true`.
 location_header() { grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}'; }
 
 # submit_credentials JAR FORM_ACTION USERNAME PASSWORD: posts the Keycloak login form and prints the HTTP status. The
@@ -85,7 +87,7 @@ without_pkce() {
 expect_pkce_refused() {
     local status location
     status="$(curl -s -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" "$1")"
-    location="$(location_header)"
+    location="$(location_header || true)"
     if [ "$status" != "302" ] || [[ "$location" != *"error=invalid_request"* ]] || grep -q 'action="' "$BODY_LOG"; then
         echo "FAILED ($2 was not refused: HTTP $status, Location ${location:-<none>})"
         exit 1
@@ -322,7 +324,7 @@ echo "OK (Session terminated and subsequent calls fail closed with 401)"
 # 8. One password per test user (issue #314)
 # ------------------------------------------------------------------------------
 echo -n "[10/$TOTAL_STEPS] Verifying testuser is refused with the VIEWER password... "
-FORM_ACTION="$(start_login "$LOGIN_JAR")"
+FORM_ACTION="$(start_login "$LOGIN_JAR" || true)"
 [ -n "$FORM_ACTION" ] || { echo "FAILED (Could not parse login form action from Keycloak HTML)"; exit 1; }
 WRONG_USER_STATUS="$(submit_credentials "$LOGIN_JAR" "$FORM_ACTION" testuser "$VIEWER_PASSWORD")"
 if [ "$WRONG_USER_STATUS" != "200" ] || ! grep -q 'action="' "$BODY_LOG" \
@@ -334,7 +336,7 @@ echo "OK (login form shown again, no authorization code)"
 
 echo -n "[11/$TOTAL_STEPS] Verifying testoperator and testviewer log in with their own passwords... "
 for login in "testoperator:$OPERATOR_PASSWORD" "testviewer:$VIEWER_PASSWORD"; do
-    FORM_ACTION="$(start_login "$LOGIN_JAR")"
+    FORM_ACTION="$(start_login "$LOGIN_JAR" || true)"
     [ -n "$FORM_ACTION" ] || { echo "FAILED (Could not parse login form action for ${login%%:*})"; exit 1; }
     submit_credentials "$LOGIN_JAR" "$FORM_ACTION" "${login%%:*}" "${login#*:}" >/dev/null
     if [[ "$(location_header)" != *"/login/oauth2/code/dokene"* ]]; then

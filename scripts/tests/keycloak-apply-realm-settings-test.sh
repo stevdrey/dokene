@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ABOUTME: Tests scripts/keycloak-apply-realm-settings.sh against a stubbed `docker` (no daemon, no Keycloak).
 # ABOUTME: Covers drift reporting, convergence, idempotence and every failure path. Needs bash and jq.
+# A normal run that fails before the password step must exit 3, like a failed password step (#314 review).
 #
 # Usage: ./scripts/tests/keycloak-apply-realm-settings-test.sh
 set -uo pipefail
@@ -176,20 +177,31 @@ testviewer DOKENE_TEST_VIEWER_PASSWORD" ] \
         && no_password_leaked
 }
 fails_when() {
-    # fails_when <op:n> [--check]: that call fails, so the run must fail and say so.
+    # fails_when <op:n> [--check]: that call fails, so the run must fail and say so. A normal run exits 3 and says the
+    # passwords were not set, because it never reached them; --check exits 1.
     fresh_realm
     STUB_FAIL="$1" run "${@:2}"
     local status=$?
-    [ "$status" -ne 0 ] && grep -q '^Error: ' "$WORK/out"
-}
-config_failure_exits_1_without_setting_passwords() {
-    fresh_realm
-    STUB_FAIL=realm-update:1 run
-    [ $? -eq 1 ] && [ ! -e "$STUB_STATE/calls.set-password" ]
+    grep -q '^Error: ' "$WORK/out" || return 1
+    if [ "${2:-}" = "--check" ]; then
+        [ "$status" -eq 1 ] && ! grep -q 'passwords were not set' "$WORK/out"
+    else
+        [ "$status" -eq 3 ] && grep -q '^Error: the test user passwords were not set' "$WORK/out" \
+            && [ ! -e "$STUB_STATE/calls.set-password" ]
+    fi
 }
 fails_when_updates_do_not_stick() {
     fresh_realm
-    ! STUB_IGNORE_UPDATES=1 run && grep -q 'is still' "$WORK/out"
+    STUB_IGNORE_UPDATES=1 run
+    [ $? -eq 3 ] && grep -q 'is still' "$WORK/out" && [ ! -e "$STUB_STATE/calls.set-password" ]
+}
+policy_with_a_pipe_is_read_whole_and_repaired() {
+    fresh_realm
+    local piped='regexPattern(^a|b$) and length(12)'
+    run && printf '%s' "$piped" >"$STUB_STATE/policy" \
+        && ! run --check && grep -qF "drift    realm passwordPolicy = $piped (expected $POLICY)" "$WORK/out" \
+        && [ "$(grep -c '^drift' "$WORK/out")" -eq 1 ] \
+        && run && in_sync && run --check
 }
 password_failure_exits_3() {
     # password_failure_exits_3 <user>: the run still tries every user, names the failed one, and exits 3.
@@ -223,11 +235,12 @@ check "a failed initial client read fails apply" fails_when client-read:1
 check "a failed initial client read fails --check" fails_when client-read:1 --check
 check "a failed initial realm read fails apply" fails_when realm-read:1
 check "a failed initial realm read fails --check" fails_when realm-read:1 --check
-check "a failed update fails the run" fails_when client-update:1
-check "a failed config step exits 1 and sets no password" config_failure_exits_1_without_setting_passwords
+check "a failed client update fails the run" fails_when client-update:1
+check "a failed realm update fails the run" fails_when realm-update:1
 check "a failed read-back of the client fails the run" fails_when client-read:2
 check "a failed read-back of the realm fails the run" fails_when realm-read:2
 check "values that do not stick after update fail the run" fails_when_updates_do_not_stick
+check "a password policy containing | is reported whole and repaired" policy_with_a_pipe_is_read_whole_and_repaired
 check "an empty password variable fails with exit 3 and says to recreate the container" \
     empty_variable_fails_and_says_to_recreate
 check "a password the policy refuses fails naming the user, never the value" \

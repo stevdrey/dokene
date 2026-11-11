@@ -440,17 +440,18 @@ up_maps_realm_settings_status() {
   (
     # 0: no warning, `up` completes.
     out="$(run_up 0)" && [ "$out" = "SUMMARY" ] || exit 1
-    # 3, a password not set: `up` fails before the summary and names the password step.
+    # 3, the passwords were not all set (a failed password step, or a config step that failed before it): `up` fails
+    # before the summary and names the passwords.
     ! out="$(run_up 3)" || exit 1
     grep -q '^FAIL Keycloak test user passwords were not set' <<<"$out" && ! grep -q SUMMARY <<<"$out" || exit 1
-    # 1, a config failure: `up` only warns and still completes.
+    # Any other failure status: `up` only warns and still completes.
     out="$(run_up 1)" || exit 1
     grep -q '^WARN Keycloak realm settings not applied' <<<"$out" && grep -q '^SUMMARY$' <<<"$out" || exit 1
   ) && rc=0
   rm -rf "$work"
   return "$rc"
 }
-check "up fails on a realm settings password error (exit 3) and only warns on a config error (#314)" \
+check "up fails when the realm settings script did not set the passwords (exit 3) and only warns otherwise (#314)" \
   bash -c "$(declare -f up_maps_realm_settings_status) ; SCRIPT='$SCRIPT'; up_maps_realm_settings_status"
 
 # Every `up` runs keycloak-apply-realm-settings.sh, which needs jq, so a missing jq must fail preflight even without

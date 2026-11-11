@@ -510,8 +510,11 @@ fi
 BFF_LOG_FILE="${BFF_LOG_FILE:-}"
 if [ -n "$BFF_LOG_FILE" ] && [ -f "$BFF_LOG_FILE" ]; then
     AUDIT_VERIFIED=1
+    # The group ends with `true`: under pipefail a grep that finds nothing would otherwise fail the pipeline and turn a
+    # leak found by the other grep into PASS. Only the final grep decides.
     if { grep -E "JSESSIONID|client_secret" "$BFF_LOG_FILE"
-         grep -F -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$BFF_LOG_FILE"; } \
+         grep -F -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$BFF_LOG_FILE"
+         true; } \
             | grep -v "REDACTED" > /dev/null 2>&1; then
         record_result "Audit" "Operational application log cleanliness" "FAIL" "Sensitive credentials detected in $BFF_LOG_FILE"
     else

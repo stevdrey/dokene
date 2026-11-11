@@ -4,17 +4,23 @@ on:
   pull_request:
     paths:
       - 'scripts/keycloak-apply-realm-settings.sh'
+      - 'scripts/dev-env.sh'
       - 'scripts/tests/keycloak-apply-realm-settings-test.sh'
       - 'scripts/tests/keycloak-realm-config-test.sh'
-      - 'infra/docker/keycloak/import/dokene-realm.json'
+      - 'scripts/tests/dev-env-smoke.sh'
+      - 'compose.yaml'
+      - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/keycloak-apply-realm-settings.sh'
+      - 'scripts/dev-env.sh'
       - 'scripts/tests/keycloak-apply-realm-settings-test.sh'
       - 'scripts/tests/keycloak-realm-config-test.sh'
-      - 'infra/docker/keycloak/import/dokene-realm.json'
+      - 'scripts/tests/dev-env-smoke.sh'
+      - 'compose.yaml'
+      - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
 
 permissions:
@@ -28,3 +34,10 @@ jobs:
       - uses: actions/checkout@v7
       - run: ./scripts/tests/keycloak-apply-realm-settings-test.sh
       - run: ./scripts/tests/keycloak-realm-config-test.sh
+
+  dev-env-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./scripts/tests/dev-env-smoke.sh

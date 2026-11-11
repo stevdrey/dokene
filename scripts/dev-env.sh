@@ -6,7 +6,7 @@
 #
 # Runs PostgreSQL, Keycloak, the backend and the frontend as Docker containers
 # (see compose.yaml) so every contributor gets the same runtime configuration.
-# Only Docker is required on the host.
+# Only Docker, curl and jq are required on the host.
 #
 # Usage:
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
@@ -610,9 +610,10 @@ cmd_up() {
   ok "All requested containers are healthy"
   compose ps
 
-  # --import-realm skips a realm Keycloak already holds; bring its settings (issues 307 and 314) up to date. A config
-  # failure only warns, as it did for #307. A password failure fails `up`: old passwords left in place would surface
-  # later as a vaguer seed or login failure.
+  # --import-realm skips a realm Keycloak already holds; bring its settings (issues 307 and 314) up to date. The
+  # script exits 3 whenever it did not set every test user password, a failure before the password step included,
+  # and that fails `up`: old passwords left in place would surface later as a vaguer seed or login failure. Any other
+  # status only warns.
   local apply_status=0
   "$ROOT_DIR/scripts/keycloak-apply-realm-settings.sh" || apply_status=$?
   case "$apply_status" in

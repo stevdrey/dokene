@@ -25,8 +25,9 @@
 #   ./scripts/keycloak-apply-realm-settings.sh          # apply, print before/after
 #   ./scripts/keycloak-apply-realm-settings.sh --check  # report config drift, exit 1 if any
 #
-# Exit status: 0 success (or no drift with --check), 1 config read or update
-# failed (or drift with --check), 2 usage, 3 a test user password was not set.
+# Exit status: 0 success (or no drift with --check), 1 --check found drift or
+# could not read the config, 2 usage, 3 a normal run did not set every test user
+# password, because setting one failed or because a step before it failed.
 #
 # Environment (defaults match infra/docker/keycloak/import/dokene-realm.json):
 #   DOKENE_KEYCLOAK_BACK_CHANNEL_LOGOUT_URL  URL Keycloak posts logout tokens to
@@ -55,7 +56,15 @@ case "${1:-}" in
     *) echo "Usage: $0 [--check]" >&2; exit 2 ;;
 esac
 
-command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; exit 1; }
+# Ends a run after a failure before the password step. A normal run then leaves the realm's passwords as they were
+# while .env may hold new ones, so it reports the same status as a failed password step; --check sets none anyway.
+config_failed() {
+    [ "$CHECK_ONLY" = "true" ] && exit 1
+    echo "Error: the test user passwords were not set because the step above failed." >&2
+    exit "$PASSWORD_STEP_FAILED"
+}
+
+command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; config_failed; }
 
 # Runs kcadm.sh in the keycloak container, logged in as the container's bootstrap admin. Stdin is closed so that
 # `docker compose exec` cannot consume the input of the loops below.
@@ -98,12 +107,13 @@ kcadm_set_password() {
 }
 
 client_uuid="$(kcadm get clients -r "$REALM" -q "clientId=$CLIENT_ID" --fields id | jq -r '.[0].id // empty')" \
-    || { echo "Error: could not look up client $CLIENT_ID in realm $REALM." >&2; exit 1; }
-[ -n "$client_uuid" ] || { echo "Error: client $CLIENT_ID not found in realm $REALM." >&2; exit 1; }
+    || { echo "Error: could not look up client $CLIENT_ID in realm $REALM." >&2; config_failed; }
+[ -n "$client_uuid" ] || { echo "Error: client $CLIENT_ID not found in realm $REALM." >&2; config_failed; }
 
-# Prints one line per setting: name|current|wanted|kcadm path|kcadm assignment. Fails, printing nothing usable, when
-# any read fails or returns something that is not the expected JSON; errexit does not reach into command
-# substitutions, so every step checks its own status.
+# Prints one line per setting: name, current, wanted, kcadm path and kcadm assignment, separated by the ASCII unit
+# separator, which no value can hold (a password policy can hold `|`). Fails, printing nothing usable, when any read
+# fails or returns something that is not the expected JSON; errexit does not reach into command substitutions, so
+# every step checks its own status.
 current_state() {
     local client attributes realm realm_lifespan realm_policy
     # The whole client: --fields drops attribute keys.
@@ -114,7 +124,7 @@ current_state() {
     # A realm without a policy has none (null or absent), which reads as unset.
     realm_policy="$(jq -er '.passwordPolicy // "" | strings' <<<"$realm")" || return 1
     attr() { jq -r --arg key "$1" '.[$key] // ""' <<<"$attributes"; }
-    printf '%s|%s|%s|%s|%s\n' \
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
         "client backchannel.logout.url" "$(attr backchannel.logout.url)" "$LOGOUT_URL" \
             "clients/$client_uuid" "attributes.\"backchannel.logout.url\"=$LOGOUT_URL" \
         "client backchannel.logout.session.required" "$(attr backchannel.logout.session.required)" "true" \
@@ -131,12 +141,12 @@ current_state() {
 
 # Captured before parsing: a loop reading a failed command's output would see no settings and report success.
 read_state() {
-    state="$(current_state)" || { echo "Error: could not read the $1 state of realm $REALM." >&2; exit 1; }
+    state="$(current_state)" || { echo "Error: could not read the $1 state of realm $REALM." >&2; config_failed; }
 }
 
 read_state current
 drift=0
-while IFS='|' read -r name current wanted path assignment; do
+while IFS=$'\x1f' read -r name current wanted path assignment; do
     if [ "$current" = "$wanted" ]; then
         echo "ok       $name = $current"
         continue
@@ -146,10 +156,11 @@ while IFS='|' read -r name current wanted path assignment; do
         echo "drift    $name = ${current:-<unset>} (expected $wanted)"
     else
         if [ "$path" = "realms/$REALM" ]; then
-            kcadm update "$path" -s "$assignment" >/dev/null || { echo "Error: could not update $name." >&2; exit 1; }
+            kcadm update "$path" -s "$assignment" >/dev/null \
+                || { echo "Error: could not update $name." >&2; config_failed; }
         else
             kcadm update "$path" -r "$REALM" -s "$assignment" >/dev/null \
-                || { echo "Error: could not update $name." >&2; exit 1; }
+                || { echo "Error: could not update $name." >&2; config_failed; }
         fi
         echo "updated  $name: ${current:-<unset>} -> $wanted"
     fi
@@ -162,8 +173,8 @@ if [ "$CHECK_ONLY" = "true" ]; then
 elif [ "$drift" -gt 0 ]; then
     # Read back so the run proves what Keycloak now holds.
     read_state updated
-    while IFS='|' read -r name current wanted _ _; do
-        [ "$current" = "$wanted" ] || { echo "Error: $name is still ${current:-<unset>}." >&2; exit 1; }
+    while IFS=$'\x1f' read -r name current wanted _ _; do
+        [ "$current" = "$wanted" ] || { echo "Error: $name is still ${current:-<unset>}." >&2; config_failed; }
     done <<<"$state"
     echo "Realm settings applied to realm $REALM."
 fi
