@@ -63,7 +63,7 @@ It prints `{ "action", "reason", "rounds", "maxRounds" }`. Verdict gating reuses
 | `fix` | 1 | The latest verdict is `fail` for the current candidate, or the worktree is identical to an earlier failed candidate, and rounds remain. | Fix the blockers, then verify. |
 | `commit` | 1 | The latest verdict passes for the worktree: run without `--commit`, or the `--commit` revision does not hold the verified content. | Commit exactly the verified content, then ask again with `--commit`. |
 | `publish` | 0 | With `--commit` only: the latest verdict passes for that commit. | Publish. |
-| `stop` | 3 | The verdict is `blocked` (including a non-independent verifier), invalid, or inconsistent; any round's verdict is invalid or for another Issue; a round re-verified an unchanged failed candidate; or the round budget is spent or exceeded. | Report; do not publish as verified. After a `blocked` stop, the same candidate may be re-verified once the missing capability is legitimately obtained. |
+| `stop` | 3 | The verdict is `blocked` (including a non-independent verifier), invalid, or inconsistent; any round's verdict is invalid or for another Issue; a round's verdict drops an open blocker finding of the round before it (each must be carried forward by id until resolved); a round re-verified an unchanged failed candidate; or the round budget is spent or exceeded. | Report; do not publish as verified. After a `blocked` stop, the same candidate may be re-verified once the missing capability is legitimately obtained. |
 
 Exit `2` is an unreadable state or verdict file, a usage error, or a Git error such as an unknown `--base` or `--commit` ref: fix the input, do not treat it as a decision.
 

@@ -58,6 +58,16 @@ candidate: "base 7317f45, head 7317f45, tree b77bccde"
 - **Validator contract:** `verification-verdict.test.mjs` now has a scenario showing that a failing non-required probe with an optional finding passes, and that the same probe with a blocker finding fails.
 - **Limits:** one seeded defect in a code path whose deleted test pointed at the answer, and a diff of one method; this shows the format and the blocking bar work, not a detection rate. Both samples were authored for this exercise, so they are not a blind historical comparison. [Issue #376](https://github.com/stevdrey/dokene/issues/376) owns that measurement and the adoption decision.
 
+## Review follow-up
+
+A code review of PR #379 tightened the guidance after this exercise ran. The samples were verified under the earlier text, so these rules were not exercised as written:
+
+- the probe copy is built with `git diff --binary HEAD` plus untracked files and must match the candidate's `tree` before any probe runs (the earlier `git diff` dropped staged and untracked changes);
+- a failing probe is a blocker only with a **base control**, the same probe passing on the base; cand-1's C3 already did this voluntarily, so F1 meets the new bar;
+- probe sources are kept outside the worktree next to the verdict, so a later round can rerun them;
+- every finding is carried forward by id, and `verification-verdict.mjs --previous` and `issue-loop.mjs` reject a round that drops an open blocker of the round before;
+- check results are literal and each run's role (`probe`, `base control`, `negative control`) is named in its summary; cand-2 had recorded its failing mutant control as `passed`.
+
 ## Not run
 
 - Testcontainers integration suites and the full backend build: not needed for the samples, and the change to the repository is guidance, one validator test, and documentation.

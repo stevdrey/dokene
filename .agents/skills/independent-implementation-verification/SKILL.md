@@ -75,7 +75,8 @@ Adversarial triggers seen by the implementer (check against the diff): <triggers
 
 Do not modify the worktree, publish, merge, or send messages. Write your verdict JSON to
 <path outside the worktree>, validate it with
-`node .agents/scripts/verification-verdict.mjs --verdict <path> --base <ref>`,
+`node .agents/scripts/verification-verdict.mjs --verdict <path> --base <ref>`
+(on a re-verification add `--previous <previous verdict path>`),
 and return the verdict and the validator output.
 ```
 
@@ -139,9 +140,10 @@ The validator computes the verdict and rejects a declared verdict that the evide
 ```bash
 node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref>
 node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref> --commit <commit to push>
+node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref> --previous <previous round's verdict>
 ```
 
-The validator always compares the verdict's candidate with an actual candidate: by default the current worktree, including uncommitted changes, which suits verification before the commit; with `--commit` the tree of that commit alone, which is what a push publishes. Exit `0` is a pass for that candidate, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, or one about another candidate (`STALE`).
+The validator always compares the verdict's candidate with an actual candidate: by default the current worktree, including uncommitted changes, which suits verification before the commit; with `--commit` the tree of that commit alone, which is what a push publishes. Exit `0` is a pass for that candidate, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, one that drops an open blocker of the `--previous` verdict, or one about another candidate (`STALE`).
 
 Gate publication only on the `--commit` form: a verified change that is left unstaged or out of a partial commit passes the worktree form but not the commit form. The validator rejects unknown, misspelled, or repeated options instead of ignoring them, and its `PASS` line names what it checked (`the worktree` or `commit <rev>`), so a log shows which form ran.
 
@@ -157,7 +159,7 @@ Stop and report rather than loop when the same blocker recurs without progress o
 
 Every correction produces a new candidate identity, which needs a fresh verdict from an independent verifier. The verifier:
 
-1. re-evaluates every criterion and finding affected by the change, and confirms each prior blocker is resolved with new evidence;
+1. re-evaluates every criterion and finding affected by the change, and confirms each prior blocker is resolved with new evidence. Every finding of the previous verdict, from the ordinary hunt or the adversarial pass, is carried into the new `findings[]` with the same id and stays `open` until new evidence resolves it; the gate reads only the current verdict, so `--previous <previous verdict>` rejects (exit `2`) a verdict that drops an open blocker;
 2. reruns checks that cover changed code;
 3. may reuse a check from the previous candidate only when its inputs are demonstrably unchanged, recording the old `candidate` and a concrete `reusedBecause` (for example, "no file under `frontend/` changed between the candidates");
 4. treats any other old evidence as stale; stale evidence cannot support a pass;
