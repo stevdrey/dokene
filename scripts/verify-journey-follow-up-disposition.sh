@@ -24,7 +24,7 @@
 
 set -uo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 JOURNEY="follow-up disposition: dismiss a due follow-up from the queue"
 ISOLATION_TENANT_NAME="QA Journey Isolation"
 ISOLATION_TENANT_KEY="qa-journey-isolation"
@@ -52,6 +52,32 @@ is_local_target() {
 # True when $1 (absolute) is $2 or below it.
 path_is_within() {
   case "$1/" in "$2"/*) return 0 ;; *) return 1 ;; esac
+}
+
+# Physical absolute form of $1 without GNU realpath: resolves symlinks through the nearest existing ancestor and
+# appends the missing rest. Fails when the missing rest contains a ".." component (it cannot be resolved safely).
+resolve_path() {
+  local path="$1" rest="" base
+  case "$path" in /*) ;; *) path="$PWD/$path" ;; esac
+  while [ ! -d "$path" ]; do
+    base="${path##*/}"
+    case "$base" in ..) return 1 ;; .|"") ;; *) rest="/$base$rest" ;; esac
+    path="${path%/*}"; [ -n "$path" ] || path="/"
+  done
+  path="$(cd "$path" && pwd -P)" || return 1
+  printf '%s%s\n' "${path%/}" "$rest"
+}
+
+# Customers matching $2 in a queue page $1, or "invalid" unless .items is an array.
+queue_match_count() {
+  jq -er --arg id "$2" 'if (.items | type) == "array" then [.items[] | select(.customerId == $id)] | length
+    else error("no items array") end' "$1" 2>/dev/null || echo invalid
+}
+
+# Messages in a page $1, or "invalid" unless .items is an array (a missing field must not read as zero).
+message_count() {
+  jq -er 'if (.items | type) == "array" then .items | length else error("no items array") end' "$1" 2>/dev/null \
+    || echo invalid
 }
 
 # Double-quoted YAML scalar with backslashes, quotes and control characters neutralized.
@@ -114,6 +140,7 @@ write_record() {
   local result="passed"
   [ "$STEPS_FAILED" -gt 0 ] && result="failed"
   [ -n "${BLOCKED_REASON:-}" ] && result="blocked"
+  rm -f "$RECORD" 2>/dev/null
   {
     echo "# Journey run record (format: docs/verification/pstack-applicability-audit.md#evidence-formats)."
     echo "# Sanitized: status codes, enum values and counts only; ids are replaced by placeholders."
@@ -135,7 +162,9 @@ write_record() {
     echo "cleanup: $(yaml_str "${CLEANUP_NOTE:-no fixture was created}")"
   } > "$RECORD" 2>/dev/null
   # The group's status is only its last command's, so require the complete record on disk instead.
-  if ! { [ -f "$RECORD" ] && tail -n 1 "$RECORD" | grep -q '^cleanup: '; }; then
+  # The current run_id line rules out a complete record left by an earlier run that could not be replaced.
+  if ! { [ -f "$RECORD" ] && tail -n 1 "$RECORD" | grep -q '^cleanup: ' \
+      && grep -qxF "run_id: $(yaml_str "$RUN_ID")" "$RECORD"; }; then
     printf '[blocked] could not write the journey record to %s\n' "$RECORD" >&2
     return 1
   fi
@@ -178,8 +207,8 @@ RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dokene-journey-work.XXXXXX")"
 [ -n "$OUT_DIR" ] || OUT_DIR="${TMPDIR:-/tmp}/dokene-journey-$RUN_ID"
 # Refuse an evidence directory inside the repository before anything is created there (it would change the candidate).
-OUT_DIR="$(realpath -m "$OUT_DIR")"
-if path_is_within "$OUT_DIR" "$(realpath -m "$ROOT_DIR")"; then
+OUT_DIR="$(resolve_path "$OUT_DIR")" || { echo "[blocked] cannot resolve --out; avoid '..' below a missing directory" >&2; rm -rf "$WORK_DIR"; exit 2; }
+if path_is_within "$OUT_DIR" "$ROOT_DIR"; then
   echo "[blocked] --out is inside the repository; keep evidence outside the candidate worktree" >&2
   rm -rf "$WORK_DIR"; exit 2
 fi
@@ -205,6 +234,7 @@ blocked() {
 # The response body never leaves $WORK_DIR, which is deleted on exit.
 http() {
   local method="$1" path="$2" jar="$3"; shift 3
+  : > "$WORK_DIR/headers"
   HTTP_STATUS="$(curl -s -b "$jar" -D "$WORK_DIR/headers" -o "$WORK_DIR/body" -w '%{http_code}' \
     --max-time 20 -X "$method" "$BFF_URL$path" "$@")" || HTTP_STATUS="000"
   HTTP_ETAG="$(header_value etag "$WORK_DIR/headers")"
@@ -227,6 +257,7 @@ login() {
   printf '%s' "$TEST_PASSWORD" | curl -s -c "$jar" -b "$jar" -D "$WORK_DIR/login-headers" -o /dev/null -X POST \
     "$form_action" --data-urlencode "username=$user" --data-urlencode "password@-" || return 1
   callback="$(header_value location "$WORK_DIR/login-headers")"
+  is_local_target "$callback" || return 1
   case "$callback" in *"/login/oauth2/code/dokene"*) ;; *) return 1 ;; esac
   curl -s -c "$jar" -b "$jar" -o /dev/null "$callback" || return 1
   rm -f "$WORK_DIR/login-page"
@@ -235,19 +266,23 @@ login() {
 
 # queue_contains JAR TENANT CUSTOMER -> prints true/false, walking every page of the due queue.
 queue_contains() {
-  local jar="$1" tenant="$2" customer="$3" cursor="" found=false pages=0 query
-  while [ $pages -lt 50 ]; do
+  local jar="$1" tenant="$2" customer="$3" cursor="" pages=0 query count
+  while :; do
+    # A queue too long to walk is inconclusive, never "absent".
+    [ $pages -lt 50 ] || { echo "inconclusive-page-cap"; return; }
     query="limit=100"; [ -n "$cursor" ] && query="$query&cursor=$(jq -rn --arg c "$cursor" '$c|@uri')"
     http GET "/api/follow-up-queue?$query" "$jar" -H "X-Tenant-Id: $tenant"
     [ "$HTTP_STATUS" = "200" ] || { echo "status-$HTTP_STATUS"; return; }
-    if [ "$(jq -r --arg id "$customer" '[.items[] | select(.customerId == $id)] | length' "$WORK_DIR/body")" != "0" ]; then
-      found=true; break
-    fi
+    count="$(queue_match_count "$WORK_DIR/body" "$customer")"
+    case "$count" in
+      invalid) echo "invalid-body"; return ;;
+      0) ;;
+      *) echo true; return ;;
+    esac
     cursor="$(body '.nextCursor // empty')"
-    [ -n "$cursor" ] || break
+    [ -n "$cursor" ] || { echo false; return; }
     pages=$((pages + 1))
   done
-  echo "$found"
 }
 
 # Archives the fixture customer unless --keep-fixture; records what actually happened in CLEANUP_NOTE.
@@ -350,6 +385,8 @@ http POST "/api/customers/$CUSTOMER_ID/purchases" "$OPERATOR_JAR" "${OP_WRITE[@]
 [ "$HTTP_STATUS" = "201" ] || blocked "fixture purchase returned $(trace)"
 
 http GET "/api/customers/$CUSTOMER_ID/follow-up-policy" "$OPERATOR_JAR" "${A[@]}"
+# This version is current now and superseded by the PUT below: S13 sends it as a genuinely stale If-Match.
+OLD_POLICY_ETAG="$HTTP_ETAG"
 http PUT "/api/customers/$CUSTOMER_ID/follow-up-policy" "$OPERATOR_JAR" "${OP_WRITE[@]}" -H "If-Match: $HTTP_ETAG" \
   -d "$(jq -cn --arg d "$TODAY" '{cadenceDays: null, explicitNextDate: $d}')"
 [ "$HTTP_STATUS" = "200" ] || blocked "fixture follow-up policy returned $(trace)"
@@ -383,6 +420,7 @@ check S3 "viewer sees the same customer in the due queue (read-only role)" "true
 echo "--- Role isolation"
 ETAG="$(current_policy_etag)"
 case "$ETAG" in \"[0-9]*\") ;; *) blocked "no strong numeric ETag on the customer follow-up policy" ;; esac
+case "$OLD_POLICY_ETAG" in "$ETAG"|"") blocked "no superseded follow-up policy version to use as a stale If-Match" ;; esac
 dismiss "$VIEWER_JAR" "$VIEWER_CSRF" "$TENANT_A" "$ETAG" "qa-journey-viewer-$RUN_ID"
 check S4 "viewer dismissal with a current If-Match is refused" "403" "$(trace)" eq "$HTTP_STATUS" 403
 S="$(eligibility_status "$OPERATOR_JAR" "$TENANT_A")"
@@ -409,9 +447,8 @@ check S11 "tenant B's queue does not contain tenant A's customer" "false" "$S" e
 echo "--- Concurrency preconditions"
 dismiss "$OPERATOR_JAR" "$OPERATOR_CSRF" "$TENANT_A" "" "qa-journey-noetag-$RUN_ID"
 check S12 "dismissal without If-Match is rejected" "400" "$(trace)" eq "$HTTP_STATUS" 400
-STALE="\"$(( ${ETAG//\"/} + 1 ))\""
-dismiss "$OPERATOR_JAR" "$OPERATOR_CSRF" "$TENANT_A" "$STALE" "qa-journey-stale-$RUN_ID"
-check S13 "dismissal with a stale If-Match is rejected" "409" "$(trace)" eq "$HTTP_STATUS" 409
+dismiss "$OPERATOR_JAR" "$OPERATOR_CSRF" "$TENANT_A" "$OLD_POLICY_ETAG" "qa-journey-stale-$RUN_ID"
+check S13 "dismissal with a superseded If-Match is rejected" "409" "$(trace)" eq "$HTTP_STATUS" 409
 S="$(eligibility_status "$OPERATOR_JAR" "$TENANT_A")"
 check S14 "the rejected requests changed nothing" "DUE or OVERDUE" "$S" is_due "$S"
 
@@ -430,7 +467,7 @@ check S16 "replaying the same request returns the original dismissal" "200, same
 
 echo "--- API sync after the disposition"
 S="$(eligibility_status "$OPERATOR_JAR" "$TENANT_A")"
-check S17 "eligibility is no longer due" "not DUE/OVERDUE" "$S" not_due "$S"
+check S17 "eligibility is no longer due" "NOT_YET_DUE or INELIGIBLE" "$S" not_due "$S"
 S="$(queue_contains "$OPERATOR_JAR" "$TENANT_A" "$CUSTOMER_ID")"
 check S18 "the customer left the operator's due queue" "false" "$S" eq "$S" false
 S="$(queue_contains "$VIEWER_JAR" "$TENANT_A" "$CUSTOMER_ID")"
@@ -438,7 +475,7 @@ check S19 "the customer left the viewer's due queue" "false" "$S" eq "$S" false
 
 echo "--- No outbound side effect"
 http GET "/api/messages?customerId=$CUSTOMER_ID" "$OPERATOR_JAR" "${A[@]}"
-OUTBOUND_COUNT="$( [ "$HTTP_STATUS" = "200" ] && body '.items | length' || echo unknown)"
+OUTBOUND_COUNT="$( [ "$HTTP_STATUS" = "200" ] && message_count "$WORK_DIR/body" || echo unknown)"
 check S20 "no outbound message exists for the fixture customer" "0" "$OUTBOUND_COUNT ($(trace))" eq "$OUTBOUND_COUNT" 0
 
 record_step S21 "the follow-up queue screen reflects the dismissal after reload" \

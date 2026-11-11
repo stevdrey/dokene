@@ -52,11 +52,11 @@ All data is invented. The password comes from `DOKENE_TEST_USER_PASSWORD` and is
 | S10 | Owner dismisses tenant A's customer with tenant B selected | `404` | automated |
 | S11 | Owner walks tenant B's queue | Customer absent | automated |
 | S12 | Operator dismisses without `If-Match` | `400` | automated |
-| S13 | Operator dismisses with a stale `If-Match` | `409` | automated |
+| S13 | Operator dismisses with a superseded `If-Match` (the policy version before the fixture's last change) | `409` | automated |
 | S14 | Eligibility after S12 and S13 | Still due | automated |
 | S15 | Operator dismisses with the current `If-Match` and a new idempotency key | `201`, same customer | automated |
 | S16 | Operator replays S15 unchanged | `200`, same dismissal id | automated |
-| S17 | Eligibility after the dismissal | Not `DUE` or `OVERDUE` | automated |
+| S17 | Eligibility after the dismissal | `NOT_YET_DUE` or `INELIGIBLE` | automated |
 | S18 | Operator walks the due queue | Customer absent | automated |
 | S19 | Viewer walks the due queue | Customer absent | automated |
 | S20 | Operator lists messages for the customer | `0` | automated |

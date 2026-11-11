@@ -73,6 +73,46 @@ RECORD="$TMP/record.yaml"
 assert "writing the record to a writable file succeeds" write_record
 assert "the record carries the step results" grep -q 'result: failed' "$TMP/record.yaml"
 
+# --- response shapes: an unexpected body is never read as "found" or "zero messages"
+printf '{"items":[{"customerId":"c1"},{"customerId":"c2"}],"nextCursor":null}' > "$TMP/q"
+assert "a queue page with the customer counts one match" [ "$(queue_match_count "$TMP/q" c1)" = "1" ]
+assert "a queue page without the customer counts zero" [ "$(queue_match_count "$TMP/q" c9)" = "0" ]
+printf '{"items":null}' > "$TMP/qn"
+assert "a queue page with null items is invalid" [ "$(queue_match_count "$TMP/qn" c1)" = "invalid" ]
+printf '<html>error</html>' > "$TMP/qh"
+assert "a queue body that is not JSON is invalid" [ "$(queue_match_count "$TMP/qh" c1)" = "invalid" ]
+printf '{"items":[]}' > "$TMP/m0"
+assert "an empty message page counts zero" [ "$(message_count "$TMP/m0")" = "0" ]
+assert "a message page with null items is invalid" [ "$(message_count "$TMP/qn")" = "invalid" ]
+printf '{"messages":[]}' > "$TMP/mx"
+assert "a message page without items is invalid" [ "$(message_count "$TMP/mx")" = "invalid" ]
+
+# --- portable path resolution (no GNU realpath)
+mkdir -p "$TMP/real/existing"
+assert "a relative path resolves against the current directory" \
+  [ "$(cd "$TMP/real" && resolve_path "existing/new/dir")" = "$(cd "$TMP/real" && pwd -P)/existing/new/dir" ]
+ln -s "$ROOT_DIR" "$TMP/repo-link"
+assert "a symlink into the repository resolves inside it" \
+  path_is_within "$(resolve_path "$TMP/repo-link/evidence")" "$(cd "$ROOT_DIR" && pwd -P)"
+refute "'..' below a missing directory is refused" resolve_path "$TMP/real/missing/../x"
+
+# --- a stale record from another run never counts as this run's record
+mkdir -p "$TMP/stale"
+RECORD="$TMP/stale/journey-record.yaml" RUN_ID=older
+write_record >/dev/null
+chmod a-w "$RECORD"
+RUN_ID=newer
+assert "a read-only stale record in a writable directory is replaced" write_record
+assert "the replaced record carries this run's id" grep -q 'run_id: "newer"' "$RECORD"
+RUN_ID=older
+write_record >/dev/null
+chmod a-w "$RECORD" "$TMP/stale"
+RUN_ID=newest
+if [ "$(id -u)" -ne 0 ]; then
+  refute "a stale record that cannot be replaced fails the run" write_record 2>/dev/null
+fi
+chmod u+w "$TMP/stale"
+
 # --- static safety: no outbound or provider write path, no remote target
 refute "the journey never calls a message send, approval or creation path" \
   grep -Eq '/sends|/approvals|POST "?/api/customers/[^ ]*/messages|graph\.facebook|api\.openai' "$SCRIPT"

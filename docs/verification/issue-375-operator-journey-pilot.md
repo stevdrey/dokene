@@ -64,16 +64,29 @@ All runs used the same stack without a reset. Each run made its own fixture cust
 
 | Command | Result |
 | --- | --- |
-| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 40 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written failing the run, and a static check that the script calls no message send, approval, or creation path |
+| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 53 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks, and a static check that the script calls no message send, approval, or creation path |
 | `shellcheck -x scripts/verify-journey-follow-up-disposition.sh scripts/tests/verify-journey-follow-up-disposition-test.sh` | No findings |
 
 The `Script tests` workflow runs the offline test on pull requests that change either script.
 
 ## Independent verification
 
-Round 1 passed with three optional findings. Two were fixed afterwards: an `--out` inside the repository was refused only after the record had been written there (now refused before anything is created), and the login posted the test password without checking that the form target is loopback, on curl's command line (now checked, and sent through stdin). The third stays open as an optional improvement: S13 sends a future version (`ETag + 1`) as the stale `If-Match`, not a version that was once current.
+Round 1 passed with three optional findings. Two were fixed afterwards: an `--out` inside the repository was refused only after the record had been written there (now refused before anything is created), and the login posted the test password without checking that the form target is loopback, on curl's command line (now checked, and sent through stdin). The third, S13 sending a future version (`ETag + 1`) instead of a once-current one, was fixed later (see below).
 
 Code review of PR #381 found two more gaps, both fixed: an eligibility read that failed (for example `status-500`) counted as "no longer due" in S17, and a journey record that could not be written still let the run exit `0`. S17 now requires `NOT_YET_DUE` or `INELIGIBLE`, and an incomplete record makes the run exit `2`.
+
+A later code review of the script added these fixes:
+
+- **Response shapes:** a queue or message body without an `items` array fails its step; it is no longer read as "found" or as zero messages.
+- **Request headers:** the header dump is cleared before each request, so a failed connection cannot reuse the previous ETag or request id.
+- **Journey record:** the record is replaced and must carry the current `run_id`, so a stale record from an earlier run is never reported as this run's.
+- **Queue walk:** a queue too long to walk is reported as inconclusive, not as "absent".
+- **Paths:** `--out` is resolved without GNU `realpath`, so the script also runs on macOS.
+- **OIDC callback:** the callback URL is checked for loopback, like the other login steps.
+- **S13:** it sends the follow-up policy version that the fixture superseded, an `If-Match` that was once current.
+- **S17:** its expected text names both accepted statuses.
+
+Moving the login sequence into a helper shared with `seed-local-qa.sh` and the campaign scripts is left for follow-up work.
 
 ## Observations
 
