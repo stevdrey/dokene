@@ -64,7 +64,7 @@ All runs used the same stack without a reset. Each run made its own fixture cust
 
 | Command | Result |
 | --- | --- |
-| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 34 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, and a static check that the script calls no message send, approval, or creation path |
+| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 40 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written failing the run, and a static check that the script calls no message send, approval, or creation path |
 | `shellcheck -x scripts/verify-journey-follow-up-disposition.sh scripts/tests/verify-journey-follow-up-disposition-test.sh` | No findings |
 
 The `Script tests` workflow runs the offline test on pull requests that change either script.
@@ -72,6 +72,8 @@ The `Script tests` workflow runs the offline test on pull requests that change e
 ## Independent verification
 
 Round 1 passed with three optional findings. Two were fixed afterwards: an `--out` inside the repository was refused only after the record had been written there (now refused before anything is created), and the login posted the test password without checking that the form target is loopback, on curl's command line (now checked, and sent through stdin). The third stays open as an optional improvement: S13 sends a future version (`ETag + 1`) as the stale `If-Match`, not a version that was once current.
+
+Code review of PR #381 found two more gaps, both fixed: an eligibility read that failed (for example `status-500`) counted as "no longer due" in S17, and a journey record that could not be written still let the run exit `0`. S17 now requires `NOT_YET_DUE` or `INELIGIBLE`, and an incomplete record makes the run exit `2`.
 
 ## Observations
 

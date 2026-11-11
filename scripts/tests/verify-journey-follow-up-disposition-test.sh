@@ -62,6 +62,16 @@ assert "a not-run step keeps its kind" grep -q 'kind: manual' <<<"$STEPS_YAML"
 refute "an unknown result is refused" record_step T4 "x" "x" "x" maybe 2>/dev/null
 assert "due means DUE or OVERDUE" is_due OVERDUE
 refute "an unavailable status is not 'no longer due'" not_due "null"
+refute "a failed eligibility read is not 'no longer due'" not_due "status-500"
+refute "an empty status is not 'no longer due'" not_due ""
+assert "NOT_YET_DUE is no longer due" not_due NOT_YET_DUE
+
+# --- a record that cannot be written is a failure, not a recorded run
+RUN_ID=test BFF_URL=http://localhost:8080 RECORD=/dev/full
+refute "writing the record to a full device fails" write_record
+RECORD="$TMP/record.yaml"
+assert "writing the record to a writable file succeeds" write_record
+assert "the record carries the step results" grep -q 'result: failed' "$TMP/record.yaml"
 
 # --- static safety: no outbound or provider write path, no remote target
 refute "the journey never calls a message send, approval or creation path" \

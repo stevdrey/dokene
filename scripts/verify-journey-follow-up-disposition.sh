@@ -18,7 +18,8 @@
 # Targets only localhost. All data is invented; nothing is sent to WhatsApp or any provider.
 #
 # Exit codes: 0 every step passed; 1 a step failed; 2 a precondition is unavailable
-# (stack down, seed missing, non-local target): the journey is blocked, not passed.
+# (stack down, seed missing, non-local target) or the journey record could not be written:
+# the journey is blocked, not passed.
 # ==============================================================================
 
 set -uo pipefail
@@ -103,7 +104,43 @@ check() {
 
 eq() { [ "$1" = "$2" ]; }
 is_due() { [ "$1" = "DUE" ] || [ "$1" = "OVERDUE" ]; }
-not_due() { [ -n "$1" ] && [ "$1" != "null" ] && ! is_due "$1"; }
+# Only a successful read with a recognized non-due status counts; an error such as status-500 does not.
+not_due() { [ "$1" = "NOT_YET_DUE" ] || [ "$1" = "INELIGIBLE" ]; }
+
+# ------------------------------------------------------------------------------
+# Journey record
+# ------------------------------------------------------------------------------
+write_record() {
+  local result="passed"
+  [ "$STEPS_FAILED" -gt 0 ] && result="failed"
+  [ -n "${BLOCKED_REASON:-}" ] && result="blocked"
+  {
+    echo "# Journey run record (format: docs/verification/pstack-applicability-audit.md#evidence-formats)."
+    echo "# Sanitized: status codes, enum values and counts only; ids are replaced by placeholders."
+    echo "journey: $(yaml_str "$JOURNEY")"
+    echo "run_id: $(yaml_str "$RUN_ID")"
+    echo "commit: $(yaml_str "$(git -C "$ROOT_DIR" describe --always --dirty 2>/dev/null || echo unknown)")"
+    echo "target: $(yaml_str "$BFF_URL")"
+    echo "fixture: $(yaml_str "seed: ./scripts/dev-env.sh up --seed; invented customer 'QA Journey $RUN_ID' with a random +569 number in '$SEED_TENANT_NAME'; isolation tenant '$ISOLATION_TENANT_NAME' (idempotent)")"
+    echo "actors:"
+    echo "  - \"testoperator: OPERATOR in tenant A ($SEED_TENANT_NAME), not a member of tenant B\""
+    echo "  - \"testviewer: VIEWER in tenant A\""
+    echo "  - \"testuser: OWNER of tenant A and tenant B ($ISOLATION_TENANT_NAME)\""
+    echo "result: $result"
+    [ -n "${BLOCKED_REASON:-}" ] && echo "blocked_reason: $(yaml_str "$BLOCKED_REASON")"
+    echo "summary: { passed: $STEPS_PASSED, failed: $STEPS_FAILED, not_run: $STEPS_NOT_RUN }"
+    echo "steps:"
+    printf '%s' "$STEPS_YAML"
+    echo "outbound_sends: ${OUTBOUND_COUNT:-unknown}"
+    echo "cleanup: $(yaml_str "${CLEANUP_NOTE:-no fixture was created}")"
+  } > "$RECORD" 2>/dev/null
+  # The group's status is only its last command's, so require the complete record on disk instead.
+  if ! { [ -f "$RECORD" ] && tail -n 1 "$RECORD" | grep -q '^cleanup: '; }; then
+    printf '[blocked] could not write the journey record to %s\n' "$RECORD" >&2
+    return 1
+  fi
+  printf '\nJourney record: %s\n' "$RECORD"
+}
 
 # Sourcing defines the helpers without running the journey (offline tests).
 # shellcheck disable=SC2317
@@ -157,7 +194,7 @@ blocked() {
   BLOCKED_REASON="$1"
   printf '[blocked] %s\n' "$1" >&2
   archive_fixture
-  write_record
+  write_record || true
   exit 2
 }
 
@@ -211,36 +248,6 @@ queue_contains() {
     pages=$((pages + 1))
   done
   echo "$found"
-}
-
-# ------------------------------------------------------------------------------
-# Journey record
-# ------------------------------------------------------------------------------
-write_record() {
-  local result="passed"
-  [ "$STEPS_FAILED" -gt 0 ] && result="failed"
-  [ -n "$BLOCKED_REASON" ] && result="blocked"
-  {
-    echo "# Journey run record (format: docs/verification/pstack-applicability-audit.md#evidence-formats)."
-    echo "# Sanitized: status codes, enum values and counts only; ids are replaced by placeholders."
-    echo "journey: $(yaml_str "$JOURNEY")"
-    echo "run_id: $(yaml_str "$RUN_ID")"
-    echo "commit: $(yaml_str "$(git -C "$ROOT_DIR" describe --always --dirty 2>/dev/null || echo unknown)")"
-    echo "target: $(yaml_str "$BFF_URL")"
-    echo "fixture: $(yaml_str "seed: ./scripts/dev-env.sh up --seed; invented customer 'QA Journey $RUN_ID' with a random +569 number in '$SEED_TENANT_NAME'; isolation tenant '$ISOLATION_TENANT_NAME' (idempotent)")"
-    echo "actors:"
-    echo "  - \"testoperator: OPERATOR in tenant A ($SEED_TENANT_NAME), not a member of tenant B\""
-    echo "  - \"testviewer: VIEWER in tenant A\""
-    echo "  - \"testuser: OWNER of tenant A and tenant B ($ISOLATION_TENANT_NAME)\""
-    echo "result: $result"
-    [ -n "$BLOCKED_REASON" ] && echo "blocked_reason: $(yaml_str "$BLOCKED_REASON")"
-    echo "summary: { passed: $STEPS_PASSED, failed: $STEPS_FAILED, not_run: $STEPS_NOT_RUN }"
-    echo "steps:"
-    printf '%s' "$STEPS_YAML"
-    echo "outbound_sends: ${OUTBOUND_COUNT:-unknown}"
-    echo "cleanup: $(yaml_str "${CLEANUP_NOTE:-no fixture was created}")"
-  } > "$RECORD"
-  printf '\nJourney record: %s\n' "$RECORD"
 }
 
 # Archives the fixture customer unless --keep-fixture; records what actually happened in CLEANUP_NOTE.
@@ -442,6 +449,6 @@ record_step S21 "the follow-up queue screen reflects the dismissal after reload"
 # ------------------------------------------------------------------------------
 archive_fixture
 printf 'Cleanup: %s\n' "$CLEANUP_NOTE"
-write_record
+write_record || exit 2
 printf 'Result: %s passed, %s failed, %s not-run\n' "$STEPS_PASSED" "$STEPS_FAILED" "$STEPS_NOT_RUN"
 [ "$STEPS_FAILED" -eq 0 ]
