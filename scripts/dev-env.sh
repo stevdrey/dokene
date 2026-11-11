@@ -608,7 +608,7 @@ cmd_down() {
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
   compose_teardown down --remove-orphans
-  ok "Containers stopped and removed. Database and Keycloak data are kept (use '$0 reset' to wipe them)."
+  ok "Containers stopped and removed. The database is kept (use '$0 reset' to wipe it); Keycloak imports its realm again on the next start."
 }
 
 cmd_reset() {
@@ -619,7 +619,7 @@ cmd_reset() {
   done
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
-  warn "This deletes the local PostgreSQL and Keycloak data volumes of this checkout."
+  warn "This deletes the local PostgreSQL data volume of this checkout; Keycloak data is in memory and ends with its container."
   confirm "Continue?" || die "Aborted."
   compose_teardown down --volumes --remove-orphans
   ok "Environment reset. Run '$0 up --seed' to recreate it."

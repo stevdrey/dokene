@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Smoke tests for scripts/dev-env.sh and the Compose model in compose.yaml.
+# ABOUTME: Asserts topology, secret handling and container restrictions without starting the stack.
 # Smoke tests for scripts/dev-env.sh and the compose topology. Needs bash, python3 and the `docker compose` CLI
 # (no running daemon or containers).
 #
@@ -104,6 +106,35 @@ assert migrate["read_only"] and migrate["restart"] == "no"
 ' <<<"$json"
 }
 check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
+
+infrastructure_containers_are_restricted() {
+  local json=""
+  json="$(compose_config_json)" || return 1
+  python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)["services"]
+# Every writable path of the two services; anything else must be read-only.
+writable = {
+    "postgres": {"volumes": ["/var/lib/postgresql/data"], "tmpfs": ["/tmp", "/var/run/postgresql"]},
+    "keycloak": {"volumes": [], "tmpfs": ["/opt/keycloak/data", "/tmp"]},
+}
+for name, expected in writable.items():
+    svc = s[name]
+    assert svc.get("read_only") is True, name + " must have a read-only root filesystem"
+    assert svc.get("cap_drop") == ["ALL"] and not svc.get("cap_add"), name + " must hold no Linux capability"
+    assert "no-new-privileges:true" in svc.get("security_opt", []), name + " must set no-new-privileges"
+    assert not svc.get("privileged"), name + " must not be privileged"
+    volumes = sorted(v["target"] for v in svc.get("volumes", []) if not v.get("read_only"))
+    assert volumes == expected["volumes"], name + " writable volumes: " + repr(volumes)
+    tmpfs = svc.get("tmpfs", [])
+    assert sorted(t.split(":")[0] for t in tmpfs) == expected["tmpfs"], name + " tmpfs: " + repr(tmpfs)
+    assert all("size=" in t for t in tmpfs), name + " tmpfs mounts must be size-capped"
+# The stock entrypoint starts as root and needs CHOWN/SETUID/SETGID to step down; starting as postgres needs none.
+assert s["postgres"].get("user") == "70:70", "postgres must start as the unprivileged postgres user"
+' <<<"$json"
+}
+check "compose: postgres and keycloak run restricted with explicit writable paths (#319)" \
+  infrastructure_containers_are_restricted
 
 compose_minimum_includes_patch() {
   # shellcheck source=../dev-env.sh

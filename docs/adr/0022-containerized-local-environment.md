@@ -16,6 +16,13 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
 - `compose.yaml` runs every component as a container: PostgreSQL, Keycloak, the backend (multi-stage build, Temurin 26
   JRE, non-root, read-only filesystem, no Linux capabilities) and the frontend (static build served by unprivileged
   nginx).
+- PostgreSQL and Keycloak run with the same restrictions as the other services (issue 319, audit L14): no Linux
+  capabilities, `no-new-privileges`, a non-root user and a read-only root filesystem. PostgreSQL starts directly as
+  the image's `postgres` user, because the stock root start needs `CHOWN`, `SETUID` and `SETGID`; its writable
+  paths are the data volume and two tmpfs mounts (`/var/run/postgresql`, `/tmp`). Keycloak writes only to two tmpfs
+  mounts (`/opt/keycloak/data`, `/tmp`). The `/dev/shm` tmpfs Docker mounts in every container stays writable in
+  both; PostgreSQL keeps its dynamic shared memory there. A named Keycloak volume was not chosen: `--import-realm` skips a realm that
+  already exists, so a changed client secret, test password or realm template would stop applying until a reset.
 - nginx serves the SPA on `http://localhost:5173` and proxies `/api`, `/oauth2`, `/login` and `/logout` to the backend,
   mirroring the Vite dev proxy. It presents `Host: localhost:8080` so the OIDC redirect URI registered in Keycloak is
   unchanged. The BFF contract (same-origin cookies, no tokens in the browser) is not altered.
@@ -46,4 +53,8 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   documented in `infra/docker/README.md` and are unchanged by this decision.
 - The frontend image sets response security headers, including a Content Security Policy and Permissions-Policy
   (see [ADR 0023](0023-spa-and-bff-response-security-headers.md)).
+- Keycloak state (users, sessions, signing keys) is held in memory and ends when the container stops; every start
+  imports the realm again. The test users keep their workspace memberships because their ids are fixed in the realm
+  template. Before issue 319 that state lived in the container's writable layer and ended when the container was
+  removed. The writable paths and the remaining exceptions are listed in `infra/docker/README.md`.
 - Tests are not run during the image build; CI (`./gradlew test`, `npm test`) remains the verification gate.
