@@ -90,7 +90,7 @@ Check out or create the branch, then implement the scoped change under `agent-ta
 ### 4. Verify independently
 
 1. Compute the candidate identity: `node .agents/scripts/verification-verdict.mjs --identity --base <ref>`.
-2. Start a **fresh** independent verifier with the handoff prompt template in `independent-implementation-verification`, passing the Issue context, acceptance criteria, base ref, candidate identity, the implementer's evidence, applicable rules, and, for a re-verification, the previous verdict and what changed.
+2. Start a **fresh** independent verifier with the handoff prompt template in `independent-implementation-verification`, passing the Issue context, acceptance criteria, base ref, candidate identity, the implementer's evidence, applicable rules, the adversarial triggers the diff hits (or `none`), and, for a re-verification, the previous verdict and what changed. The verifier runs the optional adversarial pass inside the same round; it adds no round to `maxRounds`.
 3. Have the verdict written outside the worktree, next to the loop state, and append it to `rounds`.
 
 If no independent agent can be started, the verdict is `blocked` with `verifier.independent: false`. Never verify in the implementing context and call it independent.

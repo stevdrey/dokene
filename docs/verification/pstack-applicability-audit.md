@@ -155,7 +155,7 @@ cleared: ["<risk checked and why it is fine>"]
 proposed_tests: ["<cheapest test that catches the real failure>"]
 ```
 
-**Adversarial finding (#374).** The reproduction goes in the existing `findings[].evidence` field. `severity` is `blocker` only with reproducible proof or a clearly evidenced contract violation.
+**Adversarial finding (#374).** The reproduction goes in the existing `findings[].evidence` field. `severity` is `blocker` only with reproducible proof or a clearly evidenced contract violation. [`adversarial-review.md`](../../.agents/skills/independent-implementation-verification/adversarial-review.md#reproduction-format) refines it with a `root_cause` line used to merge findings with one cause.
 
 ```yaml
 location: "<file:line>"

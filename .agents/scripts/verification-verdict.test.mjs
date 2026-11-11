@@ -269,6 +269,42 @@ test('scenario: a missed requirement and an edge-case defect fail', t => {
   assert.match(result.stderr, /blocker finding F2 is open: Whitespace-only input is accepted/);
 });
 
+// The adversarial pass (adversarial-review.md) relies on these semantics: a probe is a non-required check, an
+// unverified hypothesis is an optional finding and never blocks, and only a reproduced blocker finding fails.
+test('scenario: an adversarial pass blocks only on a reproduced finding', t => {
+  const cwd = repository(t);
+  const candidate = identity(cwd);
+  const verdict = passingVerdict(candidate);
+  verdict.checks.push({
+    id: 'C3', kind: 'automated', required: false, command: 'race probe in a disposable copy',
+    result: 'failed', environment: 'local, outside the candidate', summary: 'inconclusive: timed out twice', candidate,
+  });
+  verdict.findings.push({
+    id: 'F2', severity: 'optional', status: 'open', criteria: ['AC2'],
+    summary: 'Unverified: concurrent submits may both be accepted',
+    evidence: 'location: "feature.txt:1"\nsteps: "check C3"\nseverity: optional\nconfidence: low',
+  });
+
+  const unverified = check(t, cwd, verdict);
+  assert.equal(unverified.status, 0, unverified.stderr);
+  assert.match(unverified.stdout, /PASS: Issue #1/);
+
+  verdict.criteria[1].result = 'fail';
+  verdict.findings[1] = {
+    id: 'F2', severity: 'blocker', status: 'open', criteria: ['AC2'],
+    summary: 'Concurrent submits are both accepted',
+    evidence: 'location: "feature.txt:1"\nsteps: "check C3"\nactual: "2 records"\nexpected: "1 record"\n'
+      + 'severity: blocker\nconfidence: high',
+  };
+  verdict.checks[2].summary = 'reproduced: two records stored';
+  verdict.verdict = 'fail';
+
+  const reproduced = check(t, cwd, verdict);
+  assert.equal(reproduced.status, 1);
+  assert.match(reproduced.stderr, /blocker finding F2 is open: Concurrent submits are both accepted/);
+  assert.doesNotMatch(reproduced.stderr, /required check C3/);
+});
+
 test('a pass declared over an open blocker finding is rejected', t => {
   const cwd = repository(t);
   const verdict = passingVerdict(identity(cwd));
