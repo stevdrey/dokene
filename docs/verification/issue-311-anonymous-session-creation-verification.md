@@ -7,7 +7,7 @@ This record is sanitized: it gives counts, limits, outcomes and test names only.
 ## Environment
 
 - **Base:** branch `fix/311-prevent-anonymous-sessions`, based on `main` at `6c54473`.
-- **Tested revision:** `6c54473` plus the working tree of this branch before its first commit. The evidence run below must be repeated on the committed revision and this line replaced with that commit before the record counts as evidence.
+- **Tested revision:** `9d25605`, the first commit of this branch, with a clean working tree. The backend tests, the nginx smoke test and the dev stack run below were all run on it, the dev stack after rebuilding its images from that commit.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build; Docker 29.7.2.
 - **Backend tests:** embedded Tomcat on a random port, Testcontainers PostgreSQL 17, and an in-process OpenID Connect provider stub (`OidcProviderStub`). No real identity provider was called.
 - **Dev stack run:** `./scripts/dev-env.sh up` (nginx, backend, Keycloak, PostgreSQL), entered through the nginx origin `http://localhost:5173`.
@@ -47,10 +47,10 @@ Every status code in the sweep is the one recorded against the unchanged code.
 | `SessionBoundCsrfTokenRepositoryTest` | 6 pass |
 | `PreLoginAuthorizationRequestRepositoryTest` | 9 pass |
 | `BffSessionPropertiesTest` (default, bounds, startup failure for `0s`, `500ms` and a value above `max-lifetime`) | 8 pass |
-| `BffSessionLifetimeFilterTest` (3 new cases for login start sessions) | pass |
+| `BffSessionLifetimeFilterTest` (3 new cases for login start sessions) | 17 pass |
 | `PreLoginSessionIntegrationTest` (one session with a 300 second idle timeout at login start; id rotation and normal timeout at login; failed callback cleanup; signed-in session kept; repeated login start) | 5 pass |
 | `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends) | 2 pass |
-| `OidcBrowserSessionIntegrationTest` and `BffTenantBoundarySecurityIntegrationTest`, unedited (login, CSRF, session fixation, local, provider and back-channel logout) | pass |
+| `OidcBrowserSessionIntegrationTest` and `BffTenantBoundarySecurityIntegrationTest`, unedited (login, CSRF, session fixation, local, provider and back-channel logout) | 19 and 8 pass |
 | `./scripts/tests/nginx-login-rate-limit-smoke.sh` (frontend image, no backend) | 6 checks pass: of 40 login starts sent at the same moment 29 get `429` and 11 are passed on; every refusal has `Retry-After: 2`, `text/plain`, the base security headers, the text body and no cookie; 40 simultaneous requests to `/api/session` and to the callback get no `429` |
 
 The smoke test runs in the `nginx-headers` job of `.github/workflows/frontend.yml`.
@@ -70,13 +70,14 @@ Backend memory, read during the same run:
 
 | Moment | Used heap after a full collection (`jcmd 1 GC.run`, then `GC.heap_info`) | Container memory (`docker stats`) |
 | --- | --- | --- |
-| Start | 48 088 KiB | 619.3 MiB |
-| After the sweep | 44 232 KiB | 659.3 MiB |
-| After the login burst | 44 517 KiB | 660.9 MiB |
+| Start | 43 276 KiB | 639.5 MiB |
+| After the sweep | 43 803 KiB | 664.0 MiB |
+| After the login burst | 43 881 KiB | 664.6 MiB |
 
-- The sweep added no live heap: used heap after collection was lower after 2000 requests than before them.
-- The 11 login start sessions added 285 KiB of live heap, about 26 KiB per session. This is one small sample and includes unrelated allocation.
-- Container memory rose by about 40 MiB during the sweep while live heap did not. That is heap the JVM had reserved and not yet returned, which is why the used heap reading is the measure here.
+- The sweep's 2000 requests changed used heap by 527 KiB while issuing no session, so that change is not session memory.
+- The 11 login start sessions changed used heap by 78 KiB.
+- These readings are not precise enough to give a cost per session. A run of the same script on the same backend a few minutes earlier read 48 208, 44 085 and 43 780 KiB, a fall of 4 123 KiB over the sweep and of 305 KiB over the login burst. Unrelated allocation moves the reading by more than 11 sessions do.
+- Container memory rose by about 25 MiB during the sweep while used heap rose by about 0.5 MiB. That is heap the JVM had reserved and not yet returned, which is why the used heap reading is the measure here.
 
 The runtime image is a JRE without `jcmd`, so the script runs `jcmd` from a JDK image that joins the backend container's process namespace.
 
@@ -84,7 +85,7 @@ The runtime image is a JRE without `jcmd`, so the script runs `jcmd` from a JDK 
 
 - An anonymous request other than a login start creates no session, whatever its rate.
 - One client address can start at most 30 logins per minute sustained, plus a burst of 10. Each login start session ends at most 5 minutes after it started, plus up to about a minute until the container's background sweep removes a session nobody touches.
-- That gives about 30 x 6 + 10 = 190 live login start sessions per client address, about 5 MiB of heap at the measured 26 KiB per session.
+- That gives about 30 x 6 + 10 = 190 live login start sessions per client address. The bound is stated in sessions: the heap readings above are too noisy to turn it into a number of bytes.
 
 Residual risk:
 - The bound is per client address. There is no ceiling on the total number of sessions, so many addresses at once each get their own 190. A hard ceiling was rejected because an anonymous flood could then lock real users out of login.
