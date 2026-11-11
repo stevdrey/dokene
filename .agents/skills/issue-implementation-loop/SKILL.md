@@ -63,7 +63,7 @@ It prints `{ "action", "reason", "rounds", "maxRounds" }`. Verdict gating reuses
 | `fix` | 1 | The latest verdict is `fail` for the current candidate, or the worktree is identical to an earlier failed candidate, and rounds remain. | Fix the blockers, then verify. |
 | `commit` | 1 | The latest verdict passes for the worktree: run without `--commit`, or the `--commit` revision does not hold the verified content. | Commit exactly the verified content, then ask again with `--commit`. |
 | `publish` | 0 | With `--commit` only: the latest verdict passes for that commit. | Publish. |
-| `stop` | 3 | The verdict is `blocked` (including a non-independent verifier), invalid, or inconsistent; any round's verdict is invalid or for another Issue; a round re-verified an unchanged failed candidate; or the round budget is spent or exceeded. | Report; do not publish as verified. After a `blocked` stop, the same candidate may be re-verified once the missing capability is legitimately obtained. |
+| `stop` | 3 | The verdict is `blocked` (including a non-independent verifier), invalid, or inconsistent; any round's verdict is invalid or for another Issue; a round's verdict drops an open blocker finding of the round before it (each must be carried forward by id until resolved); a round re-verified an unchanged failed candidate; or the round budget is spent or exceeded. | Report; do not publish as verified. After a `blocked` stop, the same candidate may be re-verified once the missing capability is legitimately obtained. |
 
 Exit `2` is an unreadable state or verdict file, a usage error, or a Git error such as an unknown `--base` or `--commit` ref: fix the input, do not treat it as a decision.
 
@@ -90,7 +90,7 @@ Check out or create the branch, then implement the scoped change under `agent-ta
 ### 4. Verify independently
 
 1. Compute the candidate identity: `node .agents/scripts/verification-verdict.mjs --identity --base <ref>`.
-2. Start a **fresh** independent verifier with the handoff prompt template in `independent-implementation-verification`, passing the Issue context, acceptance criteria, base ref, candidate identity, the implementer's evidence, applicable rules, and, for a re-verification, the previous verdict and what changed.
+2. Start a **fresh** independent verifier with the handoff prompt template in `independent-implementation-verification`, passing the Issue context, acceptance criteria, base ref, candidate identity, the implementer's evidence, applicable rules, the adversarial triggers the diff hits (or `none`), and, for a re-verification, the previous verdict and what changed. The verifier runs the optional adversarial pass inside the same round; it adds no round to `maxRounds`.
 3. Have the verdict written outside the worktree, next to the loop state, and append it to `rounds`.
 
 If no independent agent can be started, the verdict is `blocked` with `verifier.independent: false`. Never verify in the implementing context and call it independent.

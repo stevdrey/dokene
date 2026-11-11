@@ -155,18 +155,7 @@ cleared: ["<risk checked and why it is fine>"]
 proposed_tests: ["<cheapest test that catches the real failure>"]
 ```
 
-**Adversarial finding (#374).** The reproduction goes in the existing `findings[].evidence` field. `severity` is `blocker` only with reproducible proof or a clearly evidenced contract violation.
-
-```yaml
-location: "<file:line>"
-invariant: "<contract or invariant broken>"
-steps: "<exact command or probe>"
-actual: "<redacted output>"
-expected: "<required behavior>"
-severity: blocker | optional
-confidence: high | medium | low
-candidate: "<base, head, and tree from verification-verdict.mjs --identity>"
-```
+**Adversarial finding (#374).** The reproduction goes in the existing `findings[].evidence` field. `severity` is `blocker` only with reproducible proof or a clearly evidenced contract violation. The format is defined once, in [`adversarial-review.md`](../../.agents/skills/independent-implementation-verification/adversarial-review.md#reproduction-format), which supersedes the draft that was here.
 
 **Journey run (#375).** `kind` uses the existing check kinds. A step that did not execute has `result: not-run`, as in the verdict schema.
 

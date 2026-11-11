@@ -18,7 +18,7 @@ const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 const USAGE = `Usage:
   verification-verdict.mjs --identity [--base <ref>]
-  verification-verdict.mjs --verdict <file> [--commit <rev>] [--base <ref>]`;
+  verification-verdict.mjs --verdict <file> [--previous <file>] [--commit <rev>] [--base <ref>]`;
 
 function git(cwd, ...args) {
   return gitWith(cwd, process.env, ...args);
@@ -212,11 +212,23 @@ function computeVerdict(verdict) {
   return { result, reasons: [...failures, ...blockers] };
 }
 
+/**
+ * The open blocker findings of the previous round's verdict that the current verdict no longer lists. A finding is
+ * carried forward by id until new evidence resolves it, so a re-verification cannot pass by leaving an unresolved
+ * blocker out: the gate reads only the verdict it is given.
+ */
+function droppedBlockers(previous, current) {
+  const carried = new Set(current.findings.map(finding => finding.id));
+  return previous.findings
+    .filter(finding => finding.severity === 'blocker' && finding.status === 'open' && !carried.has(finding.id))
+    .map(finding => finding.id);
+}
+
 // Every option each mode accepts. Anything else is rejected, so a misspelled --commit can never silently fall back
 // to checking the worktree, which would let the publication gate pass a commit that lacks the verified change.
 const MODES = {
   '--identity': new Set(['--base']),
-  '--verdict': new Set(['--base', '--commit']),
+  '--verdict': new Set(['--base', '--commit', '--previous']),
 };
 
 const KNOWN_OPTIONS = new Set([...Object.keys(MODES), ...Object.values(MODES).flatMap(names => [...names])]);
@@ -253,7 +265,7 @@ function parseArgs(args) {
     flags: ['--identity'],
     values: [...KNOWN_OPTIONS].filter(name => name !== '--identity'),
     // A verdict path is only read as a file.
-    rawValues: ['--verdict'],
+    rawValues: ['--verdict', '--previous'],
   }, USAGE);
 
   const modes = Object.keys(MODES).filter(mode => options.has(mode));
@@ -267,6 +279,24 @@ function parseArgs(args) {
 
 class UsageError extends Error {}
 
+/** A schema-valid verdict read from a file, or undefined after reporting why it is invalid (exit 2). */
+function readVerdict(file, label = '') {
+  let verdict;
+  try {
+    verdict = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new UsageError(`cannot read ${label}verdict ${file}: ${error.message}`);
+  }
+  const errors = validateVerdict(verdict);
+  if (errors.length) {
+    console.error(`INVALID: ${label}verification verdict does not match schema version 1:`);
+    for (const error of errors) console.error(`- ${error}`);
+    process.exitCode = 2;
+    return undefined;
+  }
+  return verdict;
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const baseRef = options.get('--base') ?? DEFAULT_BASE_REF;
@@ -276,20 +306,17 @@ function main() {
     return;
   }
 
-  const file = options.get('--verdict');
-  let verdict;
-  try {
-    verdict = JSON.parse(readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new UsageError(`cannot read verdict ${file}: ${error.message}`);
-  }
-
-  const errors = validateVerdict(verdict);
-  if (errors.length) {
-    console.error('INVALID: verification verdict does not match schema version 1:');
-    for (const error of errors) console.error(`- ${error}`);
-    process.exitCode = 2;
-    return;
+  const verdict = readVerdict(options.get('--verdict'));
+  if (!verdict) return;
+  if (options.has('--previous')) {
+    const previous = readVerdict(options.get('--previous'), 'previous ');
+    if (!previous) return;
+    const dropped = droppedBlockers(previous, verdict);
+    if (dropped.length) {
+      console.error(`INVALID: the verdict drops open blocker finding(s) ${dropped.join(', ')} from the previous verdict; carry each forward by id until new evidence resolves it.`);
+      process.exitCode = 2;
+      return;
+    }
   }
 
   // Always compared, so exit 0 means the verdict is about this worktree, or with --commit about that commit.
@@ -320,8 +347,8 @@ function main() {
 }
 
 export {
-  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, isObject, isText,
-  parseOptions, sameCandidate, validateVerdict,
+  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, droppedBlockers, isObject,
+  isText, parseOptions, sameCandidate, validateVerdict,
 };
 
 // Run only as a command, so other agent scripts can import the identity and gating rules without side effects.
