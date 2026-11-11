@@ -26,8 +26,18 @@ final class TestBrowser {
 
     /** {@code pathOrUrl} is a path on the application, or an absolute URL such as a redirect target. */
     HttpResponse<String> get(String pathOrUrl) throws Exception {
+        return send(pathOrUrl, "GET");
+    }
+
+    /** An unsafe request with an empty body and no CSRF token. */
+    HttpResponse<String> postWithoutCsrfToken(String pathOrUrl) throws Exception {
+        return send(pathOrUrl, "POST");
+    }
+
+    private HttpResponse<String> send(String pathOrUrl, String method) throws Exception {
         String url = pathOrUrl.startsWith("http") ? pathOrUrl : baseUrl + pathOrUrl;
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).GET();
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url))
+                .method(method, HttpRequest.BodyPublishers.noBody());
         // The session cookie is Secure by default, so the cookie handler stores it but will not send it over the
         // plain HTTP of the test server. Only the application gets it, never the provider stub.
         String cookieHeader = cookies.getCookieStore().getCookies().stream()

@@ -15,7 +15,7 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequ
 /**
  * The login start is the one anonymous request that needs a session: it holds the state, nonce and PKCE verifier. Until
  * the login succeeds that session idles out after the pre login timeout and also ends at that age, whatever its use
- * ({@link BffSessionLifetimeFilter#isExpiredPreLoginSession}); a callback that arrives later finds no request and
+ * ({@link PreLoginSessionExpiryFilter#isExpiredPreLoginSession}); a callback that arrives later finds no request and
  * fails. A signed in session is never shortened or ended here. This class never creates a session itself.
  */
 public final class PreLoginAuthorizationRequestRepository
@@ -62,7 +62,7 @@ public final class PreLoginAuthorizationRequestRepository
             return false;
         }
         try {
-            if (!BffSessionLifetimeFilter.isExpiredPreLoginSession(session, preLoginTimeout, clock.instant())) {
+            if (!PreLoginSessionExpiryFilter.isExpiredPreLoginSession(session, preLoginTimeout, clock.instant())) {
                 return false;
             }
             session.invalidate();

@@ -7,7 +7,7 @@ This record is sanitized: it gives counts, limits, outcomes and test names only.
 ## Environment
 
 - **Base:** branch `fix/311-prevent-anonymous-sessions`, based on `main` at `6c54473`.
-- **Tested revision:** `9d25605`, the first commit of this branch, with a clean working tree. The backend tests, the nginx smoke test and the dev stack run below were all run on it, the dev stack after rebuilding its images from that commit.
+- **Tested revision:** `9d25605`, the first commit of this branch, with a clean working tree. The nginx smoke test and the dev stack run below were run on it, the dev stack after rebuilding its images from that commit. The backend tests were run on it and run again with the review fix described under [Review finding](#review-finding); the table below gives the later counts. The dev stack run was not repeated after that fix.
 - **Toolchain:** Gradle Wrapper with the Java 26 toolchain declared by the build; Docker 29.7.2.
 - **Backend tests:** embedded Tomcat on a random port, Testcontainers PostgreSQL 17, and an in-process OpenID Connect provider stub (`OidcProviderStub`). No real identity provider was called.
 - **Dev stack run:** `./scripts/dev-env.sh up` (nginx, backend, Keycloak, PostgreSQL), entered through the nginx origin `http://localhost:5173`.
@@ -31,7 +31,7 @@ Requests that already created no session: `GET` with `Accept: application/json`,
 | --- | --- |
 | Request cache | `NullRequestCache`: no rejected request is stored. The post-login target was already fixed, so nothing read it. |
 | CSRF token store | `SessionBoundCsrfTokenRepository`: the session store, saving only into a session that already exists. An anonymous unsafe request is compared with a fresh random token and refused with the same status as before. |
-| Login start session | `PreLoginAuthorizationRequestRepository`: the session a login start creates idles out after `dokene.security.session.pre-login-timeout` (default `5m`) and ends once it is older than that, however often its cookie is used (`BffSessionLifetimeFilter`). |
+| Login start session | `PreLoginAuthorizationRequestRepository`: the session a login start creates idles out after `dokene.security.session.pre-login-timeout` (default `5m`) and ends once it is older than that, whatever request carries its cookie (`PreLoginSessionExpiryFilter`, registered before the CSRF filter). |
 | Login success | The session id rotates as before and the idle timeout returns to the container's session timeout. |
 | Login failure | The login start session is invalidated and its cookie expired before the failure redirect. A signed-in session is never ended by a failed callback. |
 | Setting | `pre-login-timeout` must be at least `1s` and at most `max-lifetime`, or startup fails with a message naming the property. |
@@ -47,13 +47,20 @@ Every status code in the sweep is the one recorded against the unchanged code.
 | `SessionBoundCsrfTokenRepositoryTest` | 6 pass |
 | `PreLoginAuthorizationRequestRepositoryTest` | 9 pass |
 | `BffSessionPropertiesTest` (default, bounds, startup failure for `0s`, `500ms` and a value above `max-lifetime`) | 8 pass |
-| `BffSessionLifetimeFilterTest` (3 new cases for login start sessions) | 17 pass |
+| `PreLoginSessionExpiryFilterTest` (age boundary, signed-in and ordinary sessions left alone, no session created) | 5 pass |
+| `BffSessionLifetimeFilterTest`, behavior unchanged | 14 pass |
 | `PreLoginSessionIntegrationTest` (one session with a 300 second idle timeout at login start; id rotation and normal timeout at login; failed callback cleanup; signed-in session kept; repeated login start) | 5 pass |
-| `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends) | 2 pass |
+| `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends, on `GET` requests and on unsafe requests the CSRF filter refuses) | 3 pass |
 | `OidcBrowserSessionIntegrationTest` and `BffTenantBoundarySecurityIntegrationTest`, unedited (login, CSRF, session fixation, local, provider and back-channel logout) | 19 and 8 pass |
 | `./scripts/tests/nginx-login-rate-limit-smoke.sh` (frontend image, no backend) | 6 checks pass: of 40 login starts sent at the same moment 29 get `429` and 11 are passed on; every refusal has `Retry-After: 2`, `text/plain`, the base security headers, the text body and no cookie; 40 simultaneous requests to `/api/session` and to the callback get no `429` |
 
 The smoke test runs in the `nginx-headers` job of `.github/workflows/frontend.yml`.
+
+## Review finding
+
+The review of `9d25605` found that the age check ran after the CSRF filter. An unsafe request without a CSRF token is answered by that filter, so it never reached the check, while reading the session there reset the idle timeout. A client could keep a login start session alive past the timeout with such requests, which nginx does not limit, and the bound below did not hold.
+
+The check moved to `PreLoginSessionExpiryFilter`, registered before the CSRF filter. The integration test for refused unsafe requests was written first and failed against `9d25605`: the session still existed after twice the timeout.
 
 ## Evidence run on the dev stack
 

@@ -249,34 +249,6 @@ class BffSessionLifetimeFilterTest {
     }
 
     @Test
-    void endsALoginStartSessionOlderThanThePreLoginTimeoutAndContinuesAnonymous() throws Exception {
-        MockHttpSession preLogin = preLoginSession();
-        clock.advance(PRE_LOGIN_TIMEOUT.plusMillis(1));
-
-        assertThat(reachesTheChain(preLogin)).isTrue();
-        assertThat(preLogin.isInvalid()).isTrue();
-    }
-
-    @Test
-    void keepsALoginStartSessionWithinThePreLoginTimeout() throws Exception {
-        MockHttpSession preLogin = preLoginSession();
-        clock.advance(PRE_LOGIN_TIMEOUT);
-
-        assertThat(reachesTheChain(preLogin)).isTrue();
-        assertThat(preLogin.isInvalid()).isFalse();
-    }
-
-    @Test
-    void neverTreatsASignedInSessionAsALoginStartSession() throws Exception {
-        session.setAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT, clock.instant());
-        clock.advance(PRE_LOGIN_TIMEOUT.plusMinutes(1));
-        refresh.set(RefreshBehavior.SUCCEED);
-
-        assertThat(run()).isTrue();
-        assertThat(session.isInvalid()).isFalse();
-    }
-
-    @Test
     void rejectsInconsistentProperties() {
         assertThatThrownBy(() -> new BffSessionProperties(MAX_LIFETIME, INTERVAL, INTERVAL, null, null))
                 .isInstanceOf(IllegalStateException.class)
@@ -304,21 +276,6 @@ class BffSessionLifetimeFilterTest {
         filter.doFilter(request(), new MockHttpServletResponse(), (req, res) -> authenticated.set(
                 SecurityContextHolder.getContext().getAuthentication() != null));
         return authenticated.get();
-    }
-
-    private MockHttpSession preLoginSession() {
-        MockHttpSession preLogin = new MockHttpSession();
-        preLogin.setAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT, clock.instant());
-        return preLogin;
-    }
-
-    /** Runs one anonymous request carrying {@code anonymousSession} and reports whether the chain was reached. */
-    private boolean reachesTheChain(MockHttpSession anonymousSession) throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/session");
-        request.setSession(anonymousSession);
-        AtomicReference<Boolean> reached = new AtomicReference<>(false);
-        filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> reached.set(true));
-        return reached.get();
     }
 
     private MockHttpServletRequest request() {

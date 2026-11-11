@@ -69,4 +69,23 @@ class PreLoginSessionExpiryIntegrationTest {
         assertThat(callback.statusCode()).isEqualTo(302);
         assertThat(callback.headers().firstValue("Location").orElseThrow()).endsWith("/?error=login_failed");
     }
+
+    /**
+     * covers: AC-2. The CSRF filter refuses this request before authorization runs, and reading the session there
+     * resets the idle timeout, so the age check has to come first.
+     */
+    @Test
+    void aLoginStartSessionEndsAtThePreLoginTimeoutWhenItsCookieIsUsedOnRefusedUnsafeRequests() throws Exception {
+        TestBrowser browser = new TestBrowser(port);
+        browser.startLogin();
+        String preLoginId = browser.sessionId().orElseThrow();
+
+        Instant end = Instant.now().plusSeconds(2);
+        while (Instant.now().isBefore(end)) {
+            assertThat(browser.postWithoutCsrfToken("/api/customers").statusCode()).isEqualTo(401);
+            Thread.sleep(Duration.ofMillis(300));
+        }
+
+        assertThat(sessions.find(preLoginId)).isEmpty();
+    }
 }

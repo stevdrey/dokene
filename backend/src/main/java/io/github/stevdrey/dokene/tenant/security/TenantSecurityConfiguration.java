@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.security;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.identity.application.OidcIdentityResolver;
 import io.github.stevdrey.dokene.identity.security.BffSessionLifetimeFilter;
+import io.github.stevdrey.dokene.identity.security.PreLoginSessionExpiryFilter;
 import io.github.stevdrey.dokene.identity.security.BffSessionProperties;
 import io.github.stevdrey.dokene.identity.security.InternalOidcUserService;
 import io.github.stevdrey.dokene.identity.security.PreLoginAuthorizationRequestRepository;
@@ -55,6 +56,7 @@ import org.springframework.security.web.authentication.logout.CookieClearingLogo
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
@@ -215,6 +217,10 @@ class TenantSecurityConfiguration {
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")
                         .logoutSuccessHandler(logoutSuccessHandler))
+                // Before the CSRF filter: it refuses an unsafe request itself, and a request this filter never sees
+                // would keep an abandoned login start session alive (issue 311).
+                .addFilterBefore(new PreLoginSessionExpiryFilter(sessionProperties.preLoginTimeout(), clock),
+                        CsrfFilter.class)
                 .addFilterBefore(bffSessionLifetimeFilter, AnonymousAuthenticationFilter.class)
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
 

@@ -71,7 +71,9 @@ request that needs a session, the login start, is bounded.
   `AnonymousSessionCreationIntegrationTest` sweeps these routes and fails the build if one creates a session again.
 - **Login start session**: a login start creates one session for the OAuth state, nonce and PKCE verifier. Until the
   login succeeds it idles out after `dokene.security.session.pre-login-timeout` (`DOKENE_SESSION_PRE_LOGIN_TIMEOUT`,
-  `5m`) and also ends once it is older than that, however often its cookie is used; a callback that arrives later
+  `5m`) and also ends once it is older than that, however often its cookie is used. That age check
+  (`PreLoginSessionExpiryFilter`) runs before the CSRF filter, so a request that filter refuses cannot keep the
+  session alive; a callback that arrives later
   ends at the login failure redirect. Startup fails unless the value is at least `1s` and at most `max-lifetime`. A
   user who takes longer at the provider's login page has to start again.
 - **Login success**: the session id rotates as before, and the idle timeout returns to
