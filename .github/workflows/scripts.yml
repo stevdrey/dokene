@@ -7,6 +7,8 @@ on:
       - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
       - 'scripts/verify-journey-follow-up-disposition.sh'
       - 'scripts/tests/verify-journey-follow-up-disposition-test.sh'
+      - 'scripts/lib/bff-login.sh'
+      - 'scripts/tests/bff-login-test.sh'
       - '.github/workflows/scripts.yml'
   push:
     branches: [main]
@@ -15,6 +17,8 @@ on:
       - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
       - 'scripts/verify-journey-follow-up-disposition.sh'
       - 'scripts/tests/verify-journey-follow-up-disposition-test.sh'
+      - 'scripts/lib/bff-login.sh'
+      - 'scripts/tests/bff-login-test.sh'
       - '.github/workflows/scripts.yml'
 
 permissions:
@@ -34,3 +38,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/verify-journey-follow-up-disposition-test.sh
+
+  bff-login-helper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./scripts/tests/bff-login-test.sh

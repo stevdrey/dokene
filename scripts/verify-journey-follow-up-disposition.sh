@@ -27,6 +27,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Loopback checks (is_local_target), header parsing (header_value) and the BFF login (bff_login).
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 JOURNEY="follow-up disposition: dismiss a due follow-up from the queue"
 ISOLATION_TENANT_NAME="QA Journey Isolation"
 ISOLATION_TENANT_KEY="qa-journey-isolation"
@@ -42,15 +45,10 @@ usage() {
 # ------------------------------------------------------------------------------
 
 # True only for plain-HTTP loopback origins (no path, query or fragment): the journey must never reach a shared or
-# production host. The loopback rule itself lives only in is_local_target.
+# production host. The loopback rule itself lives only in is_local_target
+# (scripts/lib/bff-login.sh).
 is_local_url() {
   is_local_target "$1" && [[ "$1" =~ ^http://[^/?#]*$ ]]
-}
-
-# True for a URL on a plain-HTTP loopback origin, with or without a path (OIDC redirects and the login form).
-is_local_target() {
-  case "$1" in *[[:cntrl:]]*) return 1 ;; esac  # one line only: a newline could smuggle a second URL
-  [[ "$1" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?(/|\?|$) ]]
 }
 
 # True when $1 (absolute) is $2 or below it.
@@ -102,14 +100,6 @@ yaml_str() {
   s="${s//\"/\\\"}"
   s="$(printf '%s' "$s" | tr '\t\r\n' '   ' | tr -d '\000-\037\177')"
   printf '"%s"' "$s"
-}
-
-# Value of response header $1 (case-insensitive) in header dump $2; last occurrence wins (after redirects).
-header_value() {
-  awk -v k="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" '
-    { line = $0; sub(/\r$/, "", line); i = index(line, ":"); if (i == 0) next
-      if (tolower(substr(line, 1, i - 1)) == k) { v = substr(line, i + 1); sub(/^[ \t]+/, "", v); val = v } }
-    END { print val }' "$2"
 }
 
 # One step: id, action, expected, actual, result (passed|failed|not-run), kind.
@@ -273,22 +263,7 @@ body() { jq -r "$1" "$WORK_DIR/body" 2>/dev/null; }
 trace() { printf 'HTTP %s, X-Request-Id %s' "$HTTP_STATUS" "${HTTP_REQUEST_ID:-none}"; }
 
 login() {
-  local user="$1" jar="$WORK_DIR/$1.jar" auth_url form_action callback
-  curl -s -c "$jar" -D "$WORK_DIR/login-headers" -o /dev/null "$BFF_URL/oauth2/authorization/dokene" || return 1
-  auth_url="$(header_value location "$WORK_DIR/login-headers")"
-  is_local_target "$auth_url" || return 1
-  curl -s -c "$jar" -b "$jar" -o "$WORK_DIR/login-page" "$auth_url" || return 1
-  form_action="$(grep -o 'action="[^"]*"' "$WORK_DIR/login-page" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-  is_local_target "$form_action" || return 1
-  # The password goes through stdin, so it never appears in the process list, and only to a loopback target.
-  printf '%s' "$TEST_PASSWORD" | curl -s -c "$jar" -b "$jar" -D "$WORK_DIR/login-headers" -o /dev/null -X POST \
-    "$form_action" --data-urlencode "username=$user" --data-urlencode "password@-" || return 1
-  callback="$(header_value location "$WORK_DIR/login-headers")"
-  is_local_target "$callback" || return 1
-  case "$callback" in *"/login/oauth2/code/dokene"*) ;; *) return 1 ;; esac
-  curl -s -c "$jar" -b "$jar" -o /dev/null "$callback" || return 1
-  rm -f "$WORK_DIR/login-page"
-  echo "$jar"
+  printf '%s' "$TEST_PASSWORD" | bff_login "$1" "$WORK_DIR/$1.jar" "$WORK_DIR"
 }
 
 # queue_contains JAR TENANT CUSTOMER -> prints true/false, walking every page of the due queue.

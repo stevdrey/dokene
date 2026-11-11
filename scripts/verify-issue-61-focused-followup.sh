@@ -58,27 +58,11 @@ record_result() {
     echo -e "$scn\t$name\t$exp\t$obs\t$status\t$details" >> "$RESULTS_FILE"
 }
 
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login() {
-    local username="$1"
-    local cookie_jar="$2"
-    local header_log="$TEMP_DIR/login-headers.txt"
-
-    curl -s -c "$cookie_jar" -D "$header_log" "$BFF_URL/oauth2/authorization/dokene" >/dev/null
-    local auth_url
-    auth_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")
-
-    local login_page
-    login_page=$(curl -s -c "$cookie_jar" -b "$cookie_jar" "$auth_url")
-    local form_action
-    form_action=$(echo "$login_page" | grep -o "action=\"[^\"]*\"" | head -n 1 | cut -d"\"" -f2 | sed "s/&amp;/\&/g")
-
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -X POST "$form_action" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$TEST_PASSWORD" >/dev/null
-
-    local callback_url
-    callback_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")
-    curl -s -c "$cookie_jar" -b "$cookie_jar" "$callback_url" >/dev/null
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    printf '%s' "$TEST_PASSWORD" | bff_login "$1" "$2" "$TEMP_DIR" >/dev/null
 }
 
 echo "=== INITIALIZING AUTHENTICATED SESSIONS FOR FOCUSED QA #61 ==="
