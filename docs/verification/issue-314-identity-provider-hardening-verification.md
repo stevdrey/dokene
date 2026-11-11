@@ -65,7 +65,7 @@ Keycloak's event log recorded both refusals as `LOGIN_ERROR` with `error="invali
 | `up` requires `jq` in preflight even without `--seed`, because the realm settings script cannot run without it (Codex review finding on PR #368) | `scripts/tests/dev-env-smoke.sh`, `check_tools` with `jq` stubbed absent |
 | BFF login with S256 PKCE, session, CSRF and logout unchanged | `OidcBrowserSessionIntegrationTest` (19 tests) and `BffTenantBoundarySecurityIntegrationTest` (8 tests), 0 failures |
 
-`keycloak-realm-config-test.sh` and `keycloak-apply-realm-settings-test.sh` passed. `dev-env-smoke.sh` passed every check except the #308 secret files check, which fails on macOS on `main` as well: the test reads the directory mode with `stat -f %Lp`, which drops the sticky bit. That is a defect of the test, unrelated to this change, tracked separately; it passes on the Linux runner.
+`keycloak-realm-config-test.sh` and `keycloak-apply-realm-settings-test.sh` passed. `dev-env-smoke.sh` passed every check except the #308 secret files check, which fails on macOS on `main` as well: the test reads the directory mode with `stat -f %Lp`, which drops the sticky bit. That is a defect of the test, unrelated to this change, tracked separately. The `Script tests` workflow runs `dev-env-smoke.sh` on a Linux runner since the review of PR #368, where that check passes. Its first run there was also the first ShellCheck run on these scripts and reported five info level findings (`SC1091`, `SC2016`, `SC2329`), which were then annotated; ShellCheck 0.11.0 is clean on the listed scripts.
 
 ## Evidence scripts that predate this change
 

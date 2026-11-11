@@ -423,6 +423,7 @@ up_maps_realm_settings_status() {
   local work out rc=1
   work="$(mktemp -d)" || return 1
   mkdir -p "$work/scripts"
+  # shellcheck disable=SC2016  # the stub expands the variable when it runs
   printf '#!/usr/bin/env bash\nexit "$FAKE_APPLY_STATUS"\n' > "$work/scripts/keycloak-apply-realm-settings.sh"
   chmod +x "$work/scripts/keycloak-apply-realm-settings.sh"
   run_up() {
@@ -457,6 +458,7 @@ check "up fails when the realm settings script did not set the passwords (exit 3
 # Every `up` runs keycloak-apply-realm-settings.sh, which needs jq, so a missing jq must fail preflight even without
 # --seed: otherwise an existing realm keeps its old passwords while .env holds the new ones.
 check_tools_requires_jq_without_seed() {
+  # shellcheck disable=SC2329  # the stubs below are called by the sourced check_tools
   (
     # shellcheck source=../dev-env.sh
     source "$SCRIPT" || exit 99

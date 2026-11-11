@@ -93,6 +93,7 @@ check "a realm with another password policy fails" fails_on '.passwordPolicy = "
 check "a realm with a literal password fails" fails_on \
     '(.users[] | select(.username == "testviewer") | .credentials[0].value) = "a-literal-value"' \
     "user testviewer has a literal password"
+# shellcheck disable=SC2016  # a Keycloak placeholder, not a shell expansion
 check "a realm whose users share one placeholder fails" fails_on \
     '(.users[] | select(.username == "testuser") | .credentials[0].value) = "${env.DOKENE_TEST_VIEWER_PASSWORD}"' \
     "testuser password is not the OWNER placeholder"
