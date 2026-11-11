@@ -81,6 +81,23 @@ The SPA policy allows only same-origin resources, so assets must be self-hosted.
 SPA must replicate these headers. Verify with `./scripts/tests/nginx-headers-smoke.sh` (Docker only). For host-run
 development, `npm run dev` has no CSP; use `npm run build && npm run preview` (same headers) to check violations.
 
+### Login start rate limit
+
+A login start (`/oauth2/authorization/...`) is the one anonymous request for which the backend creates a session, so
+nginx bounds it (issue #311, ADR 0007): 30 per minute per client address with a burst of 10. A request over the limit
+gets `429` with `Retry-After: 2` and a short plain text body, and never reaches the backend. No other route is rate
+limited. Verify with `./scripts/tests/nginx-login-rate-limit-smoke.sh` (Docker only).
+
+- In this local stack every host client reaches nginx from the same Docker bridge address, so the limit is shared:
+  several people or scripts starting logins through `http://localhost:5173` at the same moment can see `429`. Wait
+  two seconds and try again.
+- Requests sent straight to the backend port (`http://localhost:8080`, used by the `scripts/verify-*` and seed
+  scripts) skip nginx and are not limited.
+- Behind another proxy or tunnel, restore the real client address in nginx (`real_ip`), or the limit is one shared
+  limit for everyone who signs in.
+- `DOKENE_SESSION_PRE_LOGIN_TIMEOUT` (default `5m`) is how long a login start session waits for the login to
+  succeed.
+
 ### Troubleshooting
 
 - `Host port N is already in use`: another process owns the port (for PostgreSQL, often a locally installed

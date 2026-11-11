@@ -6,6 +6,7 @@ on:
       - 'frontend/**'
       - 'infra/docker/frontend/**'
       - 'scripts/tests/nginx-headers-smoke.sh'
+      - 'scripts/tests/nginx-login-rate-limit-smoke.sh'
       - 'backend/src/test/resources/contracts/**'
       - '.github/workflows/frontend.yml'
   push:
@@ -14,6 +15,7 @@ on:
       - 'frontend/**'
       - 'infra/docker/frontend/**'
       - 'scripts/tests/nginx-headers-smoke.sh'
+      - 'scripts/tests/nginx-login-rate-limit-smoke.sh'
       - 'backend/src/test/resources/contracts/**'
       - '.github/workflows/frontend.yml'
 
@@ -43,3 +45,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./scripts/tests/nginx-headers-smoke.sh
+      - run: ./scripts/tests/nginx-login-rate-limit-smoke.sh

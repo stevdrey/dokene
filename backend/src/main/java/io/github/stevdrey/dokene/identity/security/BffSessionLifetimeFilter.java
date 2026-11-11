@@ -1,5 +1,6 @@
 // ABOUTME: Ends OIDC browser sessions at an absolute lifetime and when the provider stops honouring them (issue 307).
 // ABOUTME: Periodically redeems the session's refresh token; a rejected refresh means a disabled user or ended session.
+// ABOUTME: Also ends a login start session that is older than the pre login timeout (issue 311).
 package io.github.stevdrey.dokene.identity.security;
 
 import jakarta.servlet.FilterChain;
@@ -9,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -30,12 +32,15 @@ import org.springframework.web.util.WebUtils;
 /**
  * Runs after the security context is loaded and before authorization. A session it revokes is invalidated and the
  * request continues unauthenticated, so {@code /api/**} fails closed with {@code 401} exactly like an idle-expired
- * session. Sessions not established by OIDC login are left alone.
+ * session. Sessions not established by OIDC login are left alone, except a session a login start created: it ends once
+ * it is older than the pre login timeout, however often its cookie is used, and the request continues anonymous.
  */
 public final class BffSessionLifetimeFilter extends OncePerRequestFilter {
 
     public static final String AUTHENTICATED_AT = BffSessionLifetimeFilter.class.getName() + ".AUTHENTICATED_AT";
     public static final String LAST_REVALIDATED_AT = BffSessionLifetimeFilter.class.getName() + ".LAST_REVALIDATED_AT";
+    /** When the login start that created this session happened; removed once the login succeeds. */
+    public static final String PRE_LOGIN_STARTED_AT = BffSessionLifetimeFilter.class.getName() + ".PRE_LOGIN_STARTED_AT";
 
     private static final Logger log = LoggerFactory.getLogger(BffSessionLifetimeFilter.class);
 
@@ -63,10 +68,21 @@ public final class BffSessionLifetimeFilter extends OncePerRequestFilter {
         session.setAttribute(LAST_REVALIDATED_AT, now);
     }
 
+    /**
+     * Whether {@code session} was created by a login start that never completed and is now older than
+     * {@code preLoginTimeout}. An idle timeout alone gives no bound: any request with the cookie resets it.
+     */
+    public static boolean isExpiredPreLoginSession(HttpSession session, Duration preLoginTimeout, Instant now) {
+        Instant startedAt = instant(session, PRE_LOGIN_STARTED_AT);
+        return instant(session, AUTHENTICATED_AT) == null
+                && startedAt != null
+                && startedAt.plus(preLoginTimeout).isBefore(now);
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        HttpSession session = request.getSession(false);
+        HttpSession session = endExpiredPreLoginSession(request.getSession(false));
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (session != null && authentication instanceof OAuth2AuthenticationToken token) {
             try {
@@ -80,6 +96,22 @@ public final class BffSessionLifetimeFilter extends OncePerRequestFilter {
             }
         }
         chain.doFilter(request, response);
+    }
+
+    /** Returns the session, or {@code null} once it has been ended as an expired login start session. */
+    private HttpSession endExpiredPreLoginSession(HttpSession session) {
+        if (session == null) {
+            return null;
+        }
+        try {
+            if (!isExpiredPreLoginSession(session, properties.preLoginTimeout(), clock.instant())) {
+                return session;
+            }
+            session.invalidate();
+        } catch (IllegalStateException alreadyInvalidated) {
+            // A concurrent request ended this session first.
+        }
+        return null;
     }
 
     private Revocation check(HttpSession session, OAuth2AuthenticationToken token, HttpServletRequest request,
