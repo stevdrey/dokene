@@ -145,6 +145,10 @@ check() {
 
 eq() { [ "$1" = "$2" ]; }
 is_id() { [ -n "$1" ] && [ "$1" != "null" ]; }
+# Synthetic Chilean mobile for the fixture from a random unsigned integer $1. Only the +5698 block is used: all of its
+# 10,000,000 numbers pass PhoneNormalizer (libphonenumber 9.0.43, isValidNumberForRegion CL), checked exhaustively;
+# other +569 blocks contain rejected ranges (e.g. +56969..., +56991...).
+fixture_phone() { printf '+5698%07d\n' "$(( $1 % 10000000 ))"; }
 # A replay (status $1) returned the original dismissal: HTTP 200 and the same real id in both responses ($2, $3).
 same_dismissal() { [ "$1" = "200" ] && is_id "$2" && is_id "$3" && [ "$2" = "$3" ]; }
 is_due() { [ "$1" = "DUE" ] || [ "$1" = "OVERDUE" ]; }
@@ -167,7 +171,7 @@ write_record() {
     echo "run_id: $(yaml_str "$RUN_ID")"
     echo "commit: $(yaml_str "$(git -C "$ROOT_DIR" describe --always --dirty 2>/dev/null || echo unknown)")"
     echo "target: $(yaml_str "$BFF_URL")"
-    echo "fixture: $(yaml_str "seed: ./scripts/dev-env.sh up --seed; invented customer 'QA Journey $RUN_ID' with a random +569 number in '$SEED_TENANT_NAME'; isolation tenant '$ISOLATION_TENANT_NAME' (idempotent)")"
+    echo "fixture: $(yaml_str "seed: ./scripts/dev-env.sh up --seed; invented customer 'QA Journey $RUN_ID' with a random +5698 number in '$SEED_TENANT_NAME'; isolation tenant '$ISOLATION_TENANT_NAME' (idempotent)")"
     echo "actors:"
     echo "  - \"testoperator: OPERATOR in tenant A ($SEED_TENANT_NAME), not a member of tenant B\""
     echo "  - \"testviewer: VIEWER in tenant A\""
@@ -387,7 +391,7 @@ TENANT_TZ="$(body .timeZone)"
 [ "$HTTP_STATUS" = "200" ] && [ -n "$TENANT_TZ" ] || blocked "tenant follow-up policy unavailable ($(trace))"
 TODAY="$(TZ="$TENANT_TZ" date +%F)"
 PURCHASED_AT="$(date -u -d '-40 days' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-40d +%Y-%m-%dT%H:%M:%SZ)"
-PHONE="+569$(od -An -N4 -tu4 /dev/urandom | awk '{printf "%08d", ($1 % 80000000) + 20000000}')"
+PHONE="$(fixture_phone "$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n')")"
 
 A=(-H "X-Tenant-Id: $TENANT_A")
 OP_WRITE=("${A[@]}" -H "X-CSRF-TOKEN: $OPERATOR_CSRF" -H "Content-Type: application/json")

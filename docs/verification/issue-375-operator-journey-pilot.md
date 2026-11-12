@@ -64,7 +64,7 @@ All runs used the same stack without a reset. Each run made its own fixture cust
 
 | Command | Result |
 | --- | --- |
-| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 70 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks and directory identity, fixture ids, a replay that must return the same real dismissal id, YAML control characters, and a static check that the script calls no message send, approval, or creation path |
+| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 74 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks and directory identity, fixture ids, a replay that must return the same real dismissal id, fixture phones confined to the always-valid `+5698` block, YAML control characters, and a static check that the script calls no message send, approval, or creation path |
 | `shellcheck -x scripts/verify-journey-follow-up-disposition.sh scripts/tests/verify-journey-follow-up-disposition-test.sh` | No findings |
 
 The `Script tests` workflow runs the offline test on pull requests that change either script.
@@ -100,6 +100,12 @@ A second code review led to these fixes:
 - **Loopback rule:** it lives only in `is_local_target`.
 
 A later validation comment on PR #381 found that S16 accepted a replay when both dismissal responses lacked an `id` (`null` equal to `null`). S16 now requires HTTP `200` and the same real id in both responses (`same_dismissal`), with offline regression cases for missing ids in either response.
+
+The revalidation of `926454e` found that the random fixture phone (`+569` plus 8 digits from 20000000 to 99999999) could be rejected by `PhoneNormalizer` (libphonenumber 9.0.43, `isValidNumberForRegion` for `CL`), stopping a healthy run at customer creation with HTTP `400`.
+
+- **Rejected blocks:** a scan with the pinned library sampled the whole range and found rejected numbers in the `10`–`19`, `36`, `69`, `70`, `91` and `92` leading blocks. For example, `+56969800000`, which the generator produced from input `49800000`.
+- **Fix:** an exhaustive check of `+5698` plus 7 digits accepted all 10,000,000 numbers. The generator now uses only that block (`fixture_phone`). The offline test pins the input `49800000` (now `+56989800000`) and other inputs to the block.
+- **Live check:** with a test double that makes the generator's `od` call return `49800000`, the run passed 20 steps with 1 not-run, as did a normal run.
 
 ## Observations
 

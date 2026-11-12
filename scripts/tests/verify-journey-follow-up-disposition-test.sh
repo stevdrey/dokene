@@ -121,6 +121,15 @@ assert "a UUID is an id" is_id "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 refute "an empty value is not an id" is_id ""
 refute "null is not an id" is_id "null"
 
+# --- fixture phones stay inside the block the validator always accepts (+5698 + 7 digits)
+assert "the input that produced a rejected +56969 number now maps into +5698" [ "$(fixture_phone 49800000)" = "+56989800000" ]
+assert "zero maps to the start of the block" [ "$(fixture_phone 0)" = "+56980000000" ]
+assert "the largest 32-bit input stays in the block" [ "$(fixture_phone 4294967295)" = "+56984967295" ]
+for raw in 1 20000000 69800000 91100000 99999999 4000000000; do
+  [[ "$(fixture_phone "$raw")" =~ ^\+5698[0-9]{7}$ ]] || fail "fixture_phone $raw leaves the +5698 block"
+done
+pass "sampled inputs all stay in the +5698 block"
+
 # --- S16 replay: the same real dismissal id in both responses, never "null" against "null"
 D1=3fa85f64-5717-4562-b3fc-2c963f66afa6 D2=7c9e6679-7425-40de-944b-e07fc1f90ae7
 assert "a replay with the same id passes" same_dismissal 200 "$D1" "$D1"

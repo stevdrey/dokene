@@ -23,7 +23,7 @@ When the candidate changes backend code, rebuild the image first with `./scripts
 | --- | --- | --- |
 | Tenant A | `QA Café Norte`, from `./scripts/dev-env.sh seed` | Read only, except the new fixture customer |
 | Tenant B | `QA Journey Isolation`, provisioned by `testuser` with idempotency key `qa-journey-isolation` | Idempotent: the same tenant every run; nobody else is invited |
-| Customer | `QA Journey <run id>`, random `+569` number, WhatsApp consent `GRANTED` (`CUSTOMER_VERBAL`), one purchase 40 days ago, explicit next date = today in the tenant's time zone | New per run; archived by the owner at the end |
+| Customer | `QA Journey <run id>`, random number in the `+5698` block (all 10,000,000 numbers pass the phone validator), WhatsApp consent `GRANTED` (`CUSTOMER_VERBAL`), one purchase 40 days ago, explicit next date = today in the tenant's time zone | New per run; archived by the owner at the end |
 | Idempotency keys | `qa-journey-*-<run id>` | New per run |
 
 All data is invented. The password comes from `DOKENE_TEST_USER_PASSWORD` and is never printed.
