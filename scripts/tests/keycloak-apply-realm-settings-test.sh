@@ -84,7 +84,10 @@ case "$1" in
     set-password)
         # set-password -r <realm> --username <user> --new-password <value> --config <file>
         if [ "${#7}" -lt 12 ]; then
-            echo "Invalid password: minimum length 12, got '$7'." >&2
+            refused="$7"
+            # FAKE_ECHO_ESCAPED=1 echoes the value the way a JSON error body would carry it.
+            [ "${FAKE_ECHO_ESCAPED:-0}" = "1" ] && refused="${refused//\"/\\\"}"
+            echo "Invalid password: minimum length 12, got '$refused'." >&2
             exit 1
         fi
         printf '%s' "$7" >"$STUB_STATE/password.$5" ;;
@@ -220,6 +223,12 @@ policy_rejection_names_the_user_never_the_value() {
     DOKENE_TEST_VIEWER_PASSWORD=short123 password_failure_exits_3 testviewer \
         && grep -q 'message is withheld' "$WORK/out" && no_password_leaked short123
 }
+# A value with characters outside [A-Za-z0-9._~-] can come back escaped, where a literal comparison misses it.
+policy_rejection_withholds_an_escaped_value() {
+    fresh_realm
+    FAKE_ECHO_ESCAPED=1 DOKENE_TEST_VIEWER_PASSWORD='sh"rt12' password_failure_exits_3 testviewer \
+        && grep -q 'message is withheld' "$WORK/out" && ! grep -qF 'rt12' "$WORK/out"
+}
 failed_exec_of_the_password_step_exits_3() {
     fresh_realm
     STUB_FAIL=set-password:1 password_failure_exits_3 testuser
@@ -245,6 +254,8 @@ check "an empty password variable fails with exit 3 and says to recreate the con
     empty_variable_fails_and_says_to_recreate
 check "a password the policy refuses fails naming the user, never the value" \
     policy_rejection_names_the_user_never_the_value
+check "a refused password that could be echoed in an escaped form is withheld too" \
+    policy_rejection_withholds_an_escaped_value
 check "a failed password exec fails with exit 3" failed_exec_of_the_password_step_exits_3
 
 if [ "$failures" -gt 0 ]; then

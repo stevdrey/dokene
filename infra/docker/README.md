@@ -192,7 +192,8 @@ docker compose up -d --wait postgres keycloak
 
 This command does not run the `.env` checks of `dev-env.sh`. Keycloak refuses to start while one of
 `DOKENE_TEST_OWNER_PASSWORD`, `DOKENE_TEST_OPERATOR_PASSWORD` and `DOKENE_TEST_VIEWER_PASSWORD` is empty (issue 314),
-so run `./scripts/dev-env.sh doctor` or `up` once first: either one generates the missing values in `.env`.
+so run `./scripts/dev-env.sh up` once first, which generates the missing values in `.env` (`doctor` generates them
+too, after asking).
 
 Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/import/dokene-realm.json`.
 
@@ -232,7 +233,7 @@ curl -fsS "http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene/.well-known/ope
 
 ### Development synthetic test identities & QA seeding
 
-For exercising local browser login and multi-tenant RBAC validation against the Spring Boot BFF, the imported realm defines three synthetic test users. Each has its own password, which `./scripts/dev-env.sh` generates into `.env` (`openssl rand -hex 16`); there is no default, and knowing one user's password does not open another account. Read a password with, for example, `grep DOKENE_TEST_OWNER_PASSWORD .env`. A custom value must be at least 12 characters.
+For exercising local browser login and multi-tenant RBAC validation against the Spring Boot BFF, the imported realm defines three synthetic test users. Each has its own password, which `./scripts/dev-env.sh` generates into `.env` (`openssl rand -hex 16`); there is no default, and knowing one user's password does not open another account. Read a password with, for example, `grep DOKENE_TEST_OWNER_PASSWORD .env`. A custom value must be at least 12 characters. Use plain characters or single quotes: preflight refuses a `$`, a backslash or an inline ` #` comment that Compose would not pass on as written.
 
 | Username | Email | Intended Role | Password in `.env` | Capabilities |
 | :--- | :--- | :--- | :--- | :--- |

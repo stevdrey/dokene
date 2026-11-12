@@ -59,12 +59,6 @@ services:
           echo "Error: Set SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET in .env" >&2
           exit 1
         fi
-        for test_password in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
-          if [ -z "$${!test_password}" ]; then
-            echo "Error: Set $$test_password in .env (./scripts/dev-env.sh up generates it)" >&2
-            exit 1
-          fi
-        done
         escape_json() {
           local str="$$1"
           str="$${str//\\/\\\\}"
@@ -88,7 +82,13 @@ services:
         content="$$(cat /opt/keycloak/import-template/dokene-realm.json)"
         escaped_secret="$$(escape_json "$$DOKENE_OIDC_CLIENT_SECRET")"
         content="$${content//"\$${env.DOKENE_OIDC_CLIENT_SECRET}"/"$$escaped_secret"}"
+        # One loop checks and substitutes each password, so no name can be checked without being substituted: a
+        # placeholder left in the file would be imported as that user's literal password.
         for test_password in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+          if [ -z "$${!test_password}" ]; then
+            echo "Error: Set $$test_password in .env (./scripts/dev-env.sh up generates it)" >&2
+            exit 1
+          fi
           escaped_password="$$(escape_json "$${!test_password}")"
           content="$${content//"\$${env.$$test_password}"/"$$escaped_password"}"
         done

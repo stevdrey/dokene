@@ -266,26 +266,44 @@ generate_env_file() {
 # Test user passwords added after a checkout's .env was created (issue 314) are generated in place, so an existing
 # stack upgrades on its next `up` without a reset: Keycloak is recreated and imports the realm with them (issue 319). Names the variables it adds, never the values.
 fill_test_passwords() {
-  local key added=""
+  local key missing="" added=""
   for key in "${TEST_PASSWORD_KEYS[@]}"; do
-    [ -z "$(env_get "$key")" ] || continue
-    have openssl || return 0  # the blank required keys check below then names the variable
+    [ -n "$(env_get "$key")" ] || missing="$missing $key"
+  done
+  [ -n "$missing" ] || return 0
+  have openssl || return 0  # the blank required keys check below then names the variables
+  # `doctor` only inspects: like creating .env, writing to it needs a yes there. `up` writes without asking.
+  if [ "${CONFIRM_ENV_WRITES:-false}" = "true" ] \
+     && ! confirm "Test user passwords are missing from .env. Generate them now?"; then
+    warn "Test user passwords were not generated; './scripts/dev-env.sh up' generates them."
+    return 0
+  fi
+  for key in $missing; do
     env_set "$key" "$(openssl rand -hex 16)"
     added="$added $key"
   done
-  [ -z "$added" ] || ok "Generated test user passwords in .env:$added"
+  ok "Generated test user passwords in .env:$added"
 }
 
 # check_test_passwords: each test user password is at least the realm policy's 12 characters, measured without one
-# surrounding quote pair. Keycloak is not relied on to apply the policy to imported credentials.
+# surrounding quote pair. Keycloak is not relied on to apply the policy to imported credentials. The length is
+# measured on the text in .env, so a value Compose would change on the way to Keycloak is refused instead: an inline
+# comment or `$` in an unquoted value, `$` or a backslash inside double quotes. Single quotes are literal.
 check_test_passwords() {
-  local key value
+  local key value compose_safe
   for key in "${TEST_PASSWORD_KEYS[@]}"; do
     value="$(env_get "$key")"
+    compose_safe=true
     case "$value" in
-      \"*\") value="${value#\"}"; value="${value%\"}" ;;
       \'*\') value="${value#\'}"; value="${value%\'}" ;;
+      \"*\") value="${value#\"}"; value="${value%\"}"
+             case "$value" in *'$'*|*\\*) compose_safe=false ;; esac ;;
+      *) case "$value" in *'$'*|*[[:space:]]'#'*) compose_safe=false ;; esac ;;
     esac
+    if [ "$compose_safe" = "false" ]; then
+      check_fail "$key in .env holds a '\$', a backslash or an inline comment that Compose would not pass on as written; put the value in single quotes or use plain characters."
+      continue
+    fi
     [ "${#value}" -ge "$TEST_PASSWORD_MIN_LENGTH" ] \
       || check_fail "$key in .env must be at least $TEST_PASSWORD_MIN_LENGTH characters (the realm password policy)."
   done
@@ -701,6 +719,7 @@ cmd_seed() {
 
 cmd_doctor() {
   ASSUME_YES=false
+  CONFIRM_ENV_WRITES=true
   preflight && ok "Preflight passed: the environment can be started." || exit 1
 }
 

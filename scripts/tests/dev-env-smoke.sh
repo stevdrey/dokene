@@ -56,19 +56,26 @@ check "up does not run a Keycloak realm reconcile script (#319 review)" \
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
   scripts/keycloak-apply-realm-settings.sh scripts/tests/keycloak-apply-realm-settings-test.sh
-  scripts/tests/keycloak-realm-config-test.sh
+  scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
+# shellcheck_supported VERSION: true when VERSION is the minimum or newer; an empty VERSION (not installed) is not.
+shellcheck_supported() {
+  [ -n "$1" ] && [ "$(printf '%s\n%s\n' "$shellcheck_min_version" "$1" | sort -V | head -n 1)" = "$shellcheck_min_version" ]
+}
 shellcheck_version="$(shellcheck --version 2>/dev/null | sed -n 's/^version: //p')"
-if [ -n "$shellcheck_version" ] \
-   && [ "$(printf '%s\n%s\n' "$shellcheck_min_version" "$shellcheck_version" | sort -V | head -n 1)" = "$shellcheck_min_version" ]; then
+if shellcheck_supported "$shellcheck_version"; then
   if shellcheck_output="$(cd "$ROOT_DIR" && shellcheck -x "${shellcheck_targets[@]}" 2>&1)"; then
     printf '[pass] %s\n' "shell scripts are ShellCheck-clean"
   else
     printf '[FAIL] %s\n%s\n' "shell scripts are ShellCheck-clean" "$shellcheck_output" >&2
     failures=$((failures + 1))
   fi
+elif [ "${CI:-false}" = "true" ]; then
+  # On a developer machine the lint is optional; in CI a runner image with an older ShellCheck must not drop it quietly.
+  printf '[FAIL] ShellCheck >= %s is required in CI (found: %s)\n' "$shellcheck_min_version" "${shellcheck_version:-none}" >&2
+  failures=$((failures + 1))
 else
   printf '[skip] ShellCheck >= %s not installed\n' "$shellcheck_min_version"
 fi
@@ -220,13 +227,81 @@ ENV
     env_set DOKENE_TEST_OPERATOR_PASSWORD "'eleven-char'"
     ! run_check_env || [ "$CHECK_FAILURES" -eq 1 ] || exit 1
     grep -q 'DOKENE_TEST_OPERATOR_PASSWORD in .env must be at least 12 characters' "$work/out" || exit 1
-    ! grep -q 'eleven-char' "$work/out"
+    ! grep -q 'eleven-char' "$work/out" || exit 1
+    # Compose does not pass these on as written: an inline comment or `$` in an unquoted value, `$` or a backslash
+    # inside double quotes. Each fails preflight naming only the variable. Single quotes are literal and pass.
+    # Written directly: env_set goes through `awk -v`, which would drop the backslash.
+    set_operator_line() {
+      grep -v '^DOKENE_TEST_OPERATOR_PASSWORD=' "$work/.env" > "$work/.env.next"
+      printf 'DOKENE_TEST_OPERATOR_PASSWORD=%s\n' "$1" >> "$work/.env.next"
+      mv "$work/.env.next" "$work/.env"
+    }
+    for value in 'abc123 # padded-out' 'twelve$chars-x' '"twelve$chars-x"' '"twelve\chars-x"'; do
+      set_operator_line "$value"
+      [ "$(env_get DOKENE_TEST_OPERATOR_PASSWORD)" = "$value" ] || exit 1
+      run_check_env
+      [ "$CHECK_FAILURES" -eq 1 ] || exit 1
+      grep -q 'DOKENE_TEST_OPERATOR_PASSWORD in .env .* Compose' "$work/out" || exit 1
+      ! grep -qF "${value:1:5}" "$work/out" || exit 1
+    done
+    set_operator_line "'twelve\$chars # x'"
+    run_check_env && [ "$CHECK_FAILURES" -eq 0 ]
   ) && rc=0
   rm -rf "$work"
   return "$rc"
 }
-check "check_env generates missing test passwords, keeps them, and enforces 12 characters (#314)" \
+check "check_env generates missing test passwords, keeps them, and enforces 12 characters and Compose-safe values (#314)" \
   bash -c "$(declare -f check_env_upgrades_test_passwords) ; SCRIPT='$SCRIPT'; check_env_upgrades_test_passwords"
+
+# `doctor` changes .env only after a yes: without a terminal it must leave the file alone and name what is missing.
+doctor_does_not_write_test_passwords_unasked() {
+  local work rc=1
+  work="$(mktemp -d)" || return 1
+  printf 'DOKENE_DB_NAME=dokene\n' > "$work/.env"
+  (
+    # shellcheck source=../dev-env.sh
+    source "$SCRIPT" || exit 1
+    declare -f cmd_doctor | grep -q 'CONFIRM_ENV_WRITES=true' || exit 1
+    ENV_FILE="$work/.env"
+    before="$(cat "$work/.env")"
+    CHECK_FAILURES=0; ASSUME_YES=false; CONFIRM_ENV_WRITES=true
+    check_env >"$work/out" 2>&1 </dev/null
+    [ "$CHECK_FAILURES" -ge 1 ] && [ "$(cat "$work/.env")" = "$before" ] || exit 1
+    ! grep -q 'Generated test user passwords' "$work/out" || exit 1
+    grep -q "dev-env.sh up' generates" "$work/out"
+  ) && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "doctor does not write test passwords to .env without a yes (#314 review)" \
+  bash -c "$(declare -f doctor_does_not_write_test_passwords_unasked) ; SCRIPT='$SCRIPT'; doctor_does_not_write_test_passwords_unasked"
+
+# The scripts that log in as the test users share one loader, so a role or variable changes in one place.
+test_password_lib_loads_and_fails_closed() {
+  local lib="$ROOT_DIR/scripts/lib/test-passwords.sh" out
+  [ -f "$lib" ] || return 1
+  (
+    export DOKENE_TEST_OWNER_PASSWORD=owner-value-12 DOKENE_TEST_OPERATOR_PASSWORD=operator-value DOKENE_TEST_VIEWER_PASSWORD=viewer-value-1
+    # shellcheck source=../lib/test-passwords.sh
+    source "$lib" || exit 1
+    [ "$OWNER_PASSWORD" = owner-value-12 ] && [ "$(test_password_for testoperator)" = operator-value ] \
+      && [ "$(test_password_for testviewer)" = viewer-value-1 ] || exit 1
+    ! out="$(test_password_for nobody 2>&1)" && grep -q 'no test password for nobody' <<<"$out"
+  ) || return 1
+  # A missing variable stops the sourcing script and names the variable and the fix.
+  ! out="$(env -u DOKENE_TEST_VIEWER_PASSWORD DOKENE_TEST_OWNER_PASSWORD=a DOKENE_TEST_OPERATOR_PASSWORD=b \
+            bash -c 'source "$1"; echo reached' _ "$lib" 2>&1)" || return 1
+  grep -q 'DOKENE_TEST_VIEWER_PASSWORD is not set; run ./scripts/dev-env.sh up' <<<"$out" && ! grep -q reached <<<"$out" || return 1
+  # No copy of the block is left, and no login posts the result of a lookup whose failure errexit cannot see.
+  ! grep -l 'MISSING_PASSWORD_HINT=' "$ROOT_DIR"/scripts/*.sh || return 1
+  ! grep -n 'password=\$(test_password_for' "$ROOT_DIR"/scripts/*.sh
+}
+check "test user passwords load from one sourced file that fails closed (#314 review)" test_password_lib_loads_and_fails_closed
+
+shellcheck_gate_rejects_old_versions() {
+  shellcheck_supported 0.11.0 && shellcheck_supported 0.12.1 && ! shellcheck_supported 0.10.0 && ! shellcheck_supported ''
+}
+check "the ShellCheck gate accepts only the minimum version or newer" shellcheck_gate_rejects_old_versions
 
 infrastructure_containers_are_restricted() {
   local json=""

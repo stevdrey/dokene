@@ -3,22 +3,14 @@ name: Script tests
 on:
   pull_request:
     paths:
-      - 'scripts/keycloak-apply-realm-settings.sh'
-      - 'scripts/dev-env.sh'
-      - 'scripts/tests/keycloak-apply-realm-settings-test.sh'
-      - 'scripts/tests/keycloak-realm-config-test.sh'
-      - 'scripts/tests/dev-env-smoke.sh'
+      - 'scripts/**'
       - 'compose.yaml'
       - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
   push:
     branches: [main]
     paths:
-      - 'scripts/keycloak-apply-realm-settings.sh'
-      - 'scripts/dev-env.sh'
-      - 'scripts/tests/keycloak-apply-realm-settings-test.sh'
-      - 'scripts/tests/keycloak-realm-config-test.sh'
-      - 'scripts/tests/dev-env-smoke.sh'
+      - 'scripts/**'
       - 'compose.yaml'
       - 'infra/docker/**'
       - '.github/workflows/scripts.yml'

@@ -32,20 +32,9 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-MISSING_PASSWORD_HINT="is not set; run ./scripts/dev-env.sh up, which generates it in .env"
-OWNER_PASSWORD="${DOKENE_TEST_OWNER_PASSWORD:?DOKENE_TEST_OWNER_PASSWORD $MISSING_PASSWORD_HINT}"
-OPERATOR_PASSWORD="${DOKENE_TEST_OPERATOR_PASSWORD:?DOKENE_TEST_OPERATOR_PASSWORD $MISSING_PASSWORD_HINT}"
-VIEWER_PASSWORD="${DOKENE_TEST_VIEWER_PASSWORD:?DOKENE_TEST_VIEWER_PASSWORD $MISSING_PASSWORD_HINT}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 
-# test_password_for USERNAME: that realm test user's own password (issue 314).
-test_password_for() {
-    case "$1" in
-        testuser) printf '%s' "$OWNER_PASSWORD" ;;
-        testoperator) printf '%s' "$OPERATOR_PASSWORD" ;;
-        testviewer) printf '%s' "$VIEWER_PASSWORD" ;;
-        *) echo "Error: no test password for $1" >&2; return 1 ;;
-    esac
-}
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -87,9 +76,11 @@ login() {
     local form_action
     form_action=$(echo "$login_page" | grep -o "action=\"[^\"]*\"" | head -n 1 | cut -d"\"" -f2 | sed "s/&amp;/\&/g")
 
+    local password
+    password="$(test_password_for "$username")" || return 1
     curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -X POST "$form_action" \
         --data-urlencode "username=$username" \
-        --data-urlencode "password=$(test_password_for "$username")" >/dev/null
+        --data-urlencode "password=$password" >/dev/null
 
     local callback_url
     callback_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")
