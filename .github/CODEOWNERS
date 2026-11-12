@@ -1,0 +1,9 @@
+# ABOUTME: Names the repository owner as code owner of the CI supply chain: workflows, local actions, Dependabot config and the pin check.
+# ABOUTME: Blocks a merge only once "Require review from Code Owners" is on for main; see docs/security/github-actions-pinning.md.
+/.github/workflows/ @stevdrey
+/.github/actions/ @stevdrey
+/.github/CODEOWNERS @stevdrey
+/.github/dependabot.yml @stevdrey
+/scripts/check-workflow-pins.sh @stevdrey
+/scripts/tests/check-workflow-pins-test.sh @stevdrey
+/scripts/tests/fixtures/check-workflow-pins/ @stevdrey

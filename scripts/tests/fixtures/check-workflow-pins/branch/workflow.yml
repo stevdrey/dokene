@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a step action referenced by a branch name.
+# ABOUTME: Expected: violation on the uses line.
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@main

@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a double quoted value carrying a tag.
+# ABOUTME: Expected: violation, reported without the quotes.
+jobs:
+  build:
+    steps:
+      - uses: "actions/checkout@v7"

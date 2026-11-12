@@ -1,0 +1,9 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: two unpinned references in one file.
+# ABOUTME: Expected: both lines reported, in line order.
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.0.1
+      - name: Node
+        uses: actions/setup-node@v7

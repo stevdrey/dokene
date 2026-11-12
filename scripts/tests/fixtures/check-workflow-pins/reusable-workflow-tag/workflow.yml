@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a job level reusable workflow referenced by a tag.
+# ABOUTME: Expected: violation on the job uses line.
+jobs:
+  shared:
+    uses: owner/repo/.github/workflows/reusable.yml@v2
+    secrets: inherit

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Smoke tests for scripts/dev-env.sh and the Compose model in compose.yaml.
+# ABOUTME: Asserts topology, secret handling and container restrictions without starting the stack.
 # Smoke tests for scripts/dev-env.sh and the compose topology. Needs bash, python3 and the `docker compose` CLI
 # (no running daemon or containers).
 #
@@ -32,6 +34,23 @@ check "help lists restart-backend" help_lists_restart_backend
 check "help prints only the header comment" help_has_no_code_leak
 check "unknown command exits 2" unknown_command_fails
 check "restart-backend rejects unknown options" restart_backend_rejects_unknown_option
+
+# Keycloak data is a tmpfs since #319, so `reset` deletes only the PostgreSQL volume.
+help_reset_names_only_the_database() {
+  local line=""
+  line="$(grep 'dev-env.sh reset' <<<"$help_text")" || return 1
+  grep -q 'PostgreSQL' <<<"$line" && ! grep -q 'Keycloak' <<<"$line"
+}
+check "help: reset deletes only the PostgreSQL volume (#319 review)" help_reset_names_only_the_database
+
+# Every Keycloak start imports the realm from the template (#319), so `up` has no existing realm to reconcile.
+up_does_not_reconcile_keycloak() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  ! declare -f cmd_up | grep -q 'keycloak-apply-session-revocation'
+}
+check "up does not run the Keycloak session revocation reconcile (#319 review)" \
+  bash -c "$(declare -f up_does_not_reconcile_keycloak) ; SCRIPT='$SCRIPT'; up_does_not_reconcile_keycloak"
 # Scripts that are ShellCheck-clean today. The scripts/verify-issue-*.sh helpers still carry findings and are not listed.
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
@@ -54,8 +73,10 @@ fi
 check "dev-env.sh and entrypoint.sh are valid bash" bash -c "bash -n '$SCRIPT' && bash -n '$ROOT_DIR/infra/docker/backend/entrypoint.sh'"
 
 # Render the Compose model with throwaway values for the required variables (no daemon or containers needed).
+# Arguments are extra NAME=value pairs. Only the committed compose.yaml is rendered: without -f, Compose would merge a
+# git-ignored compose.override.yaml into the model under test.
 compose_config_json() {
-  local -a env_vars=()
+  local -a env_vars=("$@")
   local v
   for v in DOKENE_DB_NAME DOKENE_DB_BOOTSTRAP_USERNAME DOKENE_DB_BOOTSTRAP_PASSWORD DOKENE_DB_PASSWORD \
            DOKENE_DB_RUNTIME_PASSWORD DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY \
@@ -63,7 +84,7 @@ compose_config_json() {
            SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET; do
     env_vars+=("$v=unused")
   done
-  (cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose config --format json)
+  (cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose -f compose.yaml config --format json)
 }
 
 topology_is_inverted() {
@@ -104,6 +125,59 @@ assert migrate["read_only"] and migrate["restart"] == "no"
 ' <<<"$json"
 }
 check "compose: only the migrate job holds the migration credential (#308)" migration_credentials_stay_in_migrate
+
+infrastructure_containers_are_restricted() {
+  local json=""
+  json="$(compose_config_json)" || return 1
+  python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)["services"]
+# Every writable path of the two services; anything else must be read-only.
+writable = {
+    "postgres": {"volumes": ["/var/lib/postgresql/data"], "tmpfs": ["/tmp", "/var/run/postgresql"]},
+    "keycloak": {"volumes": [], "tmpfs": ["/opt/keycloak/data", "/tmp"]},
+}
+for name, expected in writable.items():
+    svc = s[name]
+    assert svc.get("read_only") is True, name + " must have a read-only root filesystem"
+    assert svc.get("cap_drop") == ["ALL"] and not svc.get("cap_add"), name + " must hold no Linux capability"
+    assert "no-new-privileges:true" in svc.get("security_opt", []), name + " must set no-new-privileges"
+    assert not svc.get("privileged"), name + " must not be privileged"
+    volumes = sorted(v["target"] for v in svc.get("volumes", []) if not v.get("read_only"))
+    assert volumes == expected["volumes"], name + " writable volumes: " + repr(volumes)
+    tmpfs = svc.get("tmpfs", [])
+    assert sorted(t.split(":")[0] for t in tmpfs) == expected["tmpfs"], name + " tmpfs: " + repr(tmpfs)
+    assert all("size=" in t for t in tmpfs), name + " tmpfs mounts must be size-capped"
+# The stock entrypoint starts as root and needs CHOWN/SETUID/SETGID to step down; starting as postgres needs none.
+assert s["postgres"].get("user") == "70:70", "postgres must start as the unprivileged postgres user"
+options = lambda name, path: [t.split(":", 1)[1].split(",") for t in s[name]["tmpfs"] if t.split(":")[0] == path][0]
+assert {"uid=70", "gid=70"} <= set(options("postgres", "/var/run/postgresql")), "socket tmpfs must belong to postgres"
+# The image sets USER 1000; Compose must not override it with another user.
+assert s["keycloak"].get("user") in (None, "1000", "1000:0"), "keycloak must run as the unprivileged keycloak user"
+# This directory holds the rendered realm import (client secret, test password).
+assert {"uid=1000", "mode=0700"} <= set(options("keycloak", "/opt/keycloak/data")), \
+    "keycloak data tmpfs must be private to the keycloak user"
+# The home directory is on the read-only root; psql must keep its history on a writable path.
+assert s["postgres"]["environment"].get("PSQL_HISTORY", "").startswith("/tmp/"), "psql history must be writable"
+' <<<"$json"
+}
+check "compose: postgres and keycloak run restricted with explicit writable paths (#319)" \
+  infrastructure_containers_are_restricted
+
+# A Debian-based postgres image uses uid 999; the user and the owner of the socket tmpfs must change together.
+postgres_uid_is_set_in_one_place() {
+  local json=""
+  json="$(compose_config_json DOKENE_POSTGRES_UID=999)" || return 1
+  python3 -I -c '
+import json, sys
+postgres = json.load(sys.stdin)["services"]["postgres"]
+assert postgres["user"] == "999:999", "user: " + repr(postgres["user"])
+socket = [t for t in postgres["tmpfs"] if t.startswith("/var/run/postgresql:")][0]
+assert {"uid=999", "gid=999"} <= set(socket.split(":", 1)[1].split(",")), "socket tmpfs: " + socket
+' <<<"$json"
+}
+check "compose: one variable sets the postgres uid for the user and its socket tmpfs (#319 review)" \
+  postgres_uid_is_set_in_one_place
 
 compose_minimum_includes_patch() {
   # shellcheck source=../dev-env.sh

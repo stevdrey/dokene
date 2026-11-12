@@ -325,3 +325,27 @@ test('a material answer after a failed round allows verifying the unchanged cand
   run.addRound(verdict(identity(cwd)));
   expectAction(run.next(), 'commit', 1);
 });
+
+test('a round that drops an open blocker of the previous round stops the loop', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  const blocker = { id: 'F1', severity: 'blocker', status: 'open', criteria: ['AC1'], summary: 'Probe fails', evidence: 'check C1' };
+  run.addRound(verdict(identity(cwd), 'fail', { findings: [blocker] }));
+
+  writeFileSync(join(cwd, 'feature.txt'), 'corrected\n');
+  run.addRound(verdict(identity(cwd)));
+  const dropped = run.next();
+  expectAction(dropped, 'stop', 3);
+  assert.match(dropped.decision.reason, /round 2 verdict cannot be trusted: it drops open blocker finding\(s\) F1 of round 1/);
+});
+
+test('a blocker carried forward as resolved lets the corrected candidate pass', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  const blocker = { id: 'F1', severity: 'blocker', status: 'open', criteria: ['AC1'], summary: 'Probe fails', evidence: 'check C1' };
+  run.addRound(verdict(identity(cwd), 'fail', { findings: [blocker] }));
+
+  writeFileSync(join(cwd, 'feature.txt'), 'corrected\n');
+  run.addRound(verdict(identity(cwd), 'pass', { findings: [{ ...blocker, status: 'resolved', evidence: 'kept probe reran and passed' }] }));
+  expectAction(run.next(), 'commit', 1);
+});

@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a step action pinned to an uppercase full SHA.
+# ABOUTME: Expected: violation on the uses line.
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@0123456789ABCDEF0123456789ABCDEF01234567 # v7.0.1

@@ -15,7 +15,7 @@
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
 #   ./scripts/dev-env.sh doctor
-#   ./scripts/dev-env.sh reset [--yes]     (destroys local database and Keycloak data)
+#   ./scripts/dev-env.sh reset [--yes]     (deletes the local PostgreSQL volume)
 #   ./scripts/dev-env.sh help
 #
 # Compatible with bash 3.2 (macOS default) and Linux.
@@ -564,10 +564,6 @@ cmd_up() {
   ok "All requested containers are healthy"
   compose ps
 
-  # --import-realm skips a realm Keycloak already holds; bring its session revocation settings (issue 307) up to date.
-  "$ROOT_DIR/scripts/keycloak-apply-session-revocation.sh" \
-    || warn "Keycloak session revocation settings not applied; run scripts/keycloak-apply-session-revocation.sh."
-
   if [ "$WANT_SEED" = "true" ]; then
     if [ "$INFRA_ONLY" = "true" ]; then
       warn "--seed needs the backend; skipping because --infra-only was given."
@@ -608,7 +604,7 @@ cmd_down() {
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
   compose_teardown down --remove-orphans
-  ok "Containers stopped and removed. Database and Keycloak data are kept (use '$0 reset' to wipe them)."
+  ok "Containers stopped and removed. The database is kept (use '$0 reset' to wipe it); Keycloak imports its realm again on the next start."
 }
 
 cmd_reset() {
@@ -619,7 +615,7 @@ cmd_reset() {
   done
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
-  warn "This deletes the local PostgreSQL and Keycloak data volumes of this checkout."
+  warn "This deletes the local PostgreSQL data volume of this checkout; Keycloak data is in memory and ends with its container."
   confirm "Continue?" || die "Aborted."
   compose_teardown down --volumes --remove-orphans
   ok "Environment reset. Run '$0 up --seed' to recreate it."

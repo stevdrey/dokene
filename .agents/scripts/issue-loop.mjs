@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import {
-  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, isObject, isText,
-  parseOptions, sameCandidate, validateVerdict,
+  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, droppedBlockers, isObject,
+  isText, parseOptions, sameCandidate, validateVerdict,
 } from './verification-verdict.mjs';
 
 const SCHEMA_VERSION = 1;
@@ -94,6 +94,12 @@ function decide(state, stateDir, options) {
     const errors = validateVerdict(verdict);
     if (errors.length) return next('stop', `round ${index + 1} verdict is invalid: ${errors.join('; ')}`);
     if (verdict.issue !== state.issue) return next('stop', `round ${index + 1} verdict is for Issue #${verdict.issue}, not Issue #${state.issue}`);
+  }
+  for (let index = 1; index < verdicts.length; index++) {
+    const dropped = droppedBlockers(verdicts[index - 1], verdicts[index]);
+    if (dropped.length) {
+      return next('stop', `round ${index + 1} verdict cannot be trusted: it drops open blocker finding(s) ${dropped.join(', ')} of round ${index}; a fresh verifier must carry each forward by id`);
+    }
   }
 
   const answered = state.questions.filter(question => question.material && question.answeredAfterRound >= rounds);

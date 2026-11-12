@@ -125,6 +125,8 @@ Include negative/security tests where relevant:
 
 Prefer integration tests for persistence/security boundaries and unit tests for deterministic domain rules.
 
+When the trigger in the "When to use" section of `.agents/skills/blast-radius-analysis/SKILL.md` applies to a backend change, use that skill to trace its callers and prove its safety-critical assumptions, for example with an ArchUnit rule or a negative control.
+
 Before completion, run the relevant Gradle tests/build and document any intentionally skipped verification.
 
 ## Review Checklist

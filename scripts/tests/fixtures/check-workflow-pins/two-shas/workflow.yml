@@ -1,0 +1,7 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: one repository pinned to two different SHAs, both lines otherwise valid.
+# ABOUTME: Expected: only the second SHA is reported (rule 6).
+jobs:
+  build:
+    steps:
+      - uses: actions/cache/restore@0123456789abcdef0123456789abcdef01234567 # v6.1.0
+      - uses: actions/cache/save@89abcdef0123456789abcdef0123456789abcdef # v6.0.0
