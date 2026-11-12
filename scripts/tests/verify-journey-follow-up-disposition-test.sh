@@ -121,6 +121,16 @@ assert "a UUID is an id" is_id "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 refute "an empty value is not an id" is_id ""
 refute "null is not an id" is_id "null"
 
+# --- S16 replay: the same real dismissal id in both responses, never "null" against "null"
+D1=3fa85f64-5717-4562-b3fc-2c963f66afa6 D2=7c9e6679-7425-40de-944b-e07fc1f90ae7
+assert "a replay with the same id passes" same_dismissal 200 "$D1" "$D1"
+refute "a replay with a different id fails" same_dismissal 200 "$D1" "$D2"
+refute "both ids missing as null fails" same_dismissal 200 null null
+refute "both ids empty fails" same_dismissal 200 "" ""
+refute "a missing first id fails" same_dismissal 200 null "$D1"
+refute "a missing replay id fails" same_dismissal 200 "$D1" null
+refute "a replay that is not 200 fails" same_dismissal 201 "$D1" "$D1"
+
 # --- YAML scalars drop other control characters
 assert "ESC and BEL are removed from YAML scalars" [ "$(yaml_str "$(printf 'a\033[31mb\007c')")" = '"a[31mbc"' ]
 

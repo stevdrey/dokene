@@ -64,7 +64,7 @@ All runs used the same stack without a reset. Each run made its own fixture cust
 
 | Command | Result |
 | --- | --- |
-| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 63 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks and directory identity, fixture ids, YAML control characters, and a static check that the script calls no message send, approval, or creation path |
+| `./scripts/tests/verify-journey-follow-up-disposition-test.sh` | 70 assertions passed: loopback-only targets and login targets (including `localhost.example.com`, `localhost:8080.example.com`, and userinfo forms refused), evidence outside the repository (an `--out` inside it exits `2` and creates nothing), YAML escaping, header parsing, step bookkeeping, a failed eligibility read never counting as "no longer due", a record that cannot be written (or a stale record from another run) failing the run, unexpected queue and message bodies never read as "found" or "zero messages", portable path resolution including symlinks and directory identity, fixture ids, a replay that must return the same real dismissal id, YAML control characters, and a static check that the script calls no message send, approval, or creation path |
 | `shellcheck -x scripts/verify-journey-follow-up-disposition.sh scripts/tests/verify-journey-follow-up-disposition-test.sh` | No findings |
 
 The `Script tests` workflow runs the offline test on pull requests that change either script.
@@ -98,6 +98,8 @@ A second code review led to these fixes:
 - **YAML scalars:** all control characters are removed.
 - **S6:** it reuses `dismiss()`, which omits the CSRF header when given an empty token.
 - **Loopback rule:** it lives only in `is_local_target`.
+
+A later validation comment on PR #381 found that S16 accepted a replay when both dismissal responses lacked an `id` (`null` equal to `null`). S16 now requires HTTP `200` and the same real id in both responses (`same_dismissal`), with offline regression cases for missing ids in either response.
 
 ## Observations
 

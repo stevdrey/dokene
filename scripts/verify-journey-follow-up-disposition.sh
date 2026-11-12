@@ -145,6 +145,8 @@ check() {
 
 eq() { [ "$1" = "$2" ]; }
 is_id() { [ -n "$1" ] && [ "$1" != "null" ]; }
+# A replay (status $1) returned the original dismissal: HTTP 200 and the same real id in both responses ($2, $3).
+same_dismissal() { [ "$1" = "200" ] && is_id "$2" && is_id "$3" && [ "$2" = "$3" ]; }
 is_due() { [ "$1" = "DUE" ] || [ "$1" = "OVERDUE" ]; }
 # Only a successful read with a recognized non-due status counts; an error such as status-500 does not.
 not_due() { [ "$1" = "NOT_YET_DUE" ] || [ "$1" = "INELIGIBLE" ]; }
@@ -497,8 +499,8 @@ check S15 "operator dismisses the due follow-up with the current If-Match" "201 
 dismiss "$OPERATOR_JAR" "$OPERATOR_CSRF" "$TENANT_A" "$ETAG" "$KEY"
 REPLAY_ID="$(body .id)"
 check S16 "replaying the same request returns the original dismissal" "200, same dismissal id" \
-  "$(trace), same id: $([ -n "$FIRST_ID" ] && [ "$REPLAY_ID" = "$FIRST_ID" ] && echo true || echo false)" \
-  eq "$HTTP_STATUS:$REPLAY_ID" "200:${FIRST_ID:-missing}"
+  "$(trace), ids present: $(is_id "$FIRST_ID" && is_id "$REPLAY_ID" && echo true || echo false), same id: $([ "$REPLAY_ID" = "$FIRST_ID" ] && echo true || echo false)" \
+  same_dismissal "$HTTP_STATUS" "$FIRST_ID" "$REPLAY_ID"
 
 echo "--- API sync after the disposition"
 S="$(eligibility_status "$OPERATOR_JAR" "$TENANT_A")"
