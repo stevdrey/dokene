@@ -107,8 +107,9 @@ user, nor live forever while it stays active. The contract, with the default bou
   file configures new realms only. An existing realm receives the back-channel URL, its session and offline-token
   attributes and the SSO max lifespan from `scripts/keycloak-apply-realm-settings.sh`, which is idempotent,
   changes only the values it manages (these four, plus the #314 values in the amendment below) and has a `--check`
-  mode that exits non-zero on drift. `scripts/dev-env.sh up` runs
-  it after every start. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
+  mode that exits non-zero on drift. `scripts/dev-env.sh up` ran
+  it after every start until issue 319; the Compose Keycloak now imports the realm file at every start
+  ([ADR 0022](0022-containerized-local-environment.md)), so that call was removed. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
   Console or `kcadm.sh`) when they deploy this change. Until then IdP logout is bounded by revalidation instead of
   being immediate. *Amended 2026-11-06 ([#314](https://github.com/stevdrey/dokene/issues/314)):* the script, renamed
   from `keycloak-apply-session-revocation.sh`, now also applies the `S256` PKCE attribute and the realm password

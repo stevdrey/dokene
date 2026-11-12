@@ -269,6 +269,91 @@ test('scenario: a missed requirement and an edge-case defect fail', t => {
   assert.match(result.stderr, /blocker finding F2 is open: Whitespace-only input is accepted/);
 });
 
+// The adversarial pass (adversarial-review.md) relies on these semantics: a probe is a non-required check, an
+// unverified hypothesis is an optional finding and never blocks, and only a reproduced blocker finding fails.
+test('scenario: an adversarial pass blocks only on a reproduced finding', t => {
+  const cwd = repository(t);
+  const candidate = identity(cwd);
+  const verdict = passingVerdict(candidate);
+  verdict.checks.push({
+    id: 'C3', kind: 'automated', required: false, command: 'race probe in a disposable copy',
+    result: 'failed', environment: 'local, outside the candidate', summary: 'inconclusive: timed out twice', candidate,
+  });
+  verdict.findings.push({
+    id: 'F2', severity: 'optional', status: 'open', criteria: ['AC2'],
+    summary: 'Unverified: concurrent submits may both be accepted',
+    evidence: 'location: "feature.txt:1"\nsteps: "check C3"\nseverity: optional\nconfidence: low',
+  });
+
+  const unverified = check(t, cwd, verdict);
+  assert.equal(unverified.status, 0, unverified.stderr);
+  assert.match(unverified.stdout, /PASS: Issue #1/);
+
+  verdict.criteria[1].result = 'fail';
+  verdict.findings[1] = {
+    id: 'F2', severity: 'blocker', status: 'open', criteria: ['AC2'],
+    summary: 'Concurrent submits are both accepted',
+    evidence: 'location: "feature.txt:1"\nsteps: "check C3"\nactual: "2 records"\nexpected: "1 record"\n'
+      + 'severity: blocker\nconfidence: high',
+  };
+  verdict.checks[2].summary = 'reproduced: two records stored';
+  verdict.verdict = 'fail';
+
+  const reproduced = check(t, cwd, verdict);
+  assert.equal(reproduced.status, 1);
+  assert.match(reproduced.stderr, /blocker finding F2 is open: Concurrent submits are both accepted/);
+  assert.doesNotMatch(reproduced.stderr, /required check C3/);
+});
+
+test('an open blocker finding outside every criterion fails on its own', t => {
+  const cwd = repository(t);
+  const verdict = passingVerdict(identity(cwd));
+  verdict.findings.push({
+    id: 'F2', severity: 'blocker', status: 'open', summary: 'Tenant B reads tenant A rows',
+    evidence: 'location: "repo.sql:3"\nsteps: "probe kept at probes/F2"\nseverity: blocker\nconfidence: high',
+  });
+  verdict.verdict = 'fail';
+
+  const result = check(t, cwd, verdict);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /blocker finding F2 is open: Tenant B reads tenant A rows/);
+  assert.doesNotMatch(result.stderr, /criterion/);
+});
+
+// A re-verification must carry every open blocker of the previous verdict forward by id; the gate reads one verdict.
+test('--previous rejects a verdict that drops an open blocker of the previous round', t => {
+  const cwd = repository(t);
+  const candidate = identity(cwd);
+  const dir = mkdtempSync(join(tmpdir(), 'dokene-verdict-previous-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const previous = passingVerdict(candidate);
+  previous.findings.push({ id: 'F2', severity: 'blocker', status: 'open', summary: 'Crash on null', evidence: 'probe' });
+  previous.verdict = 'fail';
+  const previousFile = join(dir, 'previous.json');
+  writeFileSync(previousFile, JSON.stringify(previous));
+
+  const dropped = check(t, cwd, passingVerdict(candidate), ['--previous', previousFile]);
+  assert.equal(dropped.status, 2);
+  assert.match(dropped.stderr, /INVALID: the verdict drops open blocker finding\(s\) F2 from the previous verdict/);
+
+  const carried = passingVerdict(candidate);
+  carried.findings.push({ id: 'F2', severity: 'blocker', status: 'resolved', summary: 'Crash on null', evidence: 'probe reran and passed' });
+  const resolved = check(t, cwd, carried, ['--previous', previousFile]);
+  assert.equal(resolved.status, 0, resolved.stderr);
+
+  // An optional finding may be dropped, and the option is strict like every other.
+  previous.findings = previous.findings.filter(finding => finding.severity === 'optional');
+  previous.verdict = 'pass';
+  writeFileSync(previousFile, JSON.stringify(previous));
+  const optionalDropped = passingVerdict(candidate);
+  optionalDropped.findings = [];
+  assert.equal(check(t, cwd, optionalDropped, ['--previous', previousFile]).status, 0);
+  const repeated = check(t, cwd, carried, ['--previous', previousFile, '--previous', previousFile]);
+  assert.equal(repeated.status, 2);
+  assert.match(repeated.stderr, /--previous given more than once/);
+  assert.equal(check(t, cwd, carried, ['--previous', join(dir, 'missing.json')]).status, 2);
+});
+
 test('a pass declared over an open blocker finding is rejected', t => {
   const cwd = repository(t);
   const verdict = passingVerdict(identity(cwd));

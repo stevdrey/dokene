@@ -1100,6 +1100,32 @@ class DefaultAiActionGateTest {
         verify(auditListener, never()).onSecurityRejection(any());
     }
 
+    /** Issue 326: the exemption covers AI drafts too, but only for the customer's own exact name. */
+    @Test
+    void evaluateDraft_acceptsAListedSurnameGreetingButNotTheSameWordElsewhere() {
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(Customer.create(customerId, tenantId,
+                "Ana Bono", null, List.of(primaryPhone), now.minusSeconds(86400))));
+        var context = new RecommendationContext(
+                new RecommendationContext.TrustedFacts(tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY), 30,
+                        tenantDate, true, List.of(lastPurchaseTime), List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)),
+                new RecommendationContext.UntrustedText("Ana Bono", null, List.of("Café")));
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(dueEvaluation,
+                context, List.of(PurchaseBaseline.from(lastPurchase)));
+
+        DraftGateDecision greeting = gate.evaluateDraft(customerId, assembly, draftWithBody("Hola Ana Bono, ¿cómo está?"));
+        DraftGateDecision offer = gate.evaluateDraft(customerId, assembly, draftWithBody("Hola, tenemos un bono."));
+
+        assertThat(greeting.isAccepted()).isTrue();
+        assertThat(greeting.rawOutcome()).contains(draftWithBody("Hola Ana Bono, ¿cómo está?"));
+        assertThat(offer.isAccepted()).isFalse();
+    }
+
+    private static MessageDraft draftWithBody(String body) {
+        return new MessageDraft(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE, body,
+                DraftVariables.empty(), "es-419", List.of(), List.of(), "Follow-up draft",
+                RecommendationConfidence.of(0.9));
+    }
+
     @Test
     void evaluateDraft_acceptsValidNoDraftRefusal() {
         RecommendationContextAssembler.Assembly assembly = assembly(dueEvaluation, List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP));

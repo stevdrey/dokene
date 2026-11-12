@@ -6,8 +6,8 @@
 
 | Service | Image | Host address | Notes |
 | --- | --- | --- | --- |
-| `postgres` | `postgres:17-alpine` | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
-| `keycloak` | `infra/docker/keycloak` | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm |
+| `postgres` | `postgres:17-alpine` (runs as the `postgres` user, read-only) | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
+| `keycloak` | `infra/docker/keycloak` (non-root, read-only) | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm at every container start |
 | `migrate` | backend image, one-shot | none | applies Flyway migrations as `dokene_migration`, then exits (issue 308) |
 | `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | starts after `migrate` succeeded; validates the schema as `dokene_runtime` |
 | `oidc-bridge` | `alpine/socat` | `127.0.0.1:8080` (published for the backend) | owns the network namespace the backend joins, see below |
@@ -20,8 +20,50 @@ mounts under `/run/secrets/dokene/` (read through Spring's `configtree` import, 
 they are not in any container's environment. When a secret changes, `up` recreates `migrate` and `backend`. On an upgrade, `up` runs `migrate` again before the new backend; a
 backend that finds a pending migration refuses to start and points at `./scripts/dev-env.sh logs migrate`.
 
-All published ports are bound to loopback. The images drop all Linux capabilities, use `no-new-privileges` and
-read-only root filesystems (`/tmp` is a tmpfs).
+All published ports are bound to loopback. Every service drops all Linux capabilities, sets `no-new-privileges`, runs
+as a non-root user and has a read-only root filesystem. Nothing else is writable:
+
+| Service | Writable path | Kind | Holds |
+| --- | --- | --- | --- |
+| `postgres` | `/var/lib/postgresql/data` | named volume `dokene-postgres` | the database; kept until `reset` |
+| `postgres` | `/var/run/postgresql` | tmpfs, 1 MiB, owned by uid 70 | Unix socket and lock file |
+| `postgres` | `/tmp` | tmpfs, 16 MiB | unused by startup; for large here-documents in init scripts or `exec` sessions |
+| `keycloak` | `/opt/keycloak/data` | tmpfs, 256 MiB, mode 0700, owned by uid 1000 | dev-file database, transaction logs, the rendered realm import |
+| `keycloak` | `/tmp` | tmpfs, 64 MiB | Vert.x cache, JVM performance data |
+| `migrate`, `backend` | `/tmp` | tmpfs | temporary files |
+| `frontend` | `/tmp` | tmpfs, 128 MiB | nginx request bodies (issue 306) |
+| every service | `/dev/shm` | tmpfs, 64 MiB, `noexec` (Docker default) | PostgreSQL dynamic shared memory segments; unused by the other services |
+
+`oidc-bridge` has no writable path besides `/dev/shm`. `read_only` does not cover `/dev/shm`: Docker mounts it in
+every container, and PostgreSQL needs it. The `/dev` tmpfs is writable by root only, and no service runs as root.
+
+PostgreSQL starts directly as the image's `postgres` user (`user: "70:70"`). The stock entrypoint starts as root only
+to chown the data directory and step down, which needs `CHOWN`, `SETUID` and `SETGID`; with every capability dropped
+that start fails (`failed switching to 'postgres': operation not permitted`). A volume created before this change is
+already owned by uid 70 and is reused as it is. `DOKENE_POSTGRES_UID` (default 70) sets both `user:` and the owner
+of the `/var/run/postgresql` tmpfs. If you replace the image with a Debian-based `postgres` tag, set it to that
+image's `postgres` user (999).
+
+The home directories of both users are on the read-only root. `psql` keeps its history in `/tmp`
+(`PSQL_HISTORY`). `kcadm.sh` writes its login to `~/.keycloak/kcadm.config` by default, which fails; pass
+`--config /tmp/kcadm.config` to `kcadm.sh config credentials` and to every later `kcadm.sh` call in a
+`docker compose exec keycloak` session.
+
+Keycloak state lives in memory: users, sessions and signing keys last until the container stops, and each start
+imports the realm again from `infra/docker/keycloak/import`. The test users have fixed ids in that file, so their
+workspace memberships in PostgreSQL stay valid; a restart of Keycloak ends the open sessions, and users or settings
+added through the admin console are lost. The rendered import contains the client secret and the test password, so
+it is no longer written to the container's disk layer.
+
+Remaining exceptions (issue 319):
+
+- The PostgreSQL bootstrap role is a superuser inside the database and its password is in the container
+  environment, as are the two role passwords the init script needs on first start.
+- Keycloak listens on HTTP with `--hostname-strict=false` and the embedded dev-file database; this stack is local
+  only.
+- `/dev/shm` stays writable in every container (see the table above).
+- No user namespace remapping, custom seccomp or AppArmor profile, and no memory, CPU or pid limits are set; Docker's
+  default seccomp profile applies.
 
 ### Quick start
 
@@ -30,8 +72,8 @@ read-only root filesystems (`/tmp` is a tmpfs).
 ./scripts/dev-env.sh up --seed     # build + start everything and create the QA workspace
 ./scripts/dev-env.sh status
 ./scripts/dev-env.sh logs backend
-./scripts/dev-env.sh down          # data is kept
-./scripts/dev-env.sh reset         # also deletes the PostgreSQL and Keycloak volumes
+./scripts/dev-env.sh down          # the database is kept; Keycloak imports its realm again on the next start
+./scripts/dev-env.sh reset         # also deletes the PostgreSQL volume
 ```
 
 `up` checks that Docker and Compose are installed and running, validates `.env` (and creates it from
@@ -86,18 +128,14 @@ development, `npm run dev` has no CSP; use `npm run build && npm run preview` (s
 - `Host port N is already in use`: another process owns the port (for PostgreSQL, often a locally installed
   server). Stop it, or for PostgreSQL set `DOKENE_DB_HOST_PORT` in `.env`; containers always reach the database
   through the Compose network, so only host-side tools are affected.
-- `password authentication failed` in the backend logs, or login fails after editing `.env`: PostgreSQL and
-  Keycloak fix their passwords when their volumes are first created. Restore the old `.env` or run
-  `./scripts/dev-env.sh reset`. The test user passwords are the exception: every `up` sets them from `.env`.
+- `password authentication failed` in the backend logs after editing `.env`: PostgreSQL fixes its passwords when
+  its volume is first created. Restore the old `.env` or run `./scripts/dev-env.sh reset`. Keycloak reads the client
+  secret and the test user passwords at every container start, so `./scripts/dev-env.sh up` is enough for those.
 - A test user login is refused after pulling issue 314: run `./scripts/dev-env.sh up`. It adds the missing
-  `DOKENE_TEST_*_PASSWORD` values to `.env` and applies them to your existing realm; the old shared
-  `DOKENE_TEST_USER_PASSWORD` no longer works and can be deleted from `.env`. The realm settings script needs `jq`,
-  so `up` now fails its preflight without it (macOS: `brew install jq`) instead of leaving the old passwords in place.
+  `DOKENE_TEST_*_PASSWORD` values to `.env` and recreates Keycloak, which imports the realm with them; the old shared
+  `DOKENE_TEST_USER_PASSWORD` no longer works and can be deleted from `.env`.
 - `DOKENE_TEST_<ROLE>_PASSWORD in .env must be at least 12 characters`: the realm password policy is
   `length(12) and notUsername and notEmail`. Use a longer value, or delete the line and let `up` generate one.
-- `Keycloak test user passwords were not set from .env`: the Keycloak container is missing a password variable or
-  Keycloak refused one. The error above it names the user; rerun `./scripts/dev-env.sh up`, which recreates the
-  container with the current `.env`.
 - Smoke-test the tooling without Docker running: `./scripts/tests/dev-env-smoke.sh`.
 - Rebuild after code changes with `./scripts/dev-env.sh up` (the build step runs every time and is cached).
 
@@ -158,12 +196,16 @@ so run `./scripts/dev-env.sh doctor` or `up` once first: either one generates th
 
 Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/import/dokene-realm.json`.
 
-The import runs only when the realm does not exist yet, so later edits to that file never reach an existing realm on
-their own. `scripts/keycloak-apply-realm-settings.sh` closes that gap, and `./scripts/dev-env.sh up` runs it after
-every start: it applies the session revocation settings (issue 307), S256 PKCE on `dokene-bff` and the password
-policy (issue 314), then sets each test user's password from `.env`. It is idempotent and never prints a secret.
+Since issue 319 the Compose Keycloak keeps its data in memory and imports that file at every container start, so
+edits to it and the test user passwords in `.env` reach the stack on the next `./scripts/dev-env.sh up`.
+`./scripts/tests/keycloak-realm-config-test.sh` checks the realm file itself without Docker.
+
+`scripts/keycloak-apply-realm-settings.sh` is for a Keycloak that keeps its realm across starts, where the import
+skips a realm that already exists; `dev-env.sh` does not call it. It applies the session revocation settings (issue
+307), S256 PKCE on `dokene-bff` and the password policy (issue 314), then sets each test user's password from the
+Keycloak container's environment. It is idempotent, needs `jq`, and never prints a secret.
 `./scripts/keycloak-apply-realm-settings.sh --check` reports config drift without changing anything (passwords cannot
-be checked). `./scripts/tests/keycloak-realm-config-test.sh` checks the realm file itself without Docker.
+be checked).
 
 ### BFF confidential client
 
@@ -198,7 +240,7 @@ For exercising local browser login and multi-tenant RBAC validation against the 
 | `testoperator` | `testoperator@dokene.local` | `OPERATOR` | `DOKENE_TEST_OPERATOR_PASSWORD` | Operational permissions (customer and purchase read/write, follow-up evaluations and dispositions), without membership or workspace administration. |
 | `testviewer` | `testviewer@dokene.local` | `VIEWER` | `DOKENE_TEST_VIEWER_PASSWORD` | Read-only access across all domain resources (customers, purchases, follow-ups). State-changing actions and controls are forbidden. |
 
-Every `up` sets these passwords again from `.env`, so a password changed in the Keycloak admin console lasts only until the next `up`. Change it in `.env` instead.
+Keycloak imports these passwords from `.env` at every container start, so a password changed in the Keycloak admin console lasts only until Keycloak restarts. Change it in `.env` instead.
 
 To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture. Note that workspace provisioning is disabled by default in Dokene; make sure your local backend is started with `DOKENE_PROVISIONING_ENABLED=true` (in your `.env` file):
 
@@ -247,7 +289,7 @@ Local only; leave these out of a shared realm or replace them:
 
 - the three test users and their imported passwords (`testuser`, `testoperator`, `testviewer`);
 - secrets interpolated from `.env` (client secret, bootstrap admin, test passwords) instead of a secret manager;
-- `scripts/keycloak-apply-realm-settings.sh` resetting test passwords on every start;
+- test passwords imported again at every start, and `scripts/keycloak-apply-realm-settings.sh` setting them;
 - plain HTTP on loopback, relaxed hostname checks and embedded storage (see Production differences above).
 
 Still to decide for a shared realm: password history, a breached password blocklist, MFA for OWNER accounts, and how the admin console is exposed.

@@ -15,6 +15,10 @@
 #     container's environment (DOKENE_TEST_<ROLE>_PASSWORD, which Compose fills
 #     from .env). Passwords are set after the policy, so Keycloak checks them.
 #
+# The Compose stack no longer needs it: since issue #319 the keycloak service keeps
+# its data on a tmpfs and imports the realm file at every start, so dev-env.sh does
+# not call this script. It remains for a Keycloak that keeps its realm across starts.
+#
 # Non-destructive and idempotent: it leaves every config value that already
 # matches untouched. It runs the Keycloak Admin CLI inside the Compose keycloak
 # container with that container's bootstrap admin, so no credential passes

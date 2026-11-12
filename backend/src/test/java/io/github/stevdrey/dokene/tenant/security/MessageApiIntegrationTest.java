@@ -505,7 +505,7 @@ class MessageApiIntegrationTest {
         assertThat(reviewed).matches("^[0-9a-f]{64}$");
 
         // The fixed text changes at the provider and is refreshed after the review: the reviewed preview is stale.
-        templates.content = new TemplateContent(null, "Hola {{1}}: {{2}}. Oferta nueva.", null);
+        templates.content = new TemplateContent(null, "Hola {{1}}: {{2}}. Texto nuevo.", null);
         assertThat(reviewedRevision(ownerA, messageId)).isNotEqualTo(reviewed);
         approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
                 "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewed + "\"}")
@@ -516,6 +516,72 @@ class MessageApiIntegrationTest {
         approve(ownerA, messageId, "t-" + UUID.randomUUID(), "\"1\"",
                 "{\"decision\":\"APPROVE\",\"templateRevision\":\"" + reviewedRevision(ownerA, messageId) + "\"}")
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    /** Issue 326: a parameter from a tenant record passes the body's safety rules at submit, review and approval. */
+    @Test
+    void anUnsafeCustomerNameIsRefusedAtSubmitReviewAndApprovalWhileASafeOneKeepsTheirControls() throws Exception {
+        String safeName = inContext(ownerA, () -> customers.get(customer.id())).displayName();
+        rename("Ana promo.example");
+        submit(ownerA, "u-" + UUID.randomUUID(), etag(policyVersion), submitJson(BODY))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
+        assertThat(messageCount()).as("no message holds the customer's open slot").isZero();
+
+        rename(safeName);
+        String messageId = submittedMessageId();
+        templateOf(viewerA, messageId).andExpect(jsonPath("$.template.renderedBody").exists());
+
+        rename("Ana 50% descuento");
+        templateOf(viewerA, messageId).andExpect(jsonPath("$.template").doesNotExist());
+        templateOf(ownerA, messageId).andExpect(jsonPath("$.template").doesNotExist());
+        approve(ownerA, messageId, "v-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
+        assertThat(messageStatus(messageId)).isEqualTo(MessageStatus.PENDING_APPROVAL);
+
+        rename(safeName);
+        setConsent(ConsentStatus.REVOKED);
+        approve(ownerA, messageId, "v-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_CONTACT_CONSENT"));
+        setConsent(ConsentStatus.GRANTED);
+        approve(ownerA, messageId, "v-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    /** Issue 326: a real surname that is also an offer word, in the template and in a greeting, is not refused. */
+    @Test
+    void aListedSurnameIsSubmittedAndApprovedWhileTheSameWordElsewhereIsNot() throws Exception {
+        rename("Ana Bono");
+        submit(ownerA, "u-" + UUID.randomUUID(), etag(policyVersion), submitJson("Un bono para usted."))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
+        String messageId = body(submit(ownerA, "s-" + UUID.randomUUID(), etag(policyVersion),
+                submitJson("Hola Ana Bono, seguimos atentos.")).andExpect(status().isCreated()))
+                .get("messageId").asString();
+        templateOf(viewerA, messageId).andExpect(jsonPath("$.template.renderedBody").exists());
+        approve(ownerA, messageId, "v-" + UUID.randomUUID(), "\"1\"", "{\"decision\":\"APPROVE\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    /** Issue 326: links are read in the exact text, so a period run into a word after the name is refused at submit. */
+    @Test
+    void aPeriodRunIntoAWordRightAfterTheNameIsRefusedAsALink() throws Exception {
+        templates.parameterNames = List.of("customer_name");
+        templates.content = new TemplateContent(null, "Hola {{1}}.Gracias por su compra", null);
+
+        submit(ownerA, "s-" + UUID.randomUUID(), etag(policyVersion),
+                submitJson("Hola Ana Pérez.Gracias por su compra"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BODY_REJECTED"));
+    }
+
+    private void rename(String displayName) throws Exception {
+        Customer current = inContext(ownerA, () -> customers.get(customer.id()));
+        inContext(ownerA, () -> customers.update(customer.id(), current.version(), displayName, current.notes(),
+                current.phones().stream().map(phone -> new PhoneInput(phone.e164().substring(4), "CR",
+                        phone.primary())).toList()));
+    }
+
+    private ResultActions templateOf(Member who, String messageId) throws Exception {
+        return mvc.perform(get("/api/messages/" + messageId).with(user(who)).header("X-Tenant-Id", tenant(tenantA)))
+                .andExpect(status().isOk());
     }
 
     /** Issue 268: renaming the customer after review re-renders customer_name, so the reviewed preview is stale. */

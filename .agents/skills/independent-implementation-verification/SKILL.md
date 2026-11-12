@@ -1,6 +1,6 @@
 ---
 name: independent-implementation-verification
-description: Use before publishing a PR for an Issue implementation. Delegate verification of the exact candidate to an independent subagent, which maps each acceptance criterion to evidence, hunts edge-case defects, exercises a safe test environment when feasible, and returns a structured pass, fail, or blocked verdict.
+description: Use before publishing a PR for an Issue implementation. Delegate verification of the exact candidate to an independent subagent, which maps each acceptance criterion to evidence, hunts edge-case defects, runs a bounded adversarial pass with reproducible findings for high-risk diffs, exercises a safe test environment when feasible, and returns a structured pass, fail, or blocked verdict.
 ---
 
 # Independent Implementation Verification
@@ -52,6 +52,7 @@ The implementing agent provides:
 5. **Implementer's evidence:** commands run and their results. These are claims for the verifier to check, not facts.
 6. **Applicable rules:** `AGENTS.md`, `.agents/README.md`, relevant ADRs, security invariants, and the skills that apply to the change.
 7. **For a re-verification:** the previous verdict and what was changed since.
+8. **Adversarial triggers:** which triggers of the [adversarial pass](adversarial-review.md#when-to-run) the implementer sees in the diff, or `none`. The verifier checks this list against the diff itself.
 
 ### Handoff prompt template
 
@@ -70,10 +71,12 @@ Acceptance criteria:
 Linked context: <Issues, epics, ADRs, security docs>
 Implementer's claims (verify, do not trust): <commands and results>
 Previous verdict and changes since (re-verification only): <verdict path or "none">
+Adversarial triggers seen by the implementer (check against the diff): <triggers or "none">
 
 Do not modify the worktree, publish, merge, or send messages. Write your verdict JSON to
 <path outside the worktree>, validate it with
-`node .agents/scripts/verification-verdict.mjs --verdict <path> --base <ref>`,
+`node .agents/scripts/verification-verdict.mjs --verdict <path> --base <ref>`
+(on a re-verification add `--previous <previous verdict path>`),
 and return the verdict and the validator output.
 ```
 
@@ -82,7 +85,7 @@ and return the verdict and the validator output.
 1. **Confirm the candidate.** Recompute the identity with the handoff's `--base <ref>`. If it differs from the handoff, stop and return `blocked`: the evidence would describe another candidate.
 2. **Read independently.** Inspect the diff against the base (`git diff <base>` plus untracked files), the changed code, its callers, and related tests. Read the Issue and linked rules yourself.
 3. **Map every criterion.** For each criterion, decide `pass`, `fail`, or `blocked`, citing check ids. A criterion passes only when cited evidence that passed on this candidate shows it.
-4. **Hunt for defects.** As applicable to the change, probe boundary values, empty and malformed input, error and failure paths, retries and idempotency, concurrency, backward compatibility of APIs, data and migrations, authorization, tenant isolation, and secret or PII exposure. Prefer realistic cases to speculation.
+4. **Hunt for defects.** As applicable to the change, probe boundary values, empty and malformed input, error and failure paths, retries and idempotency, concurrency, backward compatibility of APIs, data and migrations, authorization, tenant isolation, and secret or PII exposure. Prefer realistic cases to speculation. When the diff hits a trigger of the [adversarial pass](adversarial-review.md), run that pass here, within its budget, and record its probes as checks and its results as findings.
 5. **Run checks.** Run the narrowest relevant automated checks, and the applicable project build when the change crosses boundaries. When feasible and relevant, start a safe, isolated environment (local dev stack, test profile, Testcontainers, a throwaway database) and exercise the implemented behavior. Never point it at production or real third parties.
 6. **Record honestly.** For every check, state the exact command or manual steps, the environment, the result, and its kind:
    - `automated` — a test or tool run;
@@ -91,7 +94,7 @@ and return the verdict and the validator output.
    - `live` — a real dependency in a safe test environment.
 
    A check that was not executed is `not-run`. Never report a check that did not run, and never infer a result from code reading alone.
-7. **Report findings.** Each finding has a severity (`blocker` for anything affecting a criterion, correctness, security, tenant isolation, data integrity, API contracts, migration or merge safety; `optional` otherwise), a status, and a concrete reproduction or supporting evidence (command and output, or `file:line`).
+7. **Report findings.** Each finding has a severity (`blocker` for anything affecting a criterion, correctness, security, tenant isolation, data integrity, API contracts, migration or merge safety; `optional` otherwise), a status, and a concrete reproduction or supporting evidence (command and output, or `file:line`). A finding from the adversarial pass follows its [blocking bar](adversarial-review.md#blocking-bar), [reproduction format](adversarial-review.md#reproduction-format), and [deduplication](adversarial-review.md#deduplication) rules: without a failing test, probe output, or a clearly evidenced contract violation it is `optional`.
 8. **Write and validate the verdict** outside the worktree, so the file does not change the candidate identity.
 
 ## Verdict
@@ -137,9 +140,10 @@ The validator computes the verdict and rejects a declared verdict that the evide
 ```bash
 node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref>
 node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref> --commit <commit to push>
+node .agents/scripts/verification-verdict.mjs --verdict <file> --base <ref> --previous <previous round's verdict>
 ```
 
-The validator always compares the verdict's candidate with an actual candidate: by default the current worktree, including uncommitted changes, which suits verification before the commit; with `--commit` the tree of that commit alone, which is what a push publishes. Exit `0` is a pass for that candidate, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, or one about another candidate (`STALE`).
+The validator always compares the verdict's candidate with an actual candidate: by default the current worktree, including uncommitted changes, which suits verification before the commit; with `--commit` the tree of that commit alone, which is what a push publishes. Exit `0` is a pass for that candidate, `1` a consistent fail or blocked verdict, and `2` an invalid or inconsistent verdict, one that drops an open blocker of the `--previous` verdict, or one about another candidate (`STALE`).
 
 Gate publication only on the `--commit` form: a verified change that is left unstaged or out of a partial commit passes the worktree form but not the commit form. The validator rejects unknown, misspelled, or repeated options instead of ignoring them, and its `PASS` line names what it checked (`the worktree` or `commit <rev>`), so a log shows which form ran.
 
@@ -155,7 +159,8 @@ Stop and report rather than loop when the same blocker recurs without progress o
 
 Every correction produces a new candidate identity, which needs a fresh verdict from an independent verifier. The verifier:
 
-1. re-evaluates every criterion and finding affected by the change, and confirms each prior blocker is resolved with new evidence;
+1. re-evaluates every criterion and finding affected by the change, and confirms each prior blocker is resolved with new evidence. Every finding of the previous verdict, from the ordinary hunt or the adversarial pass, is carried into the new `findings[]` with the same id and stays `open` until new evidence resolves it; the gate reads only the current verdict, so `--previous <previous verdict>` rejects (exit `2`) a verdict that drops an open blocker;
 2. reruns checks that cover changed code;
 3. may reuse a check from the previous candidate only when its inputs are demonstrably unchanged, recording the old `candidate` and a concrete `reusedBecause` (for example, "no file under `frontend/` changed between the candidates");
-4. treats any other old evidence as stale; stale evidence cannot support a pass.
+4. treats any other old evidence as stale; stale evidence cannot support a pass;
+5. limits the adversarial pass to prior adversarial blockers and the code changed since, as [its convergence rules](adversarial-review.md#re-verification-and-convergence) describe.

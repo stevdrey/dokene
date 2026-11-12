@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Smoke tests for scripts/dev-env.sh, the compose topology and ShellCheck on the local environment scripts.
-# ABOUTME: Runs without a Docker daemon.
+# ABOUTME: Smoke tests for scripts/dev-env.sh, the Compose model in compose.yaml and ShellCheck on the local scripts.
+# ABOUTME: Asserts topology, secret handling and container restrictions without starting the stack.
 # Smoke tests for scripts/dev-env.sh and the compose topology. Needs bash, python3 and the `docker compose` CLI
 # (no running daemon or containers).
 #
@@ -34,6 +34,24 @@ check "help lists restart-backend" help_lists_restart_backend
 check "help prints only the header comment" help_has_no_code_leak
 check "unknown command exits 2" unknown_command_fails
 check "restart-backend rejects unknown options" restart_backend_rejects_unknown_option
+
+# Keycloak data is a tmpfs since #319, so `reset` deletes only the PostgreSQL volume.
+help_reset_names_only_the_database() {
+  local line=""
+  line="$(grep 'dev-env.sh reset' <<<"$help_text")" || return 1
+  grep -q 'PostgreSQL' <<<"$line" && ! grep -q 'Keycloak' <<<"$line"
+}
+check "help: reset deletes only the PostgreSQL volume (#319 review)" help_reset_names_only_the_database
+
+# Every Keycloak start imports the realm from the template (#319), so `up` has no existing realm to reconcile.
+up_does_not_reconcile_keycloak() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  ! declare -f cmd_up | grep -q 'keycloak-apply-'
+}
+check "up does not run a Keycloak realm reconcile script (#319 review)" \
+  bash -c "$(declare -f up_does_not_reconcile_keycloak) ; SCRIPT='$SCRIPT'; up_does_not_reconcile_keycloak"
+
 # Scripts that are ShellCheck-clean today. The scripts/verify-issue-*.sh helpers still carry findings and are not listed.
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
@@ -57,8 +75,10 @@ fi
 check "dev-env.sh and entrypoint.sh are valid bash" bash -c "bash -n '$SCRIPT' && bash -n '$ROOT_DIR/infra/docker/backend/entrypoint.sh'"
 
 # Render the Compose model with throwaway values for the required variables (no daemon or containers needed).
+# Arguments are extra NAME=value pairs. Only the committed compose.yaml is rendered: without -f, Compose would merge a
+# git-ignored compose.override.yaml into the model under test.
 compose_config_json() {
-  local -a env_vars=()
+  local -a env_vars=("$@")
   local v
   for v in DOKENE_DB_NAME DOKENE_DB_BOOTSTRAP_USERNAME DOKENE_DB_BOOTSTRAP_PASSWORD DOKENE_DB_PASSWORD \
            DOKENE_DB_RUNTIME_PASSWORD DOKENE_DB_MIGRATION_PASSWORD DOKENE_TENANT_CONTEXT_SIGNING_KEY \
@@ -66,7 +86,7 @@ compose_config_json() {
            SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET; do
     env_vars+=("$v=unused")
   done
-  (cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose config --format json)
+  (cd "$ROOT_DIR" && env "${env_vars[@]}" docker compose -f compose.yaml config --format json)
 }
 
 topology_is_inverted() {
@@ -207,6 +227,59 @@ ENV
 }
 check "check_env generates missing test passwords, keeps them, and enforces 12 characters (#314)" \
   bash -c "$(declare -f check_env_upgrades_test_passwords) ; SCRIPT='$SCRIPT'; check_env_upgrades_test_passwords"
+
+infrastructure_containers_are_restricted() {
+  local json=""
+  json="$(compose_config_json)" || return 1
+  python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)["services"]
+# Every writable path of the two services; anything else must be read-only.
+writable = {
+    "postgres": {"volumes": ["/var/lib/postgresql/data"], "tmpfs": ["/tmp", "/var/run/postgresql"]},
+    "keycloak": {"volumes": [], "tmpfs": ["/opt/keycloak/data", "/tmp"]},
+}
+for name, expected in writable.items():
+    svc = s[name]
+    assert svc.get("read_only") is True, name + " must have a read-only root filesystem"
+    assert svc.get("cap_drop") == ["ALL"] and not svc.get("cap_add"), name + " must hold no Linux capability"
+    assert "no-new-privileges:true" in svc.get("security_opt", []), name + " must set no-new-privileges"
+    assert not svc.get("privileged"), name + " must not be privileged"
+    volumes = sorted(v["target"] for v in svc.get("volumes", []) if not v.get("read_only"))
+    assert volumes == expected["volumes"], name + " writable volumes: " + repr(volumes)
+    tmpfs = svc.get("tmpfs", [])
+    assert sorted(t.split(":")[0] for t in tmpfs) == expected["tmpfs"], name + " tmpfs: " + repr(tmpfs)
+    assert all("size=" in t for t in tmpfs), name + " tmpfs mounts must be size-capped"
+# The stock entrypoint starts as root and needs CHOWN/SETUID/SETGID to step down; starting as postgres needs none.
+assert s["postgres"].get("user") == "70:70", "postgres must start as the unprivileged postgres user"
+options = lambda name, path: [t.split(":", 1)[1].split(",") for t in s[name]["tmpfs"] if t.split(":")[0] == path][0]
+assert {"uid=70", "gid=70"} <= set(options("postgres", "/var/run/postgresql")), "socket tmpfs must belong to postgres"
+# The image sets USER 1000; Compose must not override it with another user.
+assert s["keycloak"].get("user") in (None, "1000", "1000:0"), "keycloak must run as the unprivileged keycloak user"
+# This directory holds the rendered realm import (client secret, test password).
+assert {"uid=1000", "mode=0700"} <= set(options("keycloak", "/opt/keycloak/data")), \
+    "keycloak data tmpfs must be private to the keycloak user"
+# The home directory is on the read-only root; psql must keep its history on a writable path.
+assert s["postgres"]["environment"].get("PSQL_HISTORY", "").startswith("/tmp/"), "psql history must be writable"
+' <<<"$json"
+}
+check "compose: postgres and keycloak run restricted with explicit writable paths (#319)" \
+  infrastructure_containers_are_restricted
+
+# A Debian-based postgres image uses uid 999; the user and the owner of the socket tmpfs must change together.
+postgres_uid_is_set_in_one_place() {
+  local json=""
+  json="$(compose_config_json DOKENE_POSTGRES_UID=999)" || return 1
+  python3 -I -c '
+import json, sys
+postgres = json.load(sys.stdin)["services"]["postgres"]
+assert postgres["user"] == "999:999", "user: " + repr(postgres["user"])
+socket = [t for t in postgres["tmpfs"] if t.startswith("/var/run/postgresql:")][0]
+assert {"uid=999", "gid=999"} <= set(socket.split(":", 1)[1].split(",")), "socket tmpfs: " + socket
+' <<<"$json"
+}
+check "compose: one variable sets the postgres uid for the user and its socket tmpfs (#319 review)" \
+  postgres_uid_is_set_in_one_place
 
 compose_minimum_includes_patch() {
   # shellcheck source=../dev-env.sh
@@ -417,60 +490,6 @@ start_failure_detection() {
 }
 check "only start/bind errors count as a start failure" \
   bash -c "$(declare -f start_failure_detection) ; SCRIPT='$SCRIPT'; start_failure_detection"
-
-# Runs cmd_up with every step stubbed except the realm settings exit status handling, once per status.
-up_maps_realm_settings_status() {
-  local work out rc=1
-  work="$(mktemp -d)" || return 1
-  mkdir -p "$work/scripts"
-  # shellcheck disable=SC2016  # the stub expands the variable when it runs
-  printf '#!/usr/bin/env bash\nexit "$FAKE_APPLY_STATUS"\n' > "$work/scripts/keycloak-apply-realm-settings.sh"
-  chmod +x "$work/scripts/keycloak-apply-realm-settings.sh"
-  run_up() {
-    (
-      # shellcheck source=../dev-env.sh
-      source "$SCRIPT" || exit 99
-      ROOT_DIR="$work"
-      preflight() { :; }; refresh_secret_files() { :; }; repair_networkless_bridge() { :; }
-      compose_up_services() { :; }; compose() { :; }; info() { :; }; ok() { :; }; cmd_seed() { :; }
-      warn() { printf 'WARN %s\n' "$*"; }; fail() { printf 'FAIL %s\n' "$*"; }
-      print_summary() { printf 'SUMMARY\n'; }
-      FAKE_APPLY_STATUS="$1" cmd_up --no-build
-    )
-  }
-  (
-    # 0: no warning, `up` completes.
-    out="$(run_up 0)" && [ "$out" = "SUMMARY" ] || exit 1
-    # 3, the passwords were not all set (a failed password step, or a config step that failed before it): `up` fails
-    # before the summary and names the passwords.
-    ! out="$(run_up 3)" || exit 1
-    grep -q '^FAIL Keycloak test user passwords were not set' <<<"$out" && ! grep -q SUMMARY <<<"$out" || exit 1
-    # Any other failure status: `up` only warns and still completes.
-    out="$(run_up 1)" || exit 1
-    grep -q '^WARN Keycloak realm settings not applied' <<<"$out" && grep -q '^SUMMARY$' <<<"$out" || exit 1
-  ) && rc=0
-  rm -rf "$work"
-  return "$rc"
-}
-check "up fails when the realm settings script did not set the passwords (exit 3) and only warns otherwise (#314)" \
-  bash -c "$(declare -f up_maps_realm_settings_status) ; SCRIPT='$SCRIPT'; up_maps_realm_settings_status"
-
-# Every `up` runs keycloak-apply-realm-settings.sh, which needs jq, so a missing jq must fail preflight even without
-# --seed: otherwise an existing realm keeps its old passwords while .env holds the new ones.
-check_tools_requires_jq_without_seed() {
-  # shellcheck disable=SC2329  # the stubs below are called by the sourced check_tools
-  (
-    # shellcheck source=../dev-env.sh
-    source "$SCRIPT" || exit 99
-    have() { [ "$1" != "jq" ]; }
-    warn() { :; }; ok() { :; }
-    check_fail() { printf 'CHECK_FAIL %s\n' "$*"; }
-    out="$(WANT_SEED=false check_tools)"
-    grep -q '^CHECK_FAIL jq is required' <<<"$out" && grep -q 'keycloak-apply-realm-settings' <<<"$out"
-  )
-}
-check "check_tools requires jq for every up, not only --seed (#314)" \
-  bash -c "$(declare -f check_tools_requires_jq_without_seed) ; SCRIPT='$SCRIPT'; check_tools_requires_jq_without_seed"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2

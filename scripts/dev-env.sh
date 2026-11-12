@@ -6,7 +6,7 @@
 #
 # Runs PostgreSQL, Keycloak, the backend and the frontend as Docker containers
 # (see compose.yaml) so every contributor gets the same runtime configuration.
-# Only Docker, curl and jq are required on the host.
+# Only Docker and curl are required on the host (jq too for --seed).
 #
 # Usage:
 #   ./scripts/dev-env.sh up [--seed] [--infra-only] [--no-build] [--yes]
@@ -17,7 +17,7 @@
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
 #   ./scripts/dev-env.sh doctor
-#   ./scripts/dev-env.sh reset [--yes]     (destroys local database and Keycloak data)
+#   ./scripts/dev-env.sh reset [--yes]     (deletes the local PostgreSQL volume)
 #   ./scripts/dev-env.sh help
 #
 # Compatible with bash 3.2 (macOS default) and Linux.
@@ -234,9 +234,9 @@ compose_version_supported() {
 check_tools() {
   have curl || check_fail "curl is required for health checks."
   have openssl || warn "openssl not found: it is only needed to generate a new .env automatically."
-  # Every `up` runs keycloak-apply-realm-settings.sh, which needs jq; without it an existing realm would keep its old
-  # test user passwords while .env holds the new ones (#314).
-  have jq || check_fail "jq is required by scripts/keycloak-apply-realm-settings.sh and scripts/seed-local-qa.sh (macOS: brew install jq)."
+  if [ "${WANT_SEED:-false}" = "true" ]; then
+    have jq || check_fail "jq is required by scripts/seed-local-qa.sh (macOS: brew install jq)."
+  fi
 }
 
 generate_env_file() {
@@ -264,7 +264,7 @@ generate_env_file() {
 }
 
 # Test user passwords added after a checkout's .env was created (issue 314) are generated in place, so an existing
-# stack upgrades on its next `up` without a reset. Names the variables it adds, never the values.
+# stack upgrades on its next `up` without a reset: Keycloak is recreated and imports the realm with them (issue 319). Names the variables it adds, never the values.
 fill_test_passwords() {
   local key added=""
   for key in "${TEST_PASSWORD_KEYS[@]}"; do
@@ -610,18 +610,6 @@ cmd_up() {
   ok "All requested containers are healthy"
   compose ps
 
-  # --import-realm skips a realm Keycloak already holds; bring its settings (issues 307 and 314) up to date. The
-  # script exits 3 whenever it did not set every test user password, a failure before the password step included,
-  # and that fails `up`: old passwords left in place would surface later as a vaguer seed or login failure. Any other
-  # status only warns.
-  local apply_status=0
-  "$ROOT_DIR/scripts/keycloak-apply-realm-settings.sh" || apply_status=$?
-  case "$apply_status" in
-    0) ;;
-    3) die "Keycloak test user passwords were not set from .env (see the error above); fix it and rerun './scripts/dev-env.sh up'." ;;
-    *) warn "Keycloak realm settings not applied; run scripts/keycloak-apply-realm-settings.sh." ;;
-  esac
-
   if [ "$WANT_SEED" = "true" ]; then
     if [ "$INFRA_ONLY" = "true" ]; then
       warn "--seed needs the backend; skipping because --infra-only was given."
@@ -662,7 +650,7 @@ cmd_down() {
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
   compose_teardown down --remove-orphans
-  ok "Containers stopped and removed. Database and Keycloak data are kept (use '$0 reset' to wipe them)."
+  ok "Containers stopped and removed. The database is kept (use '$0 reset' to wipe it); Keycloak imports its realm again on the next start."
 }
 
 cmd_reset() {
@@ -673,7 +661,7 @@ cmd_reset() {
   done
   have docker || die "Docker is not installed."
   docker info >/dev/null 2>&1 || die "Docker daemon is not reachable."
-  warn "This deletes the local PostgreSQL and Keycloak data volumes of this checkout."
+  warn "This deletes the local PostgreSQL data volume of this checkout; Keycloak data is in memory and ends with its container."
   confirm "Continue?" || die "Aborted."
   compose_teardown down --volumes --remove-orphans
   ok "Environment reset. Run '$0 up --seed' to recreate it."

@@ -10,7 +10,6 @@ import io.github.stevdrey.dokene.messaging.domain.ApprovalDecision;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.MessageApproval;
 import io.github.stevdrey.dokene.messaging.domain.MessageStatus;
-import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.Objects;
@@ -46,23 +45,21 @@ public class MessageTemplatePreviews {
             return Optional.empty();
         }
         return customers.findById(new TenantId(message.tenantId()), new CustomerId(message.customerId()))
-                .filter(customer -> message.status() != MessageStatus.APPROVED || covered(message, customer, approval))
-                .flatMap(customer -> bindings.review(message, customer));
+                .flatMap(customer -> message.status() == MessageStatus.APPROVED
+                        ? covered(message, customer, approval)
+                        : bindings.review(message, customer));
     }
 
-    /** Binds the message exactly as the send gate does, against the configured sender approval bound. */
-    private boolean covered(OutboundMessage message, Customer customer, Optional<MessageApproval> approval) {
+    /** Renders once, exactly as the send gate does, against the configured sender approval bound. */
+    private Optional<ReviewedTemplate> covered(OutboundMessage message, Customer customer,
+            Optional<MessageApproval> approval) {
         Optional<ApprovalFingerprint> approved = approval
                 .filter(decision -> decision.decision() == ApprovalDecision.APPROVE)
                 .flatMap(MessageApproval::fingerprint);
         Optional<ApprovalFingerprint.SenderRevision> sender = safety.configuredSender(new TenantId(message.tenantId()));
         if (approved.isEmpty() || sender.isEmpty()) {
-            return false;
+            return Optional.empty();
         }
-        try {
-            return approved.get().covers(bindings.bind(message, customer, sender.get()));
-        } catch (MessagingRefusedException refused) {
-            return false;
-        }
+        return bindings.reviewIfCovered(message, customer, sender.get(), approved.get());
     }
 }
