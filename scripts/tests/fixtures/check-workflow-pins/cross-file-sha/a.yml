@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: first of two files pinning one repository to different SHAs.
+# ABOUTME: Expected: pass; this file is read first, so its SHA is the reference for the repository.
+jobs:
+  build:
+    steps:
+      - uses: actions/cache/restore@0123456789abcdef0123456789abcdef01234567 # v6.1.0
