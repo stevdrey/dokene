@@ -1,0 +1,7 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a commented out uses line beside a pinned one.
+# ABOUTME: Expected: pass; comment lines are skipped.
+jobs:
+  build:
+    steps:
+      # - uses: owner/repo@v1
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.0.1

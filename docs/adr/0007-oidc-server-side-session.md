@@ -98,8 +98,9 @@ user, nor live forever while it stays active. The contract, with the default bou
 - **Upgrading an existing realm**: Keycloak's `--import-realm` skips a realm that already exists, so the realm import
   file configures new realms only. An existing realm receives the back-channel URL, its session and offline-token
   attributes and the SSO max lifespan from `scripts/keycloak-apply-session-revocation.sh`, which is idempotent,
-  changes only those four values and has a `--check` mode that exits non-zero on drift. `scripts/dev-env.sh up` runs
-  it after every start. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
+  changes only those four values and has a `--check` mode that exits non-zero on drift. `scripts/dev-env.sh up` ran
+  it after every start until issue 319; the Compose Keycloak now imports the realm file at every start
+  ([ADR 0022](0022-containerized-local-environment.md)), so that call was removed. Other deployments apply the same four values to their realm and `dokene-bff` client (Admin
   Console or `kcadm.sh`) when they deploy this change. Until then IdP logout is bounded by revalidation instead of
   being immediate.
 - **Residual: local logout**: the SPA logout is local (`POST /logout` without `provider=true`); it ends the Dokene

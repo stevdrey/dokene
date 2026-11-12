@@ -182,6 +182,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - No `${{ github.event.* }}` interpolated into `run:`.
   - Fork PRs receive no secrets.
 - **Fix:** pin every third-party action to a full 40-character SHA, with a version comment. Dependabot's `github-actions` ecosystem (`.github/dependabot.yml`) keeps SHA pins updated.
+- **Status:** fixed by [#309](https://github.com/stevdrey/dokene/issues/309); see [the verification record](../verification/issue-309-github-actions-pinning-verification.md). All 26 action references (plus the one in the new `workflow-pins.yml`) carry the peeled commit of their release tag with that tag as the only comment, proven with `git ls-remote` against each upstream repository; `scripts/check-workflow-pins.sh` fails any tag, branch, short SHA or unpinned `docker://` reference on every pull request, and Dependabot groups action bumps into one weekly pull request with a seven day cooldown. The rule, the manual pin steps and the reviewer step are in [github-actions-pinning.md](github-actions-pinning.md). The binaries the Trivy and gitleaks actions download at run time are L13 and stay open. The `trivy-action` incident recalled above remains unverified and was not a basis for the change.
 
 ### Low
 
@@ -323,6 +324,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 - **Fix:** pin `@sha256:` digests and add Dependabot `docker` entries. Add `distributionSha256Sum`, and consider Gradle dependency verification.
 
 #### L14. The PostgreSQL and Keycloak containers lack the hardening the other services have — Static
+
+- **Status:** fixed by [#319](https://github.com/stevdrey/dokene/issues/319); see [the verification record](../verification/issue-319-container-hardening-verification.md). Both services now drop every capability, set `no-new-privileges` and have a read-only root filesystem with listed writable paths; PostgreSQL starts as its unprivileged user.
 
 - **Where:** `compose.yaml:1-87`. The postgres and keycloak services have no `cap_drop: [ALL]`, `no-new-privileges` or `read_only`. The backend, frontend and oidc-bridge services have all three.
 - **Fix:** apply the same options. A writable volume and tmpfs are still needed where required.
