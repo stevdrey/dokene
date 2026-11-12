@@ -116,12 +116,28 @@ class TenantSecurityConfiguration {
     @Bean
     FilterRegistrationBean<PreLoginSessionExpiryFilter> preLoginSessionExpiryFilter(
             BffSessionProperties properties,
-            Clock clock
+            Clock clock,
+            @Value("${server.servlet.session.timeout:30m}") Duration sessionIdleTimeout
     ) {
+        Duration preLoginTimeout =
+                requirePreLoginTimeoutWithinIdleTimeout(properties.preLoginTimeout(), sessionIdleTimeout);
         FilterRegistrationBean<PreLoginSessionExpiryFilter> registration =
-                new FilterRegistrationBean<>(new PreLoginSessionExpiryFilter(properties.preLoginTimeout(), clock));
+                new FilterRegistrationBean<>(new PreLoginSessionExpiryFilter(preLoginTimeout, clock));
         registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 1);
         return registration;
+    }
+
+    /**
+     * A login start session must not idle longer than a signed in one. {@link BffSessionProperties} cannot see the
+     * servlet idle timeout, so the two are compared here, at startup. A zero or negative idle timeout means sessions
+     * never idle out, so there is nothing to exceed.
+     */
+    static Duration requirePreLoginTimeoutWithinIdleTimeout(Duration preLoginTimeout, Duration sessionIdleTimeout) {
+        if (sessionIdleTimeout.isPositive() && preLoginTimeout.compareTo(sessionIdleTimeout) > 0) {
+            throw new IllegalStateException(
+                    "dokene.security.session.pre-login-timeout must not exceed server.servlet.session.timeout");
+        }
+        return preLoginTimeout;
     }
 
     @Bean
@@ -187,6 +203,8 @@ class TenantSecurityConfiguration {
     /** Loopback on the port the provider called: never a host taken from the request. */
     static final String DEFAULT_BACK_CHANNEL_LOGOUT_URI =
             "{baseScheme}://localhost{basePort}/logout/connect/back-channel/{registrationId}";
+    /** The servlet container's name for the session cookie when {@code server.servlet.session.cookie.name} is unset. */
+    static final String DEFAULT_SESSION_COOKIE_NAME = "JSESSIONID";
     static final String PERMISSIONS_POLICY =
             "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 
@@ -202,7 +220,9 @@ class TenantSecurityConfiguration {
             @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl,
             @Value("${dokene.security.post-login-failure-redirect-url:}") String postLoginFailureRedirectUrl,
             @Value("${dokene.security.oidc.back-channel-logout-uri:" + DEFAULT_BACK_CHANNEL_LOGOUT_URI + "}")
-            String backChannelLogoutUri
+            String backChannelLogoutUri,
+            @Value("${server.servlet.session.cookie.name:" + DEFAULT_SESSION_COOKIE_NAME + "}")
+            String sessionCookieName
     )
             throws Exception {
         LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
@@ -232,7 +252,7 @@ class TenantSecurityConfiguration {
                 .logout(logout -> logout
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
-                        .deleteCookies("JSESSIONID")
+                        .deleteCookies(sessionCookieName)
                         .logoutSuccessHandler(logoutSuccessHandler))
                 .addFilterBefore(bffSessionLifetimeFilter, AnonymousAuthenticationFilter.class)
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
@@ -247,7 +267,7 @@ class TenantSecurityConfiguration {
                             new PreLoginAuthorizationRequestRepository(sessionProperties.preLoginTimeout(), clock)))
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
                     .successHandler(createAuthenticationSuccessHandler(postLoginRedirectUrl, bffSessionLifetimeFilter))
-                    .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl)));
+                    .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl, sessionCookieName)));
             // The provider's logout token ends the matching sessions: the handler replays the logout token to this
             // endpoint once per session, with that session's cookie, so the URI must reach this instance directly.
             http.oidcLogout(logout -> logout.backChannel(backChannel -> backChannel.logoutUri(backChannelLogoutUri)));
@@ -290,17 +310,20 @@ class TenantSecurityConfiguration {
                 .toUriString();
     }
 
-    private AuthenticationFailureHandler createAuthenticationFailureHandler(String failureRedirectUrl) {
+    static AuthenticationFailureHandler createAuthenticationFailureHandler(
+            String failureRedirectUrl,
+            String sessionCookieName
+    ) {
         SimpleUrlAuthenticationFailureHandler failureHandler =
                 new SimpleUrlAuthenticationFailureHandler(failureRedirectUrl);
         failureHandler.setAllowSessionCreation(false);
-        CookieClearingLogoutHandler sessionCookieClearing = new CookieClearingLogoutHandler("JSESSIONID");
+        CookieClearingLogoutHandler sessionCookieClearing = new CookieClearingLogoutHandler(sessionCookieName);
         return (request, response, exception) -> {
             // A failed login ends its login start session at once (issue 311). A signed in session is left alone: the
             // cookie is SameSite=Lax, so otherwise any cross-site link to the callback URL would sign the user out.
             HttpSession session = request.getSession(false);
             try {
-                if (session != null && session.getAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT) == null) {
+                if (session != null && !PreLoginSessionExpiryFilter.isSignedIn(session)) {
                     session.invalidate();
                     sessionCookieClearing.logout(request, response, null);
                 }

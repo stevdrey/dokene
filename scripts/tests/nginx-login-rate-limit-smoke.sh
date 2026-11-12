@@ -3,9 +3,10 @@
 # ABOUTME: Builds the image, runs it without a backend, and checks which requests nginx answers with 429.
 #
 # No backend runs here, so a login start that nginx passes on answers 502: "not 429" means "passed on". The burst is
-# sent at the same moment, so exactly 1 + burst (11) are passed on. That refused requests never reach the backend is
-# shown on the dev stack by scripts/verify-issue-311-anonymous-sessions.sh. Needs bash, curl 7.83 or newer and a
-# running Docker daemon; it never touches the Compose stack.
+# sent at the same moment, so 1 + burst (11) are passed on. One more slot frees every 2 seconds, so a burst that a
+# slow runner takes that long to deliver passes one more; the check allows up to 2 more. That refused requests never
+# reach the backend is shown on the dev stack by scripts/verify-issue-311-anonymous-sessions.sh. Needs bash, curl 7.83
+# or newer and a running Docker daemon; it never touches the Compose stack.
 #
 # Usage: ./scripts/tests/nginx-login-rate-limit-smoke.sh
 set -uo pipefail
@@ -14,6 +15,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE="dokene-frontend:nginx-login-limit-smoke"
 NAME="dokene-nginx-login-limit-smoke-$$"
 REQUESTS=40
+PASSED_AT_ONCE=11
+PASSED_AT_MOST=13
 REFUSAL_BODY="Too many sign in attempts. Try again in a moment."
 failures=0
 
@@ -58,8 +61,11 @@ every_refusal_is() { ! grep '^429|' <<<"$1" | grep -qvxF "$2"; }
 
 login="$(burst /oauth2/authorization/dokene)"
 refused="$(refusals "$login")"
-check "of $REQUESTS login starts at the same moment, 29 are refused with 429 (got $refused)" test "$refused" -eq 29
-check "the other 11 are passed on to the backend" test "$(($(answers "$login") - refused))" -eq 11
+passed="$(($(answers "$login") - refused))"
+check "every one of the $REQUESTS login starts sent at the same moment was answered" \
+  test "$(answers "$login")" -eq "$REQUESTS"
+check "$PASSED_AT_ONCE to $PASSED_AT_MOST are passed on and the rest are refused with 429 (got $passed and $refused)" \
+  test "$passed" -ge "$PASSED_AT_ONCE" -a "$passed" -le "$PASSED_AT_MOST"
 check "every refusal sends Retry-After: 2, text/plain, nosniff and no cookie" \
   every_refusal_is "$login" "429|2|text/plain|nosniff|"
 check "every refusal carries the short text body" test "$(grep -cxF "$REFUSAL_BODY" <<<"$login")" -eq "$refused"

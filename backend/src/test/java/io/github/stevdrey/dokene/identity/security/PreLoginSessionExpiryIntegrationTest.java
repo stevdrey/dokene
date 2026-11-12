@@ -107,4 +107,23 @@ class PreLoginSessionExpiryIntegrationTest {
 
         assertThat(sessions.find(preLoginId)).isEmpty();
     }
+
+    /**
+     * covers: AC-2. A repeated login start must not restart the age: otherwise a client that repeats it within the
+     * timeout would keep one login start session for as long as it likes.
+     */
+    @Test
+    void aLoginStartSessionEndsAtThePreLoginTimeoutHoweverOftenLoginIsStartedAgain() throws Exception {
+        TestBrowser browser = new TestBrowser(port);
+        browser.startLogin();
+        String preLoginId = browser.sessionId().orElseThrow();
+
+        Instant end = Instant.now().plusSeconds(2);
+        while (Instant.now().isBefore(end)) {
+            browser.startLogin();
+            Thread.sleep(Duration.ofMillis(300));
+        }
+
+        assertThat(sessions.find(preLoginId)).isEmpty();
+    }
 }

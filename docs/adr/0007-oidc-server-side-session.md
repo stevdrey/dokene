@@ -71,16 +71,19 @@ request that needs a session, the login start, is bounded.
   `AnonymousSessionCreationIntegrationTest` sweeps these routes and fails the build if one creates a session again.
 - **Login start session**: a login start creates one session for the OAuth state, nonce and PKCE verifier. Until the
   login succeeds it idles out after `dokene.security.session.pre-login-timeout` (`DOKENE_SESSION_PRE_LOGIN_TIMEOUT`,
-  `5m`) and also ends once it is older than that, however often its cookie is used. That age check
+  `5m`) and also ends once it is older than that, however often its cookie is used. The age counts from the first
+  login start in that session: starting login again does not restart it. That age check
   (`PreLoginSessionExpiryFilter`) runs ahead of Spring Security's filter, so it sees every request whichever
   security chain serves it: neither a request the webhook chain answers nor an unsafe request the CSRF filter
   refuses can keep the session alive. A callback that arrives later
-  ends at the login failure redirect. Startup fails unless the value is at least `1s` and at most `max-lifetime`. A
-  user who takes longer at the provider's login page has to start again.
+  ends at the login failure redirect. Startup fails unless the value is at least `1s`, at most `max-lifetime` and
+  at most `server.servlet.session.timeout`, so a login start session never idles longer than a signed in one. A
+  user who takes longer at the provider's login page has to start again, and a user who starts login a second time
+  in the same browser has only what is left of the first start's time.
 - **Login success**: the session id rotates as before, and the idle timeout returns to
   `server.servlet.session.timeout`.
-- **Login failure**: a failed callback invalidates its login start session and expires the `JSESSIONID` cookie
-  before the failure redirect. It never ends a session that is already signed in: the cookie is `SameSite=Lax`, so a
+- **Login failure**: a failed callback invalidates its login start session and expires the session cookie
+  (`JSESSIONID`, or the name in `server.servlet.session.cookie.name`) before the failure redirect. It never ends a session that is already signed in: the cookie is `SameSite=Lax`, so a
   cross-site link to the callback URL could otherwise sign a user out. Such a link can still cancel a login that is
   in progress, as a forced login start already could.
 - **Edge limit**: nginx allows 30 login starts per minute per client address with a burst of 10 and answers the

@@ -17,8 +17,10 @@ JDK_IMAGE="${DOKENE_VERIFY_JDK_IMAGE:-eclipse-temurin:26-jdk}"
 SWEEP_REQUESTS=2000
 SWEEP_PARALLEL=20
 LOGIN_STARTS=40
-EXPECTED_SESSIONS=11
-EXPECTED_REFUSALS=29
+# 1 + burst pass at once. One more slot frees every 2 seconds, so a burst that a slow machine takes that long to
+# deliver passes one more; the check allows up to 2 more.
+SESSIONS_AT_ONCE=11
+SESSIONS_AT_MOST=13
 # The sweep includes login start paths, which use up the burst. Its 10 slots free at one per 2 seconds.
 BURST_REFILL_SECONDS=25
 failures=0
@@ -123,6 +125,7 @@ sweep="$(i=0; while [ "$i" -lt "$SWEEP_REQUESTS" ]; do sweep_route $((i % SWEEP_
   | curl -s -m 300 --parallel --parallel-max "$SWEEP_PARALLEL" -K -)"
 heap_after_sweep="$(used_heap_kib)"
 memory_after_sweep="$(container_memory)"
+[ -n "$heap_after_sweep" ] || { echo "could not read the backend heap with jcmd after the sweep" >&2; exit 1; }
 
 echo "== Anonymous sweep"
 echo "requests sent: $SWEEP_REQUESTS over $SWEEP_ROUTES routes"
@@ -137,14 +140,17 @@ burst="$(i=0; while [ "$i" -lt "$LOGIN_STARTS" ]; do request GET /oauth2/authori
   | curl -s -m 60 --parallel --parallel-immediate --parallel-max "$LOGIN_STARTS" -K -)"
 heap_after_burst="$(used_heap_kib)"
 memory_after_burst="$(container_memory)"
+[ -n "$heap_after_burst" ] || { echo "could not read the backend heap with jcmd after the login burst" >&2; exit 1; }
 
 echo "== Login burst"
 echo "login starts sent at the same moment: $LOGIN_STARTS"
 echo "session cookies issued: $(session_cookies "$burst")"
 echo "429 answers: $(refusals "$burst")"
 echo "429 answers that set a cookie: $(refusals_with_cookie "$burst")"
-check "exactly $EXPECTED_SESSIONS login starts got a session" test "$(session_cookies "$burst")" -eq "$EXPECTED_SESSIONS"
-check "exactly $EXPECTED_REFUSALS login starts were refused with 429" test "$(refusals "$burst")" -eq "$EXPECTED_REFUSALS"
+check "$SESSIONS_AT_ONCE to $SESSIONS_AT_MOST login starts got a session" \
+  test "$(session_cookies "$burst")" -ge "$SESSIONS_AT_ONCE" -a "$(session_cookies "$burst")" -le "$SESSIONS_AT_MOST"
+check "every other login start was refused with 429" \
+  test "$(($(session_cookies "$burst") + $(refusals "$burst")))" -eq "$LOGIN_STARTS"
 check "no refusal set a cookie, so none reached the backend" test "$(refusals_with_cookie "$burst")" -eq 0
 
 echo "== Backend memory"

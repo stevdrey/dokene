@@ -35,9 +35,14 @@ public final class PreLoginSessionExpiryFilter extends OncePerRequestFilter {
      * {@code preLoginTimeout}.
      */
     public static boolean isExpiredPreLoginSession(HttpSession session, Duration preLoginTimeout, Instant now) {
-        return !(session.getAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT) instanceof Instant)
+        return !isSignedIn(session)
                 && session.getAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT) instanceof Instant startedAt
                 && startedAt.plus(preLoginTimeout).isBefore(now);
+    }
+
+    /** The one test of "this session completed a login", shared by everything that treats the two kinds apart. */
+    public static boolean isSignedIn(HttpSession session) {
+        return session.getAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT) instanceof Instant;
     }
 
     @Override

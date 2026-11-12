@@ -31,10 +31,10 @@ Requests that already created no session: `GET` with `Accept: application/json`,
 | --- | --- |
 | Request cache | `NullRequestCache`: no rejected request is stored. The post-login target was already fixed, so nothing read it. |
 | CSRF token store | `SessionBoundCsrfTokenRepository`: the session store, saving only into a session that already exists. An anonymous unsafe request is compared with a fresh random token and refused with the same status as before. |
-| Login start session | `PreLoginAuthorizationRequestRepository`: the session a login start creates idles out after `dokene.security.session.pre-login-timeout` (default `5m`) and ends once it is older than that, whatever request carries its cookie (`PreLoginSessionExpiryFilter`, registered ahead of Spring Security's filter, so before every security chain). |
+| Login start session | `PreLoginAuthorizationRequestRepository`: the session a login start creates idles out after `dokene.security.session.pre-login-timeout` (default `5m`) and ends once it is older than that, whatever request carries its cookie (`PreLoginSessionExpiryFilter`, registered ahead of Spring Security's filter, so before every security chain). The age counts from the first login start in the session; a repeated login start does not restart it. |
 | Login success | The session id rotates as before and the idle timeout returns to the container's session timeout. |
-| Login failure | The login start session is invalidated and its cookie expired before the failure redirect. A signed-in session is never ended by a failed callback. |
-| Setting | `pre-login-timeout` must be at least `1s` and at most `max-lifetime`, or startup fails with a message naming the property. |
+| Login failure | The login start session is invalidated and its cookie (under the configured session cookie name) expired before the failure redirect. A signed-in session is never ended by a failed callback. |
+| Setting | `pre-login-timeout` must be at least `1s`, at most `max-lifetime` and at most `server.servlet.session.timeout`, or startup fails with a message naming the property. |
 | Edge | nginx limits `/oauth2/authorization/...` to 30 requests per minute per client address with a burst of 10. A refused request gets `429`, `Retry-After: 2` and a short plain text body, and is not passed to the backend. No other route is limited. |
 
 Every status code in the sweep is the one recorded against the unchanged code.
@@ -45,14 +45,15 @@ Every status code in the sweep is the one recorded against the unchanged code.
 | --- | --- |
 | `AnonymousSessionCreationIntegrationTest` (38 requests: the sweep plus the health check bytes over a raw socket) | 38 pass: zero sessions, no `JSESSIONID` cookie, statuses unchanged |
 | `SessionBoundCsrfTokenRepositoryTest` | 6 pass |
-| `PreLoginAuthorizationRequestRepositoryTest` | 9 pass |
+| `PreLoginAuthorizationRequestRepositoryTest` (marks the session once, a repeated login start keeps the first start time, a signed-in session is never shortened) | 7 pass |
+| `TenantSecurityConfigurationTest` (pre login timeout against the servlet idle timeout; the failure handler ends a login start session and expires the configured cookie name) | 14 pass |
 | `BffSessionPropertiesTest` (default, bounds, startup failure for `0s`, `500ms` and a value above `max-lifetime`) | 8 pass |
 | `PreLoginSessionExpiryFilterTest` (age boundary, signed-in and ordinary sessions left alone, no session created) | 5 pass |
 | `BffSessionLifetimeFilterTest`, behavior unchanged | 14 pass |
 | `PreLoginSessionIntegrationTest` (one session with a 300 second idle timeout at login start; id rotation and normal timeout at login; failed callback cleanup; signed-in session kept; repeated login start) | 5 pass |
-| `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends, on `GET` requests, on unsafe requests the CSRF filter refuses and on requests to the webhook route) | 4 pass |
+| `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends, on `GET` requests, on unsafe requests the CSRF filter refuses, on requests to the webhook route and on repeated login starts) | 5 pass |
 | `OidcBrowserSessionIntegrationTest` and `BffTenantBoundarySecurityIntegrationTest`, unedited (login, CSRF, session fixation, local, provider and back-channel logout) | 19 and 8 pass |
-| `./scripts/tests/nginx-login-rate-limit-smoke.sh` (frontend image, no backend) | 6 checks pass: of 40 login starts sent at the same moment 29 get `429` and 11 are passed on; every refusal has `Retry-After: 2`, `text/plain`, the base security headers, the text body and no cookie; 40 simultaneous requests to `/api/session` and to the callback get no `429` |
+| `./scripts/tests/nginx-login-rate-limit-smoke.sh` (frontend image, no backend) | 6 checks pass: all 40 login starts sent at the same moment are answered, 11 are passed on and 29 get `429` (the check accepts 11 to 13 passed, since one slot frees every 2 seconds on a slow runner); every refusal has `Retry-After: 2`, `text/plain`, the base security headers, the text body and no cookie; 40 simultaneous requests to `/api/session` and to the callback get no `429` |
 
 The smoke test runs in the `nginx-headers` job of `.github/workflows/frontend.yml`.
 

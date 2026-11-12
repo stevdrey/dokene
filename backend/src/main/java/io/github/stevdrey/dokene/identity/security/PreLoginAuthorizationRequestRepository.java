@@ -14,9 +14,11 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequ
 
 /**
  * The login start is the one anonymous request that needs a session: it holds the state, nonce and PKCE verifier. Until
- * the login succeeds that session idles out after the pre login timeout and also ends at that age, whatever its use
- * ({@link PreLoginSessionExpiryFilter#isExpiredPreLoginSession}); a callback that arrives later finds no request and
- * fails. A signed in session is never shortened or ended here. This class never creates a session itself.
+ * the login succeeds that session idles out after the pre login timeout and also ends at that age, whatever its use.
+ * {@link PreLoginSessionExpiryFilter} is the one place that ends it: it runs ahead of this repository on every
+ * request, so a callback that arrives later finds no session and fails. This class only marks the session. The start
+ * time is set once: a repeated login start must not move it, or a client repeating login starts would keep the
+ * session past its age. A signed in session is never shortened here. This class never creates a session itself.
  */
 public final class PreLoginAuthorizationRequestRepository
         implements AuthorizationRequestRepository<OAuth2AuthorizationRequest> {
@@ -33,7 +35,7 @@ public final class PreLoginAuthorizationRequestRepository
 
     @Override
     public OAuth2AuthorizationRequest loadAuthorizationRequest(HttpServletRequest request) {
-        return endedExpiredPreLoginSession(request) ? null : delegate.loadAuthorizationRequest(request);
+        return delegate.loadAuthorizationRequest(request);
     }
 
     @Override
@@ -44,8 +46,10 @@ public final class PreLoginAuthorizationRequestRepository
             return;
         }
         HttpSession session = request.getSession(false);
-        if (session != null && session.getAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT) == null) {
-            session.setAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT, clock.instant());
+        if (session != null && !PreLoginSessionExpiryFilter.isSignedIn(session)) {
+            if (session.getAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT) == null) {
+                session.setAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT, clock.instant());
+            }
             session.setMaxInactiveInterval(Math.toIntExact(preLoginTimeout.toSeconds()));
         }
     }
@@ -53,22 +57,6 @@ public final class PreLoginAuthorizationRequestRepository
     @Override
     public OAuth2AuthorizationRequest removeAuthorizationRequest(HttpServletRequest request,
             HttpServletResponse response) {
-        return endedExpiredPreLoginSession(request) ? null : delegate.removeAuthorizationRequest(request, response);
-    }
-
-    private boolean endedExpiredPreLoginSession(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session == null) {
-            return false;
-        }
-        try {
-            if (!PreLoginSessionExpiryFilter.isExpiredPreLoginSession(session, preLoginTimeout, clock.instant())) {
-                return false;
-            }
-            session.invalidate();
-        } catch (IllegalStateException alreadyInvalidated) {
-            // A concurrent request ended this session first; either way there is no request to hand back.
-        }
-        return true;
+        return delegate.removeAuthorizationRequest(request, response);
     }
 }

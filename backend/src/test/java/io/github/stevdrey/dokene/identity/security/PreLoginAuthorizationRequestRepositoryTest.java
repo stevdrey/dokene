@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests of the OAuth authorization request store of the BFF chain (issue 311): a login start session
-// ABOUTME: is short lived and ends at an absolute age, and a signed in session is never shortened.
+// ABOUTME: is short lived and keeps its first start time, and a signed in session is never shortened.
 package io.github.stevdrey.dokene.identity.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,14 +40,14 @@ class PreLoginAuthorizationRequestRepositoryTest {
     }
 
     @Test
-    void aRepeatedLoginStartResetsTheStartTime() {
+    void aRepeatedLoginStartKeepsTheFirstStartTime() {
         repository.saveAuthorizationRequest(authorizationRequest("state-1"), requestWithSession(), response);
         clock.advance(Duration.ofMinutes(4));
 
         repository.saveAuthorizationRequest(authorizationRequest("state-2"), requestWithSession(), response);
 
-        assertThat(session.getAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT))
-                .isEqualTo(START.plus(Duration.ofMinutes(4)));
+        assertThat(session.getAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT)).isEqualTo(START);
+        assertThat(repository.loadAuthorizationRequest(callback("state-2"))).isNotNull();
     }
 
     @Test
@@ -71,9 +71,9 @@ class PreLoginAuthorizationRequestRepositoryTest {
     }
 
     @Test
-    void aCallbackWithinTheTimeoutGetsItsAuthorizationRequest() {
+    void aCallbackGetsItsAuthorizationRequestAndNeverEndsTheSession() {
         repository.saveAuthorizationRequest(authorizationRequest("state-1"), requestWithSession(), response);
-        clock.advance(TIMEOUT);
+        clock.advance(Duration.ofHours(1));
 
         assertThat(repository.loadAuthorizationRequest(callback("state-1"))).isNotNull();
         assertThat(repository.removeAuthorizationRequest(callback("state-1"), response)).isNotNull();
@@ -81,32 +81,14 @@ class PreLoginAuthorizationRequestRepositoryTest {
     }
 
     @Test
-    void aCallbackAfterTheTimeoutFindsNothingAndEndsTheSession() {
+    void aSessionWhoseSignedInMarkerIsNotAnInstantIsTreatedAsALoginStartSession() {
+        session.setMaxInactiveInterval(NORMAL_IDLE_SECONDS);
+        session.setAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT, "not an instant");
+
         repository.saveAuthorizationRequest(authorizationRequest("state-1"), requestWithSession(), response);
-        clock.advance(TIMEOUT.plusMillis(1));
 
-        assertThat(repository.removeAuthorizationRequest(callback("state-1"), response)).isNull();
-        assertThat(session.isInvalid()).isTrue();
-    }
-
-    @Test
-    void loadingAfterTheTimeoutFindsNothingAndEndsTheSession() {
-        repository.saveAuthorizationRequest(authorizationRequest("state-1"), requestWithSession(), response);
-        clock.advance(TIMEOUT.plusMillis(1));
-
-        assertThat(repository.loadAuthorizationRequest(callback("state-1"))).isNull();
-        assertThat(session.isInvalid()).isTrue();
-    }
-
-    @Test
-    void aLateCallbackNeverEndsASignedInSession() {
-        repository.saveAuthorizationRequest(authorizationRequest("state-1"), requestWithSession(), response);
-        session.setAttribute(BffSessionLifetimeFilter.AUTHENTICATED_AT, START);
-        clock.advance(Duration.ofHours(1));
-
-        repository.removeAuthorizationRequest(callback("state-1"), response);
-
-        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.getMaxInactiveInterval()).isEqualTo(300);
+        assertThat(session.getAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT)).isEqualTo(START);
     }
 
     @Test
