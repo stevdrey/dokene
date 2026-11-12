@@ -18,10 +18,9 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   nginx).
 - PostgreSQL and Keycloak run with the same restrictions as the other services (issue 319, audit L14): no Linux
   capabilities, `no-new-privileges`, a non-root user and a read-only root filesystem. PostgreSQL starts directly as
-  the image's `postgres` user, because the stock root start needs `CHOWN`, `SETUID` and `SETGID`; its writable
-  paths are the data volume and two tmpfs mounts (`/var/run/postgresql`, `/tmp`). Keycloak writes only to two tmpfs
-  mounts (`/opt/keycloak/data`, `/tmp`). The `/dev/shm` tmpfs Docker mounts in every container stays writable in
-  both; PostgreSQL keeps its dynamic shared memory there. A named Keycloak volume was not chosen: `--import-realm` skips a realm that
+  the image's `postgres` user, because the stock root start needs `CHOWN`, `SETUID` and `SETGID`. PostgreSQL keeps
+  its data volume; Keycloak keeps its data on a tmpfs. The writable paths of every service are listed in
+  `infra/docker/README.md` and are not repeated here. A named Keycloak volume was not chosen: `--import-realm` skips a realm that
   already exists, so a changed client secret, test password or realm template would stop applying until a reset.
 - nginx serves the SPA on `http://localhost:5173` and proxies `/api`, `/oauth2`, `/login` and `/logout` to the backend,
   mirroring the Vite dev proxy. It presents `Host: localhost:8080` so the OIDC redirect URI registered in Keycloak is

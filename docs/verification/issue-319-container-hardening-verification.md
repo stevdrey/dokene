@@ -64,6 +64,23 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 | Persistence: `./scripts/dev-env.sh down`, then `up` | All healthy. Database counts unchanged; the login check passed 8 of 8 |
 | Clean deployment: volume removed, `./scripts/dev-env.sh up --seed` | `migrate`: "Successfully applied 39 migrations … now at version v39"; all services healthy; seed provisioned the workspace (1 tenant, 3 memberships); the login check passed 8 of 8. See the limitation below for the role-creation step |
 
+## Review follow-up (2026-11-12)
+
+Changes made after the review of PR #385. The sections above describe the run of 2026-11-11 and were not repeated; the full stack was not started again.
+
+| Review point | Change | Evidence |
+| --- | --- | --- |
+| The smoke check also read a local `compose.override.yaml` | `compose_config_json` renders `-f compose.yaml` only | Smoke run below |
+| Keycloak's user and the options of its data tmpfs were not asserted | The #319 check asserts that Compose does not override the image user and that `/opt/keycloak/data` keeps `uid=1000` and `mode=0700` | Smoke run below |
+| uid 70 was written in `user:` and again in the tmpfs options | Both read `DOKENE_POSTGRES_UID` (default 70) | New check renders the model with 999 and finds `999:999` and `uid=999,gid=999`; with the default the rendered values are the ones tested on 2026-11-11 |
+| Interactive `psql` could not save its history | `PSQL_HISTORY=/tmp/.psql_history` on `postgres` | Throwaway `postgres:17-alpine` container with the same restrictions: without the variable `psql` printed `could not save history to file "/var/lib/postgresql/.psql_history": Read-only file system`; with it the file was written to `/tmp` and no error was printed |
+| `kcadm.sh` cannot write `~/.keycloak/kcadm.config` | Documented in `infra/docker/README.md`: pass `--config /tmp/…` | Not run again; `scripts/keycloak-apply-session-revocation.sh` already uses `--config` under `/tmp` and passed in the live run above |
+| `up` still ran the session revocation reconcile, which cannot change a realm imported at every start | Call removed from `cmd_up`; the script stays for a Keycloak that keeps its realm, and ADR 0007 says so | New check: `cmd_up` does not reference the script. `scripts/tests/keycloak-apply-session-revocation-test.sh` passes |
+| The usage header said `reset` destroys Keycloak data | Header corrected | New check on the `help` output |
+| "listed here and nowhere else" was inaccurate | README reworded; ADR 0022 points to the README instead of restating the paths | Read-through |
+
+**Smoke run:** 21 checks passed, 1 failed, 1 skipped (ShellCheck, not installed on this host). The failing check is the same "secret files: … (#308)" check tracked as [#366](https://github.com/stevdrey/dokene/issues/366). The four checks added or extended for this round failed before the changes and pass after them.
+
 ## Limitations
 
 - On this Docker Desktop host the bind-mounted `01-create-database-roles.sh` is executed instead of sourced and exits 126 ("bad interpreter: Permission denied"). It does so identically on `e7fcc67`; it is the behaviour reported in [#298](https://github.com/stevdrey/dokene/issues/298). In both the baseline and the clean deployment the script was therefore applied with `docker compose exec -T postgres bash < …`, which runs inside the restricted container. The unmodified entrypoint path was verified separately with the script in a volume (see the compatibility checks). A clean first start on a Linux host was not run.
@@ -76,4 +93,4 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 - The PostgreSQL bootstrap role is still a superuser inside the database, and the container environment still holds its password and the two role passwords used on first start.
 - `/dev/shm` stays a writable 64 MiB `noexec` tmpfs in every container. PostgreSQL needs it; it is not capped or removed for the other services.
 - No user namespace remapping, custom seccomp or AppArmor profile, or resource limit is configured; Docker's default seccomp profile applies.
-- Replacing `postgres:17-alpine` with a Debian-based tag requires changing uid 70 to that image's `postgres` uid (999) in `user:` and in the tmpfs options.
+- Replacing `postgres:17-alpine` with a Debian-based tag requires setting `DOKENE_POSTGRES_UID` to that image's `postgres` uid (999); it sets `user:` and the owner of the socket tmpfs together (see the review follow-up).

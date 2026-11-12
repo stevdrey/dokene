@@ -21,7 +21,7 @@ they are not in any container's environment. When a secret changes, `up` recreat
 backend that finds a pending migration refuses to start and points at `./scripts/dev-env.sh logs migrate`.
 
 All published ports are bound to loopback. Every service drops all Linux capabilities, sets `no-new-privileges`, runs
-as a non-root user and has a read-only root filesystem. The writable paths are listed here and nowhere else:
+as a non-root user and has a read-only root filesystem. Nothing else is writable:
 
 | Service | Writable path | Kind | Holds |
 | --- | --- | --- | --- |
@@ -40,8 +40,14 @@ every container, and PostgreSQL needs it. The `/dev` tmpfs is writable by root o
 PostgreSQL starts directly as the image's `postgres` user (`user: "70:70"`). The stock entrypoint starts as root only
 to chown the data directory and step down, which needs `CHOWN`, `SETUID` and `SETGID`; with every capability dropped
 that start fails (`failed switching to 'postgres': operation not permitted`). A volume created before this change is
-already owned by uid 70 and is reused as it is. If you replace the image with a Debian-based `postgres` tag, change
-the uid to that image's `postgres` user (999) in `user:` and in the tmpfs options.
+already owned by uid 70 and is reused as it is. `DOKENE_POSTGRES_UID` (default 70) sets both `user:` and the owner
+of the `/var/run/postgresql` tmpfs. If you replace the image with a Debian-based `postgres` tag, set it to that
+image's `postgres` user (999).
+
+The home directories of both users are on the read-only root. `psql` keeps its history in `/tmp`
+(`PSQL_HISTORY`). `kcadm.sh` writes its login to `~/.keycloak/kcadm.config` by default, which fails; pass
+`--config /tmp/kcadm.config` to `kcadm.sh config credentials` and to every later `kcadm.sh` call in a
+`docker compose exec keycloak` session.
 
 Keycloak state lives in memory: users, sessions and signing keys last until the container stops, and each start
 imports the realm again from `infra/docker/keycloak/import`. The test users have fixed ids in that file, so their

@@ -4,13 +4,18 @@ services:
     # Starts as the image's `postgres` user (uid/gid 70) instead of root (issue 319, audit L14). The stock entrypoint
     # needs root and CHOWN/SETUID/SETGID only to chown the data directory and step down to this user; started as that
     # user it needs no capability. A data volume created by an earlier root start is already owned by uid 70.
-    user: "70:70"
+    # DOKENE_POSTGRES_UID also sets the owner of the socket tmpfs below, so the two cannot drift apart; a Debian-based
+    # image needs 999.
+    user: "${DOKENE_POSTGRES_UID:-70}:${DOKENE_POSTGRES_UID:-70}"
     environment:
       POSTGRES_DB: ${DOKENE_DB_NAME:?Set DOKENE_DB_NAME in .env}
       POSTGRES_USER: ${DOKENE_DB_BOOTSTRAP_USERNAME:?Set DOKENE_DB_BOOTSTRAP_USERNAME in .env}
       POSTGRES_PASSWORD: ${DOKENE_DB_BOOTSTRAP_PASSWORD:?Set DOKENE_DB_BOOTSTRAP_PASSWORD in .env}
       DOKENE_DB_MIGRATION_PASSWORD: ${DOKENE_DB_MIGRATION_PASSWORD:?Set DOKENE_DB_MIGRATION_PASSWORD in .env}
       DOKENE_DB_RUNTIME_PASSWORD: ${DOKENE_DB_RUNTIME_PASSWORD:?Set DOKENE_DB_RUNTIME_PASSWORD in .env}
+      # The postgres home directory is on the read-only root; without this an interactive psql in an `exec` session
+      # fails to save its history on exit.
+      PSQL_HISTORY: /tmp/.psql_history
     ports:
       # Loopback only. Change the host port if another PostgreSQL already listens on 5432.
       - "127.0.0.1:${DOKENE_DB_HOST_PORT:-5432}:5432"
@@ -23,7 +28,7 @@ services:
     # file. Nothing writes to /tmp during startup today; it stays writable so a here-document too large for a pipe (in
     # an init script or a `docker compose exec` session) does not fail on the read-only root.
     tmpfs:
-      - /var/run/postgresql:uid=70,gid=70,mode=0755,size=1m
+      - /var/run/postgresql:uid=${DOKENE_POSTGRES_UID:-70},gid=${DOKENE_POSTGRES_UID:-70},mode=0755,size=1m
       - /tmp:size=16m
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

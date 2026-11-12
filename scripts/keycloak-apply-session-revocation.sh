@@ -7,6 +7,10 @@
 # whose realm predates #307 keeps working without back-channel logout until this
 # runs; revalidation still bounds revocation meanwhile.
 #
+# The Compose stack no longer needs it: since issue #319 the keycloak service keeps
+# its data on a tmpfs and imports the realm file at every start, so dev-env.sh does
+# not call this script. It remains for a Keycloak that keeps its realm across starts.
+#
 # Non-destructive and idempotent: it changes only the dokene-bff client's
 # back-channel logout attributes and the realm's SSO max lifespan, and leaves
 # every value that already matches untouched. It runs the Keycloak Admin CLI

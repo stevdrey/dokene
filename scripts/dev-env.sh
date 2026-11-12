@@ -15,7 +15,7 @@
 #   ./scripts/dev-env.sh logs [service]
 #   ./scripts/dev-env.sh seed [--verify]
 #   ./scripts/dev-env.sh doctor
-#   ./scripts/dev-env.sh reset [--yes]     (destroys local database and Keycloak data)
+#   ./scripts/dev-env.sh reset [--yes]     (deletes the local PostgreSQL volume)
 #   ./scripts/dev-env.sh help
 #
 # Compatible with bash 3.2 (macOS default) and Linux.
@@ -563,10 +563,6 @@ cmd_up() {
   compose_up_services "$NO_BUILD" "" $services
   ok "All requested containers are healthy"
   compose ps
-
-  # --import-realm skips a realm Keycloak already holds; bring its session revocation settings (issue 307) up to date.
-  "$ROOT_DIR/scripts/keycloak-apply-session-revocation.sh" \
-    || warn "Keycloak session revocation settings not applied; run scripts/keycloak-apply-session-revocation.sh."
 
   if [ "$WANT_SEED" = "true" ]; then
     if [ "$INFRA_ONLY" = "true" ]; then
