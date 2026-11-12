@@ -324,6 +324,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L14. The PostgreSQL and Keycloak containers lack the hardening the other services have — Static
 
+- **Status:** fixed by [#319](https://github.com/stevdrey/dokene/issues/319); see [the verification record](../verification/issue-319-container-hardening-verification.md). Both services now drop every capability, set `no-new-privileges` and have a read-only root filesystem with listed writable paths; PostgreSQL starts as its unprivileged user.
+
 - **Where:** `compose.yaml:1-87`. The postgres and keycloak services have no `cap_drop: [ALL]`, `no-new-privileges` or `read_only`. The backend, frontend and oidc-bridge services have all three.
 - **Fix:** apply the same options. A writable volume and tmpfs are still needed where required.
 
