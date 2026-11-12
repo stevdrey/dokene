@@ -191,7 +191,9 @@ describe('FollowUpCard', () => {
     expect(style.minWidth).toBe('0px');
     expect(style.overflow).toBe('hidden');
     expect(style.overflowWrap).toBe('anywhere');
-    expect(style.getPropertyValue('-webkit-line-clamp')).toBe('2');
+    // jsdom 31+ drops the -webkit- prefixed declaration; the standard property is kept.
+    expect(style.display).toBe('-webkit-box');
+    expect(style.getPropertyValue('line-clamp')).toBe('2');
     expect(getComputedStyle(heading.closest('.follow-up-card__title-row') as HTMLElement).minWidth).toBe('0px');
   });
 

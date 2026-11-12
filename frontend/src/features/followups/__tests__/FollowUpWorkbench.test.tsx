@@ -180,7 +180,7 @@ describe('FollowUpWorkbench', () => {
       const grid = container.querySelector('.follow-up-queue-grid') as HTMLElement;
       expect(grid.classList.contains('follow-up-queue-grid--stacked')).toBe(stacked);
       expect(getComputedStyle(grid).gridTemplateColumns).toBe(
-        stacked ? 'minmax(0, 1fr)' : 'minmax(0, 5fr) minmax(0, 7fr)'
+        stacked ? 'minmax(0px, 1fr)' : 'minmax(0px, 5fr) minmax(0px, 7fr)'
       );
       expect(getComputedStyle(container.querySelector('.follow-up-queue-column') as HTMLElement).minWidth).toBe('0px');
     });
