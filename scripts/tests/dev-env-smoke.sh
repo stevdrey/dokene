@@ -236,6 +236,7 @@ ENV
       printf 'DOKENE_TEST_OPERATOR_PASSWORD=%s\n' "$1" >> "$work/.env.next"
       mv "$work/.env.next" "$work/.env"
     }
+    # shellcheck disable=SC2016  # the values are literal .env text
     for value in 'abc123 # padded-out' 'twelve$chars-x' '"twelve$chars-x"' '"twelve\chars-x"'; do
       set_operator_line "$value"
       [ "$(env_get DOKENE_TEST_OPERATOR_PASSWORD)" = "$value" ] || exit 1
@@ -277,24 +278,28 @@ check "doctor does not write test passwords to .env without a yes (#314 review)"
   bash -c "$(declare -f doctor_does_not_write_test_passwords_unasked) ; SCRIPT='$SCRIPT'; doctor_does_not_write_test_passwords_unasked"
 
 # The scripts that log in as the test users share one loader, so a role or variable changes in one place.
+# The bash -c scripts below are single quoted on purpose: the child shell expands them, with the passwords given only
+# through `env`, so this file never assigns the variables the other checks set in their own subshells.
+# shellcheck disable=SC2016
 test_password_lib_loads_and_fails_closed() {
-  local lib="$ROOT_DIR/scripts/lib/test-passwords.sh" out
+  local scripts_dir lib out
+  scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || return 1
+  lib="$scripts_dir/lib/test-passwords.sh"
   [ -f "$lib" ] || return 1
-  (
-    export DOKENE_TEST_OWNER_PASSWORD=owner-value-12 DOKENE_TEST_OPERATOR_PASSWORD=operator-value DOKENE_TEST_VIEWER_PASSWORD=viewer-value-1
-    # shellcheck source=../lib/test-passwords.sh
-    source "$lib" || exit 1
+  env DOKENE_TEST_OWNER_PASSWORD=owner-value-12 DOKENE_TEST_OPERATOR_PASSWORD=operator-value \
+      DOKENE_TEST_VIEWER_PASSWORD=viewer-value-1 bash -c '
+    source "$1" || exit 1
     [ "$OWNER_PASSWORD" = owner-value-12 ] && [ "$(test_password_for testoperator)" = operator-value ] \
       && [ "$(test_password_for testviewer)" = viewer-value-1 ] || exit 1
-    ! out="$(test_password_for nobody 2>&1)" && grep -q 'no test password for nobody' <<<"$out"
-  ) || return 1
+    ! out="$(test_password_for nobody 2>&1)" && grep -q "no test password for nobody" <<<"$out"
+  ' _ "$lib" || return 1
   # A missing variable stops the sourcing script and names the variable and the fix.
   ! out="$(env -u DOKENE_TEST_VIEWER_PASSWORD DOKENE_TEST_OWNER_PASSWORD=a DOKENE_TEST_OPERATOR_PASSWORD=b \
             bash -c 'source "$1"; echo reached' _ "$lib" 2>&1)" || return 1
   grep -q 'DOKENE_TEST_VIEWER_PASSWORD is not set; run ./scripts/dev-env.sh up' <<<"$out" && ! grep -q reached <<<"$out" || return 1
   # No copy of the block is left, and no login posts the result of a lookup whose failure errexit cannot see.
-  ! grep -l 'MISSING_PASSWORD_HINT=' "$ROOT_DIR"/scripts/*.sh || return 1
-  ! grep -n 'password=\$(test_password_for' "$ROOT_DIR"/scripts/*.sh
+  ! grep -l 'MISSING_PASSWORD_HINT=' "$scripts_dir"/*.sh || return 1
+  ! grep -n 'password=\$(test_password_for' "$scripts_dir"/*.sh
 }
 check "test user passwords load from one sourced file that fails closed (#314 review)" test_password_lib_loads_and_fails_closed
 
