@@ -67,6 +67,18 @@ The review of `3251a24` found the same gap on another route. `/webhooks/**` has 
 
 The check is now a servlet filter registered ahead of Spring Security's filter, so it runs for every request whichever chain serves it, and it is no longer part of the BFF chain. The integration test for the webhook route was written first and failed against `3251a24` in the same way. After the change these suites were run again and passed: `PreLoginSessionExpiryIntegrationTest` (4), `PreLoginSessionIntegrationTest` (5), `PreLoginSessionExpiryFilterTest` (5), `BffSessionLifetimeFilterTest` (14), `AnonymousSessionCreationIntegrationTest` (38), `OidcBrowserSessionIntegrationTest` (19), `BffTenantBoundarySecurityIntegrationTest` (8) and `WhatsAppWebhookIntegrationTest` (13). The full `./gradlew check` also passed on that state: 2705 tests, no failures, errors or skips. The nginx smoke test and the dev stack run below were not repeated.
 
+The review of `c30b5cc` raised seven points, fixed in `9d7fe68`:
+
+- A repeated login start reset the start time, so a client repeating it within the timeout kept one login start session for as long as it liked. The start time is now set once per session. The integration test for repeated login starts was written first and failed against the old behavior: the session still existed after twice the timeout.
+- The repository repeated the age check the filter already runs on every request. `PreLoginSessionExpiryFilter` is now the one place that ends an expired login start session.
+- `pre-login-timeout` was not compared with `server.servlet.session.timeout`. Startup now fails when it is longer, so a login start session never idles longer than a signed-in one.
+- The filter and the failure handler tested "signed in" in two different ways. Both, and the repository, now use `PreLoginSessionExpiryFilter.isSignedIn`.
+- The failed login path and logout expired a hard coded `JSESSIONID`. Both now use `server.servlet.session.cookie.name`.
+- The smoke test and the evidence script required exactly 11 passed login starts, which a runner that takes 2 seconds to deliver the burst would miss. They accept 11 to 13 and require every other one to be refused.
+- The evidence script computed heap growth from readings it had not checked. It now stops when a reading is empty.
+
+On `9d7fe68` these were run: `./gradlew check` (2710 tests; 2709 passed and `GraphApiMessagingProviderTest.aConnectThatHangsIsTransientBecauseNothingLeft`, a connect timing test in messaging that this change does not touch, failed once and passed on two reruns), the nginx smoke test (6 checks pass, 11 passed on and 29 refused), and the dev stack script after rebuilding the backend image (all checks pass: 2000 sweep requests, 0 session cookies, 107 refusals; 40 login starts, 11 sessions, 29 refusals, none with a cookie). The working tree held one uncommitted change during that run, a local planning file outside the build, so the script labelled its revision accordingly; the tables below remain the run on `9d25605`.
+
 ## Evidence run on the dev stack
 
 `./scripts/verify-issue-311-anonymous-sessions.sh`, all checks passed.
