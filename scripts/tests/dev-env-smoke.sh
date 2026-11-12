@@ -60,7 +60,7 @@ shellcheck_targets=(
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
-# shellcheck_supported VERSION: true when VERSION is the minimum or newer; an empty VERSION (not installed) is not.
+# True when VERSION ($1) is the minimum or newer; an empty VERSION (not installed) is not.
 shellcheck_supported() {
   [ -n "$1" ] && [ "$(printf '%s\n%s\n' "$shellcheck_min_version" "$1" | sort -V | head -n 1)" = "$shellcheck_min_version" ]
 }
