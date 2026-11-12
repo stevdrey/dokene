@@ -31,7 +31,7 @@ Requests that already created no session: `GET` with `Accept: application/json`,
 | --- | --- |
 | Request cache | `NullRequestCache`: no rejected request is stored. The post-login target was already fixed, so nothing read it. |
 | CSRF token store | `SessionBoundCsrfTokenRepository`: the session store, saving only into a session that already exists. An anonymous unsafe request is compared with a fresh random token and refused with the same status as before. |
-| Login start session | `PreLoginAuthorizationRequestRepository`: the session a login start creates idles out after `dokene.security.session.pre-login-timeout` (default `5m`) and ends once it is older than that, whatever request carries its cookie (`PreLoginSessionExpiryFilter`, registered before the CSRF filter). |
+| Login start session | `PreLoginAuthorizationRequestRepository`: the session a login start creates idles out after `dokene.security.session.pre-login-timeout` (default `5m`) and ends once it is older than that, whatever request carries its cookie (`PreLoginSessionExpiryFilter`, registered ahead of Spring Security's filter, so before every security chain). |
 | Login success | The session id rotates as before and the idle timeout returns to the container's session timeout. |
 | Login failure | The login start session is invalidated and its cookie expired before the failure redirect. A signed-in session is never ended by a failed callback. |
 | Setting | `pre-login-timeout` must be at least `1s` and at most `max-lifetime`, or startup fails with a message naming the property. |
@@ -50,17 +50,21 @@ Every status code in the sweep is the one recorded against the unchanged code.
 | `PreLoginSessionExpiryFilterTest` (age boundary, signed-in and ordinary sessions left alone, no session created) | 5 pass |
 | `BffSessionLifetimeFilterTest`, behavior unchanged | 14 pass |
 | `PreLoginSessionIntegrationTest` (one session with a 300 second idle timeout at login start; id rotation and normal timeout at login; failed callback cleanup; signed-in session kept; repeated login start) | 5 pass |
-| `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends, on `GET` requests and on unsafe requests the CSRF filter refuses) | 3 pass |
+| `PreLoginSessionExpiryIntegrationTest` (`pre-login-timeout=1s`: late callback fails; a session whose cookie is used every 300 ms still ends, on `GET` requests, on unsafe requests the CSRF filter refuses and on requests to the webhook route) | 4 pass |
 | `OidcBrowserSessionIntegrationTest` and `BffTenantBoundarySecurityIntegrationTest`, unedited (login, CSRF, session fixation, local, provider and back-channel logout) | 19 and 8 pass |
 | `./scripts/tests/nginx-login-rate-limit-smoke.sh` (frontend image, no backend) | 6 checks pass: of 40 login starts sent at the same moment 29 get `429` and 11 are passed on; every refusal has `Retry-After: 2`, `text/plain`, the base security headers, the text body and no cookie; 40 simultaneous requests to `/api/session` and to the callback get no `429` |
 
 The smoke test runs in the `nginx-headers` job of `.github/workflows/frontend.yml`.
 
-## Review finding
+## Review findings
 
 The review of `9d25605` found that the age check ran after the CSRF filter. An unsafe request without a CSRF token is answered by that filter, so it never reached the check, while reading the session there reset the idle timeout. A client could keep a login start session alive past the timeout with such requests, which nginx does not limit, and the bound below did not hold.
 
 The check moved to `PreLoginSessionExpiryFilter`, registered before the CSRF filter. The integration test for refused unsafe requests was written first and failed against `9d25605`: the session still existed after twice the timeout.
+
+The review of `3251a24` found the same gap on another route. `/webhooks/**` has its own security chain, so the check, which was registered in the BFF chain, never ran for `GET /webhooks/whatsapp`. `BffSessionLifetimeFilter` is also registered as a servlet filter outside both chains and reads the session there, which reset the idle timeout before the controller answered `403`. nginx does not limit that route either.
+
+The check is now a servlet filter registered ahead of Spring Security's filter, so it runs for every request whichever chain serves it, and it is no longer part of the BFF chain. The integration test for the webhook route was written first and failed against `3251a24` in the same way. After the change these suites were run again and passed: `PreLoginSessionExpiryIntegrationTest` (4), `PreLoginSessionIntegrationTest` (5), `PreLoginSessionExpiryFilterTest` (5), `BffSessionLifetimeFilterTest` (14), `AnonymousSessionCreationIntegrationTest` (38), `OidcBrowserSessionIntegrationTest` (19), `BffTenantBoundarySecurityIntegrationTest` (8) and `WhatsAppWebhookIntegrationTest` (13). The full `./gradlew check` also passed on that state: 2705 tests, no failures, errors or skips. The nginx smoke test and the dev stack run below were not repeated.
 
 ## Evidence run on the dev stack
 

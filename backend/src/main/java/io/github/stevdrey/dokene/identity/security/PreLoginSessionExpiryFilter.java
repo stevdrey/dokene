@@ -1,5 +1,5 @@
 // ABOUTME: Ends a login start session that is older than the pre login timeout (issue 311, audit M2), whatever the
-// ABOUTME: request that carries its cookie. Runs before every filter of the BFF chain that can refuse a request.
+// ABOUTME: request that carries its cookie. Runs before Spring Security's filter, so before every security chain.
 package io.github.stevdrey.dokene.identity.security;
 
 import jakarta.servlet.FilterChain;
@@ -16,8 +16,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * An idle timeout alone gives no bound: any request with the cookie resets it. This filter therefore has to see every
- * such request, so it is registered before the CSRF filter, which answers an unsafe request without a token itself and
- * would otherwise let that request keep the session alive. The request continues without the session it ended.
+ * such request, so it is registered as a servlet filter ahead of Spring Security's. Inside the BFF chain it would miss
+ * a request the webhook chain serves, and behind the CSRF filter it would miss an unsafe request without a token,
+ * which that filter answers itself. The request continues without the session it ended.
  */
 public final class PreLoginSessionExpiryFilter extends OncePerRequestFilter {
 

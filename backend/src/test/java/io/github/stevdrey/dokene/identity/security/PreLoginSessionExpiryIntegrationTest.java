@@ -88,4 +88,23 @@ class PreLoginSessionExpiryIntegrationTest {
 
         assertThat(sessions.find(preLoginId)).isEmpty();
     }
+
+    /**
+     * covers: AC-2. The webhook route has its own filter chain, so the BFF chain never sees this request; a filter
+     * outside both chains that reads the session would still reset the idle timeout.
+     */
+    @Test
+    void aLoginStartSessionEndsAtThePreLoginTimeoutWhenItsCookieIsUsedOnTheWebhookRoute() throws Exception {
+        TestBrowser browser = new TestBrowser(port);
+        browser.startLogin();
+        String preLoginId = browser.sessionId().orElseThrow();
+
+        Instant end = Instant.now().plusSeconds(2);
+        while (Instant.now().isBefore(end)) {
+            assertThat(browser.get("/webhooks/whatsapp").statusCode()).isEqualTo(403);
+            Thread.sleep(Duration.ofMillis(300));
+        }
+
+        assertThat(sessions.find(preLoginId)).isEmpty();
+    }
 }

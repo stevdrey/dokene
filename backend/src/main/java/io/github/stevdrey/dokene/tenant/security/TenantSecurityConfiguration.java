@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -56,7 +58,6 @@ import org.springframework.security.web.authentication.logout.CookieClearingLogo
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
-import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
@@ -105,6 +106,22 @@ class TenantSecurityConfiguration {
     @Bean
     OAuth2AuthorizedClientRepository authorizedClientRepository() {
         return new HttpSessionOAuth2AuthorizedClientRepository();
+    }
+
+    /**
+     * Ahead of Spring Security's filter, so the age check sees every request whichever security chain serves it: the
+     * webhook chain, and any filter that reads the session outside both chains, would otherwise let a request keep an
+     * abandoned login start session alive (issue 311).
+     */
+    @Bean
+    FilterRegistrationBean<PreLoginSessionExpiryFilter> preLoginSessionExpiryFilter(
+            BffSessionProperties properties,
+            Clock clock
+    ) {
+        FilterRegistrationBean<PreLoginSessionExpiryFilter> registration =
+                new FilterRegistrationBean<>(new PreLoginSessionExpiryFilter(properties.preLoginTimeout(), clock));
+        registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 1);
+        return registration;
     }
 
     @Bean
@@ -217,10 +234,6 @@ class TenantSecurityConfiguration {
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID")
                         .logoutSuccessHandler(logoutSuccessHandler))
-                // Before the CSRF filter: it refuses an unsafe request itself, and a request this filter never sees
-                // would keep an abandoned login start session alive (issue 311).
-                .addFilterBefore(new PreLoginSessionExpiryFilter(sessionProperties.preLoginTimeout(), clock),
-                        CsrfFilter.class)
                 .addFilterBefore(bffSessionLifetimeFilter, AnonymousAuthenticationFilter.class)
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
 
