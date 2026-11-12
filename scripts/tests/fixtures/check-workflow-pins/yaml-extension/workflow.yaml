@@ -1,0 +1,6 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: a workflow with the .yaml extension carrying a tag.
+# ABOUTME: Expected: violation; proves .yaml files are scanned.
+jobs:
+  build:
+    steps:
+      - uses: actions/setup-node@v7

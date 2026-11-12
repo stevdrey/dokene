@@ -1,0 +1,8 @@
+# ABOUTME: Fixture for scripts/tests/check-workflow-pins-test.sh: an action that lives in this repository.
+# ABOUTME: Expected: pass; the tree versions it.
+jobs:
+  build:
+    steps:
+      - uses: ./.github/actions/local-thing
+        with:
+          flag: true

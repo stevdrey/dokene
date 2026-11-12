@@ -182,6 +182,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - No `${{ github.event.* }}` interpolated into `run:`.
   - Fork PRs receive no secrets.
 - **Fix:** pin every third-party action to a full 40-character SHA, with a version comment. Dependabot's `github-actions` ecosystem (`.github/dependabot.yml`) keeps SHA pins updated.
+- **Status:** fixed by [#309](https://github.com/stevdrey/dokene/issues/309); see [the verification record](../verification/issue-309-github-actions-pinning-verification.md). All 26 action references (plus the one in the new `workflow-pins.yml`) carry the peeled commit of their release tag with that tag as the only comment, proven with `git ls-remote` against each upstream repository; `scripts/check-workflow-pins.sh` fails any tag, branch, short SHA or unpinned `docker://` reference on every pull request, and Dependabot groups action bumps into one weekly pull request with a seven day cooldown. The rule, the manual pin steps and the reviewer step are in [github-actions-pinning.md](github-actions-pinning.md). The binaries the Trivy and gitleaks actions download at run time are L13 and stay open. The `trivy-action` incident recalled above remains unverified and was not a basis for the change.
 
 ### Low
 
