@@ -138,7 +138,7 @@ services:
   # recreated routinely (code or DOKENE_* changes); the namespace must outlive those recreations. The backend's
   # published port and its `backend` DNS alias therefore live here.
   oidc-bridge:
-    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    image: alpine/socat:1.8.1.1@sha256:7f9a06753033f2b7de18edc2353f2c15153413d95a039163c6db270fc7a6c3b0
     networks:
       default:
         aliases: [backend]
