@@ -247,7 +247,7 @@ ENV
     mkdir -p "$work/shared" && chmod 1777 "$work/shared"
     sed -i.bak "s|^DOKENE_SECRETS_DIR=.*|DOKENE_SECRETS_DIR=$work/shared|" "$work/.env"
     ! refresh_secret_files || exit 1
-    [ "$(stat -c %a "$work/shared" 2>/dev/null || stat -f %Lp "$work/shared")" = "1777" ] || exit 1
+    [ "$(stat -c %a "$work/shared" 2>/dev/null || stat -f %Mp%Lp "$work/shared")" = "1777" ] || exit 1
     [ ! -e "$work/shared/DOKENE_DB_MIGRATION_PASSWORD" ] || exit 1
     # So is a readable 0755 directory of the user's own: others could read the 0444 files through it.
     mkdir -p "$work/readable" && chmod 755 "$work/readable"

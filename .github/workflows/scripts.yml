@@ -7,6 +7,9 @@ on:
       - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
       - 'scripts/verify-journey-follow-up-disposition.sh'
       - 'scripts/tests/verify-journey-follow-up-disposition-test.sh'
+      - 'scripts/dev-env.sh'
+      - 'scripts/tests/dev-env-smoke.sh'
+      - 'compose.yaml'
       - '.github/workflows/scripts.yml'
   push:
     branches: [main]
@@ -15,6 +18,9 @@ on:
       - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
       - 'scripts/verify-journey-follow-up-disposition.sh'
       - 'scripts/tests/verify-journey-follow-up-disposition-test.sh'
+      - 'scripts/dev-env.sh'
+      - 'scripts/tests/dev-env-smoke.sh'
+      - 'compose.yaml'
       - '.github/workflows/scripts.yml'
 
 permissions:
@@ -34,3 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/verify-journey-follow-up-disposition-test.sh
+
+  # Needs only the `docker compose` CLI and python3 from the runner image; it starts no container.
+  dev-env-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./scripts/tests/dev-env-smoke.sh
