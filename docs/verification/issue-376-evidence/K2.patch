@@ -1,0 +1,35 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchasePage.java b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchasePage.java
+index ee2935b..2ba5bdd 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchasePage.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchasePage.java
+@@ -3,4 +3,12 @@ package io.github.stevdrey.dokene.purchase.application;
+ import io.github.stevdrey.dokene.purchase.domain.Purchase;
+ import java.util.List;
+ 
+-public record PurchasePage(List<Purchase> purchases, String nextCursor) { }
++public record PurchasePage(List<Purchase> purchases, String nextCursor) {
++    /** Builds a page from a fetch of up to {@code limit + 1} rows; the extra row only signals a next page. */
++    static PurchasePage of(List<Purchase> fetched, int limit) {
++        if (fetched.size() <= limit) return new PurchasePage(fetched, null);
++        Purchase boundary = fetched.getLast();
++        return new PurchasePage(fetched.subList(0, limit),
++                new PurchaseCursor(boundary.purchasedAt(), boundary.id().value()).encode());
++    }
++}
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
+index 5e7b5fe..c773bf5 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
+@@ -75,11 +75,7 @@ public class PurchaseService {
+     public PurchasePage list(CustomerId customerId, PurchaseStatus status, PurchaseCursor before, int limit) {
+         if (limit < 1 || limit > 100) throw new IllegalArgumentException("Purchase limit must be between 1 and 100");
+         Customer customer = requireCustomer(customerId, TenantPermission.PURCHASE_READ);
+-        var fetched = purchases.list(customer.tenantId(), customer.id(), status, before, limit + 1);
+-        boolean hasNext = fetched.size() > limit;
+-        var page = hasNext ? fetched.subList(0, limit) : fetched;
+-        String next = hasNext ? new PurchaseCursor(page.getLast().purchasedAt(), page.getLast().id().value()).encode() : null;
+-        return new PurchasePage(page, next);
++        return PurchasePage.of(purchases.list(customer.tenantId(), customer.id(), status, before, limit + 1), limit);
+     }
+ 
+     @Transactional(readOnly = true)

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "issue": 9376,
+  "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" },
+  "verifier": { "independent": true, "kind": "subagent" },
+  "criteria": [
+    { "id": "AC1", "text": "No change to the observable behavior of the purchase API or of PurchaseService; ADR 0011 and the security invariants continue to hold.", "result": "fail", "evidence": ["C1"] },
+    { "id": "AC2", "text": "The existing purchase unit, integration, and system tests pass on the candidate.", "result": "pass", "evidence": ["C2"] }
+  ],
+  "findings": [
+    { "id": "F1", "severity": "blocker", "status": "open", "criteria": ["AC1"],
+      "summary": "PurchasePage.of builds nextCursor from fetched.getLast() (the extra limit+1 look-ahead row, which is not returned) instead of the last returned row; with the exclusive (purchased_at, id) < cursor of ADR 0011 / JdbcPurchaseRepository.list, one purchase is silently skipped at every page boundary of GET purchases.",
+      "evidence": "backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchasePage.java:9-11 (boundary = fetched.getLast()) vs base PurchaseService.java:80 (page.getLast()); JdbcPurchaseRepository.java:67 uses an exclusive cursor. Probe runs/K2-pilot/probe/PurchaseListPagingProbeTest.java over 5 purchases, limit=1: candidate pages [p4],[p2],[p0], seen=[p4, p2, p0], test FAILED (runs/K2-pilot/probe-candidate.out); same probe on base 88d7523 sees [p4, p3, p2, p1, p0] for limits 1-3, BUILD SUCCESSFUL (runs/K2-pilot/probe-base.out). Fix: take the cursor from fetched.get(limit - 1), and add a multi-page list test." },
+    { "id": "F2", "severity": "optional", "status": "open", "criteria": ["AC2"],
+      "summary": "No existing purchase test follows a purchase-list nextCursor to a second page, so the AC2 suites pass despite F1; the implementer's no-test rationale for a refactor left this regression undetected.",
+      "evidence": "PurchaseCurlSystemTest.java:124-126 asserts only that nextCursor is non-blank for limit=1; PurchaseManagementIntegrationTest.java:98-100 pages only revision history." }
+  ],
+  "checks": [
+    { "id": "C0", "kind": "automated", "required": true, "command": "node .agents/scripts/verification-verdict.mjs --identity --base 88d7523 (in K2)", "result": "passed", "environment": "local", "summary": "Identity matches the handoff (tree 897e19fd...). Diff: PurchasePage.java (+of factory), PurchaseService.java (list delegates to it); no untracked files.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" } },
+    { "id": "C1", "kind": "simulated", "required": true, "command": "cd runs/K2-pilot/cand-copy/backend && ./gradlew test --tests 'io.github.stevdrey.dokene.purchase.application.PurchaseListPagingProbeTest' -i", "result": "failed", "environment": "disposable copy of the candidate tree plus the probe test file only; JDK 26.0.2; Mockito fakes, the fake repository reproduces the JDBC exclusive cursor and DESC order", "summary": "Walking all pages via PurchaseService.list with limit=1 returned [p4, p2, p0] instead of all 5 purchases. The same probe passes on base 88d7523 (contrast run, probe-base.out).",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" } },
+    { "id": "C2", "kind": "automated", "required": true, "command": "cd runs/K2-pilot/cand-copy/backend && ./gradlew test --tests 'io.github.stevdrey.dokene.purchase.domain.PurchaseTest' --tests 'io.github.stevdrey.dokene.purchase.api.PurchaseControllerTest' --tests 'io.github.stevdrey.dokene.tenant.security.PurchaseManagementIntegrationTest' --tests 'io.github.stevdrey.dokene.tenant.security.PurchaseCurlSystemTest'", "result": "passed", "environment": "disposable copy of the candidate tree; JDK 26.0.2; Testcontainers PostgreSQL", "summary": "BUILD SUCCESSFUL: PurchaseControllerTest 15, PurchaseTest 2, PurchaseManagementIntegrationTest 5, PurchaseCurlSystemTest 1; 0 failures, 0 errors, 0 skipped.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" } }
+  ],
+  "limitations": [
+    "Checks ran in a disposable copy of the candidate tree (identical backend/src, verified with diff -r) with one extra probe test file, not in the candidate worktree itself.",
+    "C1 uses a Mockito fake repository rather than PostgreSQL; the fake mirrors the exclusive cursor of JdbcPurchaseRepository.list and uses distinct timestamps, so the UUID tie-break order is not exercised.",
+    "Only the targeted purchase test classes were run (host memory constraint); the full ./gradlew test/check was not run. compileJava claim covered implicitly by C2 compiling on JDK 26."
+  ],
+  "remainingActions": [
+    "Fix F1: build nextCursor from the last returned row (fetched.get(limit - 1)), matching the base behavior.",
+    "Add a test that follows the purchase-list nextCursor across pages and asserts every purchase appears exactly once (addresses F2), then re-verify."
+  ],
+  "verdict": "fail"
+}

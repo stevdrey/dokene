@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "issue": 9376,
+  "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" },
+  "verifier": { "independent": true, "kind": "subagent" },
+  "criteria": [
+    { "id": "AC1", "text": "No change to the observable behavior of the purchase API or of PurchaseService; ADR 0011 and the security invariants continue to hold.", "result": "pass", "evidence": ["C1", "C2"] },
+    { "id": "AC2", "text": "The existing purchase unit, integration, and system tests pass on the candidate.", "result": "pass", "evidence": ["C1"] }
+  ],
+  "findings": [],
+  "checks": [
+    { "id": "C1", "kind": "automated", "required": true,
+      "command": "cd backend && ./gradlew test --tests 'io.github.stevdrey.dokene.purchase.*' --tests '*PurchaseManagementIntegrationTest' --tests '*PurchaseCurlSystemTest'",
+      "result": "passed", "environment": "disposable worktree runs/K3-pilot/wt with the candidate content (identity tree d470bc0 confirmed), local, Temurin JDK 26.0.2, Testcontainers",
+      "summary": "Existing purchase tests, all unchanged by the diff: PurchaseControllerTest 15/15, PurchaseTest 2/2, PurchaseManagementIntegrationTest 5/5, PurchaseCurlSystemTest 1/1; BUILD SUCCESSFUL. Log runs/K3-pilot/C1-gradle.log, reports runs/K3-pilot/C1-results/.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } },
+    { "id": "C2", "kind": "simulated", "required": false,
+      "command": "copy runs/K3-pilot/probes/H1-H5/PurchaseServiceEquivalenceProbeTest.java into the disposable copy's backend/src/test/.../purchase/application/ and run ./gradlew test --tests '*PurchaseServiceEquivalenceProbeTest'",
+      "result": "passed", "environment": "disposable worktree with candidate content plus the probe file, JDK 26, Mockito stand-ins for repositories, authorization and tenant context",
+      "summary": "probe: 29/29 passed. For all 7 public operations it asserts requirePermission -> requireCurrent -> findByIdForUpdate (record/correct/voidPurchase) or findById (get/list/lastPurchase/history) with the context tenant -> requireResourceAccess on the loaded customer; permission denial before any lookup; CustomerNotFoundException on missing customer; message-less NPE on null id after permission and context; missing tenant context propagates. Log probes/H1-H5/C2-probe-candidate.log.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } },
+    { "id": "C3", "kind": "simulated", "required": false,
+      "command": "same probe with PurchaseService.java restored to 88d7523 (git checkout 88d7523 -- <file>) in the disposable copy",
+      "result": "passed", "environment": "disposable worktree at base content plus the probe file, JDK 26",
+      "summary": "base control: 29/29 passed on the base, so the probe encodes the base behavior and the candidate matches it. Log probes/H1-H5/C3-probe-base.log.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } },
+    { "id": "C4", "kind": "simulated", "required": false,
+      "command": "same probe on the candidate with the forUpdate flags of requireCustomer/requireCustomerForUpdate swapped (probes/H1-H5/C4-negative-control.diff)",
+      "result": "failed", "environment": "disposable worktree, mutated candidate plus the probe file, JDK 26",
+      "summary": "negative control: 14/29 failed as intended (both lock-sensitive tests for all 7 operations), showing the probe detects lost or swapped row locking. Log probes/H1-H5/C4-probe-negative.log.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } }
+  ],
+  "limitations": [
+    "Adversarial pass run because the diff touches authorization (permission and resource checks), tenant isolation (tenant-scoped customer lookup) and concurrency (SELECT ... FOR UPDATE lock choice); the implementer listed none. Hypotheses H1 lock wiring, H2 authorization order, H3 tenant source, H4 null-id/evaluation order, H5 not-found exception type were all cleared by C2 with base control C3; only H1 has a negative control (C4), H2-H5 probes were not negative-controlled.",
+    "C2-C4 use Mockito stand-ins; real locking and RLS are covered only by the existing integration and system tests in C1.",
+    "Per benchmark constraints the full ./gradlew test/check/build was not run; only filtered purchase tests and the probe. The implementer's compileJava claim is subsumed by C1 compiling the candidate.",
+    "Probe source kept at runs/K3-pilot/probes/H1-H5/; no test was added to the candidate, which is acceptable for a pure refactor."
+  ],
+  "remainingActions": [],
+  "verdict": "pass"
+}
