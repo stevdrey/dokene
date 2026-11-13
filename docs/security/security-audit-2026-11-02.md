@@ -290,6 +290,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - Confidential client, exact redirect URIs, registration off.
 - **Impact:** local-only today, because the ports are bound to loopback. The realm is the natural template for any shared or staging deployment.
 - **Fix:** set `pkce.code.challenge.method=S256` on the client, add a password policy, and generate per-user random passwords in `dev-env.sh`.
+- **Status:** fixed by [#314](https://github.com/stevdrey/dokene/issues/314); see [the verification record](../verification/issue-314-identity-provider-hardening-verification.md). The realm requires S256 PKCE on `dokene-bff`, carries `length(12) and notUsername and notEmail`, and each test user has its own generated password; `scripts/keycloak-apply-realm-settings.sh` brings existing realms up to date on `dev-env.sh up`. The realm stays a local template: a shared deployment still needs its own realm process (password history, breached password blocklist, MFA for OWNER), noted in `infra/docker/README.md`.
 
 #### L10. OpenAI calls set no output-token cap — Static
 

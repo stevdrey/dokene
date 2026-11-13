@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #61 cross-feature multi-step verification against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-61-cross-features.sh
 #
@@ -22,7 +24,9 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
+
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -64,9 +68,11 @@ login() {
     local form_action
     form_action=$(echo "$login_page" | grep -o "action=\"[^\"]*\"" | head -n 1 | cut -d"\"" -f2 | sed "s/&amp;/\&/g")
 
+    local password
+    password="$(test_password_for "$username")" || return 1
     curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -X POST "$form_action" \
         --data-urlencode "username=$username" \
-        --data-urlencode "password=$TEST_PASSWORD" >/dev/null
+        --data-urlencode "password=$password" >/dev/null
 
     local callback_url
     callback_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")

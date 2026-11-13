@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the follow-up disposition operator journey against the local stack and writes a journey record.
+# ABOUTME: Logs in as the three seeded QA users, each with its own password, and targets only loopback origins.
 # ==============================================================================
 # verify-journey-follow-up-disposition.sh
 #
@@ -194,6 +196,23 @@ write_record() {
   printf '\nJourney record: %s\n' "$RECORD"
 }
 
+# first_missing_test_password: prints the first DOKENE_TEST_<ROLE>_PASSWORD that is empty or unset, or nothing.
+first_missing_test_password() {
+  local key
+  for key in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+    [ -n "${!key:-}" ] || { printf '%s' "$key"; return 0; }
+  done
+}
+
+# submit_credentials USER JAR FORM_ACTION: posts the login form with that actor's own password (issue 314). The password
+# goes through stdin, so it never appears in the process list. An unknown user posts nothing.
+submit_credentials() {
+  local password
+  password="$(test_password_for "$1")" || return 1
+  printf '%s' "$password" | curl -s -c "$2" -b "$2" -D "$WORK_DIR/login-headers" -o /dev/null -X POST \
+    "$3" --data-urlencode "username=$1" --data-urlencode "password@-"
+}
+
 # Sourcing defines the helpers without running the journey (offline tests).
 # shellcheck disable=SC2317
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || true; fi
@@ -221,14 +240,16 @@ if [ -f "$ROOT_DIR/.env" ]; then
   # .env is sourced in a subshell, as seed-local-qa.sh does, so quoting matches; only the requested value comes back
   # to this process.
   env_get() { ( set -a; . "$ROOT_DIR/.env" >/dev/null 2>&1; printf '%s' "${!1:-}" ); }
-  : "${DOKENE_TEST_USER_PASSWORD:=$(env_get DOKENE_TEST_USER_PASSWORD)}"
+  # Each actor has its own password (issue 314). A value already in the environment wins over .env.
+  for key in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+    [ -n "${!key:-}" ] || printf -v "$key" '%s' "$(env_get "$key")"
+  done
   # shellcheck disable=SC2031 # env_get's subshell only reads .env; the value comes back on stdout
   : "${KEYCLOAK_PORT:=$(env_get KEYCLOAK_PORT)}"
 fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:${KEYCLOAK_PORT}}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dokene-journey-work.XXXXXX")"
@@ -281,8 +302,7 @@ login() {
   form_action="$(grep -o 'action="[^"]*"' "$WORK_DIR/login-page" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
   is_local_target "$form_action" || return 1
   # The password goes through stdin, so it never appears in the process list, and only to a loopback target.
-  printf '%s' "$TEST_PASSWORD" | curl -s -c "$jar" -b "$jar" -D "$WORK_DIR/login-headers" -o /dev/null -X POST \
-    "$form_action" --data-urlencode "username=$user" --data-urlencode "password@-" || return 1
+  submit_credentials "$user" "$jar" "$form_action" || return 1
   callback="$(header_value location "$WORK_DIR/login-headers")"
   is_local_target "$callback" || return 1
   case "$callback" in *"/login/oauth2/code/dokene"*) ;; *) return 1 ;; esac
@@ -343,11 +363,15 @@ trap cleanup EXIT
 # Doctor: preconditions. Any failure means blocked (exit 2), never passed.
 # ------------------------------------------------------------------------------
 doctor() {
-  local code
+  local code missing
   is_local_url "$BFF_URL" || blocked "BFF_URL is not a plain loopback origin; this journey only runs against the local stack"
   is_local_url "$KEYCLOAK_URL" || blocked "KEYCLOAK_URL is not a plain loopback origin"
   command -v curl >/dev/null 2>&1 || blocked "curl is required"
   command -v jq >/dev/null 2>&1 || blocked "jq is required"
+  missing="$(first_missing_test_password)"
+  [ -z "$missing" ] || blocked "$missing is not set; run ./scripts/dev-env.sh up, which generates it in .env"
+  # shellcheck source=lib/test-passwords.sh
+  . "$ROOT_DIR/scripts/lib/test-passwords.sh"
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$KEYCLOAK_URL/realms/dokene/.well-known/openid-configuration")"
   [ "$code" = "200" ] || blocked "Keycloak discovery returned HTTP $code; run ./scripts/dev-env.sh up --seed"
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BFF_URL/api/session")"
@@ -366,7 +390,7 @@ echo "=== Journey: $JOURNEY (run $RUN_ID) ==="
 # ------------------------------------------------------------------------------
 # Fixture
 # ------------------------------------------------------------------------------
-OWNER_JAR="$(login testuser)" || blocked "login failed for testuser; check DOKENE_TEST_USER_PASSWORD and the seed"
+OWNER_JAR="$(login testuser)" || blocked "login failed for testuser; check DOKENE_TEST_OWNER_PASSWORD and the seed"
 OPERATOR_JAR="$(login testoperator)" || blocked "login failed for testoperator; run ./scripts/dev-env.sh seed"
 VIEWER_JAR="$(login testviewer)" || blocked "login failed for testviewer; run ./scripts/dev-env.sh seed"
 http GET /api/session "$OWNER_JAR"; OWNER_CSRF="$(body .csrfToken)"

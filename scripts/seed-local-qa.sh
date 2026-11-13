@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Seeds the local QA workspace and the OWNER, OPERATOR and VIEWER memberships through the real BFF login.
+# ABOUTME: Reads each test user's password from .env (DOKENE_TEST_<ROLE>_PASSWORD); --verify also checks RBAC.
 # ==============================================================================
 # seed-local-qa.sh
 #
@@ -26,14 +28,17 @@ trap cleanup EXIT
 
 # Read configuration from .env if available
 if [ -f "$ROOT_DIR/.env" ]; then
+    set -a
     # shellcheck disable=SC1091
-    set -a; . "$ROOT_DIR/.env"; set +a
+    . "$ROOT_DIR/.env"
+    set +a
 fi
 
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 
 VERIFY_MODE=false
 if [[ "${1:-}" == "--verify" ]]; then
@@ -133,21 +138,21 @@ echo ""
 echo "Authenticating synthetic test identities..."
 
 echo -n "• Logging in 'testuser' (Owner)... "
-OWNER_COOKIE_JAR="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE_JAR="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(get_session_info "$OWNER_COOKIE_JAR")"
 OWNER_IDENTITY_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 echo "OK (Identity ID: $OWNER_IDENTITY_ID)"
 
 echo -n "• Logging in 'testoperator' (Operator)... "
-OPERATOR_COOKIE_JAR="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE_JAR="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
 OPERATOR_SESSION="$(get_session_info "$OPERATOR_COOKIE_JAR")"
 OPERATOR_IDENTITY_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 echo "OK (Identity ID: $OPERATOR_IDENTITY_ID)"
 
 echo -n "• Logging in 'testviewer' (Viewer)... "
-VIEWER_COOKIE_JAR="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE_JAR="$(login_user "testviewer" "$VIEWER_PASSWORD")"
 VIEWER_SESSION="$(get_session_info "$VIEWER_COOKIE_JAR")"
 VIEWER_IDENTITY_ID="$(echo "$VIEWER_SESSION" | jq -r '.identityId')"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
@@ -275,11 +280,12 @@ printf "%-14s | %-26s | %-10s | %-20s\n" "testuser" "testuser@dokene.local" "OWN
 printf "%-14s | %-26s | %-10s | %-20s\n" "testoperator" "testoperator@dokene.local" "OPERATOR" "**** REDACTED ****"
 printf "%-14s | %-26s | %-10s | %-20s\n" "testviewer" "testviewer@dokene.local" "VIEWER" "**** REDACTED ****"
 echo "======================================================================"
-echo "Password source: DOKENE_TEST_USER_PASSWORD (in .env or environment, default: testpassword)"
+echo "Password source: DOKENE_TEST_OWNER_PASSWORD, DOKENE_TEST_OPERATOR_PASSWORD and"
+echo "                 DOKENE_TEST_VIEWER_PASSWORD (in .env or the environment; no default)"
 echo ""
 echo "Manual QA Instructions:"
 echo "1. Open the web browser at http://localhost:5173 (or http://localhost:8080)"
-echo "2. Log in using password configured in DOKENE_TEST_USER_PASSWORD (default: testpassword)"
+echo "2. Log in as 'testuser' with DOKENE_TEST_OWNER_PASSWORD from .env"
 echo "3. Log in as 'testoperator' to verify operator controls (create customers, record follow-ups)"
 echo "4. Log in as 'testviewer' to verify read-only view (mutation controls hidden, actions forbidden)"
 echo ""

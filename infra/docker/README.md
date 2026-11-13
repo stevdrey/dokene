@@ -147,7 +147,12 @@ limited. Verify with `./scripts/tests/nginx-login-rate-limit-smoke.sh` (Docker o
   through the Compose network, so only host-side tools are affected.
 - `password authentication failed` in the backend logs after editing `.env`: PostgreSQL fixes its passwords when
   its volume is first created. Restore the old `.env` or run `./scripts/dev-env.sh reset`. Keycloak reads the client
-  secret and the test password at every container start, so `./scripts/dev-env.sh up` is enough for those.
+  secret and the test user passwords at every container start, so `./scripts/dev-env.sh up` is enough for those.
+- A test user login is refused after pulling issue 314: run `./scripts/dev-env.sh up`. It adds the missing
+  `DOKENE_TEST_*_PASSWORD` values to `.env` and recreates Keycloak, which imports the realm with them; the old shared
+  `DOKENE_TEST_USER_PASSWORD` no longer works and can be deleted from `.env`.
+- `DOKENE_TEST_<ROLE>_PASSWORD in .env must be at least 12 characters`: the realm password policy is
+  `length(12) and notUsername and notEmail`. Use a longer value, or delete the line and let `up` generate one.
 - Smoke-test the tooling without Docker running: `./scripts/tests/dev-env-smoke.sh`.
 - Rebuild after code changes with `./scripts/dev-env.sh up` (the build step runs every time and is cached).
 
@@ -202,7 +207,23 @@ docker compose up -d --wait postgres keycloak
 
 `docker compose up` without service names now also builds and starts the backend and frontend containers.
 
+This command does not run the `.env` checks of `dev-env.sh`. Keycloak refuses to start while one of
+`DOKENE_TEST_OWNER_PASSWORD`, `DOKENE_TEST_OPERATOR_PASSWORD` and `DOKENE_TEST_VIEWER_PASSWORD` is empty (issue 314),
+so run `./scripts/dev-env.sh up` once first, which generates the missing values in `.env` (`doctor` generates them
+too, after asking).
+
 Keycloak automatically imports the `dokene` realm from `infra/docker/keycloak/import/dokene-realm.json`.
+
+Since issue 319 the Compose Keycloak keeps its data in memory and imports that file at every container start, so
+edits to it and the test user passwords in `.env` reach the stack on the next `./scripts/dev-env.sh up`.
+`./scripts/tests/keycloak-realm-config-test.sh` checks the realm file itself without Docker.
+
+`scripts/keycloak-apply-realm-settings.sh` is for a Keycloak that keeps its realm across starts, where the import
+skips a realm that already exists; `dev-env.sh` does not call it. It applies the session revocation settings (issue
+307), S256 PKCE on `dokene-bff` and the password policy (issue 314), then sets each test user's password from the
+Keycloak container's environment. It is idempotent, needs `jq`, and never prints a secret.
+`./scripts/keycloak-apply-realm-settings.sh --check` reports config drift without changing anything (passwords cannot
+be checked).
 
 ### BFF confidential client
 
@@ -229,13 +250,15 @@ curl -fsS "http://localhost:${KEYCLOAK_PORT:-8081}/realms/dokene/.well-known/ope
 
 ### Development synthetic test identities & QA seeding
 
-For exercising local browser login and multi-tenant RBAC validation against the Spring Boot BFF, the imported realm defines three synthetic test users (sharing `DOKENE_TEST_USER_PASSWORD`, default: `testpassword`):
+For exercising local browser login and multi-tenant RBAC validation against the Spring Boot BFF, the imported realm defines three synthetic test users. Each has its own password, which `./scripts/dev-env.sh` generates into `.env` (`openssl rand -hex 16`); there is no default, and knowing one user's password does not open another account. Read a password with, for example, `grep DOKENE_TEST_OWNER_PASSWORD .env`. A custom value must be at least 12 characters. Use plain characters or single quotes: preflight refuses a `$`, a backslash or an inline ` #` comment that Compose would not pass on as written.
 
-| Username | Email | Intended Role | Capabilities |
-| :--- | :--- | :--- | :--- |
-| `testuser` | `testuser@dokene.local` | `OWNER` | Full workspace provisioning, configuration, and membership administration (`MEMBERSHIP_INVITE`, `MEMBERSHIP_ROLE_UPDATE`, `MEMBERSHIP_REVOKE`). |
-| `testoperator` | `testoperator@dokene.local` | `OPERATOR` | Operational permissions (customer and purchase read/write, follow-up evaluations and dispositions), without membership or workspace administration. |
-| `testviewer` | `testviewer@dokene.local` | `VIEWER` | Read-only access across all domain resources (customers, purchases, follow-ups). State-changing actions and controls are forbidden. |
+| Username | Email | Intended Role | Password in `.env` | Capabilities |
+| :--- | :--- | :--- | :--- | :--- |
+| `testuser` | `testuser@dokene.local` | `OWNER` | `DOKENE_TEST_OWNER_PASSWORD` | Full workspace provisioning, configuration, and membership administration (`MEMBERSHIP_INVITE`, `MEMBERSHIP_ROLE_UPDATE`, `MEMBERSHIP_REVOKE`). |
+| `testoperator` | `testoperator@dokene.local` | `OPERATOR` | `DOKENE_TEST_OPERATOR_PASSWORD` | Operational permissions (customer and purchase read/write, follow-up evaluations and dispositions), without membership or workspace administration. |
+| `testviewer` | `testviewer@dokene.local` | `VIEWER` | `DOKENE_TEST_VIEWER_PASSWORD` | Read-only access across all domain resources (customers, purchases, follow-ups). State-changing actions and controls are forbidden. |
+
+Keycloak imports these passwords from `.env` at every container start, so a password changed in the Keycloak admin console lasts only until Keycloak restarts. Change it in `.env` instead.
 
 To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture. Note that workspace provisioning is disabled by default in Dokene; make sure your local backend is started with `DOKENE_PROVISIONING_ENABLED=true` (in your `.env` file):
 
@@ -266,3 +289,25 @@ While the local environment uses `start --optimized` with embedded storage (`dev
 - an external high-availability database cluster (such as managed PostgreSQL);
 - managed secret distribution and rotation rather than local environment interpolation;
 - production-grade enterprise identity federation and audit logging rather than synthetic local realms and development users.
+
+### Local template versus shared deployments
+
+`dokene-realm.json` is a local template. It is the natural starting point for a shared or staging realm, but it is not something to deploy as is. No shared deployment exists yet; when one is planned, its realm needs its own process (issue 314 follow up).
+
+Carry these settings over; they are what the BFF and the security audit rely on, and `scripts/tests/keycloak-realm-config-test.sh` guards them in the template:
+
+- `dokene-bff` as a confidential client (client secret, not public) with exact redirect URIs;
+- `pkce.code.challenge.method=S256` on `dokene-bff`, so the provider refuses a login without S256 PKCE;
+- no implicit flow and no direct access grants;
+- self registration off, brute force protection on, `sslRequired: external`;
+- the back-channel logout attributes and the SSO max lifespan from ADR 0007;
+- at least the local password policy, `length(12) and notUsername and notEmail`.
+
+Local only; leave these out of a shared realm or replace them:
+
+- the three test users and their imported passwords (`testuser`, `testoperator`, `testviewer`);
+- secrets interpolated from `.env` (client secret, bootstrap admin, test passwords) instead of a secret manager;
+- test passwords imported again at every start, and `scripts/keycloak-apply-realm-settings.sh` setting them;
+- plain HTTP on loopback, relaxed hostname checks and embedded storage (see Production differences above).
+
+Still to decide for a shared realm: password history, a breached password blocklist, MFA for OWNER accounts, and how the admin console is exposed.
