@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065
     # Starts as the image's `postgres` user (uid/gid 70) instead of root (issue 319, audit L14). The stock entrypoint
     # needs root and CHOWN/SETUID/SETGID only to chown the data directory and step down to this user; started as that
     # user it needs no capability. A data volume created by an earlier root start is already owned by uid 70.
@@ -127,7 +127,7 @@ services:
   # recreated routinely (code or DOKENE_* changes); the namespace must outlive those recreations. The backend's
   # published port and its `backend` DNS alias therefore live here.
   oidc-bridge:
-    image: alpine/socat:1.8.0.3
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     networks:
       default:
         aliases: [backend]
