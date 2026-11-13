@@ -277,7 +277,7 @@ test('scenario: an adversarial pass blocks only on a reproduced finding', t => {
   const verdict = passingVerdict(candidate);
   verdict.checks.push({
     id: 'C3', kind: 'automated', required: false, command: 'race probe in a disposable copy',
-    result: 'failed', environment: 'local, outside the candidate', summary: 'inconclusive: timed out twice', candidate,
+    result: 'failed', environment: 'local, outside the candidate', summary: 'probe: inconclusive, timed out twice', candidate,
   });
   verdict.findings.push({
     id: 'F2', severity: 'optional', status: 'open', criteria: ['AC2'],
@@ -288,6 +288,7 @@ test('scenario: an adversarial pass blocks only on a reproduced finding', t => {
   const unverified = check(t, cwd, verdict);
   assert.equal(unverified.status, 0, unverified.stderr);
   assert.match(unverified.stdout, /PASS: Issue #1/);
+  assert.doesNotMatch(unverified.stderr, /WARNING/);
 
   verdict.criteria[1].result = 'fail';
   verdict.findings[1] = {
@@ -296,11 +297,12 @@ test('scenario: an adversarial pass blocks only on a reproduced finding', t => {
     evidence: 'location: "feature.txt:1"\nsteps: "check C3"\nactual: "2 records"\nexpected: "1 record"\n'
       + 'severity: blocker\nconfidence: high',
   };
-  verdict.checks[2].summary = 'reproduced: two records stored';
+  verdict.checks[2].summary = 'probe: reproduced, two records stored';
   verdict.verdict = 'fail';
 
   const reproduced = check(t, cwd, verdict);
   assert.equal(reproduced.status, 1);
+  assert.doesNotMatch(reproduced.stderr, /WARNING/);
   assert.match(reproduced.stderr, /blocker finding F2 is open: Concurrent submits are both accepted/);
   assert.doesNotMatch(reproduced.stderr, /required check C3/);
 });
@@ -316,10 +318,22 @@ test('a verdict that does not say whether the adversarial pass ran gets a warnin
   assert.match(unrecorded.stdout, /PASS: Issue #1/);
   assert.match(unrecorded.stderr, warning);
 
-  verdict.limitations.push('Adversarial pass not run: no trigger.');
-  const skipped = check(t, cwd, verdict);
-  assert.equal(skipped.status, 0, skipped.stderr);
-  assert.doesNotMatch(skipped.stderr, warning);
+  for (const line of [
+    'adversarial pass: not run: no trigger',
+    'Adversarial pass not run: no trigger.',
+    'Adversarial pass: not run (no trigger)',
+    'The adversarial pass was not run: the diff hits no trigger',
+    'Adversarial pass ran (triggers: Authorization); H1 cleared by C1',
+  ]) {
+    verdict.limitations = [line];
+    const recorded = check(t, cwd, verdict);
+    assert.equal(recorded.status, 0, recorded.stderr);
+    assert.doesNotMatch(recorded.stderr, warning, line);
+  }
+
+  // An outcome word in another sentence than the pass is not a record of it.
+  verdict.limitations = ['Adversarial pass budget noted. The broad suite ran.'];
+  assert.match(check(t, cwd, verdict).stderr, warning);
 
   verdict.limitations = [];
   verdict.checks.push({

@@ -11,7 +11,7 @@ The pass **stays optional and risk-triggered; it is not adopted as a default.** 
 | Revision proposed in #376 | Decision | Evidence |
 | --- | --- | --- |
 | 1. Add "Idempotency and API contracts" (keys, fingerprints, cursors, status codes) to the trigger table | **Not adopted** | The row would have matched 1 of the 5 Issues (#324, an idempotent migration-job rerun, not an HTTP contract). In none of the five did the pass find a defect, and in #376 the ordinary hunt caught both idempotency and pagination seeds without the pass. Nothing shows the row would add detection. |
-| 2. Make the "adversarial pass not run: no trigger" record checkable | **Adopted as a warning only** | 6 of the 7 Issue PRs merged since the pass shipped do not say whether it ran, and in #376 2 of the 3 pilot verdicts omitted the record the guidance asks for. `verification-verdict.mjs` now prints a `WARNING` when a verdict has neither the line nor a pass check. The warning changes no result or exit code, so nothing becomes compulsory. |
+| 2. Make the "adversarial pass not run: no trigger" record checkable | **Adopted as a warning only** | 6 of the 7 Issue PRs merged since the pass shipped do not say whether it ran, and in #376 2 of the 3 pilot verdicts omitted the record the guidance asks for. `verification-verdict.mjs` and `issue-loop.mjs` now warn when a verdict states no pass outcome and has no pass check. The warning changes no result, loop action, or exit code, so nothing becomes compulsory. |
 | 3. Measure blast-radius analysis on an implementer run | **Not measured; stays a pilot** | It needs two full implementations of one high-risk Issue, one with the skill. That is an implementer study, outside a verifier replay; see [Not measured](#not-measured). No guidance changes. |
 
 ## Why replay merged Issues
@@ -82,15 +82,16 @@ Every verdict validated with `verification-verdict.mjs` against its candidate (e
 
 ## Changes in this PR
 
-- `verification-verdict.mjs` prints `WARNING: the verdict does not say whether the adversarial pass ran …` when a verdict has no check whose summary starts with `probe:`, `base control:`, or `negative control:` and no limitation saying "adversarial pass not run". The computed result and the exit code are unchanged. On the stored verdicts, it flags all three #376 baseline verdicts and the K1 and K2 pilot verdicts, and it accepts the K3 pilot verdict and the four replay verdicts.
-- `verification-verdict.test.mjs` covers the warning for an unrecorded, a skipped, a run, and a failing verdict, and shows that a role word in the middle of a summary does not count as a run.
-- `adversarial-review.md` names the warning under *When to run* and links this record.
+- `verification-verdict.mjs` prints `WARNING: the verdict does not say whether the adversarial pass ran …` when `recordsAdversarialPass` finds neither a check whose summary starts with `probe:`, `base control:`, or `negative control:` nor a limitation that states the pass outcome in one sentence. The reserved line is `adversarial pass: ran (<triggers>)` or `adversarial pass: not run: <reason>`; older wordings such as "adversarial pass not run: no trigger" and "the adversarial pass was not run" are also accepted. The computed result and the exit code are unchanged. On the stored verdicts, it flags all three #376 baseline verdicts and the K1 and K2 pilot verdicts, and it accepts the K3 pilot verdict and the four replay verdicts.
+- `issue-loop.mjs` adds the same text as a `warnings` entry to its decision when the latest verdict does not record the pass; the action, the reason, and the exit code are unchanged.
+- `verification-verdict.test.mjs` covers the warning for an unrecorded, a failing, and a run verdict, for the reserved line and the older wordings, and shows that a role word in the middle of a summary, or an outcome word in another sentence, does not count as a record. `issue-loop.test.mjs` covers the `warnings` field.
+- `adversarial-review.md` names the reserved line and the warning under *When to run* and links this record.
 
 No trigger row, budget, blocking bar, or default changes.
 
 ## Rollback
 
-Remove `adversarialPassRecord` and its warning from `verification-verdict.mjs`, its test, and the sentence in `adversarial-review.md`. Nothing else depends on it, and no gate reads the warning.
+Remove `recordsAdversarialPass`, `ADVERSARIAL_PASS_WARNING`, and the warning from `verification-verdict.mjs` and `issue-loop.mjs`, their tests, and the sentences in `adversarial-review.md`. No gate reads the warning.
 
 ## Reproduce
 
@@ -98,6 +99,7 @@ From the repository root, with JDK 26 active and Docker available, for each Issu
 
 ```bash
 REPLAY=<scratch directory outside the repository>
+mkdir -p "$REPLAY/guidance" "$REPLAY/runs"
 git archive 765719a .agents | tar -C "$REPLAY/guidance" -xf -
 git worktree add --detach "$REPLAY/cand-<n>" <head>
 (cd "$REPLAY/cand-<n>" && node "$REPLAY/guidance/.agents/scripts/verification-verdict.mjs" --identity --base HEAD^)

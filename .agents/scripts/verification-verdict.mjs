@@ -224,22 +224,25 @@ function droppedBlockers(previous, current) {
     .map(finding => finding.id);
 }
 
-// The adversarial pass (adversarial-review.md) records each run as a check whose summary starts with its role, and a
-// skipped pass as one `limitations` line. Neither is a schema field, so these patterns only read the existing text.
+// The adversarial pass (adversarial-review.md) records each run as a check whose summary starts with its role, and its
+// outcome as one `limitations` line, reserved as "adversarial pass: ran (<triggers>)" or "adversarial pass: not run:
+// <reason>". Neither is a schema field, so these patterns read the existing text; the limitation pattern also accepts
+// the older wordings ("adversarial pass not run: no trigger", "the adversarial pass was not run") within one sentence.
 const ADVERSARIAL_CHECK_ROLE = /^\s*(?:probe|base control|negative control):/i;
-const ADVERSARIAL_NOT_RUN = /adversarial pass not run/i;
+const ADVERSARIAL_OUTCOME = /\badversarial pass\b[^.;]*?\b(?:ran|not (?:been )?run|skipped)\b/i;
+
+const ADVERSARIAL_PASS_WARNING = 'the verdict does not say whether the adversarial pass ran: add the limitations line '
+  + '"adversarial pass: ran (<triggers>)" or "adversarial pass: not run: <reason>". '
+  + 'This warning does not change the result.';
 
 /**
- * Whether the verdict says if the optional adversarial pass ran: `ran` when a check carries a pass role, `not-run` when
- * a limitation records the skip, otherwise `unrecorded`. Informational only: it never changes the computed verdict or
- * the exit code, because the pass is optional and its absence never blocks a candidate (Issue #398).
+ * Whether the verdict says if the optional adversarial pass ran: a check carrying a pass role, or a limitation stating
+ * the outcome. Informational only: it never changes the computed verdict, the loop decision, or an exit code, because
+ * the pass is optional and its absence never blocks a candidate (Issue #398).
  */
-function adversarialPassRecord(verdict) {
-  if (verdict.checks.some(check => typeof check.summary === 'string' && ADVERSARIAL_CHECK_ROLE.test(check.summary))) {
-    return 'ran';
-  }
-  if (verdict.limitations.some(line => typeof line === 'string' && ADVERSARIAL_NOT_RUN.test(line))) return 'not-run';
-  return 'unrecorded';
+function recordsAdversarialPass(verdict) {
+  return verdict.checks.some(check => isText(check.summary) && ADVERSARIAL_CHECK_ROLE.test(check.summary))
+    || verdict.limitations.some(line => isText(line) && ADVERSARIAL_OUTCOME.test(line));
 }
 
 // Every option each mode accepts. Anything else is rejected, so a misspelled --commit can never silently fall back
@@ -347,11 +350,7 @@ function main() {
     return;
   }
 
-  if (adversarialPassRecord(verdict) === 'unrecorded') {
-    console.error('WARNING: the verdict does not say whether the adversarial pass ran: add its probe:, base control: '
-      + 'or negative control: checks, or the limitations line "adversarial pass not run: no trigger". '
-      + 'This warning does not change the result.');
-  }
+  if (!recordsAdversarialPass(verdict)) console.error(`WARNING: ${ADVERSARIAL_PASS_WARNING}`);
 
   const { result, reasons } = computeVerdict(verdict);
   const subject = `Issue #${verdict.issue} candidate ${describe(verdict.candidate)}`;
@@ -371,8 +370,8 @@ function main() {
 }
 
 export {
-  DEFAULT_BASE_REF, UsageError, adversarialPassRecord, candidateIdentity, commitIdentity, computeVerdict, describe, droppedBlockers, isObject,
-  isText, parseOptions, sameCandidate, validateVerdict,
+  ADVERSARIAL_PASS_WARNING, DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe,
+  droppedBlockers, isObject, isText, parseOptions, recordsAdversarialPass, sameCandidate, validateVerdict,
 };
 
 // Run only as a command, so other agent scripts can import the identity and gating rules without side effects.

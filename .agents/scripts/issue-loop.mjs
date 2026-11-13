@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import {
-  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, droppedBlockers, isObject,
-  isText, parseOptions, sameCandidate, validateVerdict,
+  ADVERSARIAL_PASS_WARNING, DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe,
+  droppedBlockers, isObject, isText, parseOptions, recordsAdversarialPass, sameCandidate, validateVerdict,
 } from './verification-verdict.mjs';
 
 const SCHEMA_VERSION = 1;
@@ -80,7 +80,11 @@ function validateState(state) {
 function decide(state, stateDir, options) {
   const maxRounds = state.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const rounds = state.rounds.length;
-  const next = (action, reason) => ({ issue: state.issue, action, reason, rounds, maxRounds });
+  // Informational only: a warning never changes the action, the reason, or the exit code.
+  const warnings = [];
+  const next = (action, reason) => ({
+    issue: state.issue, action, reason, rounds, maxRounds, ...(warnings.length ? { warnings } : {}),
+  });
 
   const open = state.questions.filter(question => question.material && question.status === 'open');
   if (open.length) {
@@ -108,6 +112,7 @@ function decide(state, stateDir, options) {
   }
 
   const latest = verdicts.at(-1);
+  if (!recordsAdversarialPass(latest)) warnings.push(ADVERSARIAL_PASS_WARNING);
   // Only a failed candidate is final: a blocked one may pass once the missing capability is legitimately obtained, and
   // a material answer changes the criteria, so failures judged before the latest answer no longer count.
   const answeredAfter = Math.max(0, ...state.questions
