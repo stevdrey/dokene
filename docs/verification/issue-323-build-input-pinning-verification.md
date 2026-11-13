@@ -49,7 +49,7 @@ The two Keycloak lines carry one digest.
 | Issue 311 script, default image | resolved `eclipse-temurin:26-jdk@sha256:a45ef8c9…` from the `AS build` line; `DOKENE_VERIFY_JDK_IMAGE` still overrides it; a tag only line and a missing line both exit 1 with a message |
 | `.github/dependabot.yml` | parses; five entries; the three existing entries are byte for byte those on `main` at `341464a` |
 
-`./scripts/tests/dev-env-smoke.sh` has one failing check on this machine, "secret files: Compose-resolved values, safe DOKENE_SECRETS_DIR, recreation survives a failed removal (#308)". It fails the same way on an untouched checkout of `main` at `341464a`, so it is not caused by this change; every other check passes. The `scripts` workflow run below is the result that counts for that script.
+`./scripts/tests/dev-env-smoke.sh` has one failing check on this machine, "secret files: Compose-resolved values, safe DOKENE_SECRETS_DIR, recreation survives a failed removal (#308)". It fails the same way on an untouched checkout of `main` at `341464a`, so it is not caused by this change; every other check passes. The cause is the test's own mode comparison on macOS (`stat -f %Lp` drops the sticky bit), tracked in issue #366. No workflow ran this script when this pull request was tested, so there is no CI result for it here.
 
 Not proven locally: the amd64 side of the backend and Keycloak images, which no workflow builds. For those it rests on the platform list in the table. CI proves PostgreSQL and the two frontend images on amd64.
 
@@ -59,4 +59,18 @@ Dependabot's configuration page and the first run of the `docker` and `docker-co
 
 ## CI runs on the pull request
 
-Added after the pull request's checks have run.
+Tested revision: `631ef9534f4da3038b5e49df270e8c373940d61d`, pull request #392, 2026-11-13. Every workflow the pull request triggered succeeded on that revision, and the change removes or alters no existing `permissions:` block (the new `image-pins` job declares `contents: read`).
+
+| Workflow | Jobs | Run | Result |
+| --- | --- | --- | --- |
+| Workflow pins | `Workflow pins`, `image-pins` | 43419728376 | success |
+| Backend CI | `test` (`./gradlew test`) | 43419728340 | success |
+| Frontend CI | `build`, `nginx-headers` | 43419728076 | success |
+| Security Scans | `Gitleaks`, `Trivy filesystem scan` | 43419728373 | success |
+| CodeQL | `Analyze (java-kotlin)`, `Analyze (javascript-typescript)` | 43419728279 | success |
+| OWASP Dependency Check | `dependency-check` | 43419728115 | success |
+| Pull Request Size Guard | `PR file count` | 43419728141 | success |
+
+The `image-pins` job ran `./scripts/tests/check-image-pins-test.sh`, `./scripts/check-image-pins.sh` and the wrapper checksum step, all successful. `Script tests` did not trigger: its path filter names none of the files changed here.
+
+The local checks above were repeated on this revision on 2026-11-13 with the same results, including the registry lookup for all seven distinct images and both wrapper checksum runs.
