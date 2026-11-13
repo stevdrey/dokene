@@ -1,0 +1,74 @@
+// ABOUTME: Adversarial probe (issue 398 replay of 311): login start path variants that the nginx limit key
+// ABOUTME: (^/oauth2/authorization/ on the normalized $uri) does not match must not create a backend session.
+package io.github.stevdrey.dokene.identity.security;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(SessionTracker.class)
+class LoginStartPathVariantProbeTest {
+
+    @DynamicPropertySource
+    static void configure(DynamicPropertyRegistry registry) throws Exception {
+        TenantSecurityIntegrationFixture.configure(registry);
+        OidcProviderStub.register(registry);
+    }
+
+    @LocalServerPort
+    private int port;
+
+    @Autowired
+    private SessionTracker sessions;
+
+    private String raw(String path) throws Exception {
+        try (Socket socket = new Socket("127.0.0.1", port)) {
+            OutputStream out = socket.getOutputStream();
+            out.write(("GET " + path + " HTTP/1.1\r\nHost: localhost:8080\r\nConnection: close\r\n\r\n")
+                    .getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            InputStream in = socket.getInputStream();
+            return new String(in.readAllBytes(), StandardCharsets.ISO_8859_1);
+        }
+    }
+
+    /** Sanity control: the canonical login start does create one session, so the counter can see one. */
+    @Test
+    void canonicalLoginStartCreatesOneSession() throws Exception {
+        int before = sessions.created();
+        String response = raw("/oauth2/authorization/dokene");
+        System.out.println("PROBE canonical -> " + response.lines().findFirst().orElse("") + " sessions="
+                + (sessions.created() - before));
+        assertThat(sessions.created() - before).isEqualTo(1);
+    }
+
+    /** Paths nginx proxies (location ^/(api|oauth2|login|logout)/) but does not key for the login limit. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/api/..;/oauth2/authorization/dokene",
+            "/login/..;/oauth2/authorization/dokene",
+            "/oauth2/x/..;/authorization/dokene",
+            "/oauth2/x;/../authorization/dokene",
+            "/logout/..;/oauth2/authorization/dokene"})
+    void unkeyedVariantCreatesNoSession(String path) throws Exception {
+        int before = sessions.created();
+        String response = raw(path);
+        System.out.println("PROBE " + path + " -> " + response.lines().findFirst().orElse("") + " sessions="
+                + (sessions.created() - before));
+        assertThat(sessions.created() - before).isZero();
+    }
+}

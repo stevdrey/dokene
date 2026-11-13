@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "issue": 311,
+  "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" },
+  "verifier": { "independent": true, "kind": "subagent" },
+  "criteria": [
+    { "id": "AC1", "text": "Anonymous protected and unknown routes do not allocate sessions; OIDC login, CSRF, session fixation protection and logout continue working; exercise repeated synthetic requests and record resource bounds.", "result": "pass", "evidence": ["C1", "C2"] },
+    { "id": "AC2", "text": "Record sanitized test evidence and the tested revision, and update relevant documentation.", "result": "pass", "evidence": ["C1", "C2", "C3"] }
+  ],
+  "findings": [
+    { "id": "F1", "severity": "optional", "status": "open", "criteria": ["AC2"],
+      "summary": "Evidence record names pre-squash branch commits (9d25605, 9d7fe68) as tested revisions, unreachable from the candidate head 341464a; its dev-stack resource tables were taken on 9d25605, before the expiry filter move and the start-time fix. AC2 is met in substance; traceability to the candidate is indirect.",
+      "evidence": "docs/verification/issue-311-anonymous-session-creation-verification.md (Environment, Review findings); `git diff --stat 9d7fe68 HEAD` in the candidate -> unknown revision" }
+  ],
+  "checks": [
+    { "id": "C1", "kind": "automated", "required": true,
+      "command": "cd backend && ./gradlew test --offline --tests '*AnonymousSessionCreationIntegrationTest' --tests '*PreLoginSessionIntegrationTest' --tests '*PreLoginSessionExpiryIntegrationTest' --tests '*PreLoginSessionExpiryFilterTest' --tests '*PreLoginAuthorizationRequestRepositoryTest' --tests '*SessionBoundCsrfTokenRepositoryTest' --tests '*BffSessionPropertiesTest' --tests '*BffSessionLifetimeFilterTest' --tests '*TenantSecurityConfigurationTest' --tests '*OidcBrowserSessionIntegrationTest' --tests '*BffTenantBoundarySecurityIntegrationTest'",
+      "result": "passed", "environment": "local, JDK 26.0.2, Testcontainers PostgreSQL, in-process OIDC provider stub",
+      "summary": "129 tests, 0 failures: 38-request anonymous sweep (zero sessions, no JSESSIONID, statuses unchanged, raw health-check bytes), repeated-request pre-login expiry over GET/unsafe/webhook/repeated starts, login rotation and timeout reset, failed-callback cleanup; unchanged OidcBrowserSession (19) and BffTenantBoundary (8) suites cover login, CSRF, session fixation and logout.",
+      "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" } },
+    { "id": "C2", "kind": "automated", "required": true,
+      "command": "./scripts/tests/nginx-login-rate-limit-smoke.sh",
+      "result": "passed", "environment": "local Docker, frontend image built from the candidate, no backend, loopback random port",
+      "summary": "6 checks pass: 40 simultaneous login starts -> 11 passed on, 29 refused with 429, Retry-After: 2, text/plain, no cookie; /api/session and callback bursts get no 429.",
+      "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" } },
+    { "id": "C3", "kind": "manual", "required": true,
+      "command": "git diff 016695e70c5615a179c1bdb2cc3bfe7e9fca970c -- docs/ infra/docker/README.md; read docs/verification/issue-311-anonymous-session-creation-verification.md",
+      "result": "passed", "environment": "candidate worktree, read-only",
+      "summary": "Sanitized evidence record (counts, statuses, heap readings, no cookies or ids) with tested revisions; ADR 0007 section, security invariant 33, audit M2 status, infra README and application.yml updated consistently with the code.",
+      "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" } },
+    { "id": "C4", "kind": "automated", "required": false,
+      "command": "probe: disposable worktree copy (identity tree verified equal) + probes/A-H1/LoginStartPathVariantProbeTest.java; ./gradlew test --offline --tests '*LoginStartPathVariantProbeTest'",
+      "result": "passed", "environment": "local, JDK 26.0.2, Testcontainers, OIDC stub",
+      "summary": "probe: raw-socket login-start path variants nginx proxies but does not key for the limit (/api/..;/oauth2/authorization/dokene and 4 others) all get 400 from the backend and create 0 sessions; sanity control: canonical /oauth2/authorization/dokene -> 302 and 1 session. Output in probes/A-H1/output.txt.",
+      "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" } },
+    { "id": "C5", "kind": "automated", "required": false,
+      "command": "negative control: disposable copy with probes/A-H2/negative-control.patch (PreLoginSessionExpiryFilter no longer invalidates); ./gradlew test --offline --tests '*PreLoginSessionExpiryIntegrationTest'",
+      "result": "failed", "environment": "local, JDK 26.0.2, Testcontainers, OIDC stub",
+      "summary": "negative control: with the age check's invalidate removed, 4 of 5 PreLoginSessionExpiryIntegrationTest tests fail as intended, so the passing suite in C1 can detect a session kept alive past the pre-login timeout.",
+      "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" } },
+    { "id": "C6", "kind": "automated", "required": false,
+      "command": "base control: not run",
+      "result": "not-run", "environment": "n/a",
+      "summary": "base control: not run because the probed protections (nginx login_starts limit, PreLoginSessionExpiryFilter) do not exist on the base, where every anonymous request already created a session.",
+      "candidate": { "base": "016695e70c5615a179c1bdb2cc3bfe7e9fca970c", "head": "341464a80aeaad51a1490836b50ca402c9fa7eb1", "tree": "859d8a397404e7c9124988f3ac2c68aa98e481b9" } }
+  ],
+  "limitations": [
+    "The dev-stack evidence script scripts/verify-issue-311-anonymous-sessions.sh (2000-request sweep, heap readings) was not rerun: the Compose stack is off-limits for this verifier. Repeated synthetic requests on the candidate were exercised through the integration tests (C1) and the nginx smoke test (C2); resource bounds are taken from the recorded evidence, not re-measured.",
+    "No full ./gradlew check was run (budget rule: --tests filters only); WhatsAppWebhookIntegrationTest was not rerun.",
+    "Adversarial pass ran (triggers: Authorization, External integrations/OIDC). Hypotheses: H1 nginx limit-key bypass via path variants (C4, cleared, sanity-controlled); H2 pre-login age bound evaded across chains (C1 passed, C5 negative control); H3 login/CSRF/fixation/logout regression (cleared by unchanged OidcBrowserSessionIntegrationTest and BffTenantBoundarySecurityIntegrationTest in C1); H4 failed callback ends a signed-in session (only covered by the diff's own PreLoginSessionIntegrationTest, not negatively controlled); H5 direct backend-port bypass of the edge limit is a documented residual (ADR 0007), not raised. No pass findings; none restated F1.",
+    "Probe sources and redacted output kept under runs/311/probes/A-H1 and A-H2; the disposable worktree was removed."
+  ],
+  "remainingActions": [
+    "Optional (F1): name the merged/candidate revision in the evidence record or note the squash mapping of 9d7fe68."
+  ],
+  "verdict": "pass"
+}

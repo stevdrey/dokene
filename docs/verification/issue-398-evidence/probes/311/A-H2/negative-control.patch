@@ -1,0 +1,14 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/identity/security/PreLoginSessionExpiryFilter.java b/backend/src/main/java/io/github/stevdrey/dokene/identity/security/PreLoginSessionExpiryFilter.java
+index d930074..d3a23e7 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/identity/security/PreLoginSessionExpiryFilter.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/identity/security/PreLoginSessionExpiryFilter.java
+@@ -52,7 +52,8 @@ public final class PreLoginSessionExpiryFilter extends OncePerRequestFilter {
+         if (session != null) {
+             try {
+                 if (isExpiredPreLoginSession(session, preLoginTimeout, clock.instant())) {
+-                    session.invalidate();
++                    // NEGATIVE CONTROL: protection removed
++                    if (false) session.invalidate();
+                 }
+             } catch (IllegalStateException alreadyInvalidated) {
+                 // A concurrent request ended this session first.

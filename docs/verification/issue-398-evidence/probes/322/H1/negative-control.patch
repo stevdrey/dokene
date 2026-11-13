@@ -1,0 +1,13 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/ai/provider/openai/OpenAiEndpointPolicy.java b/backend/src/main/java/io/github/stevdrey/dokene/ai/provider/openai/OpenAiEndpointPolicy.java
+index 7d23d49..14fbc44 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/ai/provider/openai/OpenAiEndpointPolicy.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/ai/provider/openai/OpenAiEndpointPolicy.java
+@@ -68,7 +68,7 @@ final class OpenAiEndpointPolicy {
+         }
+         boolean https = "https".equals(scheme);
+         boolean loopback = LOOPBACK_HOSTS.contains(host) && (https || "http".equals(scheme));
+-        boolean trusted = https && (host.equals(OPENAI_HOST) || trustedHosts.contains(host));
++        boolean trusted = https;
+         if (!(loopback || trusted)) {
+             throw new IllegalArgumentException(REJECTED);
+         }

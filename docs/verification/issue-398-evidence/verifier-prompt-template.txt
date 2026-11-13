@@ -1,0 +1,35 @@
+You are an independent verifier for Issue #{ISSUE} of the Dokene repository. The candidate is a detached worktree at {CAND}.
+
+Context: this is a replay for a measurement study (Issue #398). The candidate is a change that was already merged; judge it as if it were a fresh PR candidate. Your job is the ordinary verifier role, nothing more.
+
+Guidance: follow {GUIDE}/.agents/skills/independent-implementation-verification/SKILL.md (verifier role) and {GUIDE}/.agents/skills/independent-implementation-verification/adversarial-review.md. Read the guidance ONLY from {GUIDE}; the candidate's own .agents/ directory is an older revision and must not be used as guidance. Read AGENTS.md and the docs/ in the candidate for ADRs and security invariants.
+
+Base ref: {BASE}
+Candidate identity (must match `node {GUIDE}/.agents/scripts/verification-verdict.mjs --identity --base {BASE}` run inside {CAND}):
+{IDENTITY}
+
+Issue text (the acceptance criteria are the checklist items, AC1 then AC2):
+{ISSUE_BODY}
+
+Implementer's claims (verify, do not trust): the PR description of the merged change is not provided; derive evidence yourself.
+Previous verdict and changes since: none.
+Adversarial triggers seen by the implementer (check against the diff): {TRIGGERS}
+
+Work in two phases, in this order, and keep them distinct:
+
+Phase A, ordinary verification: verifier procedure steps 1 to 5 and 7 of SKILL.md WITHOUT the adversarial pass (map criteria, hunt for defects, run checks). Before starting phase B, write {RUN}/phase-a.json with: {"toolCallsSoFar": <your count of tool calls used so far>, "findings": [<the findings you have at this point, with id F1, F2, ...>]}.
+
+Phase B, adversarial pass: decide which rows of the trigger table the diff hits (list them, with the file that hits each). If any row applies, run the pass per adversarial-review.md, within its budget. Number pass findings A1, A2, ... and start every pass check's summary with probe:, base control: or negative control:. A pass finding that only restates a phase A finding must not be raised separately; say so in limitations instead. If no row applies, record "adversarial pass not run: no trigger" in limitations.
+
+Also answer, for the measurement study: would a hypothetical trigger row "Idempotency and API contracts (idempotency keys, fingerprints, cursors, status codes)" match this diff? Yes or no, with the file.
+
+Environment and budget:
+- At most 45 tool calls in total; the adversarial pass at most about 15 of them, as its budget says.
+- Java: before any Gradle command run `export JAVA_HOME=$HOME/.sdkman/candidates/java/26.0.2+1.1-tem PATH=$HOME/.sdkman/candidates/java/26.0.2+1.1-tem/bin:$PATH`. Use the Gradle Wrapper in {CAND}/backend (or in your disposable copy). Run Gradle only with `--tests` filters; never a full `test`, `check`, or `build`. The host has about 1 GB of free memory: run one Gradle command at a time. Testcontainers (Docker) is allowed. The running Compose stack, the network, and real providers are off-limits.
+- Do not modify, commit, stash, reset or check out anything in {CAND}. Build disposable copies for probes under {RUN}/ (see the probe-copy recipe in adversarial-review.md; for a committed candidate a `git worktree add --detach <path> <commit>` is an exact copy) and remove the copies with `git worktree remove` when done (do not run `git worktree prune`); keep probe sources and redacted output under {RUN}/probes/.
+- Never push, comment, open PRs or Issues, or send messages. Redact secrets and personal data.
+
+Write your verdict JSON (schema version 1, issue {ISSUE}) to {RUN}/verdict.json and validate it from inside {CAND} with
+`node {GUIDE}/.agents/scripts/verification-verdict.mjs --verdict {RUN}/verdict.json --base {BASE}`.
+
+Final reply (keep it short): the validator output line; the verdict; the trigger rows you found and the file for each; whether the pass ran; your count of tool calls in phase A and in phase B; each finding with id, severity, one-line summary, and whether it came from phase A or the pass; and the answer on the hypothetical idempotency row.

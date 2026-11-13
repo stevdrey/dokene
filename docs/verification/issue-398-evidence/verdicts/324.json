@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "issue": 324,
+  "candidate": {
+    "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+    "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+    "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+  },
+  "verifier": {
+    "independent": true,
+    "kind": "subagent"
+  },
+  "criteria": [
+    {
+      "id": "AC1",
+      "text": "Old keys cease to validate after the documented grace period; active requests and rolling deployments work during rotation; failure and rollback cases are tested without exposing keys.",
+      "result": "pass",
+      "evidence": [
+        "C1",
+        "C2",
+        "C3",
+        "C4"
+      ]
+    },
+    {
+      "id": "AC2",
+      "text": "Record sanitized test evidence and the tested revision, and update relevant documentation.",
+      "result": "pass",
+      "evidence": [
+        "C1",
+        "C4"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "optional",
+      "status": "open",
+      "criteria": [
+        "AC1"
+      ],
+      "summary": "Risk: any non-zero grace below ~130 s (60 s capability lifetime + 70 s accepted skew) is accepted although the docs say the grace must cover them; a short non-zero grace silently fails in-flight capabilities during a rollout. confidence: medium",
+      "evidence": "backend/src/main/java/io/github/stevdrey/dokene/tenant/persistence/jpa/TenantContextSigningKeyCallback.java parseRetirementGrace (accepts 0s..7d) vs docs/architecture/tenant-isolation-rls-recipe.md Key Rotation Lifecycle paragraph on grace coverage"
+    },
+    {
+      "id": "F2",
+      "severity": "optional",
+      "status": "open",
+      "criteria": [
+        "AC2"
+      ],
+      "summary": "The verification record names b24af99 for the first results and only 'the working tree of the review follow-up commit' for the final results, so the final tested revision is not identified by hash.",
+      "evidence": "docs/verification/issue-324-signing-key-retirement-verification.md, Environment 'Tested revision' and Results table"
+    }
+  ],
+  "checks": [
+    {
+      "id": "C1",
+      "kind": "automated",
+      "required": true,
+      "command": "node .agents/scripts/verification-verdict.mjs --identity --base 44b78c3 (in candidate and in the copy)",
+      "result": "passed",
+      "environment": "local disposable worktree copy of the candidate (identity-matched), JDK 26 Temurin, Testcontainers PostgreSQL",
+      "summary": "Identity matches the handoff (head 01c8490, tree c99c675) in the candidate and the disposable copy.",
+      "candidate": {
+        "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+        "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+        "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+      }
+    },
+    {
+      "id": "C2",
+      "kind": "automated",
+      "required": true,
+      "command": "./gradlew test --tests '*SigningKeyRetirementIntegrationTest' --tests '*TenantContextSigningKeyCallbackTest' --tests '*MigrationJobSeparationIntegrationTest' --tests '*TenantPersistenceIntegrationTest'",
+      "result": "passed",
+      "environment": "local disposable worktree copy of the candidate (identity-matched), JDK 26 Temurin, Testcontainers PostgreSQL",
+      "summary": "54 tests, 0 failures: SigningKeyRetirement 7, CallbackTest 5, MigrationJobSeparation 5, TenantPersistence 37. Covers overlap during rolling rotation, real-time grace expiry, deadline never extended, zero-grace revocation, rollback within grace, rollback to a retired id failing without changes or key material, key-id reuse refused, single reader of the key table, sanitized SQL errors.",
+      "candidate": {
+        "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+        "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+        "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+      }
+    },
+    {
+      "id": "C3",
+      "kind": "automated",
+      "required": true,
+      "command": "./gradlew test --tests '*TenantIsolationSecurityIntegrationTest' --tests '*TenantProvisioningIntegrationTest' --tests '*AuditEvent*IntegrationTest'",
+      "result": "passed",
+      "environment": "local disposable worktree copy of the candidate (identity-matched), JDK 26 Temurin, Testcontainers PostgreSQL",
+      "summary": "15 tests, 0 failures (TenantIsolationSecurity 7, TenantProvisioning 8); regression of the replaced verifiers signed_context_subject and append_audit_event. The AuditEvent* filter matched no class.",
+      "candidate": {
+        "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+        "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+        "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+      }
+    },
+    {
+      "id": "C4",
+      "kind": "manual",
+      "required": true,
+      "command": "git diff 44b78c3 of V39 vs the last prior bodies (V19 append_audit_event, V35 signed_context_subject); grep of all migrations for readers of tenant_context_signing_keys and DROP FUNCTION overloads; review of docs (ADR 0003, RLS recipe runbook, audit L6 status, threat model, verification record)",
+      "result": "passed",
+      "environment": "local disposable worktree copy of the candidate (identity-matched), JDK 26 Temurin, Testcontainers PostgreSQL",
+      "summary": "Replaced function bodies differ only in the key lookup; older append_audit_event overloads were dropped in V13/V19 so no stale reader remains; documentation of grace, overlap, rollback and emergency revocation is updated and the sanitized evidence record exists.",
+      "candidate": {
+        "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+        "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+        "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+      }
+    },
+    {
+      "id": "C5",
+      "kind": "automated",
+      "required": false,
+      "command": "./gradlew test --tests '*RetirementAdversarialProbeTest' (probe source <replay>/runs/324/probes/H1/RetirementAdversarialProbeTest.java, output <replay>/runs/324/probes/H1/probe-output.txt)",
+      "result": "passed",
+      "environment": "local disposable worktree copy of the candidate (identity-matched), JDK 26 Temurin, Testcontainers PostgreSQL",
+      "summary": "probe: H1 two migration jobs (k2, k3) interleaved on separate transactions after k1 leave exactly one undeadlined key [k3]; H2 a long-lived runtime session with a k1 capability stops verifying after a zero-grace rotation to k2. Base control not-run: retirement code does not exist on the base.",
+      "candidate": {
+        "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+        "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+        "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+      }
+    },
+    {
+      "id": "C6",
+      "kind": "automated",
+      "required": false,
+      "command": "sed removes the LOCK TABLE statement in a disposable copy; ./gradlew test --tests '*RetirementAdversarialProbeTest.h1*' (output <replay>/runs/324/probes/H1/negative-control-output.txt)",
+      "result": "failed",
+      "environment": "local disposable worktree copy of the candidate (identity-matched), JDK 26 Temurin, Testcontainers PostgreSQL",
+      "summary": "negative control: with the table lock removed, H1 fails as intended: undeadlined keys [k2, k3], so the probe can detect a missing serialization.",
+      "candidate": {
+        "base": "44b78c3def0aac75e36ad7384b7f86f5a3a0c5c7",
+        "head": "01c8490c293f0c2e64a50669389f66b6c1b0d03a",
+        "tree": "c99c6753f211dc48bee8a5090fedb20afa54e26d"
+      }
+    }
+  ],
+  "limitations": [
+    "Adversarial pass ran for triggers Tenant isolation (V39__retire_superseded_tenant_context_signing_keys.sql verifiers; TenantContextSigningKeyCallback.java), Concurrency (TenantContextSigningKeyCallback.java table lock and transaction) and Migrations (V39 backfill and REVOKE). Hypotheses H1 and H2 were probed and not broken; no pass finding.",
+    "H2 probe was not negative-controlled (zero grace also marks the key RETIRED, so removing one guard would not make it fail cheaply).",
+    "Unexamined hypotheses: V39 backfill of a pre-existing RETIRED row on an upgraded database; previous-release migration job run against the V39 schema during a release rollback (documented in the runbook; reasoned from code only).",
+    "Full backend check/build was not run by instruction (only --tests filters); no live multi-replica Compose rotation was run.",
+    "Phase A findings F1 and F2 are not restated by the pass."
+  ],
+  "remainingActions": [
+    "Optionally enforce or warn on a non-zero grace below the capability lifetime plus skew (F1).",
+    "Optionally name the final tested commit in the verification record (F2)."
+  ],
+  "verdict": "pass"
+}

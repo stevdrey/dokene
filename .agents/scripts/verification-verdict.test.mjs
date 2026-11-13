@@ -305,6 +305,44 @@ test('scenario: an adversarial pass blocks only on a reproduced finding', t => {
   assert.doesNotMatch(reproduced.stderr, /required check C3/);
 });
 
+test('a verdict that does not say whether the adversarial pass ran gets a warning, never another result', t => {
+  const cwd = repository(t);
+  const candidate = identity(cwd);
+  const warning = /WARNING: the verdict does not say whether the adversarial pass ran/;
+  const verdict = passingVerdict(candidate);
+
+  const unrecorded = check(t, cwd, verdict);
+  assert.equal(unrecorded.status, 0, unrecorded.stderr);
+  assert.match(unrecorded.stdout, /PASS: Issue #1/);
+  assert.match(unrecorded.stderr, warning);
+
+  verdict.limitations.push('Adversarial pass not run: no trigger.');
+  const skipped = check(t, cwd, verdict);
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.doesNotMatch(skipped.stderr, warning);
+
+  verdict.limitations = [];
+  verdict.checks.push({
+    id: 'C3', kind: 'automated', required: false, command: 'probe test in a disposable copy', result: 'passed',
+    environment: 'local, outside the candidate', summary: 'Probe: duplicate submits store one record', candidate,
+  });
+  const ran = check(t, cwd, verdict);
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.doesNotMatch(ran.stderr, warning);
+
+  // A role word that does not start the summary is not a pass run.
+  verdict.checks[2].summary = 'reran the probe: duplicate submits store one record';
+  assert.match(check(t, cwd, verdict).stderr, warning);
+
+  const failing = passingVerdict(candidate);
+  failing.criteria[1].result = 'fail';
+  failing.verdict = 'fail';
+  const failed = check(t, cwd, failing);
+  assert.equal(failed.status, 1);
+  assert.match(failed.stderr, warning);
+  assert.match(failed.stderr, /FAIL: Issue #1/);
+});
+
 test('an open blocker finding outside every criterion fails on its own', t => {
   const cwd = repository(t);
   const verdict = passingVerdict(identity(cwd));

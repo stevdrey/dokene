@@ -1,0 +1,5 @@
+RetirementAdversarialProbeTest tests 2 failures 0 errors 0
+  h2LongLivedSessionStopsVerifyingAfterZeroGraceRevocation() passed
+  h1ConcurrentJobsLeaveExactlyOneUndeadlinedKey() passed
+PROBE H2 same-session tenant after revocation: null
+PROBE H1 undeadlined keys: [k3]

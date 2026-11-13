@@ -224,6 +224,24 @@ function droppedBlockers(previous, current) {
     .map(finding => finding.id);
 }
 
+// The adversarial pass (adversarial-review.md) records each run as a check whose summary starts with its role, and a
+// skipped pass as one `limitations` line. Neither is a schema field, so these patterns only read the existing text.
+const ADVERSARIAL_CHECK_ROLE = /^\s*(?:probe|base control|negative control):/i;
+const ADVERSARIAL_NOT_RUN = /adversarial pass not run/i;
+
+/**
+ * Whether the verdict says if the optional adversarial pass ran: `ran` when a check carries a pass role, `not-run` when
+ * a limitation records the skip, otherwise `unrecorded`. Informational only: it never changes the computed verdict or
+ * the exit code, because the pass is optional and its absence never blocks a candidate (Issue #398).
+ */
+function adversarialPassRecord(verdict) {
+  if (verdict.checks.some(check => typeof check.summary === 'string' && ADVERSARIAL_CHECK_ROLE.test(check.summary))) {
+    return 'ran';
+  }
+  if (verdict.limitations.some(line => typeof line === 'string' && ADVERSARIAL_NOT_RUN.test(line))) return 'not-run';
+  return 'unrecorded';
+}
+
 // Every option each mode accepts. Anything else is rejected, so a misspelled --commit can never silently fall back
 // to checking the worktree, which would let the publication gate pass a commit that lacks the verified change.
 const MODES = {
@@ -329,6 +347,12 @@ function main() {
     return;
   }
 
+  if (adversarialPassRecord(verdict) === 'unrecorded') {
+    console.error('WARNING: the verdict does not say whether the adversarial pass ran: add its probe:, base control: '
+      + 'or negative control: checks, or the limitations line "adversarial pass not run: no trigger". '
+      + 'This warning does not change the result.');
+  }
+
   const { result, reasons } = computeVerdict(verdict);
   const subject = `Issue #${verdict.issue} candidate ${describe(verdict.candidate)}`;
   if (verdict.verdict !== result) {
@@ -347,7 +371,7 @@ function main() {
 }
 
 export {
-  DEFAULT_BASE_REF, UsageError, candidateIdentity, commitIdentity, computeVerdict, describe, droppedBlockers, isObject,
+  DEFAULT_BASE_REF, UsageError, adversarialPassRecord, candidateIdentity, commitIdentity, computeVerdict, describe, droppedBlockers, isObject,
   isText, parseOptions, sameCandidate, validateVerdict,
 };
 

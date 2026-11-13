@@ -1,0 +1,46 @@
+package io.github.stevdrey.dokene.ai.provider.openai;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+import java.util.Set;
+import okhttp3.HttpUrl;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+/** Probe H1: any value the policy accepts must be parsed by OkHttp to the same, allowed host. */
+class AdvParserDifferentialProbeTest {
+    private static final Set<String> ALLOWED = Set.of("api.openai.com", "localhost", "127.0.0.1", "[::1]", "gw.internal.example");
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "https://api.openai.com/@evil.example", "https://api.openai.com//evil.example/v1",
+        "https://api.openai.com/%2F%2Fevil.example", "https://api.openai.com/..//evil.example",
+        "https://api.openai.com/./../evil.example", "https://api.openai.com/v1/%2e%2e/%2e%2e/x",
+        "https://api.openai.com:00443/v1", "https://API.OPENAI.COM:443/v1", "http://localhost:0080/v1",
+        "http://[::1]:18080/v1", "http://[0:0:0:0:0:0:0:1]/v1", "https://api.openai.com;evil.example/v1",
+        "https://api.openai.com/v1;@evil.example", "https://api.openai.com/v1%40evil.example",
+        "https://api.openai.com/v1/..;/x", "https://gw.internal.example/v1", "http://localhost/%0d%0aHost:evil",
+        "https://api.openai.com:443%2f@evil.example", "https://api.openai.com\t/v1", "https://api.openai.com /v1",
+        "HTTPS://api.openai.com/v1", "https://api.openai.com/v1#", "https://api.openai.com/v1/?",
+        "http://localhost:65535", "https://xn--pi-openai-xyz.com/v1"})
+    void acceptedValuesStayOnTheirAllowedHost(String raw) {
+        String canonical;
+        try {
+            canonical = OpenAiEndpointPolicy.canonicalBaseUrl(raw, List.of("gw.internal.example"));
+        } catch (IllegalArgumentException rejected) {
+            System.out.println("PROBE rejected: " + raw);
+            return;
+        }
+        HttpUrl url = HttpUrl.parse(canonical);
+        System.out.println("PROBE accepted: " + raw + " -> " + canonical + " okhttpHost=" + (url == null ? null : url.host()));
+        assertThat(url).as("OkHttp must parse %s", canonical).isNotNull();
+        HttpUrl request = url.newBuilder().addPathSegments("responses").build();
+        String host = request.host().contains(":") ? "[" + request.host() + "]" : request.host();
+        assertThat(ALLOWED).contains(host);
+        assertThat(request.username()).isEmpty();
+        assertThat(request.password()).isEmpty();
+        assertThat(request.query()).isNull();
+        assertThat(request.isHttps() || Set.of("localhost", "127.0.0.1", "[::1]").contains(host)).isTrue();
+    }
+}

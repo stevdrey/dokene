@@ -94,7 +94,7 @@ The `--previous` check from #374 (a re-verification cannot drop an open blocker)
 
 ## Proposed revisions, not applied
 
-These need evidence from real Issues before they change guidance:
+These need evidence from real Issues before they change guidance. The [Issue #398 decision](issue-398-adversarial-pass-decision.md) decided them: revision 1 was not adopted, revision 2 was adopted as a warning only, and revision 3 was not measured.
 
 1. Add "Idempotency and API contracts" (keys, fingerprints, cursors, status codes) to the adversarial trigger table, so that K1-like and K2-like diffs are attacked by design rather than by chance.
 2. Make the "not run: no trigger" line checkable, for example a verdict check id or a validator warning, so that the record shows whether the pass ran.

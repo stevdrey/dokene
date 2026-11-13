@@ -1,0 +1,1 @@
+Negative control (protection removed, see negative-control.patch): PreLoginSessionExpiryIntegrationTest tests=5 failures=4 errors=0; gradle exit 1 (failed as intended).
