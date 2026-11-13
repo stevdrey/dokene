@@ -61,11 +61,11 @@ Start from the first failed step: later steps often fail as a consequence (a ref
 
 ## Proof run
 
-A journey is trusted only after a proof run shows that it passes on the base and **fails** on a controlled regression that it is meant to catch. Record both runs, the regression's diff, and whether the existing test suite caught the same regression, in `docs/verification/`. The pilot's proof run is [issue-375-operator-journey-pilot.md](../../../docs/verification/issue-375-operator-journey-pilot.md).
+A journey is trusted only after a proof run shows that it passes on the base and **fails** on a controlled regression that it is meant to catch. Record both runs, the regression's diff, and whether the existing test suite caught the same regression, in `docs/verification/`. The first proof run (Issue #375) is [issue-375-operator-journey-pilot.md](../../../docs/verification/issue-375-operator-journey-pilot.md).
 
 ## Adding a journey
 
-One journey per Issue. Add `journeys/<name>.md` (scope, fixture, actors, steps with expected results, manual steps, cleanup, and rerun safety), a `scripts/verify-journey-<name>.sh` script that reuses the helpers and safety rules of the existing one, offline tests for its helpers under `scripts/tests/`, and a proof run. Do not generate journeys in bulk or keep a map of features: the pilot covers one journey on purpose.
+One journey per Issue. Add `journeys/<name>.md` (scope, fixture, actors, steps with expected results, manual steps, cleanup, and rerun safety), a `scripts/verify-journey-<name>.sh` script that reuses the helpers and safety rules of the existing one, offline tests for its helpers under `scripts/tests/`, and a proof run. Do not generate journeys in bulk or keep a map of features: add a journey only when an Issue needs it, one at a time.
 
 ## Journeys
 
