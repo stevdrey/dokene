@@ -30,8 +30,10 @@ trap cleanup EXIT
 
 # Read configuration from .env if available
 if [ -f "$ROOT_DIR/.env" ]; then
+    set -a
     # shellcheck disable=SC1091
-    set -a; . "$ROOT_DIR/.env"; set +a
+    . "$ROOT_DIR/.env"
+    set +a
 fi
 
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
