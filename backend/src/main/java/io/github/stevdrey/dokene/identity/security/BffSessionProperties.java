@@ -10,17 +10,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * session's refresh token is redeemed at the provider, so a disabled user or an ended provider session is denied within
  * that interval. While the provider cannot be reached the session survives until {@code revalidationGrace} has passed
  * since the last successful revalidation. {@code revalidationTimeout} bounds each connection and response wait of a
- * revalidation, which runs while the session's other requests wait for it.
+ * revalidation, which runs while the session's other requests wait for it. {@code preLoginTimeout} is how long a
+ * session created by a login start may wait for the login to succeed, idle or not (issue 311).
  */
 @ConfigurationProperties("dokene.security.session")
 public record BffSessionProperties(Duration maxLifetime, Duration revalidationInterval, Duration revalidationGrace,
-        Duration revalidationTimeout) {
+        Duration revalidationTimeout, Duration preLoginTimeout) {
 
     public BffSessionProperties {
         maxLifetime = maxLifetime == null ? Duration.ofHours(8) : maxLifetime;
         revalidationInterval = revalidationInterval == null ? Duration.ofMinutes(5) : revalidationInterval;
         revalidationGrace = revalidationGrace == null ? Duration.ofMinutes(15) : revalidationGrace;
         revalidationTimeout = revalidationTimeout == null ? Duration.ofSeconds(5) : revalidationTimeout;
+        preLoginTimeout = preLoginTimeout == null ? Duration.ofMinutes(5) : preLoginTimeout;
         if (!maxLifetime.isPositive()) {
             throw new IllegalStateException("dokene.security.session.max-lifetime must be positive");
         }
@@ -38,6 +40,11 @@ public record BffSessionProperties(Duration maxLifetime, Duration revalidationIn
         if (revalidationGrace.compareTo(maxLifetime) > 0) {
             throw new IllegalStateException(
                     "dokene.security.session.revalidation-grace must not exceed max-lifetime");
+        }
+        // The servlet container counts idle time in whole seconds and reads 0 as "never expire".
+        if (preLoginTimeout.compareTo(Duration.ofSeconds(1)) < 0 || preLoginTimeout.compareTo(maxLifetime) > 0) {
+            throw new IllegalStateException(
+                    "dokene.security.session.pre-login-timeout must be at least 1s and must not exceed max-lifetime");
         }
     }
 }

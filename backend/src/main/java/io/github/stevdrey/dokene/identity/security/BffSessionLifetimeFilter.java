@@ -30,12 +30,15 @@ import org.springframework.web.util.WebUtils;
 /**
  * Runs after the security context is loaded and before authorization. A session it revokes is invalidated and the
  * request continues unauthenticated, so {@code /api/**} fails closed with {@code 401} exactly like an idle-expired
- * session. Sessions not established by OIDC login are left alone.
+ * session. Sessions not established by OIDC login are left alone; {@link PreLoginSessionExpiryFilter} ends the session
+ * of a login start that never completed.
  */
 public final class BffSessionLifetimeFilter extends OncePerRequestFilter {
 
     public static final String AUTHENTICATED_AT = BffSessionLifetimeFilter.class.getName() + ".AUTHENTICATED_AT";
     public static final String LAST_REVALIDATED_AT = BffSessionLifetimeFilter.class.getName() + ".LAST_REVALIDATED_AT";
+    /** When the login start that created this session happened; removed once the login succeeds. */
+    public static final String PRE_LOGIN_STARTED_AT = BffSessionLifetimeFilter.class.getName() + ".PRE_LOGIN_STARTED_AT";
 
     private static final Logger log = LoggerFactory.getLogger(BffSessionLifetimeFilter.class);
 
