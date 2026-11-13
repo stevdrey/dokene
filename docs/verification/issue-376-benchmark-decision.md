@@ -6,11 +6,11 @@ The record is sanitized: test names, counts, statuses, and redacted probe output
 
 ## Decision
 
-**No-go** for making any adapted practice compulsory or a default step. **Go** for keeping two of them as optional, risk-triggered practices, because each has evidence of a defect class the existing suite misses or of stronger proof at bounded cost. One practice stays a pilot with no new evidence.
+**No-go** for making any adapted practice compulsory or a default step. **Go** for keeping the adversarial pass and the operator journey as optional, risk-triggered practices: the journey has evidence of a defect class the existing suite misses, and the pass gave stronger proof on its one run at a bounded cost. The failing-before evidence format stays optional and unchanged, and blast-radius analysis stays a pilot with no new evidence.
 
 | Practice | Decision | Evidence | What changes now |
 | --- | --- | --- | --- |
-| Adversarial pass ([#374](issue-374-adversarial-review-exercise.md)) | **Revise**, keep optional | This benchmark: the same detection as the baseline (2 of 2 seeded defects in both arms), no false positive, about 7.6% more tokens. Its one run (K3) added a controlled equivalence probe but found nothing the baseline missed. The #374 exercise showed the reproduction format and blocking bar work. | Wording only: it stays optional, and the revisions below are proposed, not applied. |
+| Adversarial pass ([#374](issue-374-adversarial-review-exercise.md)) | **Revise**, keep optional | This benchmark did not test its detection: no trigger matched K1 or K2, so the pass did not run on either seeded defect, and the pilot arm found both through the ordinary hunt, as the baseline did. Its one run (K3, no defect) added a controlled equivalence probe and raised no false positive. The arm totals differ by about 7.6% in tokens, which one run per arm cannot separate from run-to-run variance. The #374 exercise showed the reproduction format and blocking bar work. | Wording only: it stays optional, and the revisions below are proposed, not applied. |
 | Runnable operator journey ([#375](issue-375-operator-journey-pilot.md)) | **Adopt** as optional for its narrow trigger | #375 proof run: a CSRF regression (R2) passed the full backend suite (2630 tests, 0 failures) and failed the journey at S6. That is a defect class the suite cannot observe. Not re-run here. | The skill index drops the "Pilot" label; the trigger stays narrow and optional. |
 | Blast-radius analysis ([#373](issue-373-blast-radius-exercise.md)) | **Keep as pilot**, no adoption | Not exercised by this benchmark: it is an implementer step, and the candidates were fixed inputs. The #373 exercise was written with the merged PR in view, so it shows the format, not detection. | Wording only: still optional and unproven. |
 | Failing-before evidence (`tdd`, format only) | **Keep as optional format** | Not measured. `.agents/README.md` already requires tests. | None. |
@@ -69,6 +69,8 @@ Defect counts are scored against the sealed ground truth. A blocker that matches
 
 Tool calls, tokens, and durations are the harness-reported totals for each subagent, not self-reports. Every verdict validated with `verification-verdict.mjs` against its candidate: exit `1` for the four `fail` verdicts and exit `0` for the two `pass` verdicts. The verdicts are in [`verdicts/`](issue-376-evidence/verdicts/) and the probe sources in [`probes/`](issue-376-evidence/probes/), stored as `.java.txt` so that no build or scanner treats them as code.
 
+With one run per candidate and arm, the arm totals cannot separate a cost difference from run-to-run variance: the same candidate took 304 s in one arm and 186 s in the other (K1). Read the 7.6% token difference as one sample, not a measured cost.
+
 Each seeded defect was reproduced independently by two verifiers, each with a base control (the same probe passing on `88d7523`). Every run also passed the existing purchase suites on the candidate (`PurchaseControllerTest` 15, `PurchaseTest` 2, `PurchaseManagementIntegrationTest` 5, `PurchaseCurlSystemTest` 1), which confirms that the shipped tests miss K1 and K2.
 
 ### Observations
@@ -84,7 +86,7 @@ Each seeded defect was reproduced independently by two verifiers, each with a ba
 
 | Practice | Cost observed | Maintenance surface |
 | --- | --- | --- |
-| Adversarial pass | +1% to +5% tokens on the two candidates without a trigger (where the pass did not run) and +18% tokens, +7 tool calls on the triggered one (K3) | `adversarial-review.md` (119 lines), two steps in the verification skill, `--previous` handling in the validator and loop helper with tests |
+| Adversarial pass | Measured only on K3, its one run: +15,702 tokens (+18%) and +7 tool calls over the baseline verifier. The K1 and K2 deltas (+4.5% and +1.4% tokens) are not its cost, since it did not run there; they reflect the longer guidance or run-to-run variance | `adversarial-review.md` (119 lines), two steps in the verification skill, `--previous` handling in the validator and loop helper with tests |
 | Operator journey | About 4 s per run on an already running stack; about 42 s per backend rebuild; the stack itself dominates | 531-line script, 199-line offline test, one journey file, one CI workflow entry |
 | Blast-radius analysis | Not measured here; #373 used 2 probes | One 115-line skill and one example |
 
@@ -102,9 +104,9 @@ These need evidence from real Issues before they change guidance:
 
 Rollout is incremental, and each step can stop:
 
-1. **Now (this PR):** both retained practices stay optional and risk-triggered; nothing becomes a default or a gate. The operator journey drops its "Pilot" label; the other two keep it.
-2. **Next five Issues that hit a trigger:** record, in each PR's verification section, whether the adversarial pass ran, its trigger, its added tool calls, and any finding only it produced.
-3. **Review:** with that data, decide revisions 1 and 2 above in a follow-up Issue. Adopt the pass as a default only if it found at least one confirmed defect that the ordinary hunt missed, with no increase in false-positive blockers.
+1. **Now (this PR):** both retained practices stay optional and risk-triggered; nothing becomes a default or a gate. The operator journey drops its "pilot" wording, blast-radius analysis keeps "pilot practice", and the adversarial pass never carried that label.
+2. **Next five Issues that hit a trigger** (tracked in [Issue #398](https://github.com/stevdrey/dokene/issues/398)): record, in each PR's verification section, whether the adversarial pass ran, its trigger, its added tool calls, and any finding only it produced.
+3. **Review:** with that data, decide revisions 1 to 3 above in Issue #398. Adopt the pass as a default only if it found at least one confirmed defect that the ordinary hunt missed, with no increase in false-positive blockers.
 
 Rollback for each practice is independent:
 
@@ -120,12 +122,12 @@ From the repository root, with JDK 26 active and Docker available:
 
 ```bash
 BENCH=<scratch directory outside the repository>
-mkdir -p "$BENCH/guidance"
+mkdir -p "$BENCH/guidance/baseline" "$BENCH/guidance/pilot"
 git worktree add --detach "$BENCH/K1" 88d7523
 git -C "$BENCH/K1" apply "$PWD/docs/verification/issue-376-evidence/K1.patch"
 (cd "$BENCH/K1" && node .agents/scripts/verification-verdict.mjs --identity --base 88d7523)   # tree c8856365…
-git archive c827914 .agents | tar -C "$BENCH/guidance" -x --one-top-level=baseline
-git archive 88d7523 .agents | tar -C "$BENCH/guidance" -x --one-top-level=pilot
+git archive c827914 .agents | tar -C "$BENCH/guidance/baseline" -xf -
+git archive 88d7523 .agents | tar -C "$BENCH/guidance/pilot" -xf -
 ```
 
 Repeat the `git worktree add`, `git apply`, and identity commands for K2 (tree `897e19fd…`) and K3 (tree `d470bc0d…`). Fill the [prompt template](issue-376-evidence/verifier-prompt-template.txt) for each candidate and arm: `{CAND}` is the candidate copy, `{GUIDE}` is `$BENCH/guidance/<arm>`, `{RUN}` is `$BENCH/runs/<candidate>-<arm>`, `{IDENTITY}` is the identity JSON, and `{BENCH}` is `$BENCH`. For the pilot arm, `{TRIGGERS_LINE}` is `Adversarial triggers seen by the implementer (check against the diff): none` and `{EXTRA_EXCLUDE}` is empty. For the baseline arm, `{TRIGGERS_LINE}` is empty and `{EXTRA_EXCLUDE}` is:
