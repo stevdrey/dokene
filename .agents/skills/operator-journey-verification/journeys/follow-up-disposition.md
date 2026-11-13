@@ -26,7 +26,7 @@ When the candidate changes backend code, rebuild the image first with `./scripts
 | Customer | `QA Journey <run id>`, random number in the `+5698` block (all 10,000,000 numbers pass the phone validator), WhatsApp consent `GRANTED` (`CUSTOMER_VERBAL`), one purchase 40 days ago, explicit next date = today in the tenant's time zone | New per run; archived by the owner at the end |
 | Idempotency keys | `qa-journey-*-<run id>` | New per run |
 
-All data is invented. The password comes from `DOKENE_TEST_USER_PASSWORD` and is never printed.
+All data is invented. Each actor logs in with its own password, from `DOKENE_TEST_OWNER_PASSWORD`, `DOKENE_TEST_OPERATOR_PASSWORD` and `DOKENE_TEST_VIEWER_PASSWORD` (generated in `.env` by `./scripts/dev-env.sh up`, no default). A missing one blocks the journey. No password is ever printed.
 
 ## Actors
 

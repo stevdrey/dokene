@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Offline tests for the follow-up disposition journey script: its pure helpers, record writing and safety rules.
+# ABOUTME: Sources the script without running the journey; uses no stack, network or Docker.
 # Offline tests for scripts/verify-journey-follow-up-disposition.sh (Issue #375).
 # They source the script's pure helpers and inspect its text; no stack, network or Docker is used.
 set -uo pipefail
@@ -146,6 +148,41 @@ assert "ESC and BEL are removed from YAML scalars" [ "$(yaml_str "$(printf 'a\03
 # --- the inside-repository guard compares directory identity, not only strings
 assert "an ancestor that is the repository by identity is detected" path_is_within_dir "$ROOT_DIR/./missing/out" "$ROOT_DIR"
 refute "a scratch directory is not the repository by identity" path_is_within_dir "$TMP/real/out" "$ROOT_DIR"
+
+# --- each actor posts its own password over stdin (issue 314); there is no shared value and no default
+(
+  export DOKENE_TEST_OWNER_PASSWORD=owner-value-12 DOKENE_TEST_OPERATOR_PASSWORD=operator-value \
+         DOKENE_TEST_VIEWER_PASSWORD=viewer-value-1
+  # shellcheck source=../lib/test-passwords.sh
+  . "$ROOT_DIR/scripts/lib/test-passwords.sh"
+  WORK_DIR="$TMP"
+  # Stands in for curl: records the username argument, whether a password reached the command line, and stdin.
+  # shellcheck disable=SC2329
+  curl() {
+    local arg user="" on_argv=no
+    for arg in "$@"; do
+      case "$arg" in
+        username=*) user="${arg#username=}" ;;
+        *-value*) on_argv=yes ;;
+      esac
+    done
+    printf '%s %s %s\n' "$user" "$on_argv" "$(cat)" >> "$TMP/posted"
+  }
+  for actor in testuser testoperator testviewer; do
+    submit_credentials "$actor" "$TMP/jar" "http://localhost:8081/form" || exit 1
+  done
+  ! submit_credentials stranger "$TMP/jar" "http://localhost:8081/form" 2>/dev/null || exit 1
+  [ -z "$(first_missing_test_password)" ] || exit 1
+  DOKENE_TEST_OPERATOR_PASSWORD=""
+  [ "$(first_missing_test_password)" = "DOKENE_TEST_OPERATOR_PASSWORD" ] || exit 1
+  unset DOKENE_TEST_OWNER_PASSWORD
+  [ "$(first_missing_test_password)" = "DOKENE_TEST_OWNER_PASSWORD" ]
+)
+assert "credential submission and the missing-password probe behave for every actor" [ "$?" -eq 0 ]
+assert "each actor's own password is posted over stdin, never on the command line" \
+  [ "$(cat "$TMP/posted" 2>/dev/null)" = "$(printf 'testuser no owner-value-12\ntestoperator no operator-value\ntestviewer no viewer-value-1')" ]
+refute "the shared password variable and its default are gone" \
+  grep -Eq 'DOKENE_TEST_USER_PASSWORD|testpassword' "$SCRIPT"
 
 # --- the fixture-only mode for the manual browser step is documented
 assert "--fixture-only appears in the usage text" grep -q -- '--fixture-only' "$SCRIPT"
