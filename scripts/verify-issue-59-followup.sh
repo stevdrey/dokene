@@ -69,27 +69,11 @@ echo "Target Frontend: $FRONTEND_URL"
 echo "Target Keycloak: $KEYCLOAK_URL"
 echo "======================================================================"
 
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login_user() {
-    local username="$1"
-    local password="$2"
-    local cookie_jar="$TEMP_DIR/$username-cookies.txt"
-    local header_log="$TEMP_DIR/$username-headers.txt"
-    local body_log="$TEMP_DIR/$username-body.txt"
-
-    curl -s -c "$cookie_jar" -D "$header_log" -o "$body_log" "$BFF_URL/oauth2/authorization/dokene"
-    local auth_url
-    auth_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$auth_url"
-    local form_action
-    form_action="$(grep -o 'action="[^"]*"' "$body_log" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$password" \
-        "$form_action"
-    local cb_url
-    cb_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$cb_url"
-    echo "$cookie_jar"
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    printf '%s' "$2" | bff_login "$1" "$TEMP_DIR/$1-cookies.txt" "$TEMP_DIR"
 }
 
 RESP_BODY="$TEMP_DIR/resp.json"
@@ -98,17 +82,17 @@ RESP_HDR="$TEMP_DIR/resp.hdr"
 # Setup Active Sessions
 echo ""
 echo "Authenticating synthetic identities..."
-OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OPERATOR_COOKIE="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
+OPERATOR_COOKIE="$(login_user "testoperator" "$OPERATOR_PASSWORD")" || exit 1  # bff_login printed the reason
 OPERATOR_SESSION="$(curl -s -b "$OPERATOR_COOKIE" "$BFF_URL/api/session")"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 OPERATOR_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 
-VIEWER_COOKIE="$(login_user "testviewer" "$VIEWER_PASSWORD")"
+VIEWER_COOKIE="$(login_user "testviewer" "$VIEWER_PASSWORD")" || exit 1  # bff_login printed the reason
 VIEWER_SESSION="$(curl -s -b "$VIEWER_COOKIE" "$BFF_URL/api/session")"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
 
@@ -195,7 +179,7 @@ cp "$OWNER_COOKIE" "$INVALIDATED_COOKIE"
 curl -s -b "$OWNER_COOKIE" -H "X-CSRF-TOKEN: $OWNER_CSRF" -X POST "$BFF_URL/logout" > /dev/null
 
 # Owner logs back in (creates fresh session in $OWNER_COOKIE)
-NEW_OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
+NEW_OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 NEW_OWNER_SESSION="$(curl -s -b "$NEW_OWNER_COOKIE" "$BFF_URL/api/session")"
 NEW_CSRF="$(echo "$NEW_OWNER_SESSION" | jq -r '.csrfToken')"
 
@@ -267,28 +251,41 @@ TEMP_JAR="$TEMP_DIR/replay-jar.txt"
 TEMP_HDR="$TEMP_DIR/replay-hdr.txt"
 TEMP_LOG="$TEMP_DIR/replay-log.txt"
 
+# The probe needs the raw callback URL, so it runs the flow itself, but with the shared helper's guards:
+# every hop must be loopback and the password goes through stdin (scripts/lib/bff-login.sh).
+REPLAY_TARGETS_LOCAL=false
 curl -s -c "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$BFF_URL/oauth2/authorization/dokene"
-AUTH_URL="$(grep -i "^location:" "$TEMP_HDR" | tr -d '\r\n' | awk '{print $2}')"
-curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$AUTH_URL"
-FORM_ACTION="$(grep -o 'action="[^"]*"' "$TEMP_LOG" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" \
-    --data-urlencode "username=testuser" \
-    --data-urlencode "password=$OWNER_PASSWORD" \
-    "$FORM_ACTION"
-CB_URL="$(grep -i "^location:" "$TEMP_HDR" | tr -d '\r\n' | awk '{print $2}')"
+AUTH_URL="$(header_value location "$TEMP_HDR")"
+if is_local_target "$AUTH_URL"; then
+    curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$AUTH_URL"
+    FORM_ACTION="$(bff_login_form_action "$TEMP_LOG")"
+    if is_local_target "$FORM_ACTION"; then
+        : > "$TEMP_HDR"
+        printf '%s' "$OWNER_PASSWORD" | curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" \
+            --data-urlencode "username=testuser" \
+            --data-urlencode "password@-" \
+            "$FORM_ACTION"
+        CB_URL="$(header_value location "$TEMP_HDR")"
+        is_local_target "$CB_URL" && REPLAY_TARGETS_LOCAL=true
+    fi
+fi
 
-# Consume it once
-curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$CB_URL"
-FIRST_CONSUME_STATUS="$(grep -i "^HTTP/" "$TEMP_HDR" | head -n 1 | awk '{print $2}')"
-
-# Now replay the exact same callback URL with already-consumed code
-REPLAY_HDR="$TEMP_DIR/replay-attempt.hdr"
-CODE="$(curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$REPLAY_HDR" -o "$TEMP_LOG" -w "%{http_code}" "$CB_URL")"
-REPLAY_LOC="$(grep -i "^location:" "$REPLAY_HDR" | tr -d '\r\n' | awk '{print $2}')"
-if [ "$CODE" = "302" ] && [[ "$REPLAY_LOC" == *"error=login_failed"* || "$REPLAY_LOC" == *"login_failed"* || "$REPLAY_LOC" == *"/?"* ]]; then
-    record_result "Auth" "Replay of consumed OIDC authorization code" "PASS" "Keycloak rejected replayed code; Spring Security safely redirected to login failure URL without 500"
+if [ "$REPLAY_TARGETS_LOCAL" != true ]; then
+    record_result "Auth" "Replay of consumed OIDC authorization code" "FAIL" "Login flow reached a non-loopback or missing target; probe not run"
 else
-    record_result "Auth" "Replay of consumed OIDC authorization code" "FAIL" "Expected 302 to failure URL but got HTTP $CODE (Location: $REPLAY_LOC)"
+    # Consume it once
+    curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$CB_URL"
+    FIRST_CONSUME_STATUS="$(grep -i "^HTTP/" "$TEMP_HDR" | head -n 1 | awk '{print $2}')"
+
+    # Now replay the exact same callback URL with already-consumed code
+    REPLAY_HDR="$TEMP_DIR/replay-attempt.hdr"
+    CODE="$(curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$REPLAY_HDR" -o "$TEMP_LOG" -w "%{http_code}" "$CB_URL")"
+    REPLAY_LOC="$(grep -i "^location:" "$REPLAY_HDR" | tr -d '\r\n' | awk '{print $2}')"
+    if [ "$CODE" = "302" ] && [[ "$REPLAY_LOC" == *"error=login_failed"* || "$REPLAY_LOC" == *"login_failed"* || "$REPLAY_LOC" == *"/?"* ]]; then
+        record_result "Auth" "Replay of consumed OIDC authorization code" "PASS" "Keycloak rejected replayed code; Spring Security safely redirected to login failure URL without 500"
+    else
+        record_result "Auth" "Replay of consumed OIDC authorization code" "FAIL" "Expected 302 to failure URL but got HTTP $CODE (Location: $REPLAY_LOC)"
+    fi
 fi
 
 # 3.2 Repeated rapid login/logout cycles
@@ -311,7 +308,7 @@ else
 fi
 
 # Re-establish Owner session
-OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 

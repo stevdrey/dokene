@@ -156,29 +156,24 @@ refute "a scratch directory is not the repository by identity" path_is_within_di
   # shellcheck source=../lib/test-passwords.sh
   . "$ROOT_DIR/scripts/lib/test-passwords.sh"
   WORK_DIR="$TMP"
-  # Stands in for curl: records the username argument, whether a password reached the command line, and stdin.
+  # Stands in for the shared helper: records the username, whether a password reached its arguments, and stdin.
   # shellcheck disable=SC2329
-  curl() {
-    local arg user="" on_argv=no
-    for arg in "$@"; do
-      case "$arg" in
-        username=*) user="${arg#username=}" ;;
-        *-value*) on_argv=yes ;;
-      esac
-    done
-    printf '%s %s %s\n' "$user" "$on_argv" "$(cat)" >> "$TMP/posted"
+  bff_login() {
+    local arg on_argv=no
+    for arg in "$@"; do case "$arg" in *-value*) on_argv=yes ;; esac; done
+    printf '%s %s %s\n' "$1" "$on_argv" "$(cat)" >> "$TMP/posted"
   }
   for actor in testuser testoperator testviewer; do
-    submit_credentials "$actor" "$TMP/jar" "http://localhost:8081/form" || exit 1
+    login "$actor" >/dev/null || exit 1
   done
-  ! submit_credentials stranger "$TMP/jar" "http://localhost:8081/form" 2>/dev/null || exit 1
+  ! login stranger 2>/dev/null || exit 1
   [ -z "$(first_missing_test_password)" ] || exit 1
   DOKENE_TEST_OPERATOR_PASSWORD=""
   [ "$(first_missing_test_password)" = "DOKENE_TEST_OPERATOR_PASSWORD" ] || exit 1
   unset DOKENE_TEST_OWNER_PASSWORD
   [ "$(first_missing_test_password)" = "DOKENE_TEST_OWNER_PASSWORD" ]
 )
-assert "credential submission and the missing-password probe behave for every actor" [ "$?" -eq 0 ]
+assert "login and the missing-password probe behave for every actor" [ "$?" -eq 0 ]
 assert "each actor's own password is posted over stdin, never on the command line" \
   [ "$(cat "$TMP/posted" 2>/dev/null)" = "$(printf 'testuser no owner-value-12\ntestoperator no operator-value\ntestviewer no viewer-value-1')" ]
 refute "the shared password variable and its default are gone" \
