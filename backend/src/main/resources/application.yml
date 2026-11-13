@@ -158,6 +158,11 @@ dokene:
       revalidation-grace: ${DOKENE_SESSION_REVALIDATION_GRACE:15m}
       # Connect and response deadline of one revalidation call; a timeout counts as "provider unreachable".
       revalidation-timeout: ${DOKENE_SESSION_REVALIDATION_TIMEOUT:5s}
+      # Only a login start gives an anonymous browser a session (issue 311). Until the login succeeds that session
+      # idles out after this long and also ends at this age however often its cookie is used. At least 1s (the servlet
+      # container counts whole seconds and reads 0 as "never expire"), at most max-lifetime and at most
+      # server.servlet.session.timeout; startup checks all three. Starting login again does not restart the age.
+      pre-login-timeout: ${DOKENE_SESSION_PRE_LOGIN_TIMEOUT:5m}
     oidc:
       # Where the back-channel logout handler replays each session's logout. Loopback by default; set it when the
       # provider reaches Dokene through a proxy whose port differs from the one the backend listens on.
