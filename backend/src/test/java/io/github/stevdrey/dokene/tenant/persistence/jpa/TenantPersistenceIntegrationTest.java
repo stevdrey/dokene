@@ -3,6 +3,7 @@ package io.github.stevdrey.dokene.tenant.persistence.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.stevdrey.dokene.integration.testsupport.ComposeImages;
 import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
@@ -64,7 +65,7 @@ class TenantPersistenceIntegrationTest {
     private static final String TENANT_CONTEXT_SIGNING_KEY = randomSigningKey();
 
     @Container
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
+    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(ComposeImages.postgres());
 
     @Autowired
     private JpaTenantRepositoryAdapter tenantRepository;

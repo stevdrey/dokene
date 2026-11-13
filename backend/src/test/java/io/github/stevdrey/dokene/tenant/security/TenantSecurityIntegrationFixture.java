@@ -1,5 +1,6 @@
 package io.github.stevdrey.dokene.tenant.security;
 
+import io.github.stevdrey.dokene.integration.testsupport.ComposeImages;
 import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
@@ -36,7 +37,7 @@ public final class TenantSecurityIntegrationFixture {
     static final String MIGRATION_PASSWORD = "migration-" + UUID.randomUUID();
     static final String RUNTIME_PASSWORD = "runtime-" + UUID.randomUUID();
     static final String TENANT_CONTEXT_SIGNING_KEY = randomSigningKey();
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(ComposeImages.postgres());
     private static final AtomicBoolean DATABASE_ROLES_CREATED = new AtomicBoolean();
 
     private TenantSecurityIntegrationFixture() {
@@ -66,7 +67,7 @@ public final class TenantSecurityIntegrationFixture {
      * (pause, stop) and must not take every other integration class down with it. The caller stops it.
      */
     public static PostgreSQLContainer startDedicatedWithDatabaseRoles() throws SQLException {
-        PostgreSQLContainer database = new PostgreSQLContainer("postgres:17-alpine");
+        PostgreSQLContainer database = new PostgreSQLContainer(ComposeImages.postgres());
         database.start();
         createDatabaseRoles(database);
         return database;

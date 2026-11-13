@@ -6,7 +6,7 @@
 
 | Service | Image | Host address | Notes |
 | --- | --- | --- | --- |
-| `postgres` | `postgres:17-alpine` (runs as the `postgres` user, read-only) | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
+| `postgres` | `postgres:17-alpine@sha256:<digest>` (runs as the `postgres` user, read-only; pinned in `compose.yaml`, see [build input pinning](../../docs/security/build-input-pinning.md)) | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
 | `keycloak` | `infra/docker/keycloak` (non-root, read-only) | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm at every container start |
 | `migrate` | backend image, one-shot | none | applies Flyway migrations as `dokene_migration`, then exits (issue 308) |
 | `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | starts after `migrate` succeeded; validates the schema as `dokene_runtime` |
