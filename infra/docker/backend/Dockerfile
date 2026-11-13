@@ -1,8 +1,7 @@
-# syntax=docker/dockerfile:1
 # Dokene backend image. Build context: ./backend (+ additional context "entrypoint" = infra/docker/backend)
 # Build stage uses the JDK declared by the Gradle toolchain (Java 26); runtime stage ships only a JRE.
 
-FROM eclipse-temurin:26-jdk AS build
+FROM eclipse-temurin:26-jdk@sha256:a45ef8c9f6304700665c5a5ac7250122e951831593bfa95859c295aea67f7d16 AS build
 WORKDIR /workspace
 
 # Resolve the Gradle distribution first so this layer is cached independently of the sources.
@@ -18,7 +17,7 @@ RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar -x tes
     && cp build/libs/*.jar /workspace/dist/dokene.jar \
     && rm -f /workspace/dist/*-plain.jar
 
-FROM eclipse-temurin:26-jre AS runtime
+FROM eclipse-temurin:26-jre@sha256:0dbf52b3861a84e2a19c503245504e5a71a5f071ccb9c48997efd4a3454a52b7 AS runtime
 
 RUN groupadd --system --gid 10001 dokene \
     && useradd --system --uid 10001 --gid dokene --home-dir /app --shell /usr/sbin/nologin dokene

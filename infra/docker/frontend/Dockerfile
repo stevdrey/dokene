@@ -1,8 +1,7 @@
-# syntax=docker/dockerfile:1
 # Dokene frontend image: static build served by an unprivileged nginx that also proxies the BFF routes.
 # Build context: ./frontend
 
-FROM node:24-alpine AS build
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 # --ignore-scripts mirrors CI and the repository supply-chain policy (.npmrc).
@@ -12,7 +11,7 @@ COPY public public
 COPY src src
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
 # `nginx` is an additional build context (infra/docker/frontend) declared in compose.yaml.
 COPY --from=nginx nginx.conf /etc/nginx/conf.d/default.conf

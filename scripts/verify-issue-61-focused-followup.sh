@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #61 maintainer review scenarios (consent, purchases, follow-ups) against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-61-focused-followup.sh
 #
@@ -30,7 +32,9 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
+
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -62,7 +66,9 @@ record_result() {
 . "$ROOT_DIR/scripts/lib/bff-login.sh"
 login() {
     # The shared helper checks that every hop is loopback and sends the password through stdin.
-    printf '%s' "$TEST_PASSWORD" | bff_login "$1" "$2" "$TEMP_DIR" >/dev/null
+    local password
+    password="$(test_password_for "$1")" || return 1
+    printf '%s' "$password" | bff_login "$1" "$2" "$TEMP_DIR" >/dev/null
 }
 
 echo "=== INITIALIZING AUTHENTICATED SESSIONS FOR FOCUSED QA #61 ==="

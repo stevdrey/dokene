@@ -13,7 +13,20 @@ set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="${DOKENE_VERIFY_ORIGIN:-http://localhost:5173}"
-JDK_IMAGE="${DOKENE_VERIFY_JDK_IMAGE:-eclipse-temurin:26-jdk}"
+# jcmd runs from the JDK image of the backend build stage, so that image has one pin, in the Dockerfile, where
+# Dependabot keeps it current (issue #323). DOKENE_VERIFY_JDK_IMAGE overrides it.
+JDK_IMAGE="${DOKENE_VERIFY_JDK_IMAGE:-}"
+if [ -z "$JDK_IMAGE" ]; then
+  JDK_IMAGE="$(sed -nE 's/^FROM[[:space:]]+([^[:space:]]+)[[:space:]]+AS[[:space:]]+build$/\1/p' \
+    "$ROOT_DIR/infra/docker/backend/Dockerfile" 2>/dev/null | head -1)"
+  case "$JDK_IMAGE" in
+    *@sha256:*) ;;
+    *)
+      echo "no digest pinned 'FROM <image> AS build' line in infra/docker/backend/Dockerfile;" \
+        "set DOKENE_VERIFY_JDK_IMAGE or pin that line" >&2
+      exit 1 ;;
+  esac
+fi
 SWEEP_REQUESTS=2000
 SWEEP_PARALLEL=20
 LOGIN_STARTS=40

@@ -53,6 +53,10 @@ tasks.named('test') {
     useJUnitPlatform {
         excludeTags 'ai-eval-live', 'spike'
     }
+    // Integration tests start the PostgreSQL image pinned in compose.yaml (ComposeImages, issue #323), so a pin
+    // change there must rerun them.
+    inputs.file('../compose.yaml').withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty 'dokene.test.compose-file', file('../compose.yaml').absolutePath
 }
 
 // Spike evidence (e.g. Issue #180) relies on wall-clock socket timings and long race loops; it is run on demand,

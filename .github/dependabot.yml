@@ -34,3 +34,36 @@ updates:
           - "*"
     cooldown:
       default-days: 7
+  - package-ecosystem: docker
+    directories:
+      - /infra/docker/backend
+      - /infra/docker/frontend
+      - /infra/docker/keycloak
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      docker-images:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    cooldown:
+      default-days: 7
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      compose-images:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    cooldown:
+      default-days: 7

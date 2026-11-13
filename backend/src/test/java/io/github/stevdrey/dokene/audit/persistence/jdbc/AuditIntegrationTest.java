@@ -19,6 +19,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
+import io.github.stevdrey.dokene.integration.testsupport.ComposeImages;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
@@ -68,7 +69,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Testcontainers
 class AuditIntegrationTest {
     @Container
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
+    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(ComposeImages.postgres());
     private static final String MIGRATION_PASSWORD = UUID.randomUUID().toString();
     private static final String RUNTIME_PASSWORD = UUID.randomUUID().toString();
     private static final String SIGNING_KEY = UUID.randomUUID().toString().replace("-", "")
