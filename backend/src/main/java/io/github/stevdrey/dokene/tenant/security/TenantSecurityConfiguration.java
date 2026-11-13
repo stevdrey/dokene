@@ -3,10 +3,14 @@ package io.github.stevdrey.dokene.tenant.security;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.identity.application.OidcIdentityResolver;
 import io.github.stevdrey.dokene.identity.security.BffSessionLifetimeFilter;
+import io.github.stevdrey.dokene.identity.security.PreLoginSessionExpiryFilter;
 import io.github.stevdrey.dokene.identity.security.BffSessionProperties;
 import io.github.stevdrey.dokene.identity.security.InternalOidcUserService;
+import io.github.stevdrey.dokene.identity.security.PreLoginAuthorizationRequestRepository;
+import io.github.stevdrey.dokene.identity.security.SessionBoundCsrfTokenRepository;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
+import jakarta.servlet.http.HttpSession;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
@@ -16,6 +20,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -48,9 +54,11 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.logout.CookieClearingLogoutHandler;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -98,6 +106,38 @@ class TenantSecurityConfiguration {
     @Bean
     OAuth2AuthorizedClientRepository authorizedClientRepository() {
         return new HttpSessionOAuth2AuthorizedClientRepository();
+    }
+
+    /**
+     * Ahead of Spring Security's filter, so the age check sees every request whichever security chain serves it: the
+     * webhook chain, and any filter that reads the session outside both chains, would otherwise let a request keep an
+     * abandoned login start session alive (issue 311).
+     */
+    @Bean
+    FilterRegistrationBean<PreLoginSessionExpiryFilter> preLoginSessionExpiryFilter(
+            BffSessionProperties properties,
+            Clock clock,
+            @Value("${server.servlet.session.timeout:30m}") Duration sessionIdleTimeout
+    ) {
+        Duration preLoginTimeout =
+                requirePreLoginTimeoutWithinIdleTimeout(properties.preLoginTimeout(), sessionIdleTimeout);
+        FilterRegistrationBean<PreLoginSessionExpiryFilter> registration =
+                new FilterRegistrationBean<>(new PreLoginSessionExpiryFilter(preLoginTimeout, clock));
+        registration.setOrder(SecurityFilterProperties.DEFAULT_FILTER_ORDER - 1);
+        return registration;
+    }
+
+    /**
+     * A login start session must not idle longer than a signed in one. {@link BffSessionProperties} cannot see the
+     * servlet idle timeout, so the two are compared here, at startup. A zero or negative idle timeout means sessions
+     * never idle out, so there is nothing to exceed.
+     */
+    static Duration requirePreLoginTimeoutWithinIdleTimeout(Duration preLoginTimeout, Duration sessionIdleTimeout) {
+        if (sessionIdleTimeout.isPositive() && preLoginTimeout.compareTo(sessionIdleTimeout) > 0) {
+            throw new IllegalStateException(
+                    "dokene.security.session.pre-login-timeout must not exceed server.servlet.session.timeout");
+        }
+        return preLoginTimeout;
     }
 
     @Bean
@@ -163,6 +203,8 @@ class TenantSecurityConfiguration {
     /** Loopback on the port the provider called: never a host taken from the request. */
     static final String DEFAULT_BACK_CHANNEL_LOGOUT_URI =
             "{baseScheme}://localhost{basePort}/logout/connect/back-channel/{registrationId}";
+    /** The servlet container's name for the session cookie when {@code server.servlet.session.cookie.name} is unset. */
+    static final String DEFAULT_SESSION_COOKIE_NAME = "JSESSIONID";
     static final String PERMISSIONS_POLICY =
             "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 
@@ -173,10 +215,14 @@ class TenantSecurityConfiguration {
             BffSessionLifetimeFilter bffSessionLifetimeFilter,
             OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService,
             ObjectProvider<ClientRegistrationRepository> clientRegistrations,
+            BffSessionProperties sessionProperties,
+            Clock clock,
             @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl,
             @Value("${dokene.security.post-login-failure-redirect-url:}") String postLoginFailureRedirectUrl,
             @Value("${dokene.security.oidc.back-channel-logout-uri:" + DEFAULT_BACK_CHANNEL_LOGOUT_URI + "}")
-            String backChannelLogoutUri
+            String backChannelLogoutUri,
+            @Value("${server.servlet.session.cookie.name:" + DEFAULT_SESSION_COOKIE_NAME + "}")
+            String sessionCookieName
     )
             throws Exception {
         LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
@@ -188,6 +234,10 @@ class TenantSecurityConfiguration {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .sessionFixation(fixation -> fixation.changeSessionId()))
+                // An anonymous request must not get a session (issue 311): the post-login target is fixed, so a
+                // stored request would never be read, and a CSRF token is only readable through a session.
+                .requestCache(cache -> cache.requestCache(new NullRequestCache()))
+                .csrf(csrf -> csrf.csrfTokenRepository(new SessionBoundCsrfTokenRepository()))
                 .cors(Customizer.withDefaults())
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp.policyDirectives(API_CONTENT_SECURITY_POLICY))
@@ -202,7 +252,7 @@ class TenantSecurityConfiguration {
                 .logout(logout -> logout
                         .invalidateHttpSession(true)
                         .clearAuthentication(true)
-                        .deleteCookies("JSESSIONID")
+                        .deleteCookies(sessionCookieName)
                         .logoutSuccessHandler(logoutSuccessHandler))
                 .addFilterBefore(bffSessionLifetimeFilter, AnonymousAuthenticationFilter.class)
                 .addFilterAfter(tenantContextRequestFilter, AnonymousAuthenticationFilter.class);
@@ -211,9 +261,13 @@ class TenantSecurityConfiguration {
             String failureRedirectUrl = resolvePostLoginFailureRedirectUrl(postLoginFailureRedirectUrl, postLoginRedirectUrl);
             http.oauth2Login(oauth -> oauth
                     .loginPage("/oauth2/authorization/dokene")
+                    // One repository serves the login start and the callback: the session a login start creates is
+                    // short lived until the login succeeds (issue 311).
+                    .authorizationEndpoint(endpoint -> endpoint.authorizationRequestRepository(
+                            new PreLoginAuthorizationRequestRepository(sessionProperties.preLoginTimeout(), clock)))
                     .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService))
                     .successHandler(createAuthenticationSuccessHandler(postLoginRedirectUrl, bffSessionLifetimeFilter))
-                    .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl)));
+                    .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl, sessionCookieName)));
             // The provider's logout token ends the matching sessions: the handler replays the logout token to this
             // endpoint once per session, with that session's cookie, so the URI must reach this instance directly.
             http.oidcLogout(logout -> logout.backChannel(backChannel -> backChannel.logoutUri(backChannelLogoutUri)));
@@ -229,7 +283,12 @@ class TenantSecurityConfiguration {
         redirect.setAlwaysUseDefaultTargetUrl(true);
         return (request, response, authentication) -> {
             // Runs after session fixation protection, so the clocks start on the authenticated session.
-            bffSessionLifetimeFilter.startSession(request.getSession());
+            HttpSession session = request.getSession();
+            bffSessionLifetimeFilter.startSession(session);
+            // changeSessionId() keeps the session object, so it still carries the pre login idle timeout: without
+            // this reset every signed in session would idle out after the pre login timeout (issue 311).
+            session.removeAttribute(BffSessionLifetimeFilter.PRE_LOGIN_STARTED_AT);
+            session.setMaxInactiveInterval(request.getServletContext().getSessionTimeout() * 60);
             redirect.onAuthenticationSuccess(request, response, authentication);
         };
     }
@@ -251,11 +310,28 @@ class TenantSecurityConfiguration {
                 .toUriString();
     }
 
-    private AuthenticationFailureHandler createAuthenticationFailureHandler(String failureRedirectUrl) {
+    static AuthenticationFailureHandler createAuthenticationFailureHandler(
+            String failureRedirectUrl,
+            String sessionCookieName
+    ) {
         SimpleUrlAuthenticationFailureHandler failureHandler =
                 new SimpleUrlAuthenticationFailureHandler(failureRedirectUrl);
         failureHandler.setAllowSessionCreation(false);
-        return failureHandler;
+        CookieClearingLogoutHandler sessionCookieClearing = new CookieClearingLogoutHandler(sessionCookieName);
+        return (request, response, exception) -> {
+            // A failed login ends its login start session at once (issue 311). A signed in session is left alone: the
+            // cookie is SameSite=Lax, so otherwise any cross-site link to the callback URL would sign the user out.
+            HttpSession session = request.getSession(false);
+            try {
+                if (session != null && !PreLoginSessionExpiryFilter.isSignedIn(session)) {
+                    session.invalidate();
+                    sessionCookieClearing.logout(request, response, null);
+                }
+            } catch (IllegalStateException alreadyInvalidated) {
+                // A concurrent request ended this session first.
+            }
+            failureHandler.onAuthenticationFailure(request, response, exception);
+        };
     }
 
     private LogoutSuccessHandler createLogoutSuccessHandler(

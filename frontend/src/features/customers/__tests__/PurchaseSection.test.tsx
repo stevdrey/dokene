@@ -647,7 +647,9 @@ describe('PurchaseSection', () => {
     });
 
     const voidBadge = screen.getByText('Anulación');
-    expect(voidBadge.closest('span')).toHaveStyle({ color: 'var(--color-error-text)' });
+    // jsdom 31+ resolves var() in computed styles and the design tokens are not loaded in tests,
+    // so assert the declared inline token instead of the computed color.
+    expect((voidBadge.closest('span') as HTMLElement).style.color).toBe('var(--color-error-text)');
   });
 
   it('displays modal error inside the void confirmation dialog when voidPurchase fails', async () => {

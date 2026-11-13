@@ -101,6 +101,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### M2. Every anonymous request creates a 30-minute server-side session: memory exhaustion — Confirmed
 
+- **Status:** fixed by [#311](https://github.com/stevdrey/dokene/issues/311); see [the verification record](../verification/issue-311-anonymous-session-creation-verification.md) and [ADR 0007](../adr/0007-oidc-server-side-session.md). Anonymous requests create no session, a login start session lives at most 5 minutes until the login succeeds, and nginx limits login starts per client address. A hard session ceiling or an external session store (item 3 of the fix) was not adopted; the residual is recorded in ADR 0007.
+
 - **Where:**
   - `backend/.../tenant/security/TenantSecurityConfiguration.java:124-126` (`SessionCreationPolicy.IF_REQUIRED`, with the default request cache left on)
   - `:150` (`defaultSuccessUrl(postLoginRedirectUrl, true)`, so the saved request is never used)

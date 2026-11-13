@@ -48,7 +48,9 @@ After authentication, the authenticated security context is stored exclusively i
 Provider tokens remain server-side and must never be serialized into frontend API responses, error payloads,
 logs, or audit events.
 
-- **Session Creation**: `SessionCreationPolicy.IF_REQUIRED`.
+- **Session Creation**: `SessionCreationPolicy.IF_REQUIRED`. A browser without a session gets one only from a login
+  start, `GET /oauth2/authorization/{registrationId}`; see
+  [Anonymous Requests and Login Start Sessions](#anonymous-requests-and-login-start-sessions).
 - **Session Fixation**: Session identifiers rotate immediately upon successful authentication (`changeSessionId`),
   and pre-authentication sessions are rendered invalid.
 - **Session Expiration**: Sessions expire after 30 minutes of inactivity by default (`server.servlet.session.timeout=30m`)
@@ -64,6 +66,40 @@ logs, or audit events.
   or ingress controller with TLS offloading, operators explicitly configure `SERVER_FORWARD_HEADERS_STRATEGY=framework`.
   The edge proxy/load balancer MUST strip and overwrite inbound `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`,
   and `X-Forwarded-Port` headers from untrusted clients before proxying traffic to Dokene.
+
+### Anonymous Requests and Login Start Sessions
+
+Added by issue #311 (audit finding M2). An anonymous request must not cost session memory, and the one anonymous
+request that needs a session, the login start, is bounded.
+
+- **No session for anonymous requests**: the chain stores no rejected request (`NullRequestCache`; the post-login
+  target is fixed, so a stored request was never read) and saves a CSRF token only into a session that already exists
+  (`SessionBoundCsrfTokenRepository`). An anonymous request to a protected, unknown or state-changing route, the
+  container health check included, gets the same status as before, no session and no `JSESSIONID` cookie.
+  `AnonymousSessionCreationIntegrationTest` sweeps these routes and fails the build if one creates a session again.
+- **Login start session**: a login start creates one session for the OAuth state, nonce and PKCE verifier. Until the
+  login succeeds it idles out after `dokene.security.session.pre-login-timeout` (`DOKENE_SESSION_PRE_LOGIN_TIMEOUT`,
+  `5m`) and also ends once it is older than that, however often its cookie is used. The age counts from the first
+  login start in that session: starting login again does not restart it. That age check
+  (`PreLoginSessionExpiryFilter`) runs ahead of Spring Security's filter, so it sees every request whichever
+  security chain serves it: neither a request the webhook chain answers nor an unsafe request the CSRF filter
+  refuses can keep the session alive. A callback that arrives later
+  ends at the login failure redirect. Startup fails unless the value is at least `1s`, at most `max-lifetime` and
+  at most `server.servlet.session.timeout`, so a login start session never idles longer than a signed in one. A
+  user who takes longer at the provider's login page has to start again, and a user who starts login a second time
+  in the same browser has only what is left of the first start's time.
+- **Login success**: the session id rotates as before, and the idle timeout returns to
+  `server.servlet.session.timeout`.
+- **Login failure**: a failed callback invalidates its login start session and expires the session cookie
+  (`JSESSIONID`, or the name in `server.servlet.session.cookie.name`) before the failure redirect. It never ends a session that is already signed in: the cookie is `SameSite=Lax`, so a
+  cross-site link to the callback URL could otherwise sign a user out. Such a link can still cancel a login that is
+  in progress, as a forced login start already could.
+- **Edge limit**: nginx allows 30 login starts per minute per client address with a burst of 10 and answers the
+  rest with `429` and `Retry-After: 2` without calling the backend (`infra/docker/frontend/nginx.conf`). Together
+  with the timeout this bounds one client address to about 190 live login start sessions (30 a minute for the 5
+  minute lifetime plus up to a minute until the container's expiry sweep, plus the burst). There is no global
+  ceiling on sessions, the limit does not cover direct access to the backend port, and behind a proxy that hides
+  client addresses it is one shared limit until the edge restores the real address.
 
 ### Session Revocation and Absolute Lifetime
 
@@ -128,7 +164,7 @@ The BFF exposes a minimal same-origin session contract:
 1. **Login Initiation**: Navigating to `/oauth2/authorization/{registrationId}` (e.g., `/oauth2/authorization/dokene`)
    initiates the confidential authorization-code redirect to Keycloak/OIDC provider.
 2. **Post-Login Target**: The authentication success handler redirects to the application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain initial session state.
-3. **Authentication Failure & Stale Callback Recovery**: The authentication failure handler intercepts failed, canceled, or stale callback attempts (e.g. `/login/oauth2/code/{registrationId}`) and redirects the browser back to the frontend application (`/?error=login_failed` by default, or configurable via `DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL` / `dokene.security.post-login-failure-redirect-url`). Framework-level default login page generation is suppressed (`.loginPage("/oauth2/authorization/dokene")`) and session creation is disabled on failure (`setAllowSessionCreation(false)`), ensuring internal provider paths or raw framework error pages are never exposed to browser users.
+3. **Authentication Failure & Stale Callback Recovery**: The authentication failure handler intercepts failed, canceled, or stale callback attempts (e.g. `/login/oauth2/code/{registrationId}`) and redirects the browser back to the frontend application (`/?error=login_failed` by default, or configurable via `DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL` / `dokene.security.post-login-failure-redirect-url`). Framework-level default login page generation is suppressed (`.loginPage("/oauth2/authorization/dokene")`) and session creation is disabled on failure (`setAllowSessionCreation(false)`), ensuring internal provider paths or raw framework error pages are never exposed to browser users. A failed callback also ends the session its login start created, and never a signed-in session (issue #311).
 4. **Session Check**: `GET /api/session` returns application-safe session metadata:
    `{ "authenticated": true, "identityId": "<uuid>", "csrfToken": "<token>" }`.
    Unauthenticated calls return `401 Unauthorized`.
@@ -136,7 +172,9 @@ The BFF exposes a minimal same-origin session contract:
    The frontend retrieves the CSRF token from `GET /api/session` and transmits it in the `X-CSRF-TOKEN` header on
    mutation requests. State-changing requests to `/api/**` on expired or unauthenticated sessions fail closed with
    `401 Unauthorized` (rather than `403 Forbidden`), allowing the client SPA to trigger session-expired workflows.
-   Authenticated requests with invalid or missing CSRF tokens fail closed with `403 Forbidden`.
+   Authenticated requests with invalid or missing CSRF tokens fail closed with `403 Forbidden`. The token is stored
+   in the session and only in a session that already exists, so an anonymous request is compared with a fresh
+   random token, refused as before, and leaves nothing stored (issue #311).
 6. **Logout (Local vs Provider SSO)**:
    - **Local Session Logout**: `POST /logout` requires `X-CSRF-TOKEN`, invalidates the server `HttpSession`, clears the
      security context, deletes the `JSESSIONID` cookie, and returns `204 No Content` for API clients.
