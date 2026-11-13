@@ -9,6 +9,7 @@ These skills are intentionally provider-neutral and reusable. Use the smallest r
 | `create-pull-request` | Creating, drafting, publishing, or updating PR titles and descriptions, including the required `[Issue-<number>]` prefix. |
 | `issue-implementation-loop` | Implementing a GitHub Issue by number end to end: context, clarification, implementation, independent verification loop, and PR creation (never merge). |
 | `independent-implementation-verification` | Verifying an Issue implementation through an independent subagent before PR publication, and re-verifying after every correction. |
+| `operator-journey-verification` | Pilot, optional: an operator-visible journey with a journey file changes and only the running local stack can observe the effect (real BFF session, CSRF, roles, deployed image). |
 | `github-issue-executive-summary` | Summarizing completed Issue outcomes for non-technical stakeholders, optionally posting the summary to the Issue when explicitly requested. |
 | `frontend-react-typescript` | Implementing or reviewing React, TypeScript, UI state, API integration, accessibility, browser security, or frontend tests. |
 
