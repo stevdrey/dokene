@@ -1,13 +1,13 @@
 ---
 name: operator-journey-verification
-description: Use when a change alters an operator-visible journey whose effect only a running local stack can observe (real BFF session, CSRF, Keycloak roles, deployed image, migrations under the runtime role). Run the journey's executable check against ./scripts/dev-env.sh, record a sanitized journey run, and report automated, manual, and not-run steps separately. Optional, risk-triggered pilot practice; it adds no gate.
+description: Use when a change alters an operator-visible journey whose effect only a running local stack can observe (real BFF session, CSRF, Keycloak roles, deployed image, migrations under the runtime role). Run the journey's executable check against ./scripts/dev-env.sh, record a sanitized journey run, and report automated, manual, and not-run steps separately. Optional, risk-triggered practice; it adds no gate.
 ---
 
 # Operator Journey Verification
 
 ## When to use
 
-This is an optional pilot practice from [Epic #371](https://github.com/stevdrey/dokene/issues/371), adapted in Dokene's own words from the `create-verification-skill` practice that the [pstack applicability audit](../../../docs/verification/pstack-applicability-audit.md) marked **Adapt**. [Issue #376](https://github.com/stevdrey/dokene/issues/376) decides from pilot evidence whether it is adopted.
+This is an optional practice from [Epic #371](https://github.com/stevdrey/dokene/issues/371), adapted in Dokene's own words from the `create-verification-skill` practice that the [pstack applicability audit](../../../docs/verification/pstack-applicability-audit.md) marked **Adapt**. The [Issue #376 decision](../../../docs/verification/issue-376-benchmark-decision.md) adopted it as an optional practice for this narrow trigger, because its proof run caught a security-chain regression that the full backend suite missed; it is not a default step.
 
 The default is not to run it. Run it, and say why, when **both** hold:
 

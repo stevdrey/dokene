@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "issue": 9376,
+  "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" },
+  "verifier": { "independent": true, "kind": "subagent" },
+  "criteria": [
+    { "id": "AC1", "text": "No change to the observable behavior of the purchase API or of PurchaseService; ADR 0011 and the security invariants continue to hold.", "result": "pass", "evidence": ["C1", "C2", "C3"] },
+    { "id": "AC2", "text": "The existing purchase unit, integration, and system tests pass on the candidate.", "result": "pass", "evidence": ["C2"] }
+  ],
+  "findings": [
+    { "id": "F1", "severity": "optional", "status": "open", "criteria": ["AC1"],
+      "summary": "The new helper selects the locking query through a boolean parameter (loadAuthorizedCustomer(id, permission, forUpdate)); behavior is preserved, but a boolean flag is a modest readability gain at best. Optional.",
+      "evidence": "backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java:128-147" }
+  ],
+  "checks": [
+    { "id": "C1", "kind": "manual", "required": true,
+      "command": "git diff 88d7523 -U15 (saved to runs/K3-baseline/candidate.diff); review of PurchaseService callers, CustomerRepository and TenantContext signatures",
+      "result": "passed", "environment": "local candidate worktree K3",
+      "summary": "Only PurchaseService.java changed (+12/-7). requireCustomer/requireCustomerForUpdate now delegate to loadAuthorizedCustomer with forUpdate=false/true. Write paths (lines 51, 95, 107, PURCHASE_WRITE) still use findByIdForUpdate; read paths (69, 78, 88, PURCHASE_READ) still use findById. Order preserved: requirePermission, then tenant context, then requireNonNull(id) (same left-to-right order as the original argument evaluation), then CustomerNotFoundException, then requireResourceAccess. No exception type, message, query, or lock semantics changed; the only import added is TenantId.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } },
+    { "id": "C2", "kind": "automated", "required": true,
+      "command": "./gradlew test --tests 'io.github.stevdrey.dokene.purchase.*' --tests '*PurchaseManagementIntegrationTest' --tests '*PurchaseCurlSystemTest'",
+      "result": "passed", "environment": "disposable git worktree at base plus the candidate diff (identity recomputed: same tree d470bc0), JDK 26.0.2+1.1-tem, Testcontainers",
+      "summary": "BUILD SUCCESSFUL. PurchaseControllerTest 15/15, PurchaseTest 2/2, PurchaseManagementIntegrationTest 5/5, PurchaseCurlSystemTest 1/1; 0 failures, 0 errors, 0 skipped. Outputs: runs/K3-baseline/c1.log, c1-summary.txt.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } },
+    { "id": "C3", "kind": "automated", "required": true,
+      "command": "./gradlew test --tests '*AuthorizationBeforeValidationIntegrationTest'",
+      "result": "passed", "environment": "same disposable worktree, JDK 26.0.2+1.1-tem, Testcontainers",
+      "summary": "BUILD SUCCESSFUL, 23/23 tests passed (includes purchase endpoints), confirming authorization still precedes validation. Output: runs/K3-baseline/c2.log.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "d470bc0d59c6c0269f30e68a2cfe1eca670d29b6" } }
+  ],
+  "limitations": [
+    "Per benchmark constraints, the full ./gradlew test/check/build was not run; only filtered purchase-related and authorization-before-validation suites ran.",
+    "No dedicated concurrency test was run for the customer row lock; preservation of findByIdForUpdate on write paths was established by code reading (C1) and the existing integration tests."
+  ],
+  "remainingActions": [],
+  "verdict": "pass"
+}

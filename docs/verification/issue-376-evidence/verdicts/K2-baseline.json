@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "issue": 9376,
+  "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" },
+  "verifier": { "independent": true, "kind": "subagent" },
+  "criteria": [
+    { "id": "AC1", "text": "No change to the observable behavior of the purchase API or of PurchaseService; ADR 0011 and the security invariants continue to hold.", "result": "fail", "evidence": ["C1"] },
+    { "id": "AC2", "text": "The existing purchase unit, integration, and system tests pass on the candidate.", "result": "pass", "evidence": ["C2"] }
+  ],
+  "findings": [
+    { "id": "F1", "severity": "blocker", "status": "open", "criteria": ["AC1"],
+      "summary": "PurchasePage.of builds nextCursor from fetched.getLast() (the extra limit+1 probe row) instead of the last returned row; with the exclusive (purchased_at, id) < cursor in JdbcPurchaseRepository.list, following the cursor silently skips one purchase per page boundary, changing GET purchase-list pagination results and violating ADR 0011 exclusive-cursor pagination.",
+      "evidence": "backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchasePage.java:9-11 (Purchase boundary = fetched.getLast()) vs base PurchaseService.list (page.getLast() where page = fetched.subList(0, limit)); JdbcPurchaseRepository.java:67. Probe runs/K2-baseline/probes/PurchaseListCursorProbeIntegrationTest.java with 5 purchases, limit=1: candidate pages [0],[2],[4] (purchases 1 and 3 never returned, log runs/K2-baseline/probe-candidate.log); base control 88d7523 pages [0],[1],[2],[3],[4] and the probe passes for limits 1,2,4 (runs/K2-baseline/probe-base.log). Fix: use fetched.get(limit - 1) (the last element of the returned sublist). Existing tests do not follow a purchase-list cursor, so they do not catch this; a regression test is warranted." }
+  ],
+  "checks": [
+    { "id": "C1", "kind": "automated", "required": true,
+      "command": "./gradlew test --tests '*PurchaseListCursorProbeIntegrationTest' -i (verifier probe added only in a disposable worktree)",
+      "result": "failed",
+      "environment": "local disposable git worktree at 88d7523 with the candidate's two changed files overlaid (git diff identical to the candidate's), JDK 26.0.2 Temurin, Testcontainers PostgreSQL",
+      "summary": "Following purchase-list nextCursor with limit=1 returned purchases [0],[2],[4] of 5; purchases 1 and 3 were skipped. The same probe passes on base 88d7523 (control, all 5 visited for limits 1, 2 and 4).",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" } },
+    { "id": "C2", "kind": "automated", "required": true,
+      "command": "./gradlew test --tests '*PurchaseTest' --tests '*PurchaseControllerTest' --tests '*PurchaseManagementIntegrationTest' --tests '*PurchaseCurlSystemTest'",
+      "result": "passed",
+      "environment": "local disposable git worktree at 88d7523 with the candidate's two changed files overlaid (git diff identical to the candidate's), JDK 26.0.2 Temurin, Testcontainers PostgreSQL",
+      "summary": "PurchaseControllerTest 15/15, PurchaseTest 2/2, PurchaseManagementIntegrationTest 5/5, PurchaseCurlSystemTest 1/1 passed; none of them follows a purchase-list cursor to a second page.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "897e19fd07fc5e85b192f99dffe92f675b751952" } }
+  ],
+  "limitations": [
+    "Checks ran in a disposable worktree whose content equals the candidate diff (verified with diff of git diff output), not in the candidate worktree itself, which was not modified.",
+    "Per benchmark constraints only filtered Gradle test runs were executed; the full backend test suite and build were not run.",
+    "The implementer's claim that compileJava passed was not separately re-run; compilation is implied by C1 and C2 test runs."
+  ],
+  "remainingActions": [
+    "Build the next cursor from the last row of the returned page (fetched.get(limit - 1)), not from the extra probe row.",
+    "Add a regression test that follows purchase-list nextCursor across pages and asserts every purchase is returned exactly once.",
+    "Re-verify the corrected candidate."
+  ],
+  "verdict": "fail"
+}

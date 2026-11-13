@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "issue": 9376,
+  "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181" },
+  "verifier": { "independent": true, "kind": "subagent" },
+  "criteria": [
+    { "id": "AC1", "text": "No change to the observable behavior of the purchase API or of PurchaseService; ADR 0011 and the security invariants continue to hold.", "result": "fail", "evidence": ["C2", "C3"] },
+    { "id": "AC2", "text": "The existing purchase unit, integration, and system tests pass on the candidate.", "result": "pass", "evidence": ["C1"] }
+  ],
+  "findings": [
+    { "id": "F1", "severity": "blocker", "status": "open", "criteria": ["AC1"],
+      "summary": "The extracted Submission.fingerprint() drops customerId from the canonical string, so reusing an Idempotency-Key (unique per tenant) for a different customer with the same timestamp and description no longer returns 409 but replays and returns the other customer's purchase (created=false). Violates ADR 0011 ('same customer, timestamp, and normalized description') and leaks a purchase of customer A through customer B's endpoint; also lets an archived customer's record call succeed with another customer's purchase.",
+      "evidence": "PurchaseService.java Submission record: canonical = purchasedAt + \"\\n\" + description (base: customerId.value() + \"\\n\" + purchasedAt + \"\\n\" + description); JdbcPurchaseRepository.insert ON CONFLICT (tenant_id, idempotency_key) compares only the fingerprint. Probe FingerprintProbeIntegrationTest on candidate: 'PROBE_RESULT RETURNED created=false purchaseCustomer=customerA(OTHER) sameId=true' (C2); same probe on base: 'PROBE_RESULT THREW PurchaseConflictException' (C3)." },
+    { "id": "F2", "severity": "blocker", "status": "open", "criteria": ["AC1"],
+      "summary": "Because the fingerprint formula changed, every submission_fingerprint already stored (database-immutable per ADR 0011) was computed with the old formula; after deployment a legitimate retry of a pre-deploy request with the same key and payload compares unequal and returns 409 instead of replaying the original purchase.",
+      "evidence": "Inferred from the diff (old and new canonical strings differ for identical inputs) plus JdbcPurchaseRepository.java:54 existing.fingerprint().equals(fingerprint); not exercised with a pre-populated database." },
+    { "id": "F3", "severity": "optional", "status": "open", "criteria": [],
+      "summary": "Leftover blank line where fingerprint() was removed; the existing tests do not cover cross-customer key reuse, which is why C1 stays green despite F1.",
+      "evidence": "git diff 88d7523 around PurchaseService.java:160; PurchaseManagementIntegrationTest only uses one customer per tenant." }
+  ],
+  "checks": [
+    { "id": "C1", "kind": "automated", "required": true,
+      "command": "cd backend && ./gradlew test --tests 'io.github.stevdrey.dokene.purchase.*' --tests '*PurchaseManagementIntegrationTest' --tests '*PurchaseCurlSystemTest'",
+      "result": "passed", "environment": "local candidate worktree K1, JDK 26.0.2 Temurin, Testcontainers PostgreSQL",
+      "summary": "PurchaseControllerTest 15/15, PurchaseTest 2/2, PurchaseManagementIntegrationTest 5/5, PurchaseCurlSystemTest 1/1 passed; log runs/K1-baseline/c1-existing-tests.log. Candidate tree re-checked unchanged afterwards.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181" } },
+    { "id": "C2", "kind": "live", "required": true,
+      "command": "disposable worktree at 88d7523 + candidate.diff + probe FingerprintProbeIntegrationTest.java; ./gradlew test --tests '*FingerprintProbeIntegrationTest'",
+      "result": "failed", "environment": "disposable worktree runs/K1-baseline/wt (removed), JDK 26, Testcontainers PostgreSQL",
+      "summary": "Same tenant, customers A and A2, same key/timestamp/description: candidate returns A's purchase to A2 (created=false) instead of PurchaseConflictException; log c2-probe-candidate.log.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181" } },
+    { "id": "C3", "kind": "live", "required": false,
+      "command": "same disposable worktree with PurchaseService.java restored to 88d7523; ./gradlew test --tests '*FingerprintProbeIntegrationTest'",
+      "result": "passed", "environment": "disposable worktree runs/K1-baseline/wt (removed), JDK 26, Testcontainers PostgreSQL",
+      "summary": "Control on base behavior: probe throws PurchaseConflictException, confirming the behavior change is introduced by the candidate; log c3-probe-base.log.",
+      "candidate": { "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59", "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181" } }
+  ],
+  "limitations": [
+    "C2 and C3 ran in a disposable worktree built from base plus the exact candidate diff (single modified file, no untracked files) plus one probe test, not in K1 itself.",
+    "C3 ran base production code; it is recorded against the candidate identity only as a control for C2.",
+    "F2 (stored fingerprints from before deployment) was established by reading the diff, not by an executed migration/upgrade scenario.",
+    "Full ./gradlew test/check/build was not run per benchmark memory constraints; only purchase-scoped test filters."
+  ],
+  "remainingActions": [
+    "Restore customerId in the fingerprint canonical string exactly as before (customerId.value() + \"\\n\" + purchasedAt + \"\\n\" + description), e.g. make Submission carry CustomerId.",
+    "Consider adding a regression test for idempotency-key reuse across customers in the same tenant.",
+    "Re-verify the corrected candidate."
+  ],
+  "verdict": "fail"
+}

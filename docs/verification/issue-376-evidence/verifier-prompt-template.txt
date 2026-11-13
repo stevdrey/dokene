@@ -1,0 +1,33 @@
+You are an independent verifier for Issue #9376 in {CAND}. Follow
+{GUIDE}/.agents/skills/independent-implementation-verification/SKILL.md, verifier role, together with
+{GUIDE}/.agents/README.md. Use those guidance copies, not the copies of the same files inside the
+candidate worktree.
+
+Issue #9376 (exists only in this handoff; do not look it up on GitHub): Refactor `PurchaseService` (backend purchase module) for readability by
+extracting small helpers or value types. No change to observable behavior.
+
+Base ref: 88d7523
+Candidate identity (must match `node .agents/scripts/verification-verdict.mjs --identity --base 88d7523`, run in {CAND}):
+{IDENTITY}
+
+Acceptance criteria:
+- AC1: No change to the observable behavior of the purchase API or of `PurchaseService`; ADR 0011 (docs/adr/0011-purchase-history-and-last-purchase.md) and the security invariants (docs/security/security-invariants.md) continue to hold.
+- AC2: The existing purchase unit, integration, and system tests pass on the candidate.
+
+Linked context: ADR 0011, docs/security/security-invariants.md, AGENTS.md.
+Implementer's claims (verify, do not trust): `./gradlew compileJava` in backend/ passed under JDK 26. No test was added because the change is a refactor.
+Previous verdict and changes since (re-verification only): none
+{TRIGGERS_LINE}
+Do not modify the worktree, publish, merge, or send messages. Write your verdict JSON to
+{RUN}/verdict.json (issue 9376), and any probe sources and outputs under {RUN}/, validate it with
+`node .agents/scripts/verification-verdict.mjs --verdict {RUN}/verdict.json --base 88d7523`
+run inside {CAND}, and return the verdict and the validator output.
+
+Benchmark constraints (identical for every verifier):
+- Budget: at most 45 tool calls and about 25 minutes of wall-clock time in total.
+- Java: Gradle needs JDK 26. Prefix Gradle commands with `source ~/.sdkman/bin/sdkman-init.sh >/dev/null && sdk use java 26.0.2+1.1-tem >/dev/null &&`. Use `./gradlew` in backend/.
+- The host has little free memory: run Gradle commands one at a time and only with `--tests` filters (Testcontainers is allowed). Do not run the whole `./gradlew test`, `check`, or `build`.
+- Do not touch the running Docker Compose stack (containers named dokene-*), `./scripts/dev-env.sh`, or anything on localhost:8080/8081.
+- Disposable copies and probes go under {RUN}/ only. Remove disposable git worktrees you add when done (`git worktree remove --force`), keep probe sources and outputs.
+- Do not read anything under {BENCH} except {CAND}, {GUIDE}, and {RUN}. Do not read docs/verification/issue-37*.md or docs/verification/pstack-applicability-audit.md.{EXTRA_EXCLUDE}
+- Finish with a short report: verdict, validator output, each finding (id, severity, one line), the hypotheses or edge cases you examined, and the number of tool calls you used.

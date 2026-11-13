@@ -1,6 +1,6 @@
 # pstack Applicability Audit
 
-Decision record for [Issue #372](https://github.com/stevdrey/dokene/issues/372), first step of [Epic #371](https://github.com/stevdrey/dokene/issues/371). It decides which pstack practices Issues #373 to #375 may adapt. [Issue #376](https://github.com/stevdrey/dokene/issues/376) makes the final adoption decision from pilot evidence, so nothing here changes the current agent workflow.
+Decision record for [Issue #372](https://github.com/stevdrey/dokene/issues/372), first step of [Epic #371](https://github.com/stevdrey/dokene/issues/371). It decides which pstack practices Issues #373 to #375 may adapt. [Issue #376](https://github.com/stevdrey/dokene/issues/376) made the adoption decision from pilot evidence; see [its decision record](issue-376-benchmark-decision.md). Nothing here changes the current agent workflow.
 
 ## Outcome
 
