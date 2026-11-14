@@ -78,12 +78,18 @@ submit_credentials() {
 # forbidden_label VALUE: how a failure names VALUE; the client secret itself is never printed.
 forbidden_label() { if [ "$1" = "$TEST_CLIENT_SECRET" ]; then echo "<OIDC client secret>"; else echo "$1"; fi; }
 
-# redact_url URL: URL with the client secret replaced and every query and fragment parameter value hidden, so a failure
-# shows where a value leaked and under which parameter name, never a token or secret (invariant 35). The URL reaches
-# sed on stdin, not its command line.
+# redact_url URL: only the origin of URL (scheme, host and port), so a failure shows where the redirect went without
+# printing any part that can carry a token or the client secret (userinfo, path, query, fragment; invariant 35). The
+# URL reaches sed through a here-string, not its command line; LC_ALL=C keeps invalid UTF-8 from stopping the match.
 redact_url() {
-    printf '%s\n' "${1//"$TEST_CLIENT_SECRET"/<OIDC client secret>}" \
-        | sed -E 's/([?&#;][^=&#;]*)=[^&#;]*/\1=<redacted>/g'
+    local origin
+    origin="$(LC_ALL=C sed -nE \
+        's#^([A-Za-z][A-Za-z0-9+.-]*://)([^/?#@]*@)?([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?([/?#].*)?$#\1\3\4#p' \
+        <<<"$1")"
+    # A second line could hold a second "URL" whose host is a token; such input is not a redirect, so print no origin.
+    case "$1" in *$'\n'*) origin="" ;; esac
+    case "$origin" in *"$TEST_CLIENT_SECRET"*) origin="" ;; esac
+    printf '%s (path, query and fragment withheld)' "${origin:-<unparsable URL>}"
 }
 
 # start_login JAR: starts a BFF login in a fresh cookie jar and prints the Keycloak login form action.
@@ -216,7 +222,7 @@ POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '
 # Assert tokens and secrets are NOT present in redirect URL or response headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
     if [[ "$POST_LOGIN_REDIRECT" == *"$forbidden_val"* ]]; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL: $(redact_url "$POST_LOGIN_REDIRECT"))"
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL to $(redact_url "$POST_LOGIN_REDIRECT"))"
         exit 1
     fi
     if contains_literal "$HEADER_LOG" "$forbidden_val"; then
