@@ -19,8 +19,9 @@ mkdir -p "$WORK/bin"
 # The stub answers the kcadm calls the script makes (`docker compose exec -T keycloak bash -c <script> kcadm <args>`)
 # from files in $STUB_STATE and logs every argv to $STUB_STATE/argv. STUB_FAIL=<op>:<n> fails the n-th call of op
 # (lookup, client-read, realm-read, client-update, realm-update, set-password); STUB_IGNORE_UPDATES=1 accepts updates
-# without applying them. A set-password call runs the script's own in-container code against the fake kcadm.sh below,
-# with this process's DOKENE_TEST_*_PASSWORD variables standing in for the keycloak container's environment.
+# without applying them. Every call first runs the script's own in-container code against the fake kcadm.sh below, so
+# the admin login of both kcadm() and kcadm_set_password() is exercised (issue 327); this process's environment stands
+# in for the keycloak container's (KC_BOOTSTRAP_ADMIN_PASSWORD, DOKENE_TEST_*_PASSWORD).
 cat >"$WORK/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
@@ -37,6 +38,10 @@ case "$1 $2" in
     "set-password "*) op=set-password ;;
     *) echo "stub: unexpected kcadm call: $*" >&2; exit 64 ;;
 esac
+in_container() { bash -c "${container_script//\/opt\/keycloak\/bin\/kcadm.sh/$STUB_KCADM}" kcadm "$@"; }
+if [ "$op" != set-password ]; then
+    in_container "$@" >/dev/null || exit 1
+fi
 count=$(( $(cat "$state/calls.$op" 2>/dev/null || echo 0) + 1 ))
 echo "$count" >"$state/calls.$op"
 if [ "${STUB_FAIL:-}" = "$op:$count" ]; then
@@ -70,27 +75,34 @@ case "$op" in
         esac ;;
     set-password)
         printf '%s %s\n' "$2" "$3" >>"$state/set-password"
-        exec bash -c "${container_script//\/opt\/keycloak\/bin\/kcadm.sh/$STUB_KCADM}" kcadm "$@" ;;
+        in_container "$@"; exit ;;
 esac
 STUB
 chmod +x "$WORK/bin/docker"
 
 # The fake kcadm.sh inside the "container": login always works; set-password enforces the 12 character minimum and,
-# unlike Keycloak, echoes the refused value, so the test proves the script withholds such a message.
+# unlike Keycloak, echoes the refused value, so the test proves the script withholds such a message. Like the real
+# kcadm.sh it takes the password from KC_CLI_PASSWORD (issue 327), and it logs its own argv to $STUB_STATE/kcadm-argv
+# so the test can prove no password reaches the in-container command line either.
 cat >"$WORK/kcadm.sh" <<'FAKE'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_STATE/kcadm-argv"
 case "$1" in
-    config) exit 0 ;;
+    # The admin login must get the Keycloak admin password (FAKE_ADMIN_PASSWORD), and only through KC_CLI_PASSWORD.
+    config) [ -n "${KC_CLI_PASSWORD:-}" ] && [ "$KC_CLI_PASSWORD" = "${FAKE_ADMIN_PASSWORD:-}" ] ;;
+    # kcadm() runs its kcadm.sh call after the login; the stub answers it.
+    get|update) exit 0 ;;
     set-password)
-        # set-password -r <realm> --username <user> --new-password <value> --config <file>
-        if [ "${#7}" -lt 12 ]; then
-            refused="$7"
+        # set-password -r <realm> --username <user> --config <file>, the new password in KC_CLI_PASSWORD
+        new_password="${KC_CLI_PASSWORD:-}"
+        if [ "${#new_password}" -lt 12 ]; then
+            refused="$new_password"
             # FAKE_ECHO_ESCAPED=1 echoes the value the way a JSON error body would carry it.
             [ "${FAKE_ECHO_ESCAPED:-0}" = "1" ] && refused="${refused//\"/\\\"}"
             echo "Invalid password: minimum length 12, got '$refused'." >&2
             exit 1
         fi
-        printf '%s' "$7" >"$STUB_STATE/password.$5" ;;
+        printf '%s' "$new_password" >"$STUB_STATE/password.$5" ;;
     *) echo "fake kcadm.sh: unexpected call: $*" >&2; exit 64 ;;
 esac
 FAKE
@@ -101,6 +113,7 @@ export STUB_KCADM="$WORK/kcadm.sh"
 OWNER_PASSWORD="$(printf '0123456789abcdef%.0s' 1 2)"
 OPERATOR_PASSWORD="$(printf 'fedcba9876543210%.0s' 1 2)"
 VIEWER_PASSWORD="$(printf '0011223344556677%.0s' 1 2)"
+ADMIN_PASSWORD="$(printf '89abcdef01234567%.0s' 1 2)"
 
 # A realm as imported before issues 307 and 314: session.required set, no logout URL, 10 h SSO max lifespan, no PKCE
 # attribute and no password policy. The keycloak container holds the three generated passwords.
@@ -109,6 +122,7 @@ fresh_realm() {
     printf 'true' >"$STUB_STATE/required"
     printf '36000' >"$STUB_STATE/lifespan"
     export STUB_STATE
+    export KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASSWORD" FAKE_ADMIN_PASSWORD="$ADMIN_PASSWORD"
     export DOKENE_TEST_OWNER_PASSWORD="$OWNER_PASSWORD" DOKENE_TEST_OPERATOR_PASSWORD="$OPERATOR_PASSWORD" \
            DOKENE_TEST_VIEWER_PASSWORD="$VIEWER_PASSWORD"
 }
@@ -137,11 +151,14 @@ updates() { echo $(( $(calls client-update) + $(calls realm-update) )); }
 # No password value in the script's output or on any docker command line it ran.
 no_password_leaked() {
     local value
-    for value in "$OWNER_PASSWORD" "$OPERATOR_PASSWORD" "$VIEWER_PASSWORD" "${1:-}"; do
+    for value in "$OWNER_PASSWORD" "$OPERATOR_PASSWORD" "$VIEWER_PASSWORD" "$ADMIN_PASSWORD" "${1:-}"; do
         [ -n "$value" ] || continue
         ! grep -qF -- "$value" "$WORK/out" || return 1
         ! grep -qF -- "$value" "$STUB_STATE/argv" || return 1
+        ! grep -qF -- "$value" "$STUB_STATE/kcadm-argv" 2>/dev/null || return 1
     done
+    # Neither the admin login nor set-password names a password option: kcadm.sh reads KC_CLI_PASSWORD (issue 327).
+    ! grep -qE -- '--(new-)?password|(^| )-p( |$)' "$STUB_STATE/kcadm-argv" 2>/dev/null
 }
 
 check_reports_drift() {
@@ -239,6 +256,19 @@ check "--check reports a drifting PKCE method alone, and apply repairs it" check
 check "apply updates only drifting values once and is then a no-op" apply_converges_and_is_idempotent
 check "apply sets each password from its own variable, after the policy, without leaking one" \
     apply_sets_each_password_from_its_own_variable_after_the_policy
+# Issue 327: kcadm() itself logs in through KC_CLI_PASSWORD. With an admin password Keycloak refuses, the first lookup
+# fails, the run exits 3 before the password step, and neither value reaches the output or a command line.
+wrong_admin_password_fails_without_leaking() {
+    local wrong
+    fresh_realm
+    wrong="$(printf 'feedfacecafebeef%.0s' 1 2)"
+    KC_BOOTSTRAP_ADMIN_PASSWORD="$wrong" run
+    [ $? -eq 3 ] && grep -q 'Keycloak admin login failed' "$WORK/out" \
+        && [ ! -e "$STUB_STATE/calls.lookup" ] && [ ! -e "$STUB_STATE/calls.set-password" ] \
+        && no_password_leaked "$wrong"
+}
+check "a refused admin login in kcadm() fails with exit 3 and leaks no password (#327)" \
+    wrong_admin_password_fails_without_leaking
 check "a failed client lookup fails the run" fails_when lookup:1
 check "a failed initial client read fails apply" fails_when client-read:1
 check "a failed initial client read fails --check" fails_when client-read:1 --check

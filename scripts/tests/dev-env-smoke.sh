@@ -56,7 +56,7 @@ check "up does not run a Keycloak realm reconcile script (#319 review)" \
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
   scripts/keycloak-apply-realm-settings.sh scripts/tests/keycloak-apply-realm-settings-test.sh
-  scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh
+  scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh scripts/lib/secret-match.sh scripts/lib/curl-protected.sh
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
@@ -230,7 +230,7 @@ ENV
     ! grep -q 'eleven-char' "$work/out" || exit 1
     # Compose does not pass these on as written: an inline comment or `$` in an unquoted value, `$` or a backslash
     # inside double quotes. Each fails preflight naming only the variable. Single quotes are literal and pass.
-    # Written directly: env_set goes through `awk -v`, which would drop the backslash.
+    # Written directly, so each case is the exact .env text under test.
     set_operator_line() {
       grep -v '^DOKENE_TEST_OPERATOR_PASSWORD=' "$work/.env" > "$work/.env.next"
       printf 'DOKENE_TEST_OPERATOR_PASSWORD=%s\n' "$1" >> "$work/.env.next"
@@ -570,6 +570,80 @@ start_failure_detection() {
 }
 check "only start/bind errors count as a start failure" \
   bash -c "$(declare -f start_failure_detection) ; SCRIPT='$SCRIPT'; start_failure_detection"
+
+# Issue 327: env_set writes generated secrets; the value must reach awk through its environment, not its argv, which
+# any local user can read in the process table. The shadowing awk() records every argument list env_set passes.
+env_set_keeps_the_value_off_awk_argv() {
+  # shellcheck source=../dev-env.sh
+  source "$SCRIPT" || return 1
+  local work value rc=1
+  work="$(mktemp -d)" || return 1
+  ENV_FILE="$work/.env"
+  printf 'OTHER=1\nDOKENE_DB_PASSWORD=old\n' > "$ENV_FILE"
+  awk() { printf '%s\n' "$*" >> "$work/argv"; command awk "$@"; }
+  # Synthetic, built at run time; the backslash and quote prove the value is written byte for byte.
+  value="syn'the\\tic\$-$(printf '%s' 327327327)"
+  env_set DOKENE_DB_PASSWORD "$value" && env_set DOKENE_NEW_KEY "$value" \
+    && [ "$(env_get DOKENE_DB_PASSWORD)" = "$value" ] && [ "$(env_get DOKENE_NEW_KEY)" = "$value" ] \
+    && [ "$(env_get OTHER)" = 1 ] && [ "$(grep -c '^DOKENE_DB_PASSWORD=' "$ENV_FILE")" -eq 1 ] \
+    && [ -s "$work/argv" ] && ! grep -qF -- 327327327 "$work/argv" && rc=0
+  rm -rf "$work"
+  return "$rc"
+}
+check "env_set keeps the value out of awk's argument list and writes it byte for byte (#327)" \
+  bash -c "$(declare -f env_set_keeps_the_value_off_awk_argv) ; SCRIPT='$SCRIPT'; env_set_keeps_the_value_off_awk_argv"
+
+# Issue 327: the PostgreSQL init script creates the application roles without their passwords on psql's command line.
+# A stub psql records its argv and stdin; the passwords must appear in neither (stdin carries \getenv by name only).
+postgres_init_keeps_role_passwords_off_psql_argv() {
+  local work rc=1 init="$ROOT_DIR/infra/docker/postgres/init/01-create-database-roles.sh"
+  work="$(mktemp -d)" || return 1
+  mkdir -p "$work/bin"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" > "%s/argv"; cat > "%s/stdin"\n' "$work" "$work" > "$work/bin/psql"
+  chmod +x "$work/bin/psql"
+  if PATH="$work/bin:$PATH" POSTGRES_USER=bootstrap POSTGRES_DB=dokene \
+       DOKENE_DB_MIGRATION_PASSWORD="mig-$(printf '%s' 327001)" DOKENE_DB_RUNTIME_PASSWORD="run-$(printf '%s' 327002)" \
+       bash "$init" \
+     && ! grep -qE '327001|327002|password' "$work/argv" && grep -q -- '--set=database_name=dokene' "$work/argv" \
+     && ! grep -qE '327001|327002' "$work/stdin" \
+     && grep -qx '\\getenv migration_password DOKENE_DB_MIGRATION_PASSWORD' "$work/stdin" \
+     && grep -qx '\\getenv runtime_password DOKENE_DB_RUNTIME_PASSWORD' "$work/stdin" \
+     && grep -q "PASSWORD :'migration_password';" "$work/stdin" && grep -q "PASSWORD :'runtime_password';" "$work/stdin" \
+     && ! PATH="$work/bin:$PATH" POSTGRES_USER=bootstrap POSTGRES_DB=dokene DOKENE_DB_MIGRATION_PASSWORD='' \
+            DOKENE_DB_RUNTIME_PASSWORD=x \
+            bash "$init" 2>/dev/null; then
+    rc=0
+  fi
+  rm -rf "$work"
+  return "$rc"
+}
+check "PostgreSQL init passes role passwords by variable name, never on psql's argv, and fails closed (#327)" \
+  postgres_init_keeps_role_passwords_off_psql_argv
+
+# Issue 327: scripts/lib/secret-match.sh searches for secrets literally, keeps them off grep's command line, skips empty
+# values and reads its whole input, so a match in a large payload piped in under pipefail is not lost to SIGPIPE.
+secret_match_is_literal_argv_free_and_pipe_safe() {
+  # shellcheck source=../lib/secret-match.sh
+  source "$ROOT_DIR/scripts/lib/secret-match.sh" || return 1
+  set -o pipefail
+  local work secret rc=1
+  work="$(mktemp -d)" || return 1
+  grep() { printf '%s\n' "$*" >> "$work/argv"; command grep "$@"; }
+  secret="s3cr.t*[$(printf '%s' 327327)]"
+  printf 'one\nkey=%s here\nthree\n' "$secret" > "$work/hit"
+  printf 's3crXt*[327327]\n' > "$work/lookalike"
+  if contains_literal "$work/hit" "$secret" && ! contains_literal "$work/lookalike" "$secret" \
+     && [ "$(grep_literals "$work/hit" other "$secret")" = "key=$secret here" ] \
+     && ! contains_literal "$work/hit" "" && contains_literal "$work/hit" "" "$secret" \
+     && { printf 'x %s\n' "$secret"; head -c 2097152 /dev/zero | tr '\0' 'a'; printf '\n'; } | contains_literal - "$secret" \
+     && [ -s "$work/argv" ] && ! command grep -qF 327327 "$work/argv"; then
+    rc=0
+  fi
+  rm -rf "$work"
+  return "$rc"
+}
+check "secret-match: literal, argv free, skips empty values, survives a large piped payload (#327)" \
+  bash -c "$(declare -f secret_match_is_literal_argv_free_and_pipe_safe) ; ROOT_DIR='$ROOT_DIR'; secret_match_is_literal_argv_free_and_pipe_safe"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2

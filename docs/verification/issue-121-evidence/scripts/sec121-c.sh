@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # QA suite #121: SEC-04 database backstop with the REAL runtime role (dokene_runtime) and signed tenant context. Disposable local QA DB, synthetic data.
 # The signing key is read by the bootstrap superuser only to mint test contexts (runtime role cannot read it).
+# PGPASSWORD reaches `docker compose exec -e PGPASSWORD` through its environment, never its argv (issue 327).
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; OUTD=/home/stevdrey/qa121/out; read A B C CA CA2 CB CC PA PA2 PB UO UV UU < $OUTD/ids
-rt() { docker compose exec -T -e PGPASSWORD="$DOKENE_DB_PASSWORD" postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq "$@" 2>&1 | tr -d '\r'; }
+rt() { PGPASSWORD="$DOKENE_DB_PASSWORD" docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq "$@" 2>&1 | tr -d '\r'; }
 ctx() { psqlq "with k as (select key_id, signing_key from dokene.tenant_context_signing_keys where status='ACTIVE' limit 1), p as (select '$1|'||k.key_id||'|$2|'||lpad((extract(epoch from now())::bigint + ${3:-60})::text,10,'0')||'|'||md5(random()::text) as payload, k.signing_key from k) select payload||' '||encode(dokene.hmac(convert_to(payload,'UTF8'), signing_key,'sha256'),'hex') from p"; }
-run() { local p=$1 s=$2; shift 2; printf '%s\n%s\n' "select set_config('dokene.tenant_context','$p',false), set_config('dokene.tenant_context_signature','$s',false) \\g /dev/null" "$*" | docker compose exec -T -e PGPASSWORD="$DOKENE_DB_PASSWORD" postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq 2>&1 | tr -d '\r'; }
+run() { local p=$1 s=$2; shift 2; printf '%s\n%s\n' "select set_config('dokene.tenant_context','$p',false), set_config('dokene.tenant_context_signature','$s',false) \\g /dev/null" "$*" | PGPASSWORD="$DOKENE_DB_PASSWORD" docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq 2>&1 | tr -d '\r'; }
 echo "== role attributes (actual runtime role)"
 chk SEC-04 "runtime role is not superuser / bypassrls / createrole / createdb" "f f f f" "$(psqlq "select rolsuper,rolbypassrls,rolcreaterole,rolcreatedb from pg_roles where rolname='dokene_runtime'" | tr '|' ' ')"
 chk SEC-04 "runtime role owns no table in schema dokene" 0 "$(psqlq "select count(*) from pg_tables where schemaname='dokene' and tableowner='dokene_runtime'")"
@@ -53,7 +54,7 @@ chk SEC-04 "tenants: A context DELETE of its own row denied (no DELETE privilege
 chk SEC-04 "tenants: UPDATE is limited to the verified tenant's own row (column grants, legitimate rename/archive path)" "UPDATE 1UPDATE 0" "$(printf '%s
 %s
 %s
-' "select set_config('dokene.tenant_context','$PA_',false), set_config('dokene.tenant_context_signature','$SA_',false) \g /dev/null" "update dokene.tenants set display_name=display_name where id='$A';" "update dokene.tenants set display_name=display_name where id='$B';" | docker compose exec -T -e PGPASSWORD="$DOKENE_DB_PASSWORD" postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -At 2>&1 | tr -d '
+' "select set_config('dokene.tenant_context','$PA_',false), set_config('dokene.tenant_context_signature','$SA_',false) \g /dev/null" "update dokene.tenants set display_name=display_name where id='$A';" "update dokene.tenants set display_name=display_name where id='$B';" | PGPASSWORD="$DOKENE_DB_PASSWORD" docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -At 2>&1 | tr -d '
 ' | tr '
 ' ' ' | sed 's/ $//')"
 chk SEC-04 "tenants: A context INSERT of a tenant row with another id rejected" rejected "$(run $PA_ $SA_ "insert into dokene.tenants(id,display_name,status,created_at) values (gen_random_uuid(),'qa-rogue','ACTIVE',now())" | grep -qiE 'row-level security|permission denied' && echo rejected || echo accepted)"

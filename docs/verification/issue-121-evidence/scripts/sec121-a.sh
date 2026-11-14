@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # QA suite #121: fixtures (tenants B and C), SEC-01 authn/CSRF/origin/cookies, SEC-02 authorization by role. Writes ids to $OUTD/ids.
+# Headers, cookie values and URLs (callback code, CSRF token) stay off curl's command line (issue 327).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; OUTD=/home/stevdrey/qa121/out; OUT=$QA_TMP; : > $STUB/fail; echo 0 > $STUB/delay.ms
 raw() { local jar=$1 m=$2 p=$3; shift 3; RC=$(curl -s -o $OUT/raw.body -w '%{http_code}' -b $jar -X $m "$BFF$p" "$@"); }
 NOJAR=$QA_TMP/none.txt; : > $NOJAR
@@ -34,7 +36,7 @@ PF=$(curl -s -D - -o /dev/null -X OPTIONS "$BFF/api/customers/$CA/recommendation
 chk SEC-01 "CORS preflight from unapproved origin gets no Allow-Origin" "" "$(echo "$PF"|grep -i '^access-control-allow-origin'|tr -d '\r')"
 rm -f $QA_TMP/ck.txt; curl -s -c $QA_TMP/ck.txt -D $QA_TMP/h1 -o /dev/null $BFF/oauth2/authorization/dokene; l=$(grep -i '^location:' $QA_TMP/h1|tr -d '\r\n'|awk '{print $2}')
 curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -o $QA_TMP/b.tmp "$l"; a=$(grep -o 'action="[^"]*"' $QA_TMP/b.tmp|head -1|cut -d'"' -f2|sed 's/&amp;/\&/g')
-curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -D $QA_TMP/h2 -o /dev/null --data-urlencode username=testviewer --data-urlencode password=$PW "$a"; l=$(grep -i '^location:' $QA_TMP/h2|tr -d '\r\n'|awk '{print $2}')
+printf '%s' "$PW" | curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -D $QA_TMP/h2 -o /dev/null --data-urlencode username=testviewer --data-urlencode password@- "$a"; l=$(grep -i '^location:' $QA_TMP/h2|tr -d '\r\n'|awk '{print $2}')
 PRE=$(grep -i '^set-cookie: *JSESSIONID' $QA_TMP/h1 | sed -n 's/.*JSESSIONID=\([^;]*\).*/\1/p'); curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -D $QA_TMP/h3 -o /dev/null "$l"
 SC=$(grep -i '^set-cookie: *JSESSIONID' $QA_TMP/h3 | tr -d '\r'); POST=$(echo "$SC" | sed -n 's/.*JSESSIONID=\([^;]*\).*/\1/p'); echo "  Set-Cookie after login: $(echo "$SC" | sed 's/JSESSIONID=[^;]*/JSESSIONID=<redacted>/')"
 chk SEC-01 "session cookie is HttpOnly" yes "$(echo "$SC"|grep -qi httponly && echo yes || echo no)"; chk SEC-01 "session cookie is SameSite=Lax" yes "$(echo "$SC"|grep -qi 'samesite=lax' && echo yes || echo no)"

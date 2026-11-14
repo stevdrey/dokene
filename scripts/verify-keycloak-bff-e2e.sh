@@ -49,9 +49,17 @@ BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
 # shellcheck source=lib/test-passwords.sh
 . "$ROOT_DIR/scripts/lib/test-passwords.sh"
+# shellcheck source=lib/secret-match.sh
+. "$ROOT_DIR/scripts/lib/secret-match.sh"
+# Keeps the callback URL with its authorization code, the CSRF header and JSESSIONID values off curl's command line.
+# shellcheck source=lib/curl-protected.sh
+. "$ROOT_DIR/scripts/lib/curl-protected.sh"
 TEST_USER="testuser"
 TOTAL_STEPS=11
-TEST_CLIENT_SECRET="${DOKENE_OIDC_CLIENT_SECRET:-dokene-bff-secret}"
+# The BFF's real client secret, as .env holds it (DOKENE_OIDC_CLIENT_SECRET is its name inside the oidc-bridge container).
+# No default: a placeholder would make the leak checks below look for a value the stack never uses.
+TEST_CLIENT_SECRET="${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-${DOKENE_OIDC_CLIENT_SECRET:-}}"
+: "${TEST_CLIENT_SECRET:?SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET is not set; run ./scripts/dev-env.sh up, which generates it in .env}"
 
 echo "======================================================================"
 echo "Dokene BFF End-to-End Security Verification (Issue #52)"
@@ -68,6 +76,23 @@ location_header() { grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{pr
 submit_credentials() {
     printf '%s' "$4" | curl -s -c "$1" -b "$1" -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" \
         --data-urlencode "username=$3" --data-urlencode "password@-" "$2"
+}
+
+# forbidden_label VALUE: how a failure names VALUE; the client secret itself is never printed.
+forbidden_label() { if [ "$1" = "$TEST_CLIENT_SECRET" ]; then echo "<OIDC client secret>"; else echo "$1"; fi; }
+
+# redact_url URL: only the origin of URL (scheme, host and port), so a failure shows where the redirect went without
+# printing any part that can carry a token or the client secret (userinfo, path, query, fragment; invariant 35). The
+# URL reaches sed through a here-string, not its command line; LC_ALL=C keeps invalid UTF-8 from stopping the match.
+redact_url() {
+    local origin
+    origin="$(LC_ALL=C sed -nE \
+        's#^([A-Za-z][A-Za-z0-9+.-]*://)([^/?#@]*@)?([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?([/?#].*)?$#\1\3\4#p' \
+        <<<"$1")"
+    # A second line could hold a second "URL" whose host is a token; such input is not a redirect, so print no origin.
+    case "$1" in *$'\n'*) origin="" ;; esac
+    case "$origin" in *"$TEST_CLIENT_SECRET"*) origin="" ;; esac
+    printf '%s (path, query and fragment withheld)' "${origin:-<unparsable URL>}"
 }
 
 # start_login JAR: starts a BFF login in a fresh cookie jar and prints the Keycloak login form action.
@@ -97,7 +122,8 @@ expect_pkce_refused() {
 # ------------------------------------------------------------------------------
 # 1. Verify Prerequisites and Connectivity
 # ------------------------------------------------------------------------------
-command -v curl >/dev/null 2>&1 || { echo "Error: curl is required." >&2; exit 1; }
+# curl is the curl-protected.sh wrapper here, so `command -v curl` would always succeed.
+curl_installed || { echo "Error: curl is required." >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; exit 1; }
 
 echo -n "[1/$TOTAL_STEPS] Verifying Keycloak OIDC discovery endpoint... "
@@ -200,11 +226,11 @@ POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '
 # Assert tokens and secrets are NOT present in redirect URL or response headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
     if [[ "$POST_LOGIN_REDIRECT" == *"$forbidden_val"* ]]; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in post-login redirect URL: $POST_LOGIN_REDIRECT)"
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL to $(redact_url "$POST_LOGIN_REDIRECT"))"
         exit 1
     fi
-    if grep -q "$forbidden_val" "$HEADER_LOG"; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in callback response headers!)"
+    if contains_literal "$HEADER_LOG" "$forbidden_val"; then
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in callback response headers!)"
         exit 1
     fi
 done
@@ -258,12 +284,12 @@ fi
 
 # Assert OAuth tokens and secrets are strictly absent from session body and headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
-    if echo "$SESSION_JSON" | grep -q "$forbidden_val"; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in session response body!)"
+    if printf '%s' "$SESSION_JSON" | contains_literal - "$forbidden_val"; then
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response body!)"
         exit 1
     fi
-    if grep -q "$forbidden_val" "$HEADER_LOG"; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in session response headers!)"
+    if contains_literal "$HEADER_LOG" "$forbidden_val"; then
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response headers!)"
         exit 1
     fi
 done

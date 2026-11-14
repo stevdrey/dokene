@@ -1,11 +1,13 @@
 # QA helper (synthetic data only). Source it from the repository root after exporting .env.
+# Headers, cookie values and URLs (callback code, CSRF token) stay off curl's command line (issue 327).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }
 # qa_login <user>; api <user> <METHOD> <path> <json> [curl args] -> BODY CODE HDRS; getj <user> <path>
 BFF=${BFF:-http://localhost:8080}; PW=${DOKENE_TEST_USER_PASSWORD:-testpassword}
 QA_TMP=${QA_TMP:-$(mktemp -d)}
 qa_login(){ local u=$1 j=$QA_TMP/jar-$1.txt h=$QA_TMP/h.tmp b=$QA_TMP/b.tmp; rm -f $j
  curl -s -c $j -D $h -o $b $BFF/oauth2/authorization/dokene; local l=$(grep -i '^location:' $h|tr -d '\r\n'|awk '{print $2}')
  curl -s -c $j -b $j -o $b "$l"; local a=$(grep -o 'action="[^"]*"' $b|head -1|cut -d'"' -f2|sed 's/&amp;/\&/g')
- curl -s -c $j -b $j -D $h -o $b --data-urlencode username=$u --data-urlencode password=$PW "$a"
+ printf '%s' "$PW" | curl -s -c $j -b $j -D $h -o $b --data-urlencode username=$u --data-urlencode password@- "$a"  # password on stdin, not argv (#327)
  l=$(grep -i '^location:' $h|tr -d '\r\n'|awk '{print $2}'); curl -s -c $j -b $j -o $b "$l"; }
 api() { local u=$1 m=$2 p=$3 d=${4:-}; shift 4; local j=$QA_TMP/jar-$u.txt tok
   tok=$(curl -s -b $j -c $j $BFF/api/session | jq -r .csrfToken)

@@ -55,7 +55,8 @@ echo "======================================================================"
 # ------------------------------------------------------------------------------
 # 1. Verify Prerequisites
 # ------------------------------------------------------------------------------
-command -v curl >/dev/null 2>&1 || { echo "Error: curl is required." >&2; exit 1; }
+# The executable, not the curl-protected.sh wrapper that bff-login.sh defines below (`command -v` finds either).
+type -P curl >/dev/null 2>&1 || { echo "Error: curl is required." >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; exit 1; }
 
 echo -n "Checking Keycloak OIDC discovery... "
