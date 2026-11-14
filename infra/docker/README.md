@@ -135,10 +135,57 @@ limited. Verify with `./scripts/tests/nginx-login-rate-limit-smoke.sh` (Docker o
   two seconds and try again.
 - Requests sent straight to the backend port (`http://localhost:8080`, used by the `scripts/verify-*` and seed
   scripts) skip nginx and are not limited.
-- Behind another proxy or tunnel, restore the real client address in nginx (`real_ip`), or the limit is one shared
-  limit for everyone who signs in.
+- Behind another proxy or tunnel, list that proxy in `trusted-proxies.conf` (see
+  [Forwarding headers and trusted proxies](#forwarding-headers-and-trusted-proxies)) so nginx restores the real client
+  address, or the limit is one shared limit for everyone who signs in.
 - `DOKENE_SESSION_PRE_LOGIN_TIMEOUT` (default `5m`) is how long a login start session waits for the login to
   succeed.
+
+### Forwarding headers and trusted proxies
+
+nginx decides every forwarding header the backend sees (issue #320, [ADR 0007](../../docs/adr/0007-oidc-server-side-session.md)).
+All of these lines live in `infra/docker/frontend/proxy-upstream.conf`, which every proxied location includes; add any
+new upstream header there, never in a location.
+
+| Header to the backend | Value |
+|---|---|
+| `Host` | always `localhost:8080`, which pins the OAuth redirect origin |
+| `X-Forwarded-For` | the peer address, or the client address restored from a trusted proxy |
+| `X-Forwarded-Proto` | the edge's own scheme (`http` here), never a client or proxy value |
+| `X-Forwarded-Port` | always `8080`, the port of the pinned `Host` (under `framework`, Spring drops the port without it) |
+| `Forwarded`, `X-Forwarded-Host`, `-Prefix`, `-Ssl`, `-Server`, `-Scheme`, `X-Original-Forwarded-For`, `X-Real-IP`, `X-Client-IP`, `True-Client-IP` | never sent, whatever the client sent |
+
+With this edge, the backend supports `SERVER_FORWARD_HEADERS_STRATEGY=none` (the default) and `framework`, for traffic
+through nginx only. The backend port `127.0.0.1:8080` bypasses nginx, so under `framework` it still believes client
+forwarding headers; issue #318 covers that port. `native` is not supported yet.
+
+**Trusting a tunnel or load balancer.** By default no peer is trusted: the image's
+`/etc/nginx/snippets/trusted-proxies.conf` holds comments only. To trust an outer proxy, find its address first: send
+one request through it, then read the first field of the newest line in `docker compose logs frontend` (the access log
+starts with the client address nginx saw). Then mount your own file over the shipped one with a Compose override file,
+so the container keeps its read only root:
+
+```yaml
+# compose.override.yaml
+services:
+  frontend:
+    volumes:
+      - ./trusted-proxies.conf:/etc/nginx/snippets/trusted-proxies.conf:ro
+```
+
+```nginx
+# trusted-proxies.conf: only set_real_ip_from lines, one per trusted proxy, in plain form (IPv4 as IPv4)
+set_real_ip_from 172.20.0.5;
+```
+
+Recreate the frontend (`docker compose up -d frontend`). nginx refuses to start on an invalid file, so a mistake fails
+closed. From a listed proxy, nginx takes the rightmost address in its `X-Forwarded-For` that is not itself listed, and
+uses it for the login start limit and the webhook connection limits. When every address is listed, it uses the
+leftmost one; an entry that is not an address keeps the proxy's own address; an address with a port is used without
+the port. The proxy's `X-Forwarded-Proto` is not believed, so behind a TLS tunnel the backend still sees `http`.
+
+Verify with `./scripts/tests/nginx-headers-smoke.sh` and `./scripts/tests/nginx-login-rate-limit-smoke.sh` (Docker
+only).
 
 ### Troubleshooting
 

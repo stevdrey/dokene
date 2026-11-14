@@ -269,6 +269,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L8. nginx passes client-supplied `X-Forwarded-*` and `Forwarded` headers to the backend — Latent
 
+- **Status:** fixed by [#320](https://github.com/stevdrey/dokene/issues/320); see [the verification record](../verification/issue-320-forwarded-headers-verification.md) and the edge contract in [ADR 0007](../adr/0007-oidc-server-side-session.md). Both proxy locations include one snippet that drops every client forwarding header and sets `X-Forwarded-For` from the peer (or the client address a proxy listed in `trusted-proxies.conf` reports), `X-Forwarded-Proto` from the edge's own scheme, and a fixed `X-Forwarded-Port: 8080` that matches the pinned `Host`. The suggested `X-Forwarded-Host $host` was not used: with the catch all `server_name`, `$host` is the client's `Host` header. The direct backend port is left to [#318](https://github.com/stevdrey/dokene/issues/318).
 - **Where:** `infra/docker/frontend/nginx.conf:15-27` and `:33-41` set only `Host` and `Connection`.
 - **Evidence:** with the default `SERVER_FORWARD_HEADERS_STRATEGY=none`, a forged `X-Forwarded-Host: evil.example` through the SPA proxy has no effect: `redirect_uri` stays `http://127.0.0.1:38080/...`.
 - **Impact:**
