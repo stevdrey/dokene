@@ -81,6 +81,7 @@ check "the shipped trusted-proxies.conf lists no proxy" \
 # The echo upstream: one "name=[$http_name]" line per header of interest. nginx joins repeated headers with commas.
 # /webhooks/body-check records the raw request body instead: nginx fills $request_body only when it reads the body
 # for a proxy_pass, so that route proxies to a second local server and logs the body unescaped to a file.
+# shellcheck disable=SC2016  # $request_body and $http_* are nginx variables, written literally into the stub config
 {
   printf 'log_format webhook_body escape=none "$request_body";\n'
   printf 'server {\n    listen 8080;\n'
