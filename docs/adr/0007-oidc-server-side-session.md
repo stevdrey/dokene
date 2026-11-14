@@ -66,6 +66,30 @@ logs, or audit events.
   or ingress controller with TLS offloading, operators explicitly configure `SERVER_FORWARD_HEADERS_STRATEGY=framework`.
   The edge proxy/load balancer MUST strip and overwrite inbound `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`,
   and `X-Forwarded-Port` headers from untrusted clients before proxying traffic to Dokene.
+  Amended by issue #320 (audit finding L8): the repository's own nginx edge (`infra/docker/frontend`) meets that rule
+  as follows.
+  - *Headers dropped*: every proxied location (`/api`, `/oauth2`, `/login`, `/logout`, `/webhooks`) includes one
+    snippet, `proxy-upstream.conf`, and sets no upstream header of its own. It never sends `Forwarded`,
+    `X-Forwarded-Host`, `X-Forwarded-Prefix`, `X-Forwarded-Ssl`, `X-Forwarded-Server`,
+    `X-Forwarded-Scheme`, `X-Original-Forwarded-For`, `X-Real-IP`, `X-Client-IP` or `True-Client-IP`, whatever the
+    client sent, repeated or in any letter case.
+  - *Headers set*: `Host` is always `localhost:8080`, which pins `{baseUrl}`. `X-Forwarded-For` is the edge's peer
+    address, or the client address restored from a trusted proxy (below). `X-Forwarded-Proto` is always the edge's own
+    scheme; no client or proxy value is believed for it. `X-Forwarded-Port` is always `8080`, the port of the pinned
+    `Host`: under `framework`, Spring clears the port when it sees `X-Forwarded-Proto` and restores it only from
+    `X-Forwarded-Port`, so without it `{baseUrl}` would lose `:8080` and the registered redirect URI would not match.
+  - *Trusted proxies*: the image ships `/etc/nginx/snippets/trusted-proxies.conf` with no entry, so no peer is
+    trusted. An operator trusts an outer proxy (a tunnel or load balancer) by mounting their own file over it, holding
+    only `set_real_ip_from <address or CIDR>;` lines. From a listed peer the edge takes the rightmost address in its
+    `X-Forwarded-For` that is not itself listed (`real_ip_recursive on`); when every address is listed, nginx uses the
+    leftmost one; an entry that is not an address leaves the peer address in place. The login start limit and the
+    webhook connection limits key on that restored address. The header source is fixed in `nginx.conf`, so the
+    operator file cannot change it, and an invalid file stops nginx from starting.
+  - *Supported strategies behind this edge*: `none` (the default) and `framework`, for traffic that arrives through the
+    edge. `native` is not supported until scope feature 15 (issue #318) settles which peers the backend trusts.
+  - *Gaps left to feature 15*: the direct backend port (`127.0.0.1:8080`, used by `oidc-bridge` and the local scripts)
+    reaches the backend without the edge, so under `framework` it still accepts client forwarding headers. A TLS
+    tunnel's scheme is not believed, so behind one the backend sees `http` and, under `framework`, sends no HSTS.
 
 ### Anonymous Requests and Login Start Sessions
 
