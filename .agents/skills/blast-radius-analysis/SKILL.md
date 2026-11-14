@@ -7,7 +7,7 @@ description: Use when a change crosses two or more of API contract, persistence 
 
 ## When to use
 
-This is an optional pilot practice from [Epic #371](https://github.com/stevdrey/dokene/issues/371), adapted in Dokene's own words from the practices the [pstack applicability audit](../../../docs/verification/pstack-applicability-audit.md) marked **Adapt**. [Issue #376](https://github.com/stevdrey/dokene/issues/376) decides from pilot evidence whether it is adopted.
+This is an optional pilot practice from [Epic #371](https://github.com/stevdrey/dokene/issues/371), adapted in Dokene's own words from the practices the [pstack applicability audit](../../../docs/verification/pstack-applicability-audit.md) marked **Adapt**. The [Issue #376 decision](../../../docs/verification/issue-376-benchmark-decision.md) keeps it as an optional pilot: no benchmark has yet shown that it finds defects, so it is not a default step.
 
 The default is not to run it. Run it, and say why, only when the change:
 

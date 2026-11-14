@@ -1,0 +1,149 @@
+package io.github.stevdrey.dokene.purchase.application;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+import io.github.stevdrey.dokene.customer.application.CustomerNotFoundException;
+import io.github.stevdrey.dokene.customer.application.CustomerRepository;
+import io.github.stevdrey.dokene.customer.domain.Customer;
+import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.domain.TenantScopedResource;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.InOrder;
+
+/** Probe for Issue 9376 hypotheses H1-H5: customer loading, locking, authorization order and tenant scoping. */
+class PurchaseServiceEquivalenceProbeTest {
+    static final TenantId TENANT = new TenantId(UUID.fromString("00000000-0000-0000-0000-00000000000a"));
+    static final CustomerId CID = new CustomerId(UUID.fromString("00000000-0000-0000-0000-0000000000c1"));
+    static final PurchaseId PID = new PurchaseId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+    CustomerRepository customers;
+    PurchaseRepository purchases;
+    TenantAuthorizationService auth;
+    TenantContextProvider contexts;
+    PurchaseService service;
+
+    @BeforeEach
+    void setUp() {
+        customers = mock(CustomerRepository.class);
+        purchases = mock(PurchaseRepository.class);
+        auth = mock(TenantAuthorizationService.class);
+        contexts = mock(TenantContextProvider.class);
+        TenantContext ctx = mock(TenantContext.class);
+        when(ctx.tenantId()).thenReturn(TENANT);
+        when(contexts.requireCurrent()).thenReturn(ctx);
+        service = new PurchaseService(customers, purchases, mock(PurchaseAuditPort.class), auth, contexts,
+                Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+    }
+
+    static Stream<Arguments> operations() {
+        Instant past = Instant.parse("2025-01-01T00:00:00Z");
+        return Stream.of(
+                Arguments.of("record", true, (Consumer<PurchaseService>) s -> s.record(CID, past, "d", "k1")),
+                Arguments.of("get", false, (Consumer<PurchaseService>) s -> s.get(CID, PID)),
+                Arguments.of("list", false, (Consumer<PurchaseService>) s -> s.list(CID, null, null, 10)),
+                Arguments.of("lastPurchase", false, (Consumer<PurchaseService>) s -> s.lastPurchase(CID)),
+                Arguments.of("correct", true, (Consumer<PurchaseService>) s -> s.correct(CID, PID, past, "d", 0)),
+                Arguments.of("voidPurchase", true, (Consumer<PurchaseService>) s -> s.voidPurchase(CID, PID, 0)),
+                Arguments.of("history", false, (Consumer<PurchaseService>) s -> s.history(CID, PID, null, 10)));
+    }
+
+    static TenantPermission perm(boolean write) {
+        return write ? TenantPermission.PURCHASE_WRITE : TenantPermission.PURCHASE_READ;
+    }
+
+    // H1 (lock wiring), H3 (tenant from context), H5 (not-found type): missing customer
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operations")
+    void missingCustomerUsesExpectedLookupAndTenant(String name, boolean write, Consumer<PurchaseService> op) {
+        when(customers.findById(any(), any())).thenReturn(Optional.empty());
+        when(customers.findByIdForUpdate(any(), any())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> op.accept(service)).isExactlyInstanceOf(CustomerNotFoundException.class);
+        InOrder order = inOrder(auth, contexts, customers);
+        order.verify(auth).requirePermission(perm(write));
+        order.verify(contexts).requireCurrent();
+        if (write) order.verify(customers).findByIdForUpdate(TENANT, CID);
+        else order.verify(customers).findById(TENANT, CID);
+        verifyNoMoreInteractions(customers);
+        verify(auth, never()).requireResourceAccess(any(), any(TenantScopedResource.class));
+        verify(auth, never()).requireResourceAccess(any(), any(TenantId.class));
+    }
+
+    // H2: permission denial happens before any context or repository access
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operations")
+    void permissionDeniedBeforeAnyLookup(String name, boolean write, Consumer<PurchaseService> op) {
+        RuntimeException denied = new RuntimeException("denied");
+        doThrow(denied).when(auth).requirePermission(perm(write));
+        assertThatThrownBy(() -> op.accept(service)).isSameAs(denied);
+        verifyNoInteractions(customers, purchases, contexts);
+    }
+
+    // H2: resource access checked on the loaded customer, after the lookup, and its denial propagates
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operations")
+    void resourceAccessCheckedOnLoadedCustomer(String name, boolean write, Consumer<PurchaseService> op) {
+        Customer customer = mock(Customer.class);
+        when(customers.findById(TENANT, CID)).thenReturn(Optional.of(customer));
+        when(customers.findByIdForUpdate(TENANT, CID)).thenReturn(Optional.of(customer));
+        RuntimeException denied = new RuntimeException("denied");
+        doThrow(denied).when(auth).requireResourceAccess(perm(write), customer);
+        assertThatThrownBy(() -> op.accept(service)).isSameAs(denied);
+        InOrder order = inOrder(auth, contexts, customers);
+        order.verify(auth).requirePermission(perm(write));
+        order.verify(contexts).requireCurrent();
+        if (write) order.verify(customers).findByIdForUpdate(TENANT, CID);
+        else order.verify(customers).findById(TENANT, CID);
+        order.verify(auth).requireResourceAccess(perm(write), customer);
+        verifyNoInteractions(purchases);
+    }
+
+    // H4: null customer id -> NullPointerException after permission and context, before any repository call
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operations")
+    void nullCustomerId(String name, boolean write, Consumer<PurchaseService> ignored) {
+        Instant past = Instant.parse("2025-01-01T00:00:00Z");
+        Runnable call = switch (name) {
+            case "record" -> () -> service.record(null, past, "d", "k1");
+            case "get" -> () -> service.get(null, PID);
+            case "list" -> () -> service.list(null, null, null, 10);
+            case "lastPurchase" -> () -> service.lastPurchase(null);
+            case "correct" -> () -> service.correct(null, PID, past, "d", 0);
+            case "voidPurchase" -> () -> service.voidPurchase(null, PID, 0);
+            default -> () -> service.history(null, PID, null, 10);
+        };
+        assertThatThrownBy(call::run).isExactlyInstanceOf(NullPointerException.class).hasMessage(null);
+        InOrder order = inOrder(auth, contexts);
+        order.verify(auth).requirePermission(perm(write));
+        order.verify(contexts).requireCurrent();
+        verifyNoInteractions(customers, purchases);
+    }
+
+    // H3: missing tenant context propagates before any repository access
+    @Test
+    void missingTenantContextPropagates() {
+        IllegalStateException none = new IllegalStateException("no tenant");
+        when(contexts.requireCurrent()).thenThrow(none);
+        assertThatThrownBy(() -> service.lastPurchase(CID)).isSameAs(none);
+        assertThatThrownBy(() -> service.voidPurchase(CID, PID, 0)).isSameAs(none);
+        verifyNoInteractions(customers, purchases);
+    }
+}

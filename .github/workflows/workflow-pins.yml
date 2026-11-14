@@ -1,5 +1,6 @@
-# ABOUTME: Fails any pull request that references a GitHub Action by a tag, branch or short SHA (issue #309, audit M5).
-# ABOUTME: Runs on every pull request and push to main with no paths filter, so it can be made a required check safely.
+# ABOUTME: Fails any pull request that references a GitHub Action by a tag, branch or short SHA (issue #309, audit M5),
+# ABOUTME: or a container image without tag plus digest, or drops the Gradle wrapper checksum (issue #323, audit L13).
+# Runs on every pull request and push to main with no paths filter, so it can be made a required check safely.
 name: Workflow pins
 
 on:
@@ -18,3 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/check-workflow-pins-test.sh
+
+  image-pins:
+    name: image-pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./scripts/tests/check-image-pins-test.sh
+      - run: ./scripts/check-image-pins.sh
+      - name: Gradle wrapper distribution checksum is set
+        run: grep -Eq '^distributionSha256Sum=[0-9a-f]{64}$' backend/gradle/wrapper/gradle-wrapper.properties

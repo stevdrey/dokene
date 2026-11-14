@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "issue": 9376,
+  "candidate": {
+    "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+    "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+    "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181"
+  },
+  "verifier": {
+    "independent": true,
+    "kind": "subagent"
+  },
+  "criteria": [
+    {
+      "id": "AC1",
+      "text": "No change to the observable behavior of the purchase API or of PurchaseService; ADR 0011 and the security invariants continue to hold.",
+      "result": "fail",
+      "evidence": [
+        "C2",
+        "C3"
+      ]
+    },
+    {
+      "id": "AC2",
+      "text": "The existing purchase unit, integration, and system tests pass on the candidate.",
+      "result": "pass",
+      "evidence": [
+        "C1",
+        "C2"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocker",
+      "status": "open",
+      "criteria": [
+        "AC1"
+      ],
+      "summary": "The refactor drops the customer id from the idempotency submission fingerprint, so replaying a tenant-scoped Idempotency-Key against a different customer of the same tenant with the same timestamp and description returns the other customer's purchase (created=false) instead of 409 Conflict. This violates ADR 0011 ('same customer, timestamp, and normalized description') and returns a purchase of customer A on a request authorized only for customer B, with no resource access check on the returned purchase.",
+      "evidence": "PurchaseService.java:168-171 (canonical = purchasedAt + \"\\n\" + description; base used customerId.value() + \"\\n\" + purchasedAt + \"\\n\" + description). Uniqueness is (tenant_id, idempotency_key): JdbcPurchaseRepository.java:41,51,54 and V9__create_purchase_history.sql:15. Probe runs/K1-pilot/probe/PurchaseCrossCustomerIdempotencyProbeTest.java fails on the candidate (C3: 'Expecting code to raise a throwable'; stdout 'replay on customer B returned purchase ... owned by customer A ..., created=false, sameAsA=true') and passes on base 88d7523 (C4)."
+    },
+    {
+      "id": "F2",
+      "severity": "blocker",
+      "status": "open",
+      "criteria": [
+        "AC1"
+      ],
+      "summary": "The fingerprint format change is incompatible with fingerprints already persisted in dokene.purchases.submission_fingerprint (database-immutable per ADR 0011): after deployment, a legitimate retry of a key recorded before deployment with an identical payload computes SHA-256(purchasedAt\\ndescription) and no longer equals the stored SHA-256(customerId\\npurchasedAt\\ndescription), so it gets 409 Conflict instead of the original purchase.",
+      "evidence": "PurchaseService.java:171 vs base PurchaseService.java fingerprint(); comparison at JdbcPurchaseRepository.java:54 (existing.fingerprint().equals(fingerprint)); immutability trigger V9__create_purchase_history.sql:62. Follows deterministically from the changed hash input; not exercised with a pre-deploy row."
+    }
+  ],
+  "checks": [
+    {
+      "id": "C1",
+      "kind": "automated",
+      "required": true,
+      "command": "cd backend && ./gradlew test --tests 'io.github.stevdrey.dokene.purchase.*' --tests '*PurchaseManagementIntegrationTest' --tests '*PurchaseCurlSystemTest' --tests '*PurchaseCrossCustomerIdempotencyProbeTest' --continue (disposable worktree at base + candidate.patch, PurchaseService.java byte-identical to candidate)",
+      "result": "passed",
+      "environment": "local, JDK 26.0.2 Temurin, Testcontainers PostgreSQL",
+      "summary": "Existing purchase tests: PurchaseControllerTest 15/15, PurchaseTest 2/2, PurchaseManagementIntegrationTest 5/5, PurchaseCurlSystemTest 1/1 passed. Compilation of the candidate succeeded. (The same Gradle invocation failed overall only because of the probe, recorded as C3.) Results in runs/K1-pilot/candidate-results/.",
+      "candidate": {
+        "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181"
+      }
+    },
+    {
+      "id": "C2",
+      "kind": "manual",
+      "required": true,
+      "command": "git diff 88d7523 in the candidate worktree; read PurchaseService, JdbcPurchaseRepository.insert, V9 migration, ADR 0011, security-invariants.md",
+      "result": "passed",
+      "environment": "local repository",
+      "summary": "Only PurchaseService.java changed (14+/11-). The sole semantic change is the fingerprint canonical string losing customerId; all other edits are structural (Submission record). No untracked files.",
+      "candidate": {
+        "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181"
+      }
+    },
+    {
+      "id": "C3",
+      "kind": "automated",
+      "required": true,
+      "command": "same Gradle run as C1, test PurchaseCrossCustomerIdempotencyProbeTest.sameKeyOnAnotherCustomerOfSameTenantIsAConflict",
+      "result": "failed",
+      "environment": "local, JDK 26.0.2 Temurin, Testcontainers PostgreSQL",
+      "summary": "Probe asserting ADR 0011 cross-customer key reuse yields PurchaseConflictException failed: replay on customer B returned customer A's purchase with created=false. Log runs/K1-pilot/candidate-tests.log.",
+      "candidate": {
+        "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "tree": "c8856365f82f2e293839d9b6a461a54e5bf8c181"
+      }
+    },
+    {
+      "id": "C4",
+      "kind": "automated",
+      "required": false,
+      "command": "cd backend && ./gradlew test --tests '*PurchaseCrossCustomerIdempotencyProbeTest' (disposable worktree at base 88d7523, candidate patch reverted)",
+      "result": "passed",
+      "environment": "local, JDK 26.0.2 Temurin, Testcontainers PostgreSQL",
+      "summary": "Control: the same probe passes on the base, so the behavior change is introduced by the candidate. Log runs/K1-pilot/base-probe.log.",
+      "candidate": {
+        "base": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "head": "88d75233a2d8afa8fc4c22012f1d553e68832a59",
+        "tree": "94ebf12c1be89008052a0f3d4a38c8c823e3f320"
+      },
+      "reusedBecause": "Control run on the base content (tree of 88d7523, probe test added), not on the candidate; it supports F1 by contrast only and is not cited by any passing criterion."
+    }
+  ],
+  "limitations": [
+    "F2 (incompatibility with fingerprints persisted before deployment) is established from code and the deterministic hash input change; it was not exercised against a pre-existing row.",
+    "Only purchase-scoped tests were run per benchmark memory limits; the full backend test suite and build were not run.",
+    "HTTP-level effect of F1 (controller returning another customer's purchase on POST) was not exercised; PurchaseController maps RecordResult directly, so the service-level probe covers it."
+  ],
+  "remainingActions": [
+    "Restore customerId in the fingerprint canonical string (e.g. add it to the Submission record) so the hash input is byte-identical to the base: customerId + \"\\n\" + purchasedAt + \"\\n\" + description.",
+    "Add a regression test that reusing a key on another customer of the same tenant returns 409 Conflict, then re-verify."
+  ],
+  "verdict": "fail"
+}

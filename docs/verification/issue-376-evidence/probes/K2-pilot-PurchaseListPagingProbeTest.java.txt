@@ -1,0 +1,81 @@
+package io.github.stevdrey.dokene.purchase.application;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import io.github.stevdrey.dokene.customer.application.CustomerRepository;
+import io.github.stevdrey.dokene.customer.domain.Customer;
+import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.purchase.domain.Purchase;
+import io.github.stevdrey.dokene.purchase.domain.PurchaseId;
+import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
+import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+/** Probe (verifier, Issue 9376): walk purchase-list pages through PurchaseService.list with a fake repository
+ * that applies the same exclusive (purchased_at, id) < cursor and DESC order as JdbcPurchaseRepository.list. */
+class PurchaseListPagingProbeTest {
+    @Test
+    void walkingAllPagesReturnsEveryPurchaseExactlyOnce() {
+        TenantId tenant = new TenantId(UUID.randomUUID());
+        CustomerId customerId = new CustomerId(UUID.randomUUID());
+        Instant base = Instant.parse("2026-01-01T00:00:00Z");
+        List<Purchase> all = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            all.add(Purchase.create(new PurchaseId(UUID.randomUUID()), tenant, customerId,
+                    base.plusSeconds(60L * i), "p" + i, base.plusSeconds(3600)));
+        }
+        all.sort(Comparator.comparing(Purchase::purchasedAt).reversed());
+
+        PurchaseRepository repo = mock(PurchaseRepository.class);
+        when(repo.list(any(), any(), isNull(), any(), anyInt())).thenAnswer(inv -> {
+            PurchaseCursor before = inv.getArgument(3);
+            int limit = inv.getArgument(4);
+            return all.stream()
+                    .filter(p -> before == null || p.purchasedAt().isBefore(before.purchasedAt()))
+                    .limit(limit).toList();
+        });
+        when(repo.list(any(), any(), isNull(), isNull(), anyInt())).thenAnswer(inv ->
+                all.stream().limit((int) inv.getArgument(4)).toList());
+
+        Customer customer = mock(Customer.class);
+        when(customer.tenantId()).thenReturn(tenant);
+        when(customer.id()).thenReturn(customerId);
+        CustomerRepository customers = mock(CustomerRepository.class);
+        when(customers.findById(any(), any())).thenReturn(Optional.of(customer));
+        TenantContext ctx = mock(TenantContext.class);
+        when(ctx.tenantId()).thenReturn(tenant);
+        TenantContextProvider contexts = mock(TenantContextProvider.class);
+        when(contexts.requireCurrent()).thenReturn(ctx);
+        PurchaseService service = new PurchaseService(customers, repo, mock(PurchaseAuditPort.class),
+                mock(TenantAuthorizationService.class), contexts, Clock.systemUTC());
+
+        for (int limit = 1; limit <= 3; limit++) {
+            List<String> seen = new ArrayList<>();
+            PurchaseCursor cursor = null;
+            int guard = 0;
+            do {
+                PurchasePage page = service.list(customerId, null, cursor, limit);
+                page.purchases().forEach(p -> seen.add(p.description()));
+                System.out.println("PROBE limit=" + limit + " page=" + page.purchases().stream().map(Purchase::description).toList()
+                        + " nextCursor->" + (page.nextCursor() == null ? null : PurchaseCursor.decode(page.nextCursor()).purchasedAt()));
+                cursor = page.nextCursor() == null ? null : PurchaseCursor.decode(page.nextCursor());
+            } while (cursor != null && ++guard < 10);
+            System.out.println("PROBE limit=" + limit + " seen=" + seen);
+            assertThat(seen).as("limit=" + limit).containsExactly("p4", "p3", "p2", "p1", "p0");
+        }
+    }
+}

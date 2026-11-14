@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the follow-up disposition operator journey against the local stack and writes a journey record.
+# ABOUTME: Logs in as the three seeded QA users, each with its own password, and targets only loopback origins.
 # ==============================================================================
 # verify-journey-follow-up-disposition.sh
 #
@@ -27,6 +29,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Loopback checks (is_local_target), header parsing (header_value) and the BFF login (bff_login).
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 JOURNEY="follow-up disposition: dismiss a due follow-up from the queue"
 ISOLATION_TENANT_NAME="QA Journey Isolation"
 ISOLATION_TENANT_KEY="qa-journey-isolation"
@@ -42,15 +47,10 @@ usage() {
 # ------------------------------------------------------------------------------
 
 # True only for plain-HTTP loopback origins (no path, query or fragment): the journey must never reach a shared or
-# production host. The loopback rule itself lives only in is_local_target.
+# production host. The loopback rule itself lives only in is_local_target
+# (scripts/lib/bff-login.sh).
 is_local_url() {
   is_local_target "$1" && [[ "$1" =~ ^http://[^/?#]*$ ]]
-}
-
-# True for a URL on a plain-HTTP loopback origin, with or without a path (OIDC redirects and the login form).
-is_local_target() {
-  case "$1" in *[[:cntrl:]]*) return 1 ;; esac  # one line only: a newline could smuggle a second URL
-  [[ "$1" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?(/|\?|$) ]]
 }
 
 # True when $1 (absolute) is $2 or below it.
@@ -102,14 +102,6 @@ yaml_str() {
   s="${s//\"/\\\"}"
   s="$(printf '%s' "$s" | tr '\t\r\n' '   ' | tr -d '\000-\037\177')"
   printf '"%s"' "$s"
-}
-
-# Value of response header $1 (case-insensitive) in header dump $2; last occurrence wins (after redirects).
-header_value() {
-  awk -v k="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" '
-    { line = $0; sub(/\r$/, "", line); i = index(line, ":"); if (i == 0) next
-      if (tolower(substr(line, 1, i - 1)) == k) { v = substr(line, i + 1); sub(/^[ \t]+/, "", v); val = v } }
-    END { print val }' "$2"
 }
 
 # One step: id, action, expected, actual, result (passed|failed|not-run), kind.
@@ -194,6 +186,22 @@ write_record() {
   printf '\nJourney record: %s\n' "$RECORD"
 }
 
+# first_missing_test_password: prints the first DOKENE_TEST_<ROLE>_PASSWORD that is empty or unset, or nothing.
+first_missing_test_password() {
+  local key
+  for key in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+    [ -n "${!key:-}" ] || { printf '%s' "$key"; return 0; }
+  done
+}
+
+# login USER: logs that actor in with its own password (issue 314) through the shared helper, which checks every hop
+# is loopback and passes the password to curl on stdin; prints the cookie jar.
+login() {
+  local password
+  password="$(test_password_for "$1")" || return 1
+  printf '%s' "$password" | bff_login "$1" "$WORK_DIR/$1.jar" "$WORK_DIR"
+}
+
 # Sourcing defines the helpers without running the journey (offline tests).
 # shellcheck disable=SC2317
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || true; fi
@@ -221,14 +229,16 @@ if [ -f "$ROOT_DIR/.env" ]; then
   # .env is sourced in a subshell, as seed-local-qa.sh does, so quoting matches; only the requested value comes back
   # to this process.
   env_get() { ( set -a; . "$ROOT_DIR/.env" >/dev/null 2>&1; printf '%s' "${!1:-}" ); }
-  : "${DOKENE_TEST_USER_PASSWORD:=$(env_get DOKENE_TEST_USER_PASSWORD)}"
+  # Each actor has its own password (issue 314). A value already in the environment wins over .env.
+  for key in DOKENE_TEST_OWNER_PASSWORD DOKENE_TEST_OPERATOR_PASSWORD DOKENE_TEST_VIEWER_PASSWORD; do
+    [ -n "${!key:-}" ] || printf -v "$key" '%s' "$(env_get "$key")"
+  done
   # shellcheck disable=SC2031 # env_get's subshell only reads .env; the value comes back on stdout
   : "${KEYCLOAK_PORT:=$(env_get KEYCLOAK_PORT)}"
 fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:${KEYCLOAK_PORT}}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dokene-journey-work.XXXXXX")"
@@ -271,25 +281,6 @@ body() { jq -r "$1" "$WORK_DIR/body" 2>/dev/null; }
 
 # Failure trace for the last request: status and request id only (grep it in `./scripts/dev-env.sh logs backend`).
 trace() { printf 'HTTP %s, X-Request-Id %s' "$HTTP_STATUS" "${HTTP_REQUEST_ID:-none}"; }
-
-login() {
-  local user="$1" jar="$WORK_DIR/$1.jar" auth_url form_action callback
-  curl -s -c "$jar" -D "$WORK_DIR/login-headers" -o /dev/null "$BFF_URL/oauth2/authorization/dokene" || return 1
-  auth_url="$(header_value location "$WORK_DIR/login-headers")"
-  is_local_target "$auth_url" || return 1
-  curl -s -c "$jar" -b "$jar" -o "$WORK_DIR/login-page" "$auth_url" || return 1
-  form_action="$(grep -o 'action="[^"]*"' "$WORK_DIR/login-page" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-  is_local_target "$form_action" || return 1
-  # The password goes through stdin, so it never appears in the process list, and only to a loopback target.
-  printf '%s' "$TEST_PASSWORD" | curl -s -c "$jar" -b "$jar" -D "$WORK_DIR/login-headers" -o /dev/null -X POST \
-    "$form_action" --data-urlencode "username=$user" --data-urlencode "password@-" || return 1
-  callback="$(header_value location "$WORK_DIR/login-headers")"
-  is_local_target "$callback" || return 1
-  case "$callback" in *"/login/oauth2/code/dokene"*) ;; *) return 1 ;; esac
-  curl -s -c "$jar" -b "$jar" -o /dev/null "$callback" || return 1
-  rm -f "$WORK_DIR/login-page"
-  echo "$jar"
-}
 
 # queue_contains JAR TENANT CUSTOMER -> prints true/false, walking every page of the due queue.
 queue_contains() {
@@ -343,11 +334,15 @@ trap cleanup EXIT
 # Doctor: preconditions. Any failure means blocked (exit 2), never passed.
 # ------------------------------------------------------------------------------
 doctor() {
-  local code
+  local code missing
   is_local_url "$BFF_URL" || blocked "BFF_URL is not a plain loopback origin; this journey only runs against the local stack"
   is_local_url "$KEYCLOAK_URL" || blocked "KEYCLOAK_URL is not a plain loopback origin"
   command -v curl >/dev/null 2>&1 || blocked "curl is required"
   command -v jq >/dev/null 2>&1 || blocked "jq is required"
+  missing="$(first_missing_test_password)"
+  [ -z "$missing" ] || blocked "$missing is not set; run ./scripts/dev-env.sh up, which generates it in .env"
+  # shellcheck source=lib/test-passwords.sh
+  . "$ROOT_DIR/scripts/lib/test-passwords.sh"
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$KEYCLOAK_URL/realms/dokene/.well-known/openid-configuration")"
   [ "$code" = "200" ] || blocked "Keycloak discovery returned HTTP $code; run ./scripts/dev-env.sh up --seed"
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BFF_URL/api/session")"
@@ -366,7 +361,7 @@ echo "=== Journey: $JOURNEY (run $RUN_ID) ==="
 # ------------------------------------------------------------------------------
 # Fixture
 # ------------------------------------------------------------------------------
-OWNER_JAR="$(login testuser)" || blocked "login failed for testuser; check DOKENE_TEST_USER_PASSWORD and the seed"
+OWNER_JAR="$(login testuser)" || blocked "login failed for testuser; check DOKENE_TEST_OWNER_PASSWORD and the seed"
 OPERATOR_JAR="$(login testoperator)" || blocked "login failed for testoperator; run ./scripts/dev-env.sh seed"
 VIEWER_JAR="$(login testviewer)" || blocked "login failed for testviewer; run ./scripts/dev-env.sh seed"
 http GET /api/session "$OWNER_JAR"; OWNER_CSRF="$(body .csrfToken)"

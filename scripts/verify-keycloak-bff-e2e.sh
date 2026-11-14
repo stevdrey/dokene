@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: End to end check of the real Keycloak -> Spring Boot BFF login, session, CSRF and logout (issue #52).
+# ABOUTME: Also proves Keycloak refuses logins without S256 PKCE and that each test user has its own password (#314).
 # ==============================================================================
 # verify-keycloak-bff-e2e.sh
 #
@@ -13,6 +15,11 @@
 # 5. CSRF protection on state-changing endpoints (rejection & success).
 # 6. Unauthenticated (401) and forbidden (403) handling.
 # 7. Local session logout, session invalidation, and post-logout reuse rejection.
+#
+# And for issue #314 (audit L9):
+# 8. Keycloak refuses an authorization request without PKCE or with the plain method.
+# 9. testuser, testoperator and testviewer each log in with their own password from
+#    .env, and one user's password does not log in as another user.
 # ==============================================================================
 
 set -euo pipefail
@@ -22,9 +29,10 @@ COOKIE_JAR="$(mktemp /tmp/dokene-e2e-cookies.XXXXXX)"
 PRE_AUTH_COOKIE_JAR="$(mktemp /tmp/dokene-e2e-preauth.XXXXXX)"
 HEADER_LOG="$(mktemp /tmp/dokene-e2e-headers.XXXXXX)"
 BODY_LOG="$(mktemp /tmp/dokene-e2e-body.XXXXXX)"
+LOGIN_JAR="$(mktemp /tmp/dokene-e2e-login.XXXXXX)"
 
 cleanup() {
-    rm -f "$COOKIE_JAR" "$PRE_AUTH_COOKIE_JAR" "$HEADER_LOG" "$BODY_LOG"
+    rm -f "$COOKIE_JAR" "$PRE_AUTH_COOKIE_JAR" "$HEADER_LOG" "$BODY_LOG" "$LOGIN_JAR"
 }
 trap cleanup EXIT
 
@@ -39,8 +47,10 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 TEST_USER="testuser"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+TOTAL_STEPS=11
 TEST_CLIENT_SECRET="${DOKENE_OIDC_CLIENT_SECRET:-dokene-bff-secret}"
 
 echo "======================================================================"
@@ -49,13 +59,48 @@ echo "Target BFF:      $BFF_URL"
 echo "Target Keycloak: $KEYCLOAK_URL"
 echo "======================================================================"
 
+# Prints nothing and fails when the last response had no Location header. Under errexit a plain assignment from it or
+# from start_login would end the script before the caller's FAILED message, so those assignments add `|| true`.
+location_header() { grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}'; }
+
+# submit_credentials JAR FORM_ACTION USERNAME PASSWORD: posts the Keycloak login form and prints the HTTP status. The
+# password reaches curl on stdin, never its command line. Headers land in HEADER_LOG, the body in BODY_LOG.
+submit_credentials() {
+    printf '%s' "$4" | curl -s -c "$1" -b "$1" -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" \
+        --data-urlencode "username=$3" --data-urlencode "password@-" "$2"
+}
+
+# start_login JAR: starts a BFF login in a fresh cookie jar and prints the Keycloak login form action.
+start_login() {
+    : >"$1"
+    curl -s -c "$1" -D "$HEADER_LOG" -o /dev/null "$BFF_URL/oauth2/authorization/dokene"
+    curl -s -c "$1" -b "$1" -o "$BODY_LOG" "$(location_header)"
+    grep -o 'action="[^"]*"' "$BODY_LOG" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g'
+}
+
+# without_pkce URL: URL with its code_challenge and code_challenge_method parameters removed.
+without_pkce() {
+    sed -E 's/([?&])code_challenge(_method)?=[^&]*/\1/g; s/&&+/\&/g; s/[?]&/?/; s/&$//' <<<"$1"
+}
+
+# expect_pkce_refused URL DESCRIPTION: Keycloak must answer 302 with error=invalid_request, never the login form.
+expect_pkce_refused() {
+    local status location
+    status="$(curl -s -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" "$1")"
+    location="$(location_header || true)"
+    if [ "$status" != "302" ] || [[ "$location" != *"error=invalid_request"* ]] || grep -q 'action="' "$BODY_LOG"; then
+        echo "FAILED ($2 was not refused: HTTP $status, Location ${location:-<none>})"
+        exit 1
+    fi
+}
+
 # ------------------------------------------------------------------------------
 # 1. Verify Prerequisites and Connectivity
 # ------------------------------------------------------------------------------
 command -v curl >/dev/null 2>&1 || { echo "Error: curl is required." >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; exit 1; }
 
-echo -n "[1/8] Verifying Keycloak OIDC discovery endpoint... "
+echo -n "[1/$TOTAL_STEPS] Verifying Keycloak OIDC discovery endpoint... "
 DISCOVERY_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "$KEYCLOAK_URL/realms/dokene/.well-known/openid-configuration" || true)"
 if [ "$DISCOVERY_STATUS" != "200" ]; then
     echo "FAILED (HTTP $DISCOVERY_STATUS)"
@@ -65,7 +110,7 @@ if [ "$DISCOVERY_STATUS" != "200" ]; then
 fi
 echo "OK (HTTP 200)"
 
-echo -n "[2/8] Verifying Spring Boot BFF is active... "
+echo -n "[2/$TOTAL_STEPS] Verifying Spring Boot BFF is active... "
 BFF_STATUS="$(curl -s -o /dev/null -w "%{http_code}" "$BFF_URL/api/session" || true)"
 if [ "$BFF_STATUS" != "401" ]; then
     echo "FAILED (HTTP $BFF_STATUS)"
@@ -78,7 +123,7 @@ echo "OK (HTTP 401 fail-closed for anonymous /api/session)"
 # ------------------------------------------------------------------------------
 # 2. Initiate Login Flow (Authorization Code Grant)
 # ------------------------------------------------------------------------------
-echo -n "[3/8] Initiating Authorization Code flow (/oauth2/authorization/dokene)... "
+echo -n "[3/$TOTAL_STEPS] Initiating Authorization Code flow (/oauth2/authorization/dokene)... "
 AUTH_INIT_STATUS="$(curl -s -c "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" "$BFF_URL/oauth2/authorization/dokene")"
 
 if [ "$AUTH_INIT_STATUS" != "302" ]; then
@@ -108,9 +153,23 @@ cp "$COOKIE_JAR" "$PRE_AUTH_COOKIE_JAR"
 echo "OK (Redirected to Keycloak; pre-auth session captured)"
 
 # ------------------------------------------------------------------------------
+# 2b. Keycloak itself enforces S256 PKCE (issue #314)
+# ------------------------------------------------------------------------------
+echo -n "[4/$TOTAL_STEPS] Verifying Keycloak refuses authorization requests without S256 PKCE... "
+NO_PKCE_URL="$(without_pkce "$KEYCLOAK_AUTH_URL")"
+if [[ "$NO_PKCE_URL" == *"code_challenge"* ]]; then
+    echo "FAILED (could not strip the PKCE parameters from $KEYCLOAK_AUTH_URL)"
+    exit 1
+fi
+expect_pkce_refused "$NO_PKCE_URL" "a request with no code_challenge"
+expect_pkce_refused "$NO_PKCE_URL&code_challenge_method=plain&code_challenge=$(printf 'p%.0s' {1..43})" \
+    "a request with code_challenge_method=plain"
+echo "OK (no challenge and plain both get invalid_request, no login form)"
+
+# ------------------------------------------------------------------------------
 # 3. Authenticate with Keycloak and Obtain Authorization Code
 # ------------------------------------------------------------------------------
-echo -n "[4/8] Executing browser credentials submit against Keycloak... "
+echo -n "[5/$TOTAL_STEPS] Executing browser credentials submit against Keycloak... "
 # Fetch the Keycloak login HTML page to extract form action URL
 curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$KEYCLOAK_AUTH_URL"
 
@@ -122,10 +181,7 @@ if [ -z "$FORM_ACTION" ]; then
 fi
 
 # Submit credentials
-curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" \
-    --data-urlencode "username=$TEST_USER" \
-    --data-urlencode "password=$TEST_PASSWORD" \
-    "$FORM_ACTION"
+submit_credentials "$COOKIE_JAR" "$FORM_ACTION" "$TEST_USER" "$OWNER_PASSWORD" >/dev/null
 
 CALLBACK_URL="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}')"
 if [[ "$CALLBACK_URL" != *"/login/oauth2/code/dokene"* ]]; then
@@ -137,7 +193,7 @@ echo "OK (Keycloak issued authorization code)"
 # ------------------------------------------------------------------------------
 # 4. Exchange Authorization Code and Establish BFF Session
 # ------------------------------------------------------------------------------
-echo -n "[5/8] Completing BFF code exchange and session establishment... "
+echo -n "[6/$TOTAL_STEPS] Completing BFF code exchange and session establishment... "
 curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$CALLBACK_URL"
 
 POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}')"
@@ -187,7 +243,7 @@ echo "OK (Session rotated, HttpOnly & SameSite enforced, pre-auth session reject
 # ------------------------------------------------------------------------------
 # 5. Verify Session Contract and Token Isolation
 # ------------------------------------------------------------------------------
-echo -n "[6/8] Verifying application session contract and token isolation... "
+echo -n "[7/$TOTAL_STEPS] Verifying application session contract and token isolation... "
 curl -s -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$BFF_URL/api/session"
 
 SESSION_JSON="$(cat "$BODY_LOG")"
@@ -216,7 +272,7 @@ echo "OK (Safe session contract verified; tokens strictly isolated)"
 # ------------------------------------------------------------------------------
 # 6. Verify CSRF Protection on State-Changing Endpoint
 # ------------------------------------------------------------------------------
-echo -n "[7/8] Verifying CSRF enforcement on state-changing requests... "
+echo -n "[8/$TOTAL_STEPS] Verifying CSRF enforcement on state-changing requests... "
 # Missing CSRF token -> 403 Forbidden
 CSRF_MISSING_STATUS="$(curl -s -b "$COOKIE_JAR" -X POST -o /dev/null -w "%{http_code}" "$BFF_URL/logout")"
 if [ "$CSRF_MISSING_STATUS" != "403" ]; then
@@ -236,7 +292,7 @@ echo "OK (CSRF enforcement strictly rejected missing and invalid tokens)"
 # ------------------------------------------------------------------------------
 # 7. Verify Logout and Session Invalidation
 # ------------------------------------------------------------------------------
-echo -n "[8/8] Verifying session logout, invalidation, and replay prevention... "
+echo -n "[9/$TOTAL_STEPS] Verifying session logout, invalidation, and replay prevention... "
 # Valid logout -> 204 No Content
 VALID_CSRF_HEADER="X-CSRF-TOKEN: $CSRF_TOKEN"
 LOGOUT_STATUS="$(curl -s -b "$COOKIE_JAR" -H "$VALID_CSRF_HEADER" -X POST -D "$HEADER_LOG" -o /dev/null -w "%{http_code}" "$BFF_URL/logout")"
@@ -264,6 +320,32 @@ if [ "$POST_LOGOUT_STATUS" != "401" ]; then
 fi
 echo "OK (Session terminated and subsequent calls fail closed with 401)"
 
+# ------------------------------------------------------------------------------
+# 8. One password per test user (issue #314)
+# ------------------------------------------------------------------------------
+echo -n "[10/$TOTAL_STEPS] Verifying testuser is refused with the VIEWER password... "
+FORM_ACTION="$(start_login "$LOGIN_JAR" || true)"
+[ -n "$FORM_ACTION" ] || { echo "FAILED (Could not parse login form action from Keycloak HTML)"; exit 1; }
+WRONG_USER_STATUS="$(submit_credentials "$LOGIN_JAR" "$FORM_ACTION" testuser "$VIEWER_PASSWORD")"
+if [ "$WRONG_USER_STATUS" != "200" ] || ! grep -q 'action="' "$BODY_LOG" \
+        || [[ "$(location_header)" == *"/login/oauth2/code/dokene"* ]]; then
+    echo "FAILED (HTTP $WRONG_USER_STATUS; expected the login form again and no callback)"
+    exit 1
+fi
+echo "OK (login form shown again, no authorization code)"
+
+echo -n "[11/$TOTAL_STEPS] Verifying testoperator and testviewer log in with their own passwords... "
+for login in "testoperator:$OPERATOR_PASSWORD" "testviewer:$VIEWER_PASSWORD"; do
+    FORM_ACTION="$(start_login "$LOGIN_JAR" || true)"
+    [ -n "$FORM_ACTION" ] || { echo "FAILED (Could not parse login form action for ${login%%:*})"; exit 1; }
+    submit_credentials "$LOGIN_JAR" "$FORM_ACTION" "${login%%:*}" "${login#*:}" >/dev/null
+    if [[ "$(location_header)" != *"/login/oauth2/code/dokene"* ]]; then
+        echo "FAILED (${login%%:*} did not reach the BFF callback)"
+        exit 1
+    fi
+done
+echo "OK (both reached the BFF callback)"
+
 echo "======================================================================"
-echo "SUCCESS: All 8 End-to-End BFF Security Assertions PASSED!"
+echo "SUCCESS: All $TOTAL_STEPS End-to-End BFF Security Assertions PASSED!"
 echo "======================================================================"

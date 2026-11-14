@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Verifies the issue #58 follow-up requirements (RBAC, purchases, consent, follow-ups) against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-58-followup.sh
 #
@@ -28,7 +30,8 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -81,36 +84,11 @@ call_api() {
     LAST_BODY="$b_file"
 }
 
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login_user() {
-    local username="$1"
-    local password="$2"
-    local cookie_jar="$TEMP_DIR/$username-cookies.txt"
-    local header_log="$TEMP_DIR/$username-headers.txt"
-    local body_log="$TEMP_DIR/$username-body.txt"
-
-    local auth_status
-    auth_status="$(curl -s -c "$cookie_jar" -D "$header_log" -o "$body_log" -w "%{http_code}" "$BFF_URL/oauth2/authorization/dokene")"
-    if [ "$auth_status" != "302" ]; then return 1; fi
-
-    local keycloak_auth_url
-    keycloak_auth_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$keycloak_auth_url"
-    local form_action
-    form_action="$(grep -o 'action="[^"]*"' "$body_log" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-    if [ -z "$form_action" ]; then return 1; fi
-
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$password" \
-        "$form_action"
-
-    local callback_url
-    callback_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    if [[ "$callback_url" != *"/login/oauth2/code/dokene"* ]]; then return 1; fi
-
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$callback_url"
-    echo "$cookie_jar"
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    printf '%s' "$2" | bff_login "$1" "$TEMP_DIR/$1-cookies.txt" "$TEMP_DIR"
 }
 
 echo "======================================================================"
@@ -119,17 +97,17 @@ echo "Commit SHA: $(git rev-parse HEAD)"
 echo "Target BFF: $BFF_URL"
 echo "======================================================================"
 
-OWNER_JAR="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_JAR="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(curl -s -b "$OWNER_JAR" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OP_JAR="$(login_user "testoperator" "$TEST_PASSWORD")"
+OP_JAR="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
 OP_SESSION="$(curl -s -b "$OP_JAR" "$BFF_URL/api/session")"
 OP_CSRF="$(echo "$OP_SESSION" | jq -r '.csrfToken')"
 OP_ID="$(echo "$OP_SESSION" | jq -r '.identityId')"
 
-VI_JAR="$(login_user "testviewer" "$TEST_PASSWORD")"
+VI_JAR="$(login_user "testviewer" "$VIEWER_PASSWORD")"
 VI_SESSION="$(curl -s -b "$VI_JAR" "$BFF_URL/api/session")"
 VI_CSRF="$(echo "$VI_SESSION" | jq -r '.csrfToken')"
 VI_ID="$(echo "$VI_SESSION" | jq -r '.identityId')"

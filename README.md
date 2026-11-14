@@ -20,7 +20,7 @@ See the [Roadmap](docs/wiki/Roadmap.md) for planned phases, and follow progress 
 ## Local environment
 
 The whole stack (PostgreSQL, Keycloak, backend, frontend) runs in Docker so every contributor gets the same
-runtime configuration. Only Docker (Compose 2.27.2+) is required on the host:
+runtime configuration. Only Docker (Compose 2.27.2+) and `curl` are required on the host (`jq` too for `--seed`):
 
 ```bash
 ./scripts/dev-env.sh up --seed     # preflight checks, .env generation, build, start, QA seed
@@ -29,9 +29,18 @@ runtime configuration. Only Docker (Compose 2.27.2+) is required on the host:
 ./scripts/dev-env.sh down          # stop (data kept); `reset` also deletes local data
 ```
 
-Open http://localhost:5173 and sign in as `testoperator` / `testuser` / `testviewer` (password:
-`DOKENE_TEST_USER_PASSWORD`, default `testpassword`). Details, host-run development and troubleshooting:
+Open http://localhost:5173 and sign in as `testuser` / `testoperator` / `testviewer`. Each has its own generated
+password in `.env`: `DOKENE_TEST_OWNER_PASSWORD`, `DOKENE_TEST_OPERATOR_PASSWORD` and `DOKENE_TEST_VIEWER_PASSWORD`
+(there is no default). Details, host-run development and troubleshooting:
 [`infra/docker/README.md`](infra/docker/README.md) and [ADR 0022](docs/adr/0022-containerized-local-environment.md).
+
+### Local template versus shared deployments
+
+The Keycloak realm in `infra/docker/keycloak/import/` is a local template: its test users, `.env` passwords and
+plain HTTP on loopback are for this machine only. A shared or staging realm keeps the template's S256 PKCE
+requirement, confidential client and password policy, but drops the test users and takes its secrets from a secret
+manager. The full list of what to carry over and what to leave out is in
+[`infra/docker/README.md`](infra/docker/README.md#local-template-versus-shared-deployments).
 
 ## AI coding-agent PR preflight (Claude Code and Codex)
 

@@ -1,0 +1,47 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
+index 5e7b5fe..2011b17 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
+@@ -53,8 +53,8 @@ public class PurchaseService {
+         Purchase candidate = Purchase.create(new PurchaseId(UUID.randomUUID()), customer.tenantId(), customer.id(),
+                 purchaseTime, description, clock.instant());
+         TenantContext actor = contexts.requireCurrent();
+-        PurchaseRepository.CreateResult result = purchases.insert(candidate, key,
+-                fingerprint(customer.id(), candidate.purchasedAt(), candidate.description()), actor);
++        Submission submission = new Submission(candidate.purchasedAt(), candidate.description());
++        PurchaseRepository.CreateResult result = purchases.insert(candidate, key, submission.fingerprint(), actor);
+         if (!result.matchingRequest()) throw new PurchaseConflictException();
+         if (customer.status() == CustomerStatus.ARCHIVED && result.created()) {
+             throw new IllegalStateException("Archived customer purchases cannot be recorded");
+@@ -158,19 +158,22 @@ public class PurchaseService {
+         return value;
+     }
+ 
+-    private static String fingerprint(CustomerId customerId, Instant purchasedAt, String description) {
+-        try {
+-            String canonical = customerId.value() + "\n" + purchasedAt + "\n" + description;
+-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+-                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+-        } catch (NoSuchAlgorithmException exception) {
+-            throw new IllegalStateException("SHA-256 unavailable");
+-        }
+-    }
+ 
+     private static void requireVersion(Purchase purchase, long expected) {
+         if (expected < 0 || purchase.version() != expected) throw new PurchaseConflictException();
+     }
+ 
+     public record RecordResult(Purchase purchase, boolean created) { }
++
++    private record Submission(Instant purchasedAt, String description) {
++        String fingerprint() {
++            try {
++                String canonical = purchasedAt + "\n" + description;
++                return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
++                        .digest(canonical.getBytes(StandardCharsets.UTF_8)));
++            } catch (NoSuchAlgorithmException exception) {
++                throw new IllegalStateException("SHA-256 unavailable");
++            }
++        }
++    }
+ }

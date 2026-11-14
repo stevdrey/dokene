@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #61 cross-feature multi-step verification against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-61-cross-features.sh
 #
@@ -22,7 +24,9 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
+
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -50,27 +54,13 @@ record_result() {
     echo -e "$fam\t$name\t$exp\t$obs\t$status\t$details" >> "$RESULTS_FILE"
 }
 
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login() {
-    local username="$1"
-    local cookie_jar="$2"
-    local header_log="$TEMP_DIR/login-headers.txt"
-
-    curl -s -c "$cookie_jar" -D "$header_log" "$BFF_URL/oauth2/authorization/dokene" >/dev/null
-    local auth_url
-    auth_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")
-
-    local login_page
-    login_page=$(curl -s -c "$cookie_jar" -b "$cookie_jar" "$auth_url")
-    local form_action
-    form_action=$(echo "$login_page" | grep -o "action=\"[^\"]*\"" | head -n 1 | cut -d"\"" -f2 | sed "s/&amp;/\&/g")
-
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -X POST "$form_action" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$TEST_PASSWORD" >/dev/null
-
-    local callback_url
-    callback_url=$(grep -i "^location:" "$header_log" | tr -d "\r\n" | awk "{print \$2}")
-    curl -s -c "$cookie_jar" -b "$cookie_jar" "$callback_url" >/dev/null
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    local password
+    password="$(test_password_for "$1")" || return 1
+    printf '%s' "$password" | bff_login "$1" "$2" "$TEMP_DIR" >/dev/null
 }
 
 echo "=== INITIALIZING AUTHENTICATED SESSIONS FOR QA #61 ==="

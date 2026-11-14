@@ -3,36 +3,36 @@ name: Script tests
 on:
   pull_request:
     paths:
-      - 'scripts/keycloak-apply-session-revocation.sh'
-      - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
-      - 'scripts/verify-journey-follow-up-disposition.sh'
-      - 'scripts/tests/verify-journey-follow-up-disposition-test.sh'
-      - 'scripts/dev-env.sh'
-      - 'scripts/tests/dev-env-smoke.sh'
+      - 'scripts/**'
       - 'compose.yaml'
+      - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
   push:
     branches: [main]
     paths:
-      - 'scripts/keycloak-apply-session-revocation.sh'
-      - 'scripts/tests/keycloak-apply-session-revocation-test.sh'
-      - 'scripts/verify-journey-follow-up-disposition.sh'
-      - 'scripts/tests/verify-journey-follow-up-disposition-test.sh'
-      - 'scripts/dev-env.sh'
-      - 'scripts/tests/dev-env-smoke.sh'
+      - 'scripts/**'
       - 'compose.yaml'
+      - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
 
 permissions:
   contents: read
 
 jobs:
-  keycloak-session-revocation:
+  keycloak-realm-settings:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: ./scripts/tests/keycloak-apply-session-revocation-test.sh
+      - run: ./scripts/tests/keycloak-apply-realm-settings-test.sh
+      - run: ./scripts/tests/keycloak-realm-config-test.sh
+
+  dev-env-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./scripts/tests/dev-env-smoke.sh
 
   operator-journey-helpers:
     runs-on: ubuntu-latest
@@ -41,10 +41,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/verify-journey-follow-up-disposition-test.sh
 
-  # Needs only the `docker compose` CLI and python3 from the runner image; it starts no container.
-  dev-env-smoke:
+  bff-login-helper:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: ./scripts/tests/dev-env-smoke.sh
+      - run: ./scripts/tests/bff-login-test.sh

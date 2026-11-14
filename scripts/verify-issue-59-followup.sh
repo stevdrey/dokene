@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #59 follow-up security probes (replay, CSRF, headers, parsing) against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-59-followup.sh
 #
@@ -34,7 +36,8 @@ fi
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT:-8081}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -66,27 +69,11 @@ echo "Target Frontend: $FRONTEND_URL"
 echo "Target Keycloak: $KEYCLOAK_URL"
 echo "======================================================================"
 
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login_user() {
-    local username="$1"
-    local password="$2"
-    local cookie_jar="$TEMP_DIR/$username-cookies.txt"
-    local header_log="$TEMP_DIR/$username-headers.txt"
-    local body_log="$TEMP_DIR/$username-body.txt"
-
-    curl -s -c "$cookie_jar" -D "$header_log" -o "$body_log" "$BFF_URL/oauth2/authorization/dokene"
-    local auth_url
-    auth_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$auth_url"
-    local form_action
-    form_action="$(grep -o 'action="[^"]*"' "$body_log" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$password" \
-        "$form_action"
-    local cb_url
-    cb_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$cb_url"
-    echo "$cookie_jar"
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    printf '%s' "$2" | bff_login "$1" "$TEMP_DIR/$1-cookies.txt" "$TEMP_DIR"
 }
 
 RESP_BODY="$TEMP_DIR/resp.json"
@@ -95,17 +82,17 @@ RESP_HDR="$TEMP_DIR/resp.hdr"
 # Setup Active Sessions
 echo ""
 echo "Authenticating synthetic identities..."
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OPERATOR_COOKIE="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE="$(login_user "testoperator" "$OPERATOR_PASSWORD")" || exit 1  # bff_login printed the reason
 OPERATOR_SESSION="$(curl -s -b "$OPERATOR_COOKIE" "$BFF_URL/api/session")"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 OPERATOR_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 
-VIEWER_COOKIE="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE="$(login_user "testviewer" "$VIEWER_PASSWORD")" || exit 1  # bff_login printed the reason
 VIEWER_SESSION="$(curl -s -b "$VIEWER_COOKIE" "$BFF_URL/api/session")"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
 
@@ -192,7 +179,7 @@ cp "$OWNER_COOKIE" "$INVALIDATED_COOKIE"
 curl -s -b "$OWNER_COOKIE" -H "X-CSRF-TOKEN: $OWNER_CSRF" -X POST "$BFF_URL/logout" > /dev/null
 
 # Owner logs back in (creates fresh session in $OWNER_COOKIE)
-NEW_OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+NEW_OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 NEW_OWNER_SESSION="$(curl -s -b "$NEW_OWNER_COOKIE" "$BFF_URL/api/session")"
 NEW_CSRF="$(echo "$NEW_OWNER_SESSION" | jq -r '.csrfToken')"
 
@@ -264,34 +251,47 @@ TEMP_JAR="$TEMP_DIR/replay-jar.txt"
 TEMP_HDR="$TEMP_DIR/replay-hdr.txt"
 TEMP_LOG="$TEMP_DIR/replay-log.txt"
 
+# The probe needs the raw callback URL, so it runs the flow itself, but with the shared helper's guards:
+# every hop must be loopback and the password goes through stdin (scripts/lib/bff-login.sh).
+REPLAY_TARGETS_LOCAL=false
 curl -s -c "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$BFF_URL/oauth2/authorization/dokene"
-AUTH_URL="$(grep -i "^location:" "$TEMP_HDR" | tr -d '\r\n' | awk '{print $2}')"
-curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$AUTH_URL"
-FORM_ACTION="$(grep -o 'action="[^"]*"' "$TEMP_LOG" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" \
-    --data-urlencode "username=testuser" \
-    --data-urlencode "password=$TEST_PASSWORD" \
-    "$FORM_ACTION"
-CB_URL="$(grep -i "^location:" "$TEMP_HDR" | tr -d '\r\n' | awk '{print $2}')"
+AUTH_URL="$(header_value location "$TEMP_HDR")"
+if is_local_target "$AUTH_URL"; then
+    curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$AUTH_URL"
+    FORM_ACTION="$(bff_login_form_action "$TEMP_LOG")"
+    if is_local_target "$FORM_ACTION"; then
+        : > "$TEMP_HDR"
+        printf '%s' "$OWNER_PASSWORD" | curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" \
+            --data-urlencode "username=testuser" \
+            --data-urlencode "password@-" \
+            "$FORM_ACTION"
+        CB_URL="$(header_value location "$TEMP_HDR")"
+        is_local_target "$CB_URL" && REPLAY_TARGETS_LOCAL=true
+    fi
+fi
 
-# Consume it once
-curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$CB_URL"
-FIRST_CONSUME_STATUS="$(grep -i "^HTTP/" "$TEMP_HDR" | head -n 1 | awk '{print $2}')"
-
-# Now replay the exact same callback URL with already-consumed code
-REPLAY_HDR="$TEMP_DIR/replay-attempt.hdr"
-CODE="$(curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$REPLAY_HDR" -o "$TEMP_LOG" -w "%{http_code}" "$CB_URL")"
-REPLAY_LOC="$(grep -i "^location:" "$REPLAY_HDR" | tr -d '\r\n' | awk '{print $2}')"
-if [ "$CODE" = "302" ] && [[ "$REPLAY_LOC" == *"error=login_failed"* || "$REPLAY_LOC" == *"login_failed"* || "$REPLAY_LOC" == *"/?"* ]]; then
-    record_result "Auth" "Replay of consumed OIDC authorization code" "PASS" "Keycloak rejected replayed code; Spring Security safely redirected to login failure URL without 500"
+if [ "$REPLAY_TARGETS_LOCAL" != true ]; then
+    record_result "Auth" "Replay of consumed OIDC authorization code" "FAIL" "Login flow reached a non-loopback or missing target; probe not run"
 else
-    record_result "Auth" "Replay of consumed OIDC authorization code" "FAIL" "Expected 302 to failure URL but got HTTP $CODE (Location: $REPLAY_LOC)"
+    # Consume it once
+    curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$TEMP_HDR" -o "$TEMP_LOG" "$CB_URL"
+    FIRST_CONSUME_STATUS="$(grep -i "^HTTP/" "$TEMP_HDR" | head -n 1 | awk '{print $2}')"
+
+    # Now replay the exact same callback URL with already-consumed code
+    REPLAY_HDR="$TEMP_DIR/replay-attempt.hdr"
+    CODE="$(curl -s -c "$TEMP_JAR" -b "$TEMP_JAR" -D "$REPLAY_HDR" -o "$TEMP_LOG" -w "%{http_code}" "$CB_URL")"
+    REPLAY_LOC="$(grep -i "^location:" "$REPLAY_HDR" | tr -d '\r\n' | awk '{print $2}')"
+    if [ "$CODE" = "302" ] && [[ "$REPLAY_LOC" == *"error=login_failed"* || "$REPLAY_LOC" == *"login_failed"* || "$REPLAY_LOC" == *"/?"* ]]; then
+        record_result "Auth" "Replay of consumed OIDC authorization code" "PASS" "Keycloak rejected replayed code; Spring Security safely redirected to login failure URL without 500"
+    else
+        record_result "Auth" "Replay of consumed OIDC authorization code" "FAIL" "Expected 302 to failure URL but got HTTP $CODE (Location: $REPLAY_LOC)"
+    fi
 fi
 
 # 3.2 Repeated rapid login/logout cycles
 LOOP_PASS=1
 for i in {1..3}; do
-    L_JAR="$(login_user "testuser" "$TEST_PASSWORD")"
+    L_JAR="$(login_user "testuser" "$OWNER_PASSWORD")"
     L_SESS_BODY="$(curl -s -b "$L_JAR" "$BFF_URL/api/session")"
     L_CSRF="$(echo "$L_SESS_BODY" | jq -r '.csrfToken')"
     L_SESS="$(curl -s -b "$L_JAR" -o /dev/null -w "%{http_code}" "$BFF_URL/api/session")"
@@ -308,7 +308,7 @@ else
 fi
 
 # Re-establish Owner session
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 
@@ -492,7 +492,8 @@ if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -
         AUDIT_VERIFIED=1
         DENIED_SAMPLE="$(docker exec dokene-postgres-1 psql -U boostrap_user -d npe_dokene -t -A -c "SELECT event_type, outcome, denial_reason, correlation_id FROM dokene.audit_events WHERE event_type = 'AUTHORIZATION_DENIED' ORDER BY occurred_at DESC LIMIT 5;" 2>/dev/null)"
         # Verify: contains outcome, correlation_id, denial_reason; contains zero credentials
-        if echo "$DENIED_SAMPLE" | grep -q "DENIED" && ! echo "$DENIED_SAMPLE" | grep -qE "JSESSIONID|testpassword|client_secret"; then
+        if echo "$DENIED_SAMPLE" | grep -q "DENIED" && ! echo "$DENIED_SAMPLE" | grep -qE "JSESSIONID|client_secret" \
+            && ! echo "$DENIED_SAMPLE" | grep -qF -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD"; then
             record_result "Audit" "Operational audit trail contextual attribution & cleanliness" "PASS" "Verified $DENIED_COUNT AUTHORIZATION_DENIED events in dokene.audit_events with correlation_id and denial_reason; zero passwords or session tokens recorded"
         else
             record_result "Audit" "Operational audit trail contextual attribution & cleanliness" "FAIL" "Audit events missing required attribution context or contained credentials"
@@ -504,7 +505,12 @@ fi
 BFF_LOG_FILE="${BFF_LOG_FILE:-}"
 if [ -n "$BFF_LOG_FILE" ] && [ -f "$BFF_LOG_FILE" ]; then
     AUDIT_VERIFIED=1
-    if grep -E "JSESSIONID|client_secret|testpassword" "$BFF_LOG_FILE" | grep -v "REDACTED" > /dev/null 2>&1; then
+    # The group ends with `true`: under pipefail a grep that finds nothing would otherwise fail the pipeline and turn a
+    # leak found by the other grep into PASS. Only the final grep decides.
+    if { grep -E "JSESSIONID|client_secret" "$BFF_LOG_FILE"
+         grep -F -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$BFF_LOG_FILE"
+         true; } \
+            | grep -v "REDACTED" > /dev/null 2>&1; then
         record_result "Audit" "Operational application log cleanliness" "FAIL" "Sensitive credentials detected in $BFF_LOG_FILE"
     else
         record_result "Audit" "Operational application log cleanliness" "PASS" "Inspected $BFF_LOG_FILE: zero session cookies, client secrets, or user passwords"

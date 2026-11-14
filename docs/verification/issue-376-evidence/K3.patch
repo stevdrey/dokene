@@ -1,0 +1,41 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
+index 5e7b5fe..7b05564 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/purchase/application/PurchaseService.java
+@@ -12,6 +12,7 @@ import io.github.stevdrey.dokene.purchase.domain.PurchaseStatus;
+ import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
+ import io.github.stevdrey.dokene.tenant.application.TenantContext;
+ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
++import io.github.stevdrey.dokene.tenant.domain.TenantId;
+ import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+ import java.nio.charset.StandardCharsets;
+ import java.security.MessageDigest;
+@@ -125,17 +126,21 @@ public class PurchaseService {
+     }
+ 
+     private Customer requireCustomer(CustomerId id, TenantPermission permission) {
+-        authorization.requirePermission(permission);
+-        Customer customer = customers.findById(contexts.requireCurrent().tenantId(), Objects.requireNonNull(id))
+-                .orElseThrow(CustomerNotFoundException::new);
+-        authorization.requireResourceAccess(permission, customer);
+-        return customer;
++        return loadAuthorizedCustomer(id, permission, false);
+     }
+ 
+     private Customer requireCustomerForUpdate(CustomerId id, TenantPermission permission) {
++        return loadAuthorizedCustomer(id, permission, true);
++    }
++
++    private Customer loadAuthorizedCustomer(CustomerId id, TenantPermission permission, boolean forUpdate) {
+         authorization.requirePermission(permission);
+-        Customer customer = customers.findByIdForUpdate(contexts.requireCurrent().tenantId(),
+-                Objects.requireNonNull(id)).orElseThrow(CustomerNotFoundException::new);
++        TenantId tenantId = contexts.requireCurrent().tenantId();
++        CustomerId customerId = Objects.requireNonNull(id);
++        Optional<Customer> found = forUpdate
++                ? customers.findByIdForUpdate(tenantId, customerId)
++                : customers.findById(tenantId, customerId);
++        Customer customer = found.orElseThrow(CustomerNotFoundException::new);
+         authorization.requireResourceAccess(permission, customer);
+         return customer;
+     }

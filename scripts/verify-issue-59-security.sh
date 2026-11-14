@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Runs the issue #59 black-box web abuse and injection probes against a running local stack.
+# ABOUTME: Logs in each realm test user with its own password from .env (DOKENE_TEST_<ROLE>_PASSWORD).
 # ==============================================================================
 # verify-issue-59-security.sh
 #
@@ -25,7 +27,8 @@ fi
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT:-8081}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -55,43 +58,27 @@ echo "Target Frontend: $FRONTEND_URL"
 echo "Target Keycloak: $KEYCLOAK_URL"
 echo "======================================================================"
 
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login_user() {
-    local username="$1"
-    local password="$2"
-    local cookie_jar="$TEMP_DIR/$username-cookies.txt"
-    local header_log="$TEMP_DIR/$username-headers.txt"
-    local body_log="$TEMP_DIR/$username-body.txt"
-
-    curl -s -c "$cookie_jar" -D "$header_log" -o "$body_log" "$BFF_URL/oauth2/authorization/dokene"
-    local auth_url
-    auth_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$auth_url"
-    local form_action
-    form_action="$(grep -o 'action="[^"]*"' "$body_log" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$password" \
-        "$form_action"
-    local cb_url
-    cb_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$cb_url"
-    echo "$cookie_jar"
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    printf '%s' "$2" | bff_login "$1" "$TEMP_DIR/$1-cookies.txt" "$TEMP_DIR"
 }
 
 # 1. Setup Sessions and Tenants
 echo ""
 echo "Setting up sessions for synthetic identities..."
-OWNER_COOKIE="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE="$(login_user "testuser" "$OWNER_PASSWORD")" || exit 1  # bff_login printed the reason
 OWNER_SESSION="$(curl -s -b "$OWNER_COOKIE" "$BFF_URL/api/session")"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 OWNER_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 
-OPERATOR_COOKIE="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE="$(login_user "testoperator" "$OPERATOR_PASSWORD")" || exit 1  # bff_login printed the reason
 OPERATOR_SESSION="$(curl -s -b "$OPERATOR_COOKIE" "$BFF_URL/api/session")"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 OPERATOR_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 
-VIEWER_COOKIE="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE="$(login_user "testviewer" "$VIEWER_PASSWORD")" || exit 1  # bff_login printed the reason
 VIEWER_SESSION="$(curl -s -b "$VIEWER_COOKIE" "$BFF_URL/api/session")"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
 VIEWER_ID="$(echo "$VIEWER_SESSION" | jq -r '.identityId')"
@@ -669,7 +656,7 @@ echo "=== SUITE 10: SECURITY AUDIT & OPERATIONAL EVIDENCE ==="
 # Check backend log file for any raw password or unredacted secrets
 APP_LOG="/home/srey/.gemini/antigravity/brain/657b7b8c-d1f6-4865-86e7-556c97dccc10/.system_generated/tasks/task-107.log"
 if [ -f "$APP_LOG" ]; then
-    if grep -q "testpassword" "$APP_LOG"; then
+    if grep -qF -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$APP_LOG"; then
         record_result "Audit" "Credential leakage in backend log" "FAIL" "Found plaintext password in application log!"
     else
         record_result "Audit" "Credential leakage in backend log" "PASS" "No plaintext passwords found in application logs"

@@ -290,6 +290,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - Confidential client, exact redirect URIs, registration off.
 - **Impact:** local-only today, because the ports are bound to loopback. The realm is the natural template for any shared or staging deployment.
 - **Fix:** set `pkce.code.challenge.method=S256` on the client, add a password policy, and generate per-user random passwords in `dev-env.sh`.
+- **Status:** fixed by [#314](https://github.com/stevdrey/dokene/issues/314); see [the verification record](../verification/issue-314-identity-provider-hardening-verification.md). The realm requires S256 PKCE on `dokene-bff`, carries `length(12) and notUsername and notEmail`, and each test user has its own generated password; `scripts/keycloak-apply-realm-settings.sh` brings existing realms up to date on `dev-env.sh up`. The realm stays a local template: a shared deployment still needs its own realm process (password history, breached password blocklist, MFA for OWNER), noted in `infra/docker/README.md`.
 
 #### L10. OpenAI calls set no output-token cap — Static
 
@@ -324,6 +325,7 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
   - `.github/dependabot.yml` has no `docker` ecosystem.
   - `backend/gradle/wrapper/gradle-wrapper.properties` has no `distributionSha256Sum`, and there is no `gradle/verification-metadata.xml`.
 - **Fix:** pin `@sha256:` digests and add Dependabot `docker` entries. Add `distributionSha256Sum`, and consider Gradle dependency verification.
+- **Status:** partly fixed by [#323](https://github.com/stevdrey/dokene/issues/323); see [the verification record](../verification/issue-323-build-input-pinning-verification.md). All eight external image lines (six `FROM` lines, and the `postgres` and `oidc-bridge` images in `compose.yaml`) carry their tag plus the multi platform index digest, resolved with `docker buildx imagetools inspect`; the backend tests read the PostgreSQL image from `compose.yaml`, the two `# syntax=` lines are gone, and `gradle-wrapper.properties` carries the published `distributionSha256Sum`. `scripts/check-image-pins.sh` fails any unpinned reference on every pull request, and Dependabot has `docker` and `docker-compose` entries that skip major versions. The rule, the manual steps and the reviewer step are in [build-input-pinning.md](build-input-pinning.md). Deferred there with reasons: Gradle dependency verification (Dependabot cannot maintain `verification-metadata.xml`), the `testcontainers/ryuk` helper image, and the binaries the Trivy and gitleaks actions download at run time.
 
 #### L14. The PostgreSQL and Keycloak containers lack the hardening the other services have — Static
 

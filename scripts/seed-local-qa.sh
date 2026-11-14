@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ABOUTME: Seeds the local QA workspace and the OWNER, OPERATOR and VIEWER memberships through the real BFF login.
+# ABOUTME: Reads each test user's password from .env (DOKENE_TEST_<ROLE>_PASSWORD); --verify also checks RBAC.
 # ==============================================================================
 # seed-local-qa.sh
 #
@@ -35,7 +37,8 @@ fi
 KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
 BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
-TEST_PASSWORD="${DOKENE_TEST_USER_PASSWORD:-testpassword}"
+# shellcheck source=lib/test-passwords.sh
+. "$ROOT_DIR/scripts/lib/test-passwords.sh"
 
 VERIFY_MODE=false
 if [[ "${1:-}" == "--verify" ]]; then
@@ -77,50 +80,11 @@ echo "OK"
 # ------------------------------------------------------------------------------
 # 2. Login Helper Function
 # ------------------------------------------------------------------------------
+# shellcheck source=lib/bff-login.sh
+. "$ROOT_DIR/scripts/lib/bff-login.sh"
 login_user() {
-    local username="$1"
-    local password="$2"
-    local cookie_jar="$TEMP_DIR/$username-cookies.txt"
-    local header_log="$TEMP_DIR/$username-headers.txt"
-    local body_log="$TEMP_DIR/$username-body.txt"
-
-    # Step A: Initiate authorization flow
-    local auth_status
-    auth_status="$(curl -s -c "$cookie_jar" -D "$header_log" -o "$body_log" -w "%{http_code}" "$BFF_URL/oauth2/authorization/dokene")"
-    if [ "$auth_status" != "302" ]; then
-        echo "Error: Initial redirect failed for $username (HTTP $auth_status)" >&2
-        return 1
-    fi
-
-    local keycloak_auth_url
-    keycloak_auth_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-
-    # Step B: Fetch Keycloak login form
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$keycloak_auth_url"
-    local form_action
-    form_action="$(grep -o 'action="[^"]*"' "$body_log" | head -n 1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')"
-    if [ -z "$form_action" ]; then
-        echo "Error: Could not parse Keycloak login form action for $username" >&2
-        return 1
-    fi
-
-    # Step C: Submit credentials
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" \
-        --data-urlencode "username=$username" \
-        --data-urlencode "password=$password" \
-        "$form_action"
-
-    local callback_url
-    callback_url="$(grep -i "^location:" "$header_log" | tr -d '\r\n' | awk '{print $2}')"
-    if [[ "$callback_url" != *"/login/oauth2/code/dokene"* ]]; then
-        echo "Error: Keycloak authentication failed for $username" >&2
-        return 1
-    fi
-
-    # Step D: Complete callback exchange
-    curl -s -c "$cookie_jar" -b "$cookie_jar" -D "$header_log" -o "$body_log" "$callback_url"
-
-    echo "$cookie_jar"
+    # The shared helper checks that every hop is loopback and sends the password through stdin.
+    printf '%s' "$2" | bff_login "$1" "$TEMP_DIR/$1-cookies.txt" "$TEMP_DIR"
 }
 
 get_session_info() {
@@ -135,21 +99,21 @@ echo ""
 echo "Authenticating synthetic test identities..."
 
 echo -n "• Logging in 'testuser' (Owner)... "
-OWNER_COOKIE_JAR="$(login_user "testuser" "$TEST_PASSWORD")"
+OWNER_COOKIE_JAR="$(login_user "testuser" "$OWNER_PASSWORD")"
 OWNER_SESSION="$(get_session_info "$OWNER_COOKIE_JAR")"
 OWNER_IDENTITY_ID="$(echo "$OWNER_SESSION" | jq -r '.identityId')"
 OWNER_CSRF="$(echo "$OWNER_SESSION" | jq -r '.csrfToken')"
 echo "OK (Identity ID: $OWNER_IDENTITY_ID)"
 
 echo -n "• Logging in 'testoperator' (Operator)... "
-OPERATOR_COOKIE_JAR="$(login_user "testoperator" "$TEST_PASSWORD")"
+OPERATOR_COOKIE_JAR="$(login_user "testoperator" "$OPERATOR_PASSWORD")"
 OPERATOR_SESSION="$(get_session_info "$OPERATOR_COOKIE_JAR")"
 OPERATOR_IDENTITY_ID="$(echo "$OPERATOR_SESSION" | jq -r '.identityId')"
 OPERATOR_CSRF="$(echo "$OPERATOR_SESSION" | jq -r '.csrfToken')"
 echo "OK (Identity ID: $OPERATOR_IDENTITY_ID)"
 
 echo -n "• Logging in 'testviewer' (Viewer)... "
-VIEWER_COOKIE_JAR="$(login_user "testviewer" "$TEST_PASSWORD")"
+VIEWER_COOKIE_JAR="$(login_user "testviewer" "$VIEWER_PASSWORD")"
 VIEWER_SESSION="$(get_session_info "$VIEWER_COOKIE_JAR")"
 VIEWER_IDENTITY_ID="$(echo "$VIEWER_SESSION" | jq -r '.identityId')"
 VIEWER_CSRF="$(echo "$VIEWER_SESSION" | jq -r '.csrfToken')"
@@ -277,11 +241,12 @@ printf "%-14s | %-26s | %-10s | %-20s\n" "testuser" "testuser@dokene.local" "OWN
 printf "%-14s | %-26s | %-10s | %-20s\n" "testoperator" "testoperator@dokene.local" "OPERATOR" "**** REDACTED ****"
 printf "%-14s | %-26s | %-10s | %-20s\n" "testviewer" "testviewer@dokene.local" "VIEWER" "**** REDACTED ****"
 echo "======================================================================"
-echo "Password source: DOKENE_TEST_USER_PASSWORD (in .env or environment, default: testpassword)"
+echo "Password source: DOKENE_TEST_OWNER_PASSWORD, DOKENE_TEST_OPERATOR_PASSWORD and"
+echo "                 DOKENE_TEST_VIEWER_PASSWORD (in .env or the environment; no default)"
 echo ""
 echo "Manual QA Instructions:"
 echo "1. Open the web browser at http://localhost:5173 (or http://localhost:8080)"
-echo "2. Log in using password configured in DOKENE_TEST_USER_PASSWORD (default: testpassword)"
+echo "2. Log in as 'testuser' with DOKENE_TEST_OWNER_PASSWORD from .env"
 echo "3. Log in as 'testoperator' to verify operator controls (create customers, record follow-ups)"
 echo "4. Log in as 'testviewer' to verify read-only view (mutation controls hidden, actions forbidden)"
 echo ""
