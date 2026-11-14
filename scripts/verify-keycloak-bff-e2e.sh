@@ -78,8 +78,13 @@ submit_credentials() {
 # forbidden_label VALUE: how a failure names VALUE; the client secret itself is never printed.
 forbidden_label() { if [ "$1" = "$TEST_CLIENT_SECRET" ]; then echo "<OIDC client secret>"; else echo "$1"; fi; }
 
-# redact_secret TEXT: TEXT with every occurrence of the client secret replaced, so a failure can still show the URL.
-redact_secret() { printf '%s' "${1//"$TEST_CLIENT_SECRET"/<OIDC client secret>}"; }
+# redact_url URL: URL with the client secret replaced and every query and fragment parameter value hidden, so a failure
+# shows where a value leaked and under which parameter name, never a token or secret (invariant 35). The URL reaches
+# sed on stdin, not its command line.
+redact_url() {
+    printf '%s\n' "${1//"$TEST_CLIENT_SECRET"/<OIDC client secret>}" \
+        | sed -E 's/([?&#;][^=&#;]*)=[^&#;]*/\1=<redacted>/g'
+}
 
 # start_login JAR: starts a BFF login in a fresh cookie jar and prints the Keycloak login form action.
 start_login() {
@@ -211,7 +216,7 @@ POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '
 # Assert tokens and secrets are NOT present in redirect URL or response headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
     if [[ "$POST_LOGIN_REDIRECT" == *"$forbidden_val"* ]]; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL: $(redact_secret "$POST_LOGIN_REDIRECT"))"
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL: $(redact_url "$POST_LOGIN_REDIRECT"))"
         exit 1
     fi
     if contains_literal "$HEADER_LOG" "$forbidden_val"; then
