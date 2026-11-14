@@ -184,6 +184,10 @@ uses it for the login start limit and the webhook connection limits. When every 
 leftmost one; an entry that is not an address keeps the proxy's own address; an address with a port is used without
 the port. The proxy's `X-Forwarded-Proto` is not believed, so behind a TLS tunnel the backend still sees `http`.
 
+List only the exact addresses of proxies you run, never a broad range such as `0.0.0.0/0`, `::/0` or a whole Docker or
+office network. Any client inside a listed range can send its own `X-Forwarded-For`, pick the address the edge
+restores, and so escape the login start limit and the webhook connection limits.
+
 Verify with `./scripts/tests/nginx-headers-smoke.sh` and `./scripts/tests/nginx-login-rate-limit-smoke.sh` (Docker
 only).
 
