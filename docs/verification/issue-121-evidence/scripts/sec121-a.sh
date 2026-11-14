@@ -34,7 +34,7 @@ PF=$(curl -s -D - -o /dev/null -X OPTIONS "$BFF/api/customers/$CA/recommendation
 chk SEC-01 "CORS preflight from unapproved origin gets no Allow-Origin" "" "$(echo "$PF"|grep -i '^access-control-allow-origin'|tr -d '\r')"
 rm -f $QA_TMP/ck.txt; curl -s -c $QA_TMP/ck.txt -D $QA_TMP/h1 -o /dev/null $BFF/oauth2/authorization/dokene; l=$(grep -i '^location:' $QA_TMP/h1|tr -d '\r\n'|awk '{print $2}')
 curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -o $QA_TMP/b.tmp "$l"; a=$(grep -o 'action="[^"]*"' $QA_TMP/b.tmp|head -1|cut -d'"' -f2|sed 's/&amp;/\&/g')
-curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -D $QA_TMP/h2 -o /dev/null --data-urlencode username=testviewer --data-urlencode password=$PW "$a"; l=$(grep -i '^location:' $QA_TMP/h2|tr -d '\r\n'|awk '{print $2}')
+printf '%s' "$PW" | curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -D $QA_TMP/h2 -o /dev/null --data-urlencode username=testviewer --data-urlencode password@- "$a"; l=$(grep -i '^location:' $QA_TMP/h2|tr -d '\r\n'|awk '{print $2}')
 PRE=$(grep -i '^set-cookie: *JSESSIONID' $QA_TMP/h1 | sed -n 's/.*JSESSIONID=\([^;]*\).*/\1/p'); curl -s -c $QA_TMP/ck.txt -b $QA_TMP/ck.txt -D $QA_TMP/h3 -o /dev/null "$l"
 SC=$(grep -i '^set-cookie: *JSESSIONID' $QA_TMP/h3 | tr -d '\r'); POST=$(echo "$SC" | sed -n 's/.*JSESSIONID=\([^;]*\).*/\1/p'); echo "  Set-Cookie after login: $(echo "$SC" | sed 's/JSESSIONID=[^;]*/JSESSIONID=<redacted>/')"
 chk SEC-01 "session cookie is HttpOnly" yes "$(echo "$SC"|grep -qi httponly && echo yes || echo no)"; chk SEC-01 "session cookie is SameSite=Lax" yes "$(echo "$SC"|grep -qi 'samesite=lax' && echo yes || echo no)"

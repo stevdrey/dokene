@@ -70,6 +70,13 @@ submit_credentials() {
         --data-urlencode "username=$3" --data-urlencode "password@-" "$2"
 }
 
+# has_literal VALUE [FILE]: true when FILE (stdin when omitted) contains VALUE literally. VALUE reaches grep as a pattern
+# file through process substitution, never on its command line, where any local user could read it (issue 327).
+has_literal() { grep -qF -f <(printf '%s\n' "$1") ${2:+"$2"}; }
+
+# forbidden_label VALUE: how a failure names VALUE; the client secret itself is never printed.
+forbidden_label() { if [ "$1" = "$TEST_CLIENT_SECRET" ]; then echo "<OIDC client secret>"; else echo "$1"; fi; }
+
 # start_login JAR: starts a BFF login in a fresh cookie jar and prints the Keycloak login form action.
 start_login() {
     : >"$1"
@@ -200,11 +207,11 @@ POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '
 # Assert tokens and secrets are NOT present in redirect URL or response headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
     if [[ "$POST_LOGIN_REDIRECT" == *"$forbidden_val"* ]]; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in post-login redirect URL: $POST_LOGIN_REDIRECT)"
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL)"
         exit 1
     fi
-    if grep -q "$forbidden_val" "$HEADER_LOG"; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in callback response headers!)"
+    if has_literal "$forbidden_val" "$HEADER_LOG"; then
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in callback response headers!)"
         exit 1
     fi
 done
@@ -258,12 +265,12 @@ fi
 
 # Assert OAuth tokens and secrets are strictly absent from session body and headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
-    if echo "$SESSION_JSON" | grep -q "$forbidden_val"; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in session response body!)"
+    if printf '%s' "$SESSION_JSON" | has_literal "$forbidden_val"; then
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response body!)"
         exit 1
     fi
-    if grep -q "$forbidden_val" "$HEADER_LOG"; then
-        echo "FAILED (Forbidden value '$forbidden_val' exposed in session response headers!)"
+    if has_literal "$forbidden_val" "$HEADER_LOG"; then
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response headers!)"
         exit 1
     fi
 done

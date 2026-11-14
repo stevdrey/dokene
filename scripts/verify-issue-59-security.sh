@@ -656,7 +656,7 @@ echo "=== SUITE 10: SECURITY AUDIT & OPERATIONAL EVIDENCE ==="
 # Check backend log file for any raw password or unredacted secrets
 APP_LOG="/home/srey/.gemini/antigravity/brain/657b7b8c-d1f6-4865-86e7-556c97dccc10/.system_generated/tasks/task-107.log"
 if [ -f "$APP_LOG" ]; then
-    if grep -qF -e "$OWNER_PASSWORD" -e "$OPERATOR_PASSWORD" -e "$VIEWER_PASSWORD" "$APP_LOG"; then
+    if grep -qF -f <(printf '%s\n' "$OWNER_PASSWORD" "$OPERATOR_PASSWORD" "$VIEWER_PASSWORD") "$APP_LOG"; then
         record_result "Audit" "Credential leakage in backend log" "FAIL" "Found plaintext password in application log!"
     else
         record_result "Audit" "Credential leakage in backend log" "PASS" "No plaintext passwords found in application logs"

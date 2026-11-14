@@ -14,15 +14,19 @@ for t in curl jq openssl javac docker; do command -v $t >/dev/null || { echo "mi
 KC=http://localhost:${KEYCLOAK_PORT:-8081}
 
 echo "== 1. Keycloak users (admin API, realm dokene)"
-KC_TOKEN=$(curl -s -d grant_type=password -d client_id=admin-cli -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" \
-  --data-urlencode "password=$KC_BOOTSTRAP_ADMIN_PASSWORD" "$KC/realms/master/protocol/openid-connect/token" | jq -r .access_token)
+# Credentials stay off command lines (issue 327): the admin password reaches curl on stdin, the user password reaches jq
+# through its environment and curl on stdin, and the admin token reaches curl as a header file.
+KC_TOKEN=$(printf '%s' "$KC_BOOTSTRAP_ADMIN_PASSWORD" | curl -s -d grant_type=password -d client_id=admin-cli \
+  -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password@-" "$KC/realms/master/protocol/openid-connect/token" | jq -r .access_token)
 [ -n "$KC_TOKEN" ] && [ "$KC_TOKEN" != null ] || { echo "Keycloak admin login failed" >&2; exit 1; }
 kc_user() { # username first last
-  local existing; existing=$(curl -s -H "Authorization: Bearer $KC_TOKEN" "$KC/admin/realms/dokene/users?username=$1&exact=true" | jq 'length')
+  # The bearer token reaches curl as a header file and the body, which holds the password, on stdin (issue 327).
+  local existing; existing=$(curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KC_TOKEN") "$KC/admin/realms/dokene/users?username=$1&exact=true" | jq 'length')
   if [ "$existing" = 0 ]; then
-    local code; code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $KC_TOKEN" -H 'Content-Type: application/json' \
-      "$KC/admin/realms/dokene/users" -d "$(jq -nc --arg u "$1" --arg f "$2" --arg l "$3" --arg p "$PW" \
-      '{username:$u,email:($u+"@dokene.local"),firstName:$f,lastName:$l,enabled:true,emailVerified:true,credentials:[{type:"password",value:$p,temporary:false}]}')")
+    local code; code=$(QA_PW="$PW" jq -nc --arg u "$1" --arg f "$2" --arg l "$3" \
+      '{username:$u,email:($u+"@dokene.local"),firstName:$f,lastName:$l,enabled:true,emailVerified:true,credentials:[{type:"password",value:$ENV.QA_PW,temporary:false}]}' \
+      | curl -s -o /dev/null -w '%{http_code}' -X POST -H @<(printf 'Authorization: Bearer %s\n' "$KC_TOKEN") -H 'Content-Type: application/json' \
+      "$KC/admin/realms/dokene/users" --data-binary @-)
     echo "  created $1 ($code)"
   else echo "  exists  $1"; fi
 }

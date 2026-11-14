@@ -102,11 +102,13 @@ env_get() {
   grep -E "^$1=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-
 }
 
-# Replaces (or appends) KEY=VALUE in .env without sed -i (portable between GNU and BSD sed).
+# Replaces (or appends) KEY=VALUE in .env without sed -i (portable between GNU and BSD sed). The value is often a
+# secret, so it reaches awk through the environment of that one command, never its argument list, which other local
+# users can read in the process table (issue 327). ENVIRON also keeps backslashes, which `awk -v` would interpret.
 env_set() {
-  local key="$1" value="$2" tmp
+  local key="$1" tmp
   tmp="$(mktemp)"
-  awk -v k="$key" -v v="$value" 'BEGIN{done=0}
+  DOKENE_ENV_SET_VALUE="$2" awk -v k="$key" 'BEGIN{done=0; v=ENVIRON["DOKENE_ENV_SET_VALUE"]}
     $0 ~ "^"k"=" { print k"="v; done=1; next }
     { print }
     END { if (!done) print k"="v }' "$ENV_FILE" > "$tmp" && cat "$tmp" > "$ENV_FILE"

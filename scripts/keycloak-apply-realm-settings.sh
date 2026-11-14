@@ -23,7 +23,8 @@
 # matches untouched. It runs the Keycloak Admin CLI inside the Compose keycloak
 # container with that container's bootstrap admin, so no credential passes
 # through the host command line. Passwords are expanded inside the container by
-# variable name; the host never sees or prints one.
+# variable name and reach kcadm.sh through its KC_CLI_PASSWORD environment
+# variable, never an argument (issue 327); the host never sees or prints one.
 #
 # Usage:
 #   ./scripts/keycloak-apply-realm-settings.sh          # apply, print before/after
@@ -75,8 +76,8 @@ command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; config_fai
 kcadm() {
     (cd "$ROOT_DIR" && docker compose exec -T keycloak bash -c '
         config=/tmp/kcadm-realm-settings.config
-        /opt/keycloak/bin/kcadm.sh config credentials --config "$config" --server http://localhost:8080 \
-            --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1 \
+        KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh config credentials --config "$config" \
+            --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null 2>&1 \
             || { echo "Error: Keycloak admin login failed." >&2; exit 1; }
         /opt/keycloak/bin/kcadm.sh "$@" --config "$config"
     ' kcadm "$@" </dev/null 2> >(sed '/^$/d' >&2))  # kcadm writes a bare newline to stderr on every call
@@ -84,10 +85,9 @@ kcadm() {
 
 # kcadm_set_password USERNAME VARIABLE: sets USERNAME's password to the value of VARIABLE in the keycloak container's
 # environment. kcadm() would put the value on the host command line, so only the two names cross it here and the
-# value is expanded inside the container: it is visible only in the container's process list while kcadm.sh
-# set-password runs. Keycloak's own error is passed on unless it contains, or could contain, the value. Same argv
-# prefix as kcadm(), so
-# the test stub intercepts both.
+# value is expanded inside the container, where kcadm.sh reads it from KC_CLI_PASSWORD: it is on no command line,
+# in the container or on the host (issue 327). Keycloak's own error is passed on unless it contains, or could contain,
+# the value. Same argv prefix as kcadm(), so the test stub intercepts both.
 kcadm_set_password() {
     (cd "$ROOT_DIR" && docker compose exec -T keycloak bash -c '
         config=/tmp/kcadm-realm-settings.config
@@ -97,11 +97,11 @@ kcadm_set_password() {
             echo "Error: $variable is empty in the keycloak container; recreate it with ./scripts/dev-env.sh up." >&2
             exit 1
         fi
-        /opt/keycloak/bin/kcadm.sh config credentials --config "$config" --server http://localhost:8080 \
-            --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1 \
+        KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh config credentials --config "$config" \
+            --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null 2>&1 \
             || { echo "Error: Keycloak admin login failed." >&2; exit 1; }
-        if ! output="$(/opt/keycloak/bin/kcadm.sh set-password -r "$realm" --username "$user" \
-                --new-password "$password" --config "$config" 2>&1)"; then
+        if ! output="$(KC_CLI_PASSWORD="$password" /opt/keycloak/bin/kcadm.sh set-password -r "$realm" \
+                --username "$user" --config "$config" 2>&1)"; then
             # A value made only of characters that JSON and URL encoding leave alone can appear only as itself. Any
             # other value could come back escaped, where the literal comparison would miss it, so its message is
             # always withheld.

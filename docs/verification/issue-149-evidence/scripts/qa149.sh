@@ -18,7 +18,7 @@ qa_login() { # user -> cookie jar at $QA_TMP/jar-<user>.txt
   local l; l=$(grep -i '^location:' "$h" | tr -d '\r\n' | awk '{print $2}')
   curl -s -c "$j" -b "$j" -o "$b" "$l"
   local a; a=$(grep -o 'action="[^"]*"' "$b" | head -1 | cut -d'"' -f2 | sed 's/&amp;/\&/g')
-  curl -s -c "$j" -b "$j" -D "$h" -o "$b" --data-urlencode "username=$u" --data-urlencode "password=$PW" "$a"
+  printf '%s' "$PW" | curl -s -c "$j" -b "$j" -D "$h" -o "$b" --data-urlencode "username=$u" --data-urlencode "password@-" "$a"
   l=$(grep -i '^location:' "$h" | tr -d '\r\n' | awk '{print $2}'); curl -s -c "$j" -b "$j" -o "$b" "$l"
   rm -f "$h" "$b"
 }
@@ -64,11 +64,14 @@ problem_exact() {
 }
 
 # --- database ---------------------------------------------------------------------------------------------------------
+# Credentials never go on a command line (issue 327): PGPASSWORD reaches `docker compose exec -e PGPASSWORD` through the
+# environment of that one command, the Keycloak admin password reaches curl on stdin, and jq reads the test password
+# from its environment ($ENV.QA_PW).
 psqlq() { docker compose exec -T postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -Atc \"$1\"" | tr -d '\r'; }
-rt() { docker compose exec -T -e PGPASSWORD="$DOKENE_DB_PASSWORD" postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq "$@" 2>&1 | tr -d '\r'; }
+rt() { PGPASSWORD="$DOKENE_DB_PASSWORD" docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq "$@" 2>&1 | tr -d '\r'; }
 # signed tenant context minted with the bootstrap role (the runtime role cannot read the signing key)
 ctx() { psqlq "with k as (select key_id, signing_key from dokene.tenant_context_signing_keys where status='ACTIVE' limit 1), p as (select '$1|'||k.key_id||'|$2|'||lpad((extract(epoch from now())::bigint + ${3:-60})::text,10,'0')||'|'||md5(random()::text) as payload, k.signing_key from k) select payload||' '||encode(dokene.hmac(convert_to(payload,'UTF8'), signing_key,'sha256'),'hex') from p"; }
-runctx() { local p=$1 s=$2; shift 2; printf '%s\n%s\n' "select set_config('dokene.tenant_context','$p',false), set_config('dokene.tenant_context_signature','$s',false) \\g /dev/null" "$*" | docker compose exec -T -e PGPASSWORD="$DOKENE_DB_PASSWORD" postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq 2>&1 | tr -d '\r'; }
+runctx() { local p=$1 s=$2; shift 2; printf '%s\n%s\n' "select set_config('dokene.tenant_context','$p',false), set_config('dokene.tenant_context_signature','$s',false) \\g /dev/null" "$*" | PGPASSWORD="$DOKENE_DB_PASSWORD" docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U dokene_runtime -d "$DOKENE_DB_NAME" -Atq 2>&1 | tr -d '\r'; }
 audit_n() { psqlq "select count(*) from dokene.audit_events where event_type='$1'${2:+ and tenant_id='$2'}"; }
 audit_denied_n() { psqlq "select count(*) from dokene.audit_events where event_type='AUTHORIZATION_DENIED'${1:+ and permission='$1'}${2:+ and tenant_id='$2'}"; }
 attempts_n() { psqlq "select count(*) from dokene.outbound_send_attempts${1:+ where message_id='$1'}"; }
@@ -152,8 +155,9 @@ revoke_runtime_select() {
 # runtime_grants <table>: the runtime role's privileges on a table, sorted ("INSERT,SELECT,UPDATE")
 runtime_grants() { psqlq "select string_agg(privilege_type,',' order by privilege_type) from information_schema.role_table_grants where grantee='dokene_runtime' and table_schema='dokene' and table_name='$1'"; }
 # Keycloak admin helpers for throwaway identities (P3-PERM-18)
-kc_token() { curl -s -d grant_type=password -d client_id=admin-cli -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password=$KC_BOOTSTRAP_ADMIN_PASSWORD" "http://localhost:${KEYCLOAK_PORT:-8081}/realms/master/protocol/openid-connect/token" | jq -r .access_token; }
-kc_create_user() { curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $(kc_token)" -H 'Content-Type: application/json' "http://localhost:${KEYCLOAK_PORT:-8081}/admin/realms/dokene/users" -d "$(jq -nc --arg u "$1" --arg p "$PW" '{username:$u,email:($u+"@dokene.local"),firstName:"QA",lastName:"Temp",enabled:true,emailVerified:true,credentials:[{type:"password",value:$p,temporary:false}]}')"; }
+kc_token() { printf '%s' "$KC_BOOTSTRAP_ADMIN_PASSWORD" | curl -s -d grant_type=password -d client_id=admin-cli -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password@-" "http://localhost:${KEYCLOAK_PORT:-8081}/realms/master/protocol/openid-connect/token" | jq -r .access_token; }
+# The bearer token reaches curl as a header file and the body, which holds the password, on stdin (issue 327).
+kc_create_user() { local tok; tok=$(kc_token); QA_PW="$PW" jq -nc --arg u "$1" '{username:$u,email:($u+"@dokene.local"),firstName:"QA",lastName:"Temp",enabled:true,emailVerified:true,credentials:[{type:"password",value:$ENV.QA_PW,temporary:false}]}' | curl -s -o /dev/null -w '%{http_code}' -X POST -H @<(printf 'Authorization: Bearer %s\n' "$tok") -H 'Content-Type: application/json' "http://localhost:${KEYCLOAK_PORT:-8081}/admin/realms/dokene/users" --data-binary @-; }
 # Every script starts from the send ready defaults of the case table: verified integrations, approved mappings,
 # tenant switches on. A previous script that died halfway may have left them otherwise.
 ensure_fixtures() {

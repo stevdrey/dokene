@@ -76,21 +76,26 @@ STUB
 chmod +x "$WORK/bin/docker"
 
 # The fake kcadm.sh inside the "container": login always works; set-password enforces the 12 character minimum and,
-# unlike Keycloak, echoes the refused value, so the test proves the script withholds such a message.
+# unlike Keycloak, echoes the refused value, so the test proves the script withholds such a message. Like the real
+# kcadm.sh it takes the password from KC_CLI_PASSWORD (issue 327), and it logs its own argv to $STUB_STATE/kcadm-argv
+# so the test can prove no password reaches the in-container command line either.
 cat >"$WORK/kcadm.sh" <<'FAKE'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_STATE/kcadm-argv"
 case "$1" in
-    config) exit 0 ;;
+    # The admin login must get the container's bootstrap admin password, and only through KC_CLI_PASSWORD.
+    config) [ -n "${KC_CLI_PASSWORD:-}" ] && [ "$KC_CLI_PASSWORD" = "${KC_BOOTSTRAP_ADMIN_PASSWORD:-}" ] ;;
     set-password)
-        # set-password -r <realm> --username <user> --new-password <value> --config <file>
-        if [ "${#7}" -lt 12 ]; then
-            refused="$7"
+        # set-password -r <realm> --username <user> --config <file>, the new password in KC_CLI_PASSWORD
+        new_password="${KC_CLI_PASSWORD:-}"
+        if [ "${#new_password}" -lt 12 ]; then
+            refused="$new_password"
             # FAKE_ECHO_ESCAPED=1 echoes the value the way a JSON error body would carry it.
             [ "${FAKE_ECHO_ESCAPED:-0}" = "1" ] && refused="${refused//\"/\\\"}"
             echo "Invalid password: minimum length 12, got '$refused'." >&2
             exit 1
         fi
-        printf '%s' "$7" >"$STUB_STATE/password.$5" ;;
+        printf '%s' "$new_password" >"$STUB_STATE/password.$5" ;;
     *) echo "fake kcadm.sh: unexpected call: $*" >&2; exit 64 ;;
 esac
 FAKE
@@ -101,6 +106,7 @@ export STUB_KCADM="$WORK/kcadm.sh"
 OWNER_PASSWORD="$(printf '0123456789abcdef%.0s' 1 2)"
 OPERATOR_PASSWORD="$(printf 'fedcba9876543210%.0s' 1 2)"
 VIEWER_PASSWORD="$(printf '0011223344556677%.0s' 1 2)"
+ADMIN_PASSWORD="$(printf '89abcdef01234567%.0s' 1 2)"
 
 # A realm as imported before issues 307 and 314: session.required set, no logout URL, 10 h SSO max lifespan, no PKCE
 # attribute and no password policy. The keycloak container holds the three generated passwords.
@@ -109,6 +115,7 @@ fresh_realm() {
     printf 'true' >"$STUB_STATE/required"
     printf '36000' >"$STUB_STATE/lifespan"
     export STUB_STATE
+    export KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASSWORD"
     export DOKENE_TEST_OWNER_PASSWORD="$OWNER_PASSWORD" DOKENE_TEST_OPERATOR_PASSWORD="$OPERATOR_PASSWORD" \
            DOKENE_TEST_VIEWER_PASSWORD="$VIEWER_PASSWORD"
 }
@@ -137,11 +144,14 @@ updates() { echo $(( $(calls client-update) + $(calls realm-update) )); }
 # No password value in the script's output or on any docker command line it ran.
 no_password_leaked() {
     local value
-    for value in "$OWNER_PASSWORD" "$OPERATOR_PASSWORD" "$VIEWER_PASSWORD" "${1:-}"; do
+    for value in "$OWNER_PASSWORD" "$OPERATOR_PASSWORD" "$VIEWER_PASSWORD" "$ADMIN_PASSWORD" "${1:-}"; do
         [ -n "$value" ] || continue
         ! grep -qF -- "$value" "$WORK/out" || return 1
         ! grep -qF -- "$value" "$STUB_STATE/argv" || return 1
+        ! grep -qF -- "$value" "$STUB_STATE/kcadm-argv" 2>/dev/null || return 1
     done
+    # Neither the admin login nor set-password names a password option: kcadm.sh reads KC_CLI_PASSWORD (issue 327).
+    ! grep -qE -- '--(new-)?password|(^| )-p( |$)' "$STUB_STATE/kcadm-argv" 2>/dev/null
 }
 
 check_reports_drift() {
