@@ -21,7 +21,7 @@ KEY="$DOKENE_AI_OPENAI_API_KEY"
 for pat in CANARY-NAME-33 CANARY-NOTE-12 CANARY-BUY-55 CANARY-RAT-91 CANARY-BODY-77 "$PH" "$DIGITS"; do chk SEC-08 "logs contain no '${pat:0:16}'" 0 "$(grep -c -F -- "$pat" $LOG)"; done
 # The key is a grep pattern file (process substitution), never an argument (issue 327).
 [ -n "$KEY" ] && chk SEC-08 "logs contain no provider API key" 0 "$(grep -c -F -f <(printf '%s\n' "$KEY") $LOG)"
-chk SEC-08 "logs contain no session cookie / CSRF token of the test sessions" 0 "$(grep -c -F -- "$(curl -s -b $QA_TMP/jar-testoperator.txt $BFF/api/session | jq -r .csrfToken)" $LOG)"
+chk SEC-08 "logs contain no session cookie / CSRF token of the test sessions" 0 "$(grep -c -F -f <(curl -s -b $QA_TMP/jar-testoperator.txt $BFF/api/session | jq -r .csrfToken) $LOG)"
 echo "== audit rows and DB (no raw AI content)"
 chk SEC-08 "audit_events contain no canary marker or phone" 0 "$(psqlq "select count(*) from dokene.audit_events a where a::text like '%CANARY-%' or a::text like '%$DIGITS%'")"
 echo "  AI audit row columns populated for the last invocation: $(psqlq "select concat_ws(',',event_type,ai_operation,ai_outcome,ai_detail,outcome) from dokene.audit_events where event_type='AI_INVOCATION_OUTCOME' order by occurred_at desc limit 1")"
