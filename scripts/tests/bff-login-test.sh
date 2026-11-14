@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Offline tests for scripts/lib/bff-login.sh: target validation, header and form-action parsing, and the
 # fail-closed behaviour of bff_login. A stub curl on PATH stands in for the stack; no network or Docker is used.
+# The `bash -c` snippets below expand their variables in the child shell, on purpose.
+# shellcheck disable=SC2016
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -195,6 +197,28 @@ assert "curl-protected: a call with nothing to move runs curl without a config" 
 # shellcheck disable=SC2016  # expanded by the child shell, or a literal regex
 assert "curl-protected: the wrapper runs under set -u with no argument at all" \
   bash -c 'set -u; . "$1"; PATH="$2:$PATH" curl' _ "$ROOT_DIR/scripts/lib/curl-protected.sh" "$TMP/cpbin"
+
+# Without a curl executable, curl_installed is false although `command -v curl` finds the wrapper, and the wrapper
+# fails with status 127 and a clear message instead of a misleading connection error (#327, F8).
+mkdir -p "$TMP/nocurl"
+assert "curl-protected: command -v finds the wrapper even without a curl executable" \
+  bash -c '. "$1"; PATH="$2"; command -v curl >/dev/null' _ "$ROOT_DIR/scripts/lib/curl-protected.sh" "$TMP/nocurl"
+refute "curl-protected: curl_installed is false without a curl executable" \
+  bash -c '. "$1"; PATH="$2"; curl_installed' _ "$ROOT_DIR/scripts/lib/curl-protected.sh" "$TMP/nocurl"
+assert "curl-protected: curl_installed is true with one" bash -c '. "$1"; PATH="$2:$PATH"; curl_installed' _ \
+  "$ROOT_DIR/scripts/lib/curl-protected.sh" "$TMP/cpbin"
+bash -c '. "$1"; PATH="$2"; curl -s http://localhost:8080/' _ "$ROOT_DIR/scripts/lib/curl-protected.sh" "$TMP/nocurl" \
+  2> "$TMP/nocurl-err"; CP_RC=$?
+assert "curl-protected: the wrapper exits 127 and names the missing executable" \
+  bash -c '[ "$1" -eq 127 ] && grep -q "no curl executable is on PATH" "$2"' _ "$CP_RC" "$TMP/nocurl-err"
+# Scripts that load the wrapper check for curl with curl_installed or type -P, never `command -v curl`.
+cp_checks=""
+for script in "$ROOT_DIR"/scripts/*.sh; do
+  grep -qE '^\. "\$ROOT_DIR/scripts/lib/(bff-login|curl-protected)\.sh"' "$script" || continue
+  grep -Ev '^[[:space:]]*#' "$script" | grep -qE 'command -v curl|have curl|which curl' && cp_checks+=" ${script##*/}"
+done
+assert "curl-protected: no script that loads the wrapper checks curl with command -v${cp_checks:+ (found in:$cp_checks)}" \
+  [ -z "$cp_checks" ]
 
 # Every live script that sends a CSRF header or a session cookie by value loads the wrapper, directly or through
 # bff-login.sh, so a new call site cannot reintroduce the exposure unnoticed.

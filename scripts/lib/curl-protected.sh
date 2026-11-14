@@ -14,6 +14,10 @@
 # with status 2, since it could add a line to the config or a header to the request. Calls with nothing to move run
 # the real curl directly.
 #
+# Once `curl` is a function, `command -v curl` finds the function and cannot tell whether curl is installed; a
+# prerequisite check uses curl_installed instead, which looks for the executable on PATH. Without one, the wrapper
+# fails with status 127 and says so instead of a later, misleading connection error.
+#
 # The URL rule needs to know which options take a value, so an `http://…` value given to one of them (for example
 # `-d http://…`) is not mistaken for a URL; _CURL_VALUE_OPTIONS lists the ones the scripts use and the common others.
 # Tested offline by scripts/tests/bff-login-test.sh.
@@ -24,6 +28,11 @@ _CURL_VALUE_OPTIONS=" -d --data --data-raw --data-binary --data-ascii --data-url
  --retry-max-time --resolve --connect-to --cacert --capath --cert --key -E -r --range -z --time-cond --limit-rate
  --parallel-max -Y --speed-limit -y --speed-time --max-filesize --max-redirs --interface --dns-servers -C
  --continue-at -t --telnet-option --trace --trace-ascii --stderr --unix-socket --abstract-unix-socket "
+
+# curl_installed: true when a curl executable is on PATH (the wrapper below does not count).
+curl_installed() {
+    type -P curl >/dev/null 2>&1
+}
 
 # _curl_config_line NAME VALUE: one config line, NAME = "VALUE" with \ and " escaped; status 2 for a CR or LF.
 _curl_config_line() {
@@ -41,6 +50,10 @@ _curl_config_line() {
 curl() {
     local -a args=()
     local arg config="" line
+    if ! curl_installed; then
+        printf 'curl-protected: curl is required but no curl executable is on PATH\n' >&2
+        return 127
+    fi
     while [ "$#" -gt 0 ]; do
         arg="$1"
         shift

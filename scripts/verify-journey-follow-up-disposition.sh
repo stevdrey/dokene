@@ -337,7 +337,7 @@ doctor() {
   local code missing
   is_local_url "$BFF_URL" || blocked "BFF_URL is not a plain loopback origin; this journey only runs against the local stack"
   is_local_url "$KEYCLOAK_URL" || blocked "KEYCLOAK_URL is not a plain loopback origin"
-  command -v curl >/dev/null 2>&1 || blocked "curl is required"
+  curl_installed || blocked "curl is required"  # `command -v` would find the curl-protected.sh wrapper
   command -v jq >/dev/null 2>&1 || blocked "jq is required"
   missing="$(first_missing_test_password)"
   [ -z "$missing" ] || blocked "$missing is not set; run ./scripts/dev-env.sh up, which generates it in .env"

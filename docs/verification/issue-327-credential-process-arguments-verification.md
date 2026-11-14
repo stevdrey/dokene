@@ -57,7 +57,7 @@ A code review of the pull request found seven issues. The fixes were made in the
 
 A later review comment on the pull request found session values still passed to curl as arguments: the OAuth callback URL with its authorization code (`scripts/verify-keycloak-bff-e2e.sh`, `scripts/lib/bff-login.sh`), `X-CSRF-TOKEN` headers in the verify and seed scripts and in `qa149.sh`, and `JSESSIONID` values given with `-b` in the e2e script.
 
-New `scripts/lib/curl-protected.sh` defines `curl` as a shell function. It moves every header (except an `@file` reference), every cookie value holding `=` and every URL into a curl config that the real curl reads from a file descriptor (`-K <(…)`), escapes `\` and `"`, and refuses a value holding a line break. `scripts/lib/bff-login.sh` sources it, which covers the seven live scripts that load that helper; the e2e script, `qa149.sh`, the three `qa.sh` helpers and `sec121-a.sh` source it directly. The remaining historical evidence scripts under `docs/verification/` are left to a follow-up Issue, to keep this pull request under the file limit. Checks ran on the working tree that became the seventh commit:
+New `scripts/lib/curl-protected.sh` defines `curl` as a shell function. It moves every header (except an `@file` reference), every cookie value holding `=` and every URL into a curl config that the real curl reads from a file descriptor (`-K <(…)`), escapes `\` and `"`, and refuses a value holding a line break. `scripts/lib/bff-login.sh` sources it, which covers the seven live scripts that load that helper; the e2e script, `qa149.sh`, the three `qa.sh` helpers and `sec121-a.sh` source it directly. The remaining historical evidence scripts under `docs/verification/` are left to follow-up Issue #401, to keep this pull request under the file limit; invariant 35 names them as its one known exception until then (eighth commit). Checks ran on the working tree that became the seventh commit:
 
 | Check | Kind | Outcome |
 | --- | --- | --- |
@@ -67,6 +67,8 @@ New `scripts/lib/curl-protected.sh` defines `curl` as a shell function. It moves
 | Negative control: `bff-login.sh` without the `source` line | automated | 8 checks fail |
 | Real curl through the wrapper against a loopback server that echoes what it receives | live, loopback | Header (with `"` and `\`), cookie, callback URL with its code and a `-d` body holding `http://` arrive exactly |
 | Real curl through the wrapper against a slow loopback server, its `/proc/<pid>/cmdline` read while it ran | live, loopback | `curl -K /dev/fd/63 -s -o /dev/null`; no token, session id, code or URL |
+
+In the eighth commit, `curl-protected.sh` also defines `curl_installed`. Once `curl` is the wrapper function, `command -v curl` finds it, so a prerequisite check written that way always passed. The e2e, journey and seed scripts now check with `curl_installed` or `type -P curl`, and without a curl executable the wrapper fails with status 127 and a clear message. `scripts/tests/bff-login-test.sh` covers both, and fails if a script that loads the wrapper checks curl with `command -v`.
 
 ## Limitations
 

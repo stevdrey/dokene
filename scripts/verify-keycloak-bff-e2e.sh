@@ -122,7 +122,8 @@ expect_pkce_refused() {
 # ------------------------------------------------------------------------------
 # 1. Verify Prerequisites and Connectivity
 # ------------------------------------------------------------------------------
-command -v curl >/dev/null 2>&1 || { echo "Error: curl is required." >&2; exit 1; }
+# curl is the curl-protected.sh wrapper here, so `command -v curl` would always succeed.
+curl_installed || { echo "Error: curl is required." >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; exit 1; }
 
 echo -n "[1/$TOTAL_STEPS] Verifying Keycloak OIDC discovery endpoint... "
