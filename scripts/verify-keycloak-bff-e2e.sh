@@ -51,6 +51,9 @@ KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
 . "$ROOT_DIR/scripts/lib/test-passwords.sh"
 # shellcheck source=lib/secret-match.sh
 . "$ROOT_DIR/scripts/lib/secret-match.sh"
+# Keeps the callback URL with its authorization code, the CSRF header and JSESSIONID values off curl's command line.
+# shellcheck source=lib/curl-protected.sh
+. "$ROOT_DIR/scripts/lib/curl-protected.sh"
 TEST_USER="testuser"
 TOTAL_STEPS=11
 # The BFF's real client secret, as .env holds it (DOKENE_OIDC_CLIENT_SECRET is its name inside the oidc-bridge container).

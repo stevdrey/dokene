@@ -20,9 +20,15 @@
 #     to the origin the login started from.
 #
 # Reads BFF_URL (default http://localhost:8080). WORK_DIR holds transient header and page files.
+# Sourcing this file also sources curl-protected.sh, so the authorization, form and callback URLs (the callback holds
+# the authorization code) and every header or cookie value of the caller's later curl calls stay off curl's command
+# line (issue 327).
 # Pure parts (is_local_target, header_value, bff_login_form_action) are tested offline by
 # scripts/tests/bff-login-test.sh.
 # ==============================================================================
+
+# shellcheck source=curl-protected.sh
+. "$(dirname "${BASH_SOURCE[0]}")/curl-protected.sh"
 
 # True for a URL on a plain-HTTP loopback origin, with or without a path (OIDC redirects and the login form).
 is_local_target() {

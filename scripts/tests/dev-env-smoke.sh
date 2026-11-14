@@ -56,7 +56,7 @@ check "up does not run a Keycloak realm reconcile script (#319 review)" \
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
   scripts/keycloak-apply-realm-settings.sh scripts/tests/keycloak-apply-realm-settings-test.sh
-  scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh scripts/lib/secret-match.sh
+  scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh scripts/lib/secret-match.sh scripts/lib/curl-protected.sh
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)

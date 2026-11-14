@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # QA suite #121: fixtures (tenants B and C), SEC-01 authn/CSRF/origin/cookies, SEC-02 authorization by role. Writes ids to $OUTD/ids.
+# Headers, cookie values and URLs (callback code, CSRF token) stay off curl's command line (issue 327).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; OUTD=/home/stevdrey/qa121/out; OUT=$QA_TMP; : > $STUB/fail; echo 0 > $STUB/delay.ms
 raw() { local jar=$1 m=$2 p=$3; shift 3; RC=$(curl -s -o $OUT/raw.body -w '%{http_code}' -b $jar -X $m "$BFF$p" "$@"); }
 NOJAR=$QA_TMP/none.txt; : > $NOJAR

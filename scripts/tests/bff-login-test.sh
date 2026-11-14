@@ -51,10 +51,15 @@ assert "a missing page yields an empty action" [ -z "$(bff_login_form_action "$T
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/curl" <<'STUB'
 #!/usr/bin/env bash
-# Records its arguments and stdin; answers by the URL it is given.
+# Records its arguments and stdin; answers by the URL it is given. bff-login.sh sources curl-protected.sh, so the URL
+# arrives in a -K config (`url = "…"`), which the stub reads like curl does.
+printf '%s\n' "$*" >> "$STUB_DIR/argv"
 url="" headers="" out="" post=false
 while [ $# -gt 0 ]; do
   case "$1" in
+    -K) while IFS= read -r line; do
+          case "$line" in 'url = "'*'"') line="${line#url = \"}"; url="${line%\"}" ;; esac
+        done < "$2"; shift ;;
     -D) headers="$2"; shift ;;
     -o) out="$2"; shift ;;
     -c|-b|-w|--data-urlencode) shift ;;
@@ -84,7 +89,7 @@ chmod +x "$TMP/bin/curl"
 
 # run_login [USER]: logs in through the stub with WORK_DIR=$TMP/work.
 run_login() {
-  : > "$TMP/calls"; rm -f "$TMP/posted-password"; mkdir -p "$TMP/work"
+  : > "$TMP/calls"; : > "$TMP/argv"; rm -f "$TMP/posted-password"; mkdir -p "$TMP/work"
   printf '%s' 'p@ss word&=1' | PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/calls" STUB_DIR="$TMP" \
     bff_login "${1:-testuser}" "$TMP/jar" "$TMP/work" > "$TMP/out" 2> "$TMP/err"
 }
@@ -102,6 +107,8 @@ assert "a loopback flow logs in" run_login
 assert "a successful login prints the cookie jar" [ "$(cat "$TMP/out")" = "$TMP/jar" ]
 assert "the password reaches curl through stdin" [ "$(cat "$TMP/posted-password")" = 'p@ss word&=1' ]
 assert "the callback is completed" grep -qx "http://localhost:8080/login/oauth2/code/dokene?code=c&state=s" "$TMP/calls"
+assert "curl was called for every hop" [ "$(wc -l < "$TMP/argv")" -eq 4 ]
+refute "no URL, and so no authorization code, is on a curl command line (#327)" grep -qE 'https?://|code=c' "$TMP/argv"
 refute "transient login files are removed" compgen -G "$TMP/work/bff-login.*"
 
 use_local_stack; STUB_AUTH_URL="http://keycloak.example.com/realms/dokene/auth"
@@ -149,6 +156,56 @@ refute "no work files are left after that login" compgen -G "$TMP/work/bff-login
 LIB_CODE="$(grep -Ev '^[[:space:]]*#' "$LIB")"
 assert "the helper posts the password from stdin exactly once" [ "$(grep -c 'password@-' <<<"$LIB_CODE")" -eq 1 ]
 refute "the helper never builds a password= argument" grep -q 'password=' <<<"$LIB_CODE"
+
+# --- curl-protected.sh (sourced by bff-login.sh): headers, cookie values and URLs go to curl in a -K config (#327)
+mkdir -p "$TMP/cpbin"
+cat > "$TMP/cpbin/curl" <<'STUB'
+#!/usr/bin/env bash
+# Records its argv and the content of every -K config it is given.
+printf '%s\n' "$*" > "$CP_DIR/argv"
+: > "$CP_DIR/config"
+while [ $# -gt 0 ]; do
+  [ "$1" = -K ] && cat "$2" >> "$CP_DIR/config" && shift
+  shift
+done
+STUB
+chmod +x "$TMP/cpbin/curl"
+export CP_DIR="$TMP/cp"; mkdir -p "$CP_DIR"
+cp_run() { rm -f "$CP_DIR/argv" "$CP_DIR/config"; PATH="$TMP/cpbin:$PATH" curl "$@"; }
+# Synthetic values, built at run time.
+CP_TOKEN="tok-$(printf '%s' 4271)\"q\\b"; CP_SID="sid-$(printf '%s' 4272)"; CP_CODE="code-$(printf '%s' 4273)"
+cp_run -s -X POST -b "JSESSIONID=$CP_SID" -b "$TMP/jar" -H "X-CSRF-TOKEN: $CP_TOKEN" -H "@$TMP/hdr" -d 'http://data' \
+  -o /dev/null "http://localhost:8080/login/oauth2/code/dokene?code=$CP_CODE&state=s" --url "http://localhost:8080/u2" \
+  -- "http://localhost:8080/u3"
+# shellcheck disable=SC2016  # expanded by the child shell, or a literal regex
+assert "curl-protected: no token, session id, code or URL on curl's argv" \
+  bash -c '! grep -qE "4271|4272|4273|localhost" "$1"' _ "$CP_DIR/argv"
+assert "curl-protected: jar files, @file headers and option values stay on argv" \
+  grep -qF -- "-b $TMP/jar -H @$TMP/hdr -d http://data -o /dev/null" "$CP_DIR/argv"
+assert "curl-protected: the header reaches curl escaped in the config" \
+  grep -qxF "header = \"X-CSRF-TOKEN: tok-4271\\\"q\\\\b\"" "$CP_DIR/config"
+assert "curl-protected: the cookie value reaches curl in the config" grep -qxF "cookie = \"JSESSIONID=$CP_SID\"" "$CP_DIR/config"
+assert "curl-protected: the callback URL, --url and the URL after -- reach curl in the config, in order" \
+  [ "$(grep '^url = ' "$CP_DIR/config" | tr '\n' ' ')" = "url = \"http://localhost:8080/login/oauth2/code/dokene?code=$CP_CODE&state=s\" url = \"http://localhost:8080/u2\" url = \"http://localhost:8080/u3\" " ]
+cp_run -s -H $'X-Evil: a\r\nX-Injected: 1' "http://localhost:8080/x" 2> "$TMP/cp-err"; CP_RC=$?
+assert "curl-protected: a header with a line break is refused with status 2" [ "$CP_RC" -eq 2 ]
+refute "curl-protected: curl is not run for a refused header" [ -e "$CP_DIR/argv" ]
+cp_run -s -o /dev/null -b "$TMP/jar"
+assert "curl-protected: a call with nothing to move runs curl without a config" [ "$(cat "$CP_DIR/argv")" = "-s -o /dev/null -b $TMP/jar" ]
+# shellcheck disable=SC2016  # expanded by the child shell, or a literal regex
+assert "curl-protected: the wrapper runs under set -u with no argument at all" \
+  bash -c 'set -u; . "$1"; PATH="$2:$PATH" curl' _ "$ROOT_DIR/scripts/lib/curl-protected.sh" "$TMP/cpbin"
+
+# Every live script that sends a CSRF header or a session cookie by value loads the wrapper, directly or through
+# bff-login.sh, so a new call site cannot reintroduce the exposure unnoticed.
+cp_unwrapped=""
+for script in "$ROOT_DIR"/scripts/*.sh; do
+  grep -qE 'X-CSRF-TOKEN: ?\$|-b "?JSESSIONID=' "$script" || continue
+  # shellcheck disable=SC2016  # expanded by the child shell, or a literal regex
+  grep -qE '^\. "\$ROOT_DIR/scripts/lib/(bff-login|curl-protected)\.sh"' "$script" || cp_unwrapped+=" ${script##*/}"
+done
+assert "curl-protected: every script sending session values loads the wrapper${cp_unwrapped:+ (missing:$cp_unwrapped)}" \
+  [ -z "$cp_unwrapped" ]
 
 if [ "$FAILURES" -gt 0 ]; then printf '\n%s test(s) failed\n' "$FAILURES"; exit 1; fi
 printf '\nall tests passed\n'

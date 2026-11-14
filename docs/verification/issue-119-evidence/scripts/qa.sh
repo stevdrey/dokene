@@ -1,4 +1,6 @@
 # QA helper (synthetic data only). Source it from the repository root after exporting .env.
+# Headers, cookie values and URLs (callback code, CSRF token) stay off curl's command line (issue 327).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }
 # qa_login <user>; api <user> <METHOD> <path> <json> [curl args] -> BODY CODE HDRS; getj <user> <path>
 BFF=${BFF:-http://localhost:8080}; PW=${DOKENE_TEST_USER_PASSWORD:-testpassword}
 QA_TMP=${QA_TMP:-$(mktemp -d)}

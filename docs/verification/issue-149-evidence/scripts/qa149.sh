@@ -2,6 +2,8 @@
 # ABOUTME: Shared helpers for the suite #149 scripts: logins, tenant scoped requests, database probes, stub control
 # ABOUTME: and the PASS/FAIL/BLOCKED recorder that writes one line per case id to results.tsv. Synthetic data only.
 
+# Headers, cookie values and URLs (callback code, CSRF token) stay off curl's command line (issue 327).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }
 BFF=${BFF:-http://localhost:8080}
 PW=${DOKENE_TEST_USER_PASSWORD:-testpassword}
 QA_TMP=${QA_TMP:-$(mktemp -d)}
