@@ -7,7 +7,7 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 ## Environment
 
 - **Run:** 2026-11-13, branch `327-security-keep-credentials-out-of-process-arguments`, based on `main` at `3a27773`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `3a27773` and still applied, except where noted below.
-- **Tested revision:** the working tree that became the first commit of this branch on top of `3a27773` (a commit cannot name its own hash). Git blob ids of the main files under test: `infra/docker/postgres/init/01-create-database-roles.sh` `3ad3a6cd09d0758500d9441b5c76ffb1a1c4c863`, `scripts/dev-env.sh` `e39ad880e16ecd0aabcea666998e086864ed80a4`, `scripts/keycloak-apply-realm-settings.sh` `c9fb6dbefae8c0fbf7f7e17d7a0f37391be494c7`, `scripts/verify-keycloak-bff-e2e.sh` `f159500367d3641d938f781427064bf33f34118e`. Every check in the table ran on that tree (`806709a`), except the `sec121-j.sh` CSRF row. That row ran on the second commit's tree, where the only script change is `docs/verification/issue-121-evidence/scripts/sec121-j.sh`, blob `c4b2d94e2ea4613b8d7140429437472b5b6b8de4`; the other blob ids above are unchanged there.
+- **Tested revision:** the working tree that became the first commit of this branch on top of `3a27773` (a commit cannot name its own hash). Git blob ids of the main files under test: `infra/docker/postgres/init/01-create-database-roles.sh` `3ad3a6cd09d0758500d9441b5c76ffb1a1c4c863`, `scripts/dev-env.sh` `e39ad880e16ecd0aabcea666998e086864ed80a4`, `scripts/keycloak-apply-realm-settings.sh` `c9fb6dbefae8c0fbf7f7e17d7a0f37391be494c7`, `scripts/verify-keycloak-bff-e2e.sh` `f159500367d3641d938f781427064bf33f34118e`. Every check in the table ran on that tree (`806709a`), except the `sec121-j.sh` CSRF row. That row ran on the second commit's tree, where the only script change is `docs/verification/issue-121-evidence/scripts/sec121-j.sh`, blob `c4b2d94e2ea4613b8d7140429437472b5b6b8de4`; the other blob ids above are unchanged there. The review fixes below changed more files; their checks ran on the working tree that became the fourth commit, named in that section.
 - **Toolchain:** Linux 7.3 (Fedora 45), Docker 29.9.3, Docker Compose 5.7.1, `postgres:17-alpine` at the digest pinned in `compose.yaml` (psql 17.12), the local Keycloak image (26.8.2), curl 8.21.0, jq 1.8.2, ShellCheck from the distribution.
 - **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The full local stack was not started; see Limitations.
 
@@ -38,6 +38,19 @@ The location `scripts/verify-keycloak-bff-e2e.sh:143-150` of the analysed revisi
 | `sec121-j.sh` CSRF check rewritten to read the token from `curl … \| jq` as a `grep -f` pattern file, after the independent verifier flagged it as optional finding F1 in round 1 | automated, ad hoc | `bash -n` passes; the pattern file form matches the token literally and ignores a look-alike. With no token, nothing matches, where the old empty argument matched every line |
 | Real `curl` against a loopback listener: `-H @<(…)` with `--data-binary @-`, and `--data-urlencode "password@-"` with `&`, `=`, space, `+`, `%` and a non-ASCII letter | live, loopback | Header and body arrived intact; the form value decoded to the exact input |
 | `grep -F -f <(…)` and `has_literal` with a value holding regular expression characters | automated, ad hoc | Literal match only; a look-alike line does not match |
+
+## Review fixes
+
+A code review of the pull request found seven issues. The fixes, made in the fourth commit, were checked on the working tree that became that commit:
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| `verify-keycloak-bff-e2e.sh` compared leaks against a placeholder, because it read `DOKENE_OIDC_CLIENT_SECRET`, a name only the oidc-bridge container has | Reads `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET` from `.env` (container name as fallback) and stops when neither is set | Ad hoc, synthetic `.env` value | The real value is matched in a header file and a piped body; without it the script stops naming the variable; the fallback still works |
+| A match piped into `grep -q` under `pipefail` could be lost to SIGPIPE | New `scripts/lib/secret-match.sh`: `contains_literal` counts matches, so grep reads all its input. GNU grep also stops early when its output is `/dev/null`, so discarding the output is not enough | New smoke check | A match at the start of a 2 MiB piped payload is found under `pipefail` |
+| The `grep -F -f <(…)` form was repeated in three scripts | All three use `contains_literal` or `grep_literals`; empty values are skipped, because an empty pattern matches every line | New smoke check, a shadowing `grep` records argv | Literal match only, empty values skipped, no value on any recorded argv |
+| The fail-closed init test depended on the caller's environment | Clears `DOKENE_DB_MIGRATION_PASSWORD` itself | Smoke run with the variable exported by the caller | Passes |
+| The stubbed Keycloak test never ran `kcadm()`'s admin login | The login is one shared snippet (`KCADM_LOGIN`); the docker stub runs the container script for every call, and a new check refuses a wrong admin password | Keycloak test; negative control with `--password` put back into the login | Passes; the negative control fails 11 checks |
+| The redirect failure message no longer showed the URL | Shows it again with the client secret replaced by `<OIDC client secret>` | Ad hoc | The URL is printed and the secret is redacted |
 
 ## Limitations
 

@@ -49,9 +49,14 @@ BFF_URL="${BFF_URL:-http://localhost:8080}"
 KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
 # shellcheck source=lib/test-passwords.sh
 . "$ROOT_DIR/scripts/lib/test-passwords.sh"
+# shellcheck source=lib/secret-match.sh
+. "$ROOT_DIR/scripts/lib/secret-match.sh"
 TEST_USER="testuser"
 TOTAL_STEPS=11
-TEST_CLIENT_SECRET="${DOKENE_OIDC_CLIENT_SECRET:-dokene-bff-secret}"
+# The BFF's real client secret, as .env holds it (DOKENE_OIDC_CLIENT_SECRET is its name inside the oidc-bridge container).
+# No default: a placeholder would make the leak checks below look for a value the stack never uses.
+TEST_CLIENT_SECRET="${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-${DOKENE_OIDC_CLIENT_SECRET:-}}"
+: "${TEST_CLIENT_SECRET:?SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET is not set; run ./scripts/dev-env.sh up, which generates it in .env}"
 
 echo "======================================================================"
 echo "Dokene BFF End-to-End Security Verification (Issue #52)"
@@ -70,12 +75,11 @@ submit_credentials() {
         --data-urlencode "username=$3" --data-urlencode "password@-" "$2"
 }
 
-# has_literal VALUE [FILE]: true when FILE (stdin when omitted) contains VALUE literally. VALUE reaches grep as a pattern
-# file through process substitution, never on its command line, where any local user could read it (issue 327).
-has_literal() { grep -qF -f <(printf '%s\n' "$1") ${2:+"$2"}; }
-
 # forbidden_label VALUE: how a failure names VALUE; the client secret itself is never printed.
 forbidden_label() { if [ "$1" = "$TEST_CLIENT_SECRET" ]; then echo "<OIDC client secret>"; else echo "$1"; fi; }
+
+# redact_secret TEXT: TEXT with every occurrence of the client secret replaced, so a failure can still show the URL.
+redact_secret() { printf '%s' "${1//"$TEST_CLIENT_SECRET"/<OIDC client secret>}"; }
 
 # start_login JAR: starts a BFF login in a fresh cookie jar and prints the Keycloak login form action.
 start_login() {
@@ -207,10 +211,10 @@ POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '
 # Assert tokens and secrets are NOT present in redirect URL or response headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
     if [[ "$POST_LOGIN_REDIRECT" == *"$forbidden_val"* ]]; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL)"
+        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL: $(redact_secret "$POST_LOGIN_REDIRECT"))"
         exit 1
     fi
-    if has_literal "$forbidden_val" "$HEADER_LOG"; then
+    if contains_literal "$HEADER_LOG" "$forbidden_val"; then
         echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in callback response headers!)"
         exit 1
     fi
@@ -265,11 +269,11 @@ fi
 
 # Assert OAuth tokens and secrets are strictly absent from session body and headers
 for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
-    if printf '%s' "$SESSION_JSON" | has_literal "$forbidden_val"; then
+    if printf '%s' "$SESSION_JSON" | contains_literal - "$forbidden_val"; then
         echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response body!)"
         exit 1
     fi
-    if has_literal "$forbidden_val" "$HEADER_LOG"; then
+    if contains_literal "$HEADER_LOG" "$forbidden_val"; then
         echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response headers!)"
         exit 1
     fi

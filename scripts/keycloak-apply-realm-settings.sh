@@ -71,14 +71,20 @@ config_failed() {
 
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required." >&2; config_failed; }
 
-# Runs kcadm.sh in the keycloak container, logged in as the container's bootstrap admin. Stdin is closed so that
-# `docker compose exec` cannot consume the input of the loops below.
-kcadm() {
-    (cd "$ROOT_DIR" && docker compose exec -T keycloak bash -c '
+# The start of every container script below: log kcadm.sh in as the container's bootstrap admin. The password is
+# expanded inside the container and reaches kcadm.sh in KC_CLI_PASSWORD, never on a command line (issue 327).
+# shellcheck disable=SC2016  # expanded by bash inside the container, not here
+KCADM_LOGIN='
         config=/tmp/kcadm-realm-settings.config
         KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh config credentials --config "$config" \
             --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null 2>&1 \
             || { echo "Error: Keycloak admin login failed." >&2; exit 1; }
+'
+
+# Runs kcadm.sh in the keycloak container, logged in as the container's bootstrap admin. Stdin is closed so that
+# `docker compose exec` cannot consume the input of the loops below.
+kcadm() {
+    (cd "$ROOT_DIR" && docker compose exec -T keycloak bash -c "$KCADM_LOGIN"'
         /opt/keycloak/bin/kcadm.sh "$@" --config "$config"
     ' kcadm "$@" </dev/null 2> >(sed '/^$/d' >&2))  # kcadm writes a bare newline to stderr on every call
 }
@@ -89,17 +95,13 @@ kcadm() {
 # in the container or on the host (issue 327). Keycloak's own error is passed on unless it contains, or could contain,
 # the value. Same argv prefix as kcadm(), so the test stub intercepts both.
 kcadm_set_password() {
-    (cd "$ROOT_DIR" && docker compose exec -T keycloak bash -c '
-        config=/tmp/kcadm-realm-settings.config
+    (cd "$ROOT_DIR" && docker compose exec -T keycloak bash -c "$KCADM_LOGIN"'
         user="$2" variable="$3" realm="$4"
         password="${!variable:-}"
         if [ -z "$password" ]; then
             echo "Error: $variable is empty in the keycloak container; recreate it with ./scripts/dev-env.sh up." >&2
             exit 1
         fi
-        KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh config credentials --config "$config" \
-            --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null 2>&1 \
-            || { echo "Error: Keycloak admin login failed." >&2; exit 1; }
         if ! output="$(KC_CLI_PASSWORD="$password" /opt/keycloak/bin/kcadm.sh set-password -r "$realm" \
                 --username "$user" --config "$config" 2>&1)"; then
             # A value made only of characters that JSON and URL encoding leave alone can appear only as itself. Any
