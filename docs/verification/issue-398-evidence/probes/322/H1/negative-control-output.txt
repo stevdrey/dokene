@@ -1,0 +1,8 @@
+AdvParserDifferentialProbeTest > acceptedValuesStayOnTheirAllowedHost(String) > [25] raw = "https://xn--pi-openai-xyz.com/v1" STANDARD_OUT
+    PROBE accepted: https://xn--pi-openai-xyz.com/v1 -> https://xn--pi-openai-xyz.com/v1 okhttpHost=xn--pi-openai-xyz.com
+> Task :test FAILED
+AdvParserDifferentialProbeTest > acceptedValuesStayOnTheirAllowedHost(String) > [25] raw = "https://xn--pi-openai-xyz.com/v1" FAILED
+      ["xn--pi-openai-xyz.com"]
+      ["xn--pi-openai-xyz.com"]
+25 tests completed, 1 failed
+BUILD FAILED in 4s

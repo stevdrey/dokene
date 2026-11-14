@@ -349,3 +349,19 @@ test('a blocker carried forward as resolved lets the corrected candidate pass', 
   run.addRound(verdict(identity(cwd), 'pass', { findings: [{ ...blocker, status: 'resolved', evidence: 'kept probe reran and passed' }] }));
   expectAction(run.next(), 'commit', 1);
 });
+
+test('a latest verdict that does not record the adversarial pass adds a warning, never another action', t => {
+  const cwd = repository(t);
+  const run = loop(t, cwd);
+  run.addRound(verdict(identity(cwd)));
+  const unrecorded = run.next();
+  expectAction(unrecorded, 'commit', 1);
+  assert.equal(unrecorded.decision.warnings.length, 1);
+  assert.match(unrecorded.decision.warnings[0], /does not say whether the adversarial pass ran/);
+
+  const recorded = loop(t, cwd);
+  recorded.addRound(verdict(identity(cwd), 'pass', { limitations: ['adversarial pass: not run: no trigger'] }));
+  const outcome = recorded.next();
+  expectAction(outcome, 'commit', 1);
+  assert.equal(outcome.decision.warnings, undefined);
+});

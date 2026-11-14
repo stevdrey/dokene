@@ -1,6 +1,6 @@
 # Adversarial Pass
 
-An optional, risk-triggered part of the [independent verification](SKILL.md) of one candidate. The verifier, after mapping the criteria, actively tries to break the change and reports only what it can reproduce as a blocker. It is adapted in Dokene's own words from the `interrogate` practice that the [pstack applicability audit](../../../docs/verification/pstack-applicability-audit.md) marked **Adapt**, as part of [Epic #371](https://github.com/stevdrey/dokene/issues/371). The [Issue #376 decision](../../../docs/verification/issue-376-benchmark-decision.md) keeps it optional and risk-triggered: that benchmark did not exercise it on a seeded defect (no trigger matched), so it is not a default step, and [Issue #398](https://github.com/stevdrey/dokene/issues/398) collects the evidence to decide further.
+An optional, risk-triggered part of the [independent verification](SKILL.md) of one candidate. The verifier, after mapping the criteria, actively tries to break the change and reports only what it can reproduce as a blocker. It is adapted in Dokene's own words from the `interrogate` practice that the [pstack applicability audit](../../../docs/verification/pstack-applicability-audit.md) marked **Adapt**, as part of [Epic #371](https://github.com/stevdrey/dokene/issues/371). The [Issue #376 decision](../../../docs/verification/issue-376-benchmark-decision.md) keeps it optional and risk-triggered: that benchmark did not exercise it on a seeded defect (no trigger matched), so it is not a default step. The [Issue #398 decision](../../../docs/verification/issue-398-adversarial-pass-decision.md) replayed it on five real Issues and keeps it optional.
 
 ## Boundary
 
@@ -25,7 +25,7 @@ Run it, and say which trigger applies, when the candidate's diff touches any of:
 | Migrations | Flyway scripts, grants, constraints, data backfills |
 | External integrations | Provider adapters, webhooks, OIDC, AI providers, endpoint and credential validation |
 
-The handoff names the triggers the implementer sees, and the verifier adds any it finds in the diff. When no trigger applies, record one line in `limitations` ("adversarial pass not run: no trigger") and skip it. Its absence never blocks a candidate that needs no pass.
+The handoff names the triggers the implementer sees, and the verifier adds any it finds in the diff. Record the outcome as one line in `limitations`: `adversarial pass: ran (<triggers>)` when it runs, or `adversarial pass: not run: no trigger` when no trigger applies, and then skip it. Its absence never blocks a candidate that needs no pass. `verification-verdict.mjs` prints a `WARNING`, and `issue-loop.mjs` adds a `warnings` entry, when a verdict has neither such a line nor a check whose summary starts with `probe:`, `base control:`, or `negative control:`, so the record shows whether the pass ran. Neither changes the result, the loop action, or the exit code.
 
 ## Inputs
 

@@ -1,0 +1,107 @@
+// Adversarial probes for issue 324 (verifier, Issue 398 replay). H1: concurrent job runs with different key ids
+// must leave exactly one key without a deadline. H2: a long-lived runtime session does not keep verifying a key
+// after it is revoked (no per-session caching).
+package io.github.stevdrey.dokene.tenant.security;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.persistence.jpa.HmacDatabaseContextSigner;
+import io.github.stevdrey.dokene.tenant.persistence.jpa.TenantContextSigningKeyCallback;
+import java.security.SecureRandom;
+import java.sql.*;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.*;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.callback.Context;
+import org.flywaydb.core.api.callback.Event;
+import org.junit.jupiter.api.Test;
+
+class RetirementAdversarialProbeTest {
+    private static final TenantId TENANT = new TenantId(UUID.randomUUID());
+
+    @Test
+    void h1ConcurrentJobsLeaveExactlyOneUndeadlinedKey() throws Exception {
+        String url = TenantSecurityIntegrationFixture.createEmptyDatabase("adv_h1_" + UUID.randomUUID().toString().replace("-", ""));
+        deploy(url, "k1", randomKey(), Duration.ofHours(1));
+        try (Connection a = migration(url); Connection b = migration(url)) {
+            a.setAutoCommit(false);
+            b.setAutoCommit(false);
+            new TenantContextSigningKeyCallback(randomKey(), "k2", Duration.ofHours(1)).handle(Event.AFTER_MIGRATE, ctx(a));
+            ExecutorService pool = Executors.newSingleThreadExecutor();
+            Future<?> second = pool.submit(() -> {
+                new TenantContextSigningKeyCallback(randomKey(), "k3", Duration.ofHours(1)).handle(Event.AFTER_MIGRATE, ctx(b));
+                b.commit();
+                return null;
+            });
+            Thread.sleep(2000);
+            a.commit();
+            second.get(30, TimeUnit.SECONDS);
+            pool.shutdown();
+        }
+        List<String> undeadlined = new ArrayList<>();
+        try (Connection m = migration(url); ResultSet r = m.createStatement().executeQuery(
+                "SELECT key_id FROM dokene.tenant_context_signing_keys WHERE status='ACTIVE' AND retire_after IS NULL ORDER BY key_id")) {
+            while (r.next()) undeadlined.add(r.getString(1));
+        }
+        System.out.println("PROBE H1 undeadlined keys: " + undeadlined);
+        assertThat(undeadlined).containsExactly("k3");
+    }
+
+    @Test
+    void h2LongLivedSessionStopsVerifyingAfterZeroGraceRevocation() throws Exception {
+        String url = TenantSecurityIntegrationFixture.createEmptyDatabase("adv_h2_" + UUID.randomUUID().toString().replace("-", ""));
+        String k1 = randomKey();
+        deploy(url, "k1", k1, Duration.ofHours(1));
+        SignedDatabaseContext context = new HmacDatabaseContextSigner(k1, "k1").issueTenantContext(TENANT);
+        try (Connection runtime = DriverManager.getConnection(url, TenantSecurityIntegrationFixture.RUNTIME_ROLE,
+                TenantSecurityIntegrationFixture.RUNTIME_PASSWORD)) {
+            try (PreparedStatement s = runtime.prepareStatement(
+                    "SELECT set_config('dokene.tenant_context', ?, false), set_config('dokene.tenant_context_signature', ?, false)")) {
+                s.setString(1, context.payload());
+                s.setString(2, context.signature());
+                s.execute();
+            }
+            assertThat(verified(runtime)).isEqualTo(TENANT.value());
+            deploy(url, "k2", randomKey(), Duration.ZERO);
+            UUID after = verified(runtime);
+            System.out.println("PROBE H2 same-session tenant after revocation: " + (after == null ? "null" : "verified"));
+            assertThat(after).isNull();
+        }
+    }
+
+    private static UUID verified(Connection runtime) throws SQLException {
+        try (ResultSet r = runtime.createStatement().executeQuery("SELECT dokene.current_verified_tenant_id()")) {
+            r.next();
+            return r.getObject(1, UUID.class);
+        }
+    }
+
+    private static Context ctx(Connection c) {
+        Context context = mock(Context.class);
+        when(context.getConnection()).thenReturn(c);
+        return context;
+    }
+
+    private static Connection migration(String url) throws SQLException {
+        return DriverManager.getConnection(url, TenantSecurityIntegrationFixture.MIGRATION_ROLE,
+                TenantSecurityIntegrationFixture.MIGRATION_PASSWORD);
+    }
+
+    private static void deploy(String url, String keyId, String key, Duration grace) {
+        Flyway.configure().dataSource(url, TenantSecurityIntegrationFixture.MIGRATION_ROLE,
+                        TenantSecurityIntegrationFixture.MIGRATION_PASSWORD)
+                .schemas("dokene").defaultSchema("dokene").createSchemas(true).cleanDisabled(true)
+                .callbacks(new TenantContextSigningKeyCallback(key, keyId, grace)).load().migrate();
+    }
+
+    private static String randomKey() {
+        byte[] key = new byte[32];
+        new SecureRandom().nextBytes(key);
+        return HexFormat.of().formatHex(key);
+    }
+}

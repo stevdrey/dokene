@@ -1,0 +1,13 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/tenant/application/MembershipChangeAuthorizer.java b/backend/src/main/java/io/github/stevdrey/dokene/tenant/application/MembershipChangeAuthorizer.java
+index 533d155..2449c8f 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/tenant/application/MembershipChangeAuthorizer.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/tenant/application/MembershipChangeAuthorizer.java
+@@ -60,7 +60,7 @@ public class MembershipChangeAuthorizer {
+         try {
+             return transactions.execute(status -> {
+                 memberships.lockForMembershipChange(request.tenantId(), List.of(request.identityId(), target));
+-                currentMembers.denial(permission, request::tenantId).ifPresent(denial -> {
++                java.util.Optional.<AuthorizationDeniedEvent>empty().ifPresent(denial -> {
+                     throw new RefusedUnderLock(denial);
+                 });
+                 return mutation.get();

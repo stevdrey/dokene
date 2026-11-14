@@ -1,0 +1,26 @@
+    PROBE accepted: https://api.openai.com/@evil.example -> https://api.openai.com/@evil.example okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com//evil.example/v1 -> https://api.openai.com/evil.example/v1 okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com/%2F%2Fevil.example -> https://api.openai.com/%2F%2Fevil.example okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com/..//evil.example -> https://api.openai.com/../evil.example okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com/./../evil.example -> https://api.openai.com/../evil.example okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com/v1/%2e%2e/%2e%2e/x -> https://api.openai.com/v1/%2e%2e/%2e%2e/x okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com:00443/v1 -> https://api.openai.com/v1 okhttpHost=api.openai.com
+    PROBE accepted: https://API.OPENAI.COM:443/v1 -> https://api.openai.com/v1 okhttpHost=api.openai.com
+    PROBE accepted: http://localhost:0080/v1 -> http://localhost/v1 okhttpHost=localhost
+    PROBE accepted: http://[::1]:18080/v1 -> http://[::1]:18080/v1 okhttpHost=::1
+    PROBE rejected: http://[0:0:0:0:0:0:0:1]/v1
+    PROBE rejected: https://api.openai.com;evil.example/v1
+    PROBE accepted: https://api.openai.com/v1;@evil.example -> https://api.openai.com/v1;@evil.example okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com/v1%40evil.example -> https://api.openai.com/v1%40evil.example okhttpHost=api.openai.com
+    PROBE accepted: https://api.openai.com/v1/..;/x -> https://api.openai.com/v1/..;/x okhttpHost=api.openai.com
+    PROBE accepted: https://gw.internal.example/v1 -> https://gw.internal.example/v1 okhttpHost=gw.internal.example
+    PROBE accepted: http://localhost/%0d%0aHost:evil -> http://localhost/%0d%0aHost:evil okhttpHost=localhost
+    PROBE rejected: https://api.openai.com:443%2f@evil.example
+    PROBE rejected: https://api.openai.com	/v1
+    PROBE rejected: https://api.openai.com /v1
+    PROBE accepted: HTTPS://api.openai.com/v1 -> https://api.openai.com/v1 okhttpHost=api.openai.com
+    PROBE rejected: https://api.openai.com/v1#
+    PROBE rejected: https://api.openai.com/v1/?
+    PROBE accepted: http://localhost:65535 -> http://localhost:65535 okhttpHost=localhost
+    PROBE rejected: https://xn--pi-openai-xyz.com/v1
+BUILD SUCCESSFUL in 10s

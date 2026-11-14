@@ -1,0 +1,6 @@
+PROBE /api/..;/oauth2/authorization/dokene -> HTTP/1.1 400  sessions=0
+PROBE canonical -> HTTP/1.1 302  sessions=1
+PROBE /login/..;/oauth2/authorization/dokene -> HTTP/1.1 400  sessions=0
+PROBE /logout/..;/oauth2/authorization/dokene -> HTTP/1.1 400  sessions=0
+PROBE /oauth2/x/..;/authorization/dokene -> HTTP/1.1 400  sessions=0
+PROBE /oauth2/x;/../authorization/dokene -> HTTP/1.1 400  sessions=0

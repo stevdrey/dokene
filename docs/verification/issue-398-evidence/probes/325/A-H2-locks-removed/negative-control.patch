@@ -1,0 +1,13 @@
+diff --git a/backend/src/main/java/io/github/stevdrey/dokene/tenant/persistence/jpa/JpaTenantMembershipRepositoryAdapter.java b/backend/src/main/java/io/github/stevdrey/dokene/tenant/persistence/jpa/JpaTenantMembershipRepositoryAdapter.java
+index 5c1708a..40e699a 100644
+--- a/backend/src/main/java/io/github/stevdrey/dokene/tenant/persistence/jpa/JpaTenantMembershipRepositoryAdapter.java
++++ b/backend/src/main/java/io/github/stevdrey/dokene/tenant/persistence/jpa/JpaTenantMembershipRepositoryAdapter.java
+@@ -55,7 +55,7 @@ public class JpaTenantMembershipRepositoryAdapter implements TenantMembershipRep
+     public void lockForMembershipChange(TenantId tenantId, Collection<IdentityId> identityIds) {
+         Objects.requireNonNull(tenantId, "Tenant ID is required");
+         List<UUID> identities = identityIds.stream().map(IdentityId::value).distinct().toList();
+-        repository.shareLockTenant(tenantId.value());
++        if (true) return;
+         if (identities.isEmpty()) {
+             return;
+         }
