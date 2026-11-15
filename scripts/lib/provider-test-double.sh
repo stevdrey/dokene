@@ -12,6 +12,8 @@
 #                                            that could change that: it stops the backend and returns 3
 #
 #   PROVIDER_TEST_COMPOSE_FILE   the compose file whose backend service is the baseline (default compose.yaml)
+#   PROVIDER_TEST_DOCKERFILE     the Dockerfile whose final stage is the image's baseline
+#                                (default infra/docker/backend/Dockerfile)
 #   PROVIDER_TEST_EXTRA_NAMES    space-separated extra environment names a script's own override adds; each must
 #                                pass the same reserved-name rules as override extras
 #
@@ -122,6 +124,27 @@ _provider_test_compose_mounts() {
          b && /^ +target: \// { sub(/^ +target: */, ""); print }' "$1"
 }
 
+# _provider_test_dockerfile_baseline FILE: the final stage of the backend Dockerfile as ENTRYPOINT, CMD and WORKDIR
+# lines in the JSON form docker inspect prints, and one ENV line per variable it sets. A form the parser does not
+# know (shell-form ENTRYPOINT or CMD, ENV without "NAME=\"value\"") prints an UNPARSED line, so the check fails closed.
+_provider_test_dockerfile_baseline() {
+    awk '/^FROM / { ep = ""; cmd = "null"; wd = ""; n = 0; bad = 0; next }
+         /^WORKDIR / { wd = $2; next }
+         /^ENTRYPOINT / { v = $0; sub(/^ENTRYPOINT +/, "", v); gsub(/, +/, ",", v); if (v !~ /^\[/) bad = 1; ep = v; next }
+         /^CMD / { v = $0; sub(/^CMD +/, "", v); gsub(/, +/, ",", v); if (v !~ /^\[/) bad = 1; cmd = v; next }
+         /^ENV / { v = $0; sub(/^ENV +/, "", v)
+                   if (v ~ /^[A-Za-z_][A-Za-z0-9_]*="[^"]*"$/) { sub(/="/, "=", v); sub(/"$/, "", v); env[++n] = v }
+                   else bad = 1
+                   next }
+         END { if (bad || ep == "" || wd == "") print "UNPARSED"
+               print "ENTRYPOINT " ep; print "CMD " cmd; print "WORKDIR \"" wd "\""
+               for (i = 1; i <= n; i++) print "ENV " env[i] }' "$1"
+}
+
+# The names the digest-pinned base image (eclipse-temurin, see invariant 34) gives the backend image. Together with
+# the Dockerfile's own ENV names they are the only variables the image may carry.
+PROVIDER_TEST_BASE_IMAGE_NAMES='PATH JAVA_HOME JAVA_VERSION LANG LANGUAGE LC_ALL'
+
 # _provider_test_backend_state VAR_CONTAINER VAR_IMAGE: sets the first variable to the running backend container's
 # entrypoint, cmd and working directory (JSON, one line each), environment entries (ENV NAME=value) and mount
 # destinations (MOUNT path), and the second to the same lines for its image (no mounts). They are two separate
@@ -144,6 +167,9 @@ _provider_test_backend_state() {
 
 # The backend is compared with its baseline, not searched for known bad settings: anything the baseline does not
 # allow fails closed.
+# - The image itself is checked against this tree: its entrypoint, cmd and working directory must be the backend
+#   Dockerfile's, every variable the Dockerfile sets must have the Dockerfile's value, and the image may carry no
+#   variable beyond those and PROVIDER_TEST_BASE_IMAGE_NAMES. A modified image cannot bring other settings along.
 # - Environment names: the backend's environment block in the compose file, the names declared in
 #   PROVIDER_TEST_EXTRA_NAMES (each must pass _provider_test_reserved), and the image's own names, which must keep the
 #   image's value (PATH, JAVA_HOME, JAVA_TOOL_OPTIONS and the locale). Any other name fails closed, so another spelling
@@ -159,6 +185,8 @@ _provider_test_backend_state() {
 provider_test_assert_backend() {
     local compose="${PROVIDER_TEST_COMPOSE_FILE:-compose.yaml}" nl='
 '
+    local dockerfile="${PROVIDER_TEST_DOCKERFILE:-infra/docker/backend/Dockerfile}" df_line df_entrypoint='' df_cmd=''
+    local df_workdir='' df_env='' df_names='' base_names="$nl${PROVIDER_TEST_BASE_IMAGE_NAMES// /$nl}$nl"
     local state='' image_state='' line kind entry name value n extra reason='' key_seen='' url_seen=''
     local allowed='' mounts='' image_env='' image_names='' entrypoint='' cmd='' workdir=''
     local image_entrypoint='' image_cmd='' image_workdir=''
@@ -168,6 +196,20 @@ provider_test_assert_backend() {
         allowed="$nl$(_provider_test_compose_names "$compose")$nl"
         mounts="$nl$(_provider_test_compose_mounts "$compose")$nl"
         [ "$allowed" = "$nl$nl" ] && reason="no backend environment found in $compose"
+    fi
+    if [ -z "$reason" ] && [ ! -r "$dockerfile" ]; then
+        reason="the Dockerfile $dockerfile is not readable"
+    elif [ -z "$reason" ]; then
+        while IFS= read -r df_line; do
+            case "$df_line" in
+                UNPARSED) reason="the Dockerfile $dockerfile has a form the check cannot read" ;;
+                'ENTRYPOINT '*) df_entrypoint="${df_line#ENTRYPOINT }" ;;
+                'CMD '*) df_cmd="${df_line#CMD }" ;;
+                'WORKDIR '*) df_workdir="${df_line#WORKDIR }" ;;
+                'ENV '*) df_env="$df_env$nl${df_line#ENV }"; df_line="${df_line#ENV }"; df_names="$df_names$nl${df_line%%=*}" ;;
+            esac
+        done <<< "$(_provider_test_dockerfile_baseline "$dockerfile")"
+        df_env="$df_env$nl"; df_names="$df_names$nl"
     fi
     for extra in ${PROVIDER_TEST_EXTRA_NAMES:-}; do
         [ -n "$reason" ] && break
@@ -182,16 +224,35 @@ provider_test_assert_backend() {
     fi
     # The image's baseline.
     while [ -z "$reason" ] && IFS= read -r line; do
+        [ -z "$line" ] && continue
         kind="${line%% *}"; entry="${line#* }"
         case "$kind" in
             ENTRYPOINT) image_entrypoint="$entry" ;;
             CMD) image_cmd="$entry" ;;
             WORKDIR) image_workdir="$entry" ;;
-            ENV) image_env="$image_env$nl$entry"; image_names="$image_names$nl${entry%%=*}" ;;
+            ENV)
+                image_env="$image_env$nl$entry"; name="${entry%%=*}"; image_names="$image_names$nl$name"
+                case "$df_names" in
+                    *"$nl$name$nl"*)
+                        case "$df_env" in
+                            *"$nl$entry$nl"*) ;;
+                            *) reason="$name of the backend image differs from its Dockerfile" ;;
+                        esac ;;
+                    *)
+                        case "$base_names" in
+                            *"$nl$name$nl"*) ;;
+                            *) reason="the backend image sets $name, which its Dockerfile and base image do not" ;;
+                        esac ;;
+                esac ;;
+            *) reason='an environment value of the backend image spans several lines' ;;
         esac
     done <<< "$image_state"
     image_env="$image_env$nl"; image_names="$image_names$nl"
     [ -z "$reason" ] && [ -z "$image_entrypoint" ] && reason='the backend image could not be inspected'
+    if [ -z "$reason" ] && { [ "$image_entrypoint" != "$df_entrypoint" ] || [ "$image_cmd" != "$df_cmd" ] \
+        || [ "$image_workdir" != "$df_workdir" ]; }; then
+        reason='the backend image entrypoint, command or working directory differs from its Dockerfile'
+    fi
     # The container against that baseline.
     while [ -z "$reason" ] && IFS= read -r line; do
         [ -z "$line" ] && continue

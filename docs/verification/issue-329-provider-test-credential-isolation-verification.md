@@ -7,7 +7,7 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 ## Environment
 
 - **Run:** 2026-11-14, branch `329-security-isolate-credentials-in-provider-failure-tests`, based on `main` at `dc0d27a`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `dc0d27a`, with the result below.
-- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The eighth commit is identified by the blob ids of the files it changes, apart from this record.
+- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The ninth commit is identified by the blob ids of the files it changes, apart from this record.
 
   | Commit | Tree | Checks |
   | --- | --- | --- |
@@ -18,9 +18,10 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
   | `6ee51bb` | `1e897348ac3c700508f79b3de953d0574eb5a326` | F2, F3 and F5 fixes |
   | `6a1b7e3` | `3988608eeea8c7eafd979ed21c9f7ca8c92e9ff2` | F6 and F7 fixes |
   | `dde3759` | `7b26d4324ac89bb782484569c6b655b522815085` | F8 and F9 fixes |
-  | eighth commit | `scripts/lib/provider-test-double.sh` `1a38bd6a24a1db2346d54596a80b930779f6e4fc`, `scripts/tests/provider-test-double-test.sh` `63e13666c4b023b733a00ecf120170b714f09433`, `docs/security/security-invariants.md` `23da243bf5b321a89897f3d9ded096a08ce0ee43`, `.github/workflows/scripts.yml` `19f719d50c525b2569d61c1c76756a25930bd17f`, `docs/verification/issue-121-evidence/scripts/sec121-d.sh` `0b02caeefb6d963a543f1c57e3909ed218e75870`, `docs/verification/issue-120-evidence/scripts/ai120-c.sh` `9287f08963ac45c1bc689cc9d769d7a89580a255`, `docs/verification/issue-123-evidence/scripts/res10.sh` `c0611028c97702018e582136a3cb0fac0d21fe21`, `docs/verification/issue-123-evidence/scripts/README.md` `7bbbe2ad11c1d029f7870326ba0ce33f3920cbaa` | Code review fixes, allowlist check |
+  | `91cf751` | `80078ec2bcf3e4aebde7f838db6bb1818f29d47e` | Code review fixes, allowlist check |
+  | ninth commit | `scripts/lib/provider-test-double.sh` `1447453766979881cbfbab427fc16631f33da95a`, `scripts/tests/provider-test-double-test.sh` `f935329bbd6db4c09d89c4f07073a5d4df4e3376`, `docs/security/security-invariants.md` `03c849298d03bec165a1aeec6d781c0c7cf9f025` | F11, F12 and F13 fixes |
 
-  An independent verifier checked each of these candidates (rounds 1 to 8).
+  An independent verifier checked each of these candidates (rounds 1 to 9).
 - **Toolchain:** Linux 7.3 (Fedora 45), GNU bash 5, ShellCheck 0.11.0, curl 8.21.0, OpenJDK 27 compiling the stub with `javac --release 26`, Node `--check` for the `.mjs` script.
 - **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The local stack was not started and the changed evidence scripts were not rerun end to end; see Limitations.
 
@@ -142,7 +143,7 @@ The sixth verification round reported two new optional findings. They were fixed
 
 ## Code review fixes, allowlist check (eighth commit)
 
-A second code review of the pull request found eight issues. Two of them were ways past the backend check: a multi-line environment value hid its continuation, and an entrypoint or command override was never inspected. The review also noted that the check was a denylist each round had to extend. The eighth commit replaces it with a comparison against the backend's baseline. A read-only comparison of the running backend showed the baseline fits exactly: its 53 environment names are the 46 of the compose file's backend service plus the image's 7. Its only mount is the compose secret target, and its entrypoint, command and working directory equal the image's.
+A second code review of the pull request found eight issues. They were fixed in the eighth commit (`91cf751`, see Tested revisions). Two of them were ways past the backend check: a multi-line environment value hid its continuation, and an entrypoint or command override was never inspected. The review also noted that the check was a denylist each round had to extend. The eighth commit replaces it with a comparison against the backend's baseline. A read-only comparison of the running backend showed the baseline fits exactly: its 52 environment names are the 45 of the compose file's backend service plus the image's 7 (corrected in the ninth commit; an earlier count included a trailing blank line). Its only mount is the compose secret target, and its entrypoint, command and working directory equal the image's.
 
 | Finding | Fix | Check | Outcome |
 | --- | --- | --- | --- |
@@ -163,12 +164,24 @@ ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
 
 Finding F11 is partly addressed: nested YAML keys, doubled separators and the unscanned file types of the guard remain. The backend check now covers those spellings at run time for every script that uses the library, because any name outside the baseline fails closed.
 
+## F11, F12 and F13 fixes (ninth commit)
+
+The eighth verification round reported three optional findings. They were fixed in the ninth commit and checked on its working tree (blob ids under Tested revisions):
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| F11: the hand-set URL guard missed doubled separators, nested YAML keys, `.env`, `.kts`, `Dockerfile` and upper-case extensions, and took an added `.patch` line starting with `++` for a file header | Any run of separators between the words; case-insensitive file names, with `.kts`, `.env`, `.env*` and `Dockerfile*` added; in YAML files that mention `openai`, a `base-url` key line counts too; in `.patch` files, `+++ ` is a header only right after `--- `. Recorded output (`.txt`, `.json`) stays out of the scan on purpose | Two separator forms, six file types, a nested key (and another integration's nested `base-url`, which passes), an added `+++ ` line and real file headers; negative control with the eighth commit's guard | All as expected. The repository's mentions are still the three reviewed lines. The control fails 10 checks |
+| F12: the image was trusted as the baseline, so settings baked into a modified image passed | The image is checked against the backend Dockerfile's final stage: entrypoint, command and working directory must match. Every variable the Dockerfile sets must have its value, and other image variables may only be the base image's (`PATH`, `JAVA_HOME`, `JAVA_VERSION`, `LANG`, `LANGUAGE`, `LC_ALL`). A missing Dockerfile, or a form the parser does not know, fails closed | Five variables baked into the image; an image `JAVA_TOOL_OPTIONS` with an agent; an image entrypoint, working directory or command that differs; a missing and a shell-form Dockerfile; a read-only dry run on the running backend (`compose stop` suppressed, value rules disabled in a scratch copy); negative control with the eighth commit's library | All fail closed, and the running backend's image matches its Dockerfile (the dry run returns 0). The control fails 9 checks |
+| F13: the eighth-commit section gave 53 = 46 + 7 environment names | Corrected to 52 = 45 + 7 | Recount on the running backend and of the compose file's backend names | 52 and 45 |
+
+`scripts/tests/provider-test-double-test.sh` passes 219 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
+
 ## Limitations
 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
 - Whether the key reached the stub in the original runs was not established, as the Issue notes: the stub never logged headers, and the refused and blackholed destinations had no listener. This record proves that a rerun cannot send it, not what was sent before.
 - The backend still sends whatever key is configured to an allowed base URL, loopback included. A local gateway on loopback that forwards to a provider is a legitimate deployment, so the backend cannot refuse a real key there; the guard is in the test harness, where the destination is chosen.
 - The hand-set URL guard is a text scan: a name built at run time (for example by joining strings) would not be seen. Scripts that use the library are still checked at run time by `provider_test_assert_backend`.
-- The baseline trusts the compose file and the image built from this tree; a change to either is reviewed like any other code. A driver whose own override adds names must declare them in `PROVIDER_TEST_EXTRA_NAMES`, otherwise the check stops the backend.
+- The baseline is this tree's compose file and backend Dockerfile; a change to either is reviewed like any other code. The image's base variables (`PATH`, `JAVA_HOME`, `JAVA_VERSION` and the locale) are taken from the digest-pinned base image (invariant 34) without comparing their values. A driver whose own override adds names must declare them in `PROVIDER_TEST_EXTRA_NAMES`, otherwise the check stops the backend.
 - Spring's handling of each alias was not exercised against a running backend. The checks follow the relaxed binding rules (case and separators ignored) and fail closed beyond them; a property source the library does not know, such as a config file baked into a custom image, is outside what a harness check can see.
 - `res11.mjs` and the live cases of `res01.sh` use the real provider on purpose and are out of scope; `res01.sh` already sets its key per case.

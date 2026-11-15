@@ -106,7 +106,10 @@ assert "a refused export changes nothing" test "$?" = 0
 
 # --- the running backend is compared with its baseline, and stopped when it could send a real key
 # The baseline is the repository's own compose.yaml, so a drift between the library and the compose file shows here.
-export PROVIDER_TEST_COMPOSE_FILE="$ROOT_DIR/compose.yaml"
+export PROVIDER_TEST_COMPOSE_FILE="$ROOT_DIR/compose.yaml" PROVIDER_TEST_DOCKERFILE="$ROOT_DIR/infra/docker/backend/Dockerfile"
+assert "the Dockerfile baseline is the backend image's final stage" test "$(_provider_test_dockerfile_baseline "$PROVIDER_TEST_DOCKERFILE")" \
+    = "$(printf '%s\n' 'ENTRYPOINT ["/app/entrypoint.sh"]' 'CMD null' 'WORKDIR "/app"' \
+        'ENV JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError')"
 COMPOSE_NAMES="$(_provider_test_compose_names "$PROVIDER_TEST_COMPOSE_FILE")"
 assert "the compose file's backend environment is read" test "$(printf '%s\n' "$COMPOSE_NAMES" | grep -c .)" -gt 30
 assert "the compose baseline includes the provider key" grep -qx DOKENE_AI_OPENAI_API_KEY <<< "$COMPOSE_NAMES"
@@ -130,7 +133,8 @@ case "$1 $2" in
         env_lines ENV "$st/env"
         [ -f "$st/mounts" ] && sed 's/^/MOUNT /' "$st/mounts" ;;
     "image inspect")
-        printf 'ENTRYPOINT ["/app/entrypoint.sh"]\nCMD null\nWORKDIR "/app"\n'
+        printf 'ENTRYPOINT %s\nCMD %s\nWORKDIR %s\n' "$(cat "$st/image_entrypoint")" "$(cat "$st/image_cmd")" \
+            "$(cat "$st/image_workdir")"
         env_lines ENV "$st/image_env" ;;
 esac
 exit 0
@@ -170,6 +174,10 @@ backend_env() {
     printf 'null' > "$DOCKER_STATE/cmd"
     printf '"/app"' > "$DOCKER_STATE/workdir"
     printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
+    printf '["/app/entrypoint.sh"]' > "$DOCKER_STATE/image_entrypoint"
+    printf 'null' > "$DOCKER_STATE/image_cmd"
+    printf '"/app"' > "$DOCKER_STATE/image_workdir"
+    printf '%s\0' "${IMAGE_ENV[@]}" > "$DOCKER_STATE/image_env"
     : > "$DOCKER_STATE/events"
 }
 check_backend() { PATH="$BIN:$PATH" provider_test_assert_backend 2> "$TMP/assert.err"; }
@@ -276,6 +284,33 @@ backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
 : > "$DOCKER_STATE/image_env"
 expect_backend "a backend whose image cannot be read fails closed" 3
 printf '%s\0' "${IMAGE_ENV[@]}" > "$DOCKER_STATE/image_env"
+# The image itself must match this tree's Dockerfile and base image: a modified image cannot bring settings along,
+# even when the container keeps the image's values.
+for baked in "DOKENE_AI_OPENAI_APIKEY=$REAL_LOOKING_KEY" "SPRING_APPLICATION_JSON={\"dokene\":{}}" 'BASH_ENV=/tmp/rc' \
+    'LD_PRELOAD=/tmp/libx.so' 'JDK_JAVA_OPTIONS=-javaagent:/tmp/a.jar'; do
+    backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" "$baked"
+    printf '%s\0' "${IMAGE_ENV[@]}" "$baked" > "$DOCKER_STATE/image_env"
+    expect_backend "a variable baked into the image fails closed: ${baked%%=*}" 3
+done
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" 'JAVA_TOOL_OPTIONS=-javaagent:/tmp/a.jar'
+{ printf '%s\0' "${IMAGE_ENV[@]:0:6}"; printf '%s\0' 'JAVA_TOOL_OPTIONS=-javaagent:/tmp/a.jar'; } > "$DOCKER_STATE/image_env"
+expect_backend "an image whose JAVA_TOOL_OPTIONS differs from its Dockerfile fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+printf '["/tmp/run.sh"]' > "$DOCKER_STATE/image_entrypoint"; printf '["/tmp/run.sh"]' > "$DOCKER_STATE/entrypoint"
+expect_backend "an image whose entrypoint differs from its Dockerfile fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+printf '"/tmp"' > "$DOCKER_STATE/image_workdir"; printf '"/tmp"' > "$DOCKER_STATE/workdir"
+expect_backend "an image whose working directory differs from its Dockerfile fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+printf '["--x"]' > "$DOCKER_STATE/image_cmd"; printf '["--x"]' > "$DOCKER_STATE/cmd"
+expect_backend "an image with a command its Dockerfile does not set fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+PROVIDER_TEST_DOCKERFILE="$TMP/missing.Dockerfile" check_backend; rc=$?
+assert "a missing Dockerfile fails closed" test "$rc" = 3
+printf '%s\n' 'FROM scratch' 'ENTRYPOINT /app/entrypoint.sh' 'WORKDIR /app' > "$TMP/shell-form.Dockerfile"
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+PROVIDER_TEST_DOCKERFILE="$TMP/shell-form.Dockerfile" check_backend; rc=$?
+assert "a Dockerfile form the check cannot read fails closed" test "$rc" = 3
 
 : > "$DOCKER_STATE/env"
 expect_backend "no running backend fails closed" 3
@@ -307,8 +342,15 @@ done
 # REVIEWED_READ marker, and the exact line of the issue 246-253 evaluation harness, which sets a synthetic key next
 # to it. Recorded data (.json) is not scanned; in a recorded diff (.patch) only added lines count. Files are scanned
 # one at a time, so a ':' in a path cannot be mistaken for the end of the file name.
-STUB_URL_SCAN_TYPES=(-name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o -name '*.js' -o -name '*.ts' -o -name '*.py'
-    -o -name '*.java' -o -name '*.yaml' -o -name '*.yml' -o -name '*.conf' -o -name '*.properties' -o -name '*.patch')
+# Names are matched case-insensitively. Recorded output (.txt, .json) is not scanned: it records past runs and is
+# never run.
+STUB_URL_SCAN_TYPES=(-iname '*.sh' -o -iname '*.bash' -o -iname '*.mjs' -o -iname '*.js' -o -iname '*.ts'
+    -o -iname '*.py' -o -iname '*.java' -o -iname '*.kts' -o -iname '*.yaml' -o -iname '*.yml' -o -iname '*.conf'
+    -o -iname '*.properties' -o -iname '*.env' -o -iname '.env*' -o -iname 'Dockerfile*' -o -iname '*.patch')
+# Any run of separators between the words, as relaxed binding ignores them (DOKENE_AI__OPENAI_BASE_URL too).
+STUB_URL_PATTERN='dokene[._-]*ai[._-]*openai[._-]*base[._-]*url'
+# A nested YAML key (dokene: / ai: / openai: / base-url:) in a file that mentions openai.
+STUB_URL_YAML_KEY='^[[:space:]]*base[._-]*url[[:space:]]*:'
 STUB_URL_ALLOWED_FILE='/issue-246-253-evidence/scripts/run-eval-against-stub.sh'
 STUB_URL_ALLOWED_LINE='export DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1'
 REVIEWED_READ='# provider-test-double: reviewed read'
@@ -327,14 +369,23 @@ stub_urls_clean() {
     : > "$TMP/scan.err"
     while IFS= read -r -d '' file; do
         scanned=1
-        hits="$(grep -niE 'dokene[._-]?ai[._-]?openai[._-]?base[._-]?url' "$file" 2>> "$TMP/scan.err")"; rc=$?
+        case "$file" in
+            *.[pP][aA][tT][cC][hH])
+                # Only real added lines of a recorded diff count; '+++ ' is a file header only right after '--- '.
+                hits="$(awk 'prev ~ /^--- / && /^\+\+\+ / { prev = $0; next } { prev = $0 } /^\+/ { print NR ":" $0 }' \
+                    "$file" 2>> "$TMP/scan.err" | grep -iE "$STUB_URL_PATTERN" 2>> "$TMP/scan.err")"; rc=$? ;;
+            *.[yY][aA][mM][lL] | *.[yY][mM][lL])
+                if grep -qi openai "$file" 2>> "$TMP/scan.err"; then
+                    hits="$(grep -niE -e "$STUB_URL_PATTERN" -e "$STUB_URL_YAML_KEY" "$file" 2>> "$TMP/scan.err")"; rc=$?
+                else
+                    hits="$(grep -niE "$STUB_URL_PATTERN" "$file" 2>> "$TMP/scan.err")"; rc=$?
+                fi ;;
+            *) hits="$(grep -niE "$STUB_URL_PATTERN" "$file" 2>> "$TMP/scan.err")"; rc=$? ;;
+        esac
         [ "$rc" -le 1 ] || return 2
         [ -n "$hits" ] || continue
         while IFS= read -r hit; do
             content="${hit#*:}"
-            case "$file" in
-                *.patch) case "$content" in '+++'* | [!+]* | '') continue ;; esac ;;
-            esac
             stub_url_exempt "$file" "$content" && continue
             printf '%s:%s\n' "$file" "$hit"; found=1
         done <<< "$hits"
@@ -362,7 +413,8 @@ for form in 'export DOKENE_AI_OPENAI_BASE_URL="http://127.0.0.1:18080/v1"' "DOKE
     'os.putenv("DOKENE_AI_OPENAI_BASE_URL", url)' 'printf -v DOKENE_AI_OPENAI_BASE_URL %s "$url"' \
     'process.env.DOKENE_AI_OPENAI_BASE_URL ??= url;' 'DOKENE_AI_OPENAI_BASEURL=http://127.0.0.1:18080/v1' \
     'java -Ddokene.ai.openai.base-url=http://127.0.0.1:18080/v1 -jar app.jar' '{ "dokene.ai.openai.baseUrl": "x" }' \
-    'export DOKENE_AI_OPENAI_BASE_URL=' 'if (process.env.DOKENE_AI_OPENAI_BASE_URL === "x") {}'; do
+    'export DOKENE_AI_OPENAI_BASE_URL=' 'if (process.env.DOKENE_AI_OPENAI_BASE_URL === "x") {}' \
+    'DOKENE_AI__OPENAI_BASE_URL=http://127.0.0.1:18080/v1' 'dokene..ai--openai__base--url=x'; do
     i=$((i + 1)); mkdir -p "$SAMPLES/s$i"; printf '%s\n' "$form" > "$SAMPLES/s$i/script.${SAMPLE_EXTS[$((i % 8))]}"
     assert "the hand-set URL guard catches: $form" test "$(guard_status "$SAMPLES/s$i")" = 1
 done
@@ -396,6 +448,23 @@ mkdir -p "$SAMPLES/data"
 printf '%s\n' '{ "DOKENE_AI_OPENAI_BASE_URL": "http://127.0.0.1:18080/v1" }' > "$SAMPLES/data/capture.json"
 printf '%s\n' 'echo no setting' > "$SAMPLES/data/run.sh"
 assert "recorded JSON data is not scanned" test "$(guard_status "$SAMPLES/data")" = 0
+# Other file types, any case of extension, are scanned too.
+for name in run.env .env.local build.gradle.kts Dockerfile Dockerfile.qa RUN.SH; do
+    mkdir -p "$SAMPLES/type-$name"
+    printf '%s\n' 'DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1' > "$SAMPLES/type-$name/$name"
+    assert "a mention in $name is caught" test "$(guard_status "$SAMPLES/type-$name")" = 1
+done
+mkdir -p "$SAMPLES/yaml"
+printf '%s\n' 'dokene:' '  ai:' '    openai:' '      base-url: http://127.0.0.1:18080/v1' > "$SAMPLES/yaml/application.yml"
+assert "a nested YAML key in a file that mentions openai is caught" test "$(guard_status "$SAMPLES/yaml")" = 1
+printf '%s\n' 'integration:' '  whatsapp:' '    graph:' '      base-url: http://127.0.0.1:18080' > "$SAMPLES/yaml/application.yml"
+assert "a nested base-url of another integration passes" test "$(guard_status "$SAMPLES/yaml")" = 0
+mkdir -p "$SAMPLES/patch2"
+# An added line whose content starts with '++ ' looks like a '+++ ' file header; only one right after '--- ' is one.
+printf '%s\n' '--- a/x.sh' '+++ b/x.sh' '@@ -1 +1 @@' '+++ DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1' > "$SAMPLES/patch2/c.patch"
+assert "an added line of a recorded diff that starts with '++' is caught" test "$(guard_status "$SAMPLES/patch2")" = 1
+printf '%s\n' '--- a/DOKENE_AI_OPENAI_BASE_URL.sh' '+++ b/DOKENE_AI_OPENAI_BASE_URL.sh' '@@ -1 +1 @@' ' echo' > "$SAMPLES/patch2/c.patch"
+assert "the file headers of a recorded diff pass" test "$(guard_status "$SAMPLES/patch2")" = 0
 assert "a missing directory cannot pass the guard" test "$(guard_status "$SAMPLES/missing")" = 2
 mkdir -p "$SAMPLES/empty"
 assert "a directory with no script cannot pass the guard" test "$(guard_status "$SAMPLES/empty")" = 2
